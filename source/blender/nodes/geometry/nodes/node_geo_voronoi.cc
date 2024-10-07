@@ -32,7 +32,7 @@ static void node_declare(NodeDeclarationBuilder &b)
   b.add_input<decl::Bool>("Periodic Y");
   b.add_input<decl::Bool>("Periodic Z");
   b.add_input<decl::Bool>("Boundary");
-  b.add_input<decl::Int>("Group ID").hide_value().field_on_all();
+  b.add_input<decl::Int>("Group ID").implicit_field(implicit_field_inputs::index);
   b.add_output<decl::Geometry>("Voronoi");
   b.add_output<decl::Int>("Cell ID").field_on_all();
 }
