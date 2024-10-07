@@ -440,6 +440,7 @@ DefNode(GeometryNode, GEO_NODE_POINTS_TO_SDF_GRID, 0, "POINTS_TO_SDF_GRID", Poin
 DefNode(GeometryNode, GEO_NODE_POINTS_TO_VERTICES, 0, "POINTS_TO_VERTICES", PointsToVertices, "Points to Vertices", "Generate a mesh vertex for each point cloud point")
 DefNode(GeometryNode, GEO_NODE_POINTS_TO_VOLUME, 0, "POINTS_TO_VOLUME", PointsToVolume, "Points to Volume", "Generate a fog volume sphere around every point")
 DefNode(GeometryNode, GEO_NODE_POINTS, 0, "POINTS", Points, "Points", "Generate a point cloud with positions and radii defined by fields")
+DefNode(GeometryNode, GEO_NODE_PRINCIPAL_COMPONENTS, 0, "PRINCIPAL_COMPONENTS", PrincipalComponents, "Principal Components", "Compute the axes with the greatest variance of positions")
 DefNode(GeometryNode, GEO_NODE_PROXIMITY, 0, "PROXIMITY", Proximity, "Geometry Proximity", "Compute the closest location on the target geometry")
 DefNode(GeometryNode, GEO_NODE_RAYCAST, 0, "RAYCAST", Raycast, "Raycast", "Cast rays from the context geometry onto a target geometry, and retrieve information from each hit point")
 DefNode(GeometryNode, GEO_NODE_REALIZE_INSTANCES, 0, "REALIZE_INSTANCES", RealizeInstances, "Realize Instances", "Convert instances into real geometry data")
