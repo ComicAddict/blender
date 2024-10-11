@@ -2122,8 +2122,8 @@ typedef struct NodeGeometryTransformGizmo {
 } NodeGeometryTransformGizmo;
 
 typedef struct NodeGeometryVoronoi {
-  /** #NodeGeometryTransformGizmoFlag.  */
-  uint32_t sites;
+  /** #NodeGeometryVoronoi.  */
+  uint8_t mode;
 } NodeGeometryVoronoi;
 
 typedef enum NodeGeometryTransformGizmoFlag {
@@ -3113,3 +3113,8 @@ typedef enum NodeGeometryTransformMode {
   GEO_NODE_TRANSFORM_MODE_COMPONENTS = 0,
   GEO_NODE_TRANSFORM_MODE_MATRIX = 1,
 } NodeGeometryTransformMode;
+
+typedef enum GeometryNodeVoronoiMode {
+  GEO_NODE_VORONOI_BOUNDS = 0,
+  GEO_NODE_VORONOI_BRAVAIS = 1,
+} GeometryNodeVoronoiMode;

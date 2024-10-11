@@ -9357,22 +9357,6 @@ static void def_tex_bricks(StructRNA *srna)
 
 /* -- Geometry Nodes --------------------------------------------------------- */
 
-static void def_geo_voronoi(StructRNA *srna)
-{
-  PropertyRNA *prop;
-
-  RNA_def_struct_sdna_from(srna, "NodeGeometryVoronoi", "storage");
-
-  // For each property, i.e., each user-exposed parameter of the node
-  // that is not a pluggable input:
-  prop = RNA_def_property(srna, "sites", PROP_INT, PROP_NONE);
-  RNA_def_property_int_sdna(prop, NULL, "sites");
-  // Call various setters to fill in the property's settings:
-  RNA_def_property_range(prop, 0, 1000);
-  RNA_def_property_ui_text(prop, "Sites", "Number of sites");
-  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
-}
-
 static void def_geo_curve_sample(StructRNA *srna)
 {
   static EnumPropertyItem mode_items[] = {
