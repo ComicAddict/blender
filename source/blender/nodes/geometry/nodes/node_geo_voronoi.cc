@@ -17,6 +17,8 @@
 #include "NOD_rna_define.hh"
 
 #include "node_geometry_util.hh"
+#include <unordered_map>
+#include <list>
 
 #include "voro++.hh"
 
@@ -34,7 +36,6 @@ struct AttributeOutputs {
 static void node_declare(NodeDeclarationBuilder &b)
 {
   b.add_input<decl::Geometry>("Sites");
-  b.add_input<decl::Geometry>("Domain");
   auto &b_min = b.add_input<decl::Vector>("Min").default_value(float3(-1.0f));
   auto &b_max = b.add_input<decl::Vector>("Max").default_value(float3(1.0f));
   auto &a = b.add_input<decl::Float>("A").default_value(1.0f);
@@ -47,6 +48,7 @@ static void node_declare(NodeDeclarationBuilder &b)
   auto &py = b.add_input<decl::Bool>("Periodic Y");
   auto &pz = b.add_input<decl::Bool>("Periodic Z");
   b.add_input<decl::Bool>("Boundary");
+  b.add_input<decl::Bool>("Group By Edge");
   b.add_input<decl::Int>("Group ID").implicit_field(implicit_field_inputs::index);
   b.add_output<decl::Geometry>("Voronoi");
   b.add_output<decl::Int>("Cell ID").field_on_all();
@@ -84,17 +86,24 @@ static void node_init(bNodeTree * /*tree*/, bNode *node)
   node->storage = data;
 }
 
-static Mesh *compute_voronoi_bounds(GeometrySet& sites, const GeometrySet& domain, AttributeOutputs& attribute_outputs, 
-                            const float3 &min, const float3 &max, const Field<int>& group_id, 
+static Mesh *compute_voronoi_bounds(GeometrySet& sites, AttributeOutputs& attribute_outputs, 
+                            const float3 &min, const float3 &max, const Field<int>& group_id, bool edge_group, 
                             bool x_p, bool y_p, bool z_p, bool boundary)
   {
   Span<float3> positions;
   VArray<int> group_ids;
+  std::unordered_map<int, std::list<int>> adjacency_list;
 
   if (sites.has_mesh()){
     const Mesh *site_mesh = sites.get_mesh();
     positions = site_mesh->vert_positions();
-
+    if (edge_group){
+      Span<int2> edges = site_mesh->edges();
+      for (auto edge: edges){
+        adjacency_list[edge[0]].push_back(edge[1]);
+        adjacency_list[edge[1]].push_back(edge[0]);
+      }
+    }
     const bke::AttrDomain att_domain = bke::AttrDomain::Point;
     const int domain_size = site_mesh->attributes().domain_size(att_domain);
     bke::MeshFieldContext field_context{*site_mesh, att_domain};
@@ -156,31 +165,59 @@ static Mesh *compute_voronoi_bounds(GeometrySet& sites, const GeometrySet& domai
 
   int offset = 0;
 
-  if(vl.start()) do if(con.compute_cell(c,vl)){
-    vl.pos(x,y,z);
-    id=vl.pid();
-    
-    c.neighbors(neigh);
-    c.face_vertices(f_vert);
-    c.vertices(x,y,z,v);
+  if (!edge_group) {
+    if(vl.start()) do if(con.compute_cell(c,vl)){
+      vl.pos(x,y,z);
+      id=vl.pid();
+      
+      c.neighbors(neigh);
+      c.face_vertices(f_vert);
+      c.vertices(x,y,z,v);
 
-    for(i = 0, j=0; i < neigh.size(); i++){
-      if(neigh[i] != id && (boundary || neigh[i] > -1)){
-        l = f_vert[j];
-        n = f_vert[j];
-        face_sizes.append(n);
-        for(k=0; k < n; k++){
-          l=3*f_vert[j+k+1];
-          verts.append(float3(v[l],v[l+1],v[l+2]));
-          corner_verts.append(offset);
-          ids.append(id);
-          offset++;
-          centers.append(float3(x,y,z));
+      for(i = 0, j=0; i < neigh.size(); i++){
+        if(neigh[i] != id && (boundary || neigh[i] > -1)){
+          l = f_vert[j];
+          n = f_vert[j];
+          face_sizes.append(n);
+          for(k=0; k < n; k++){
+            l=3*f_vert[j+k+1];
+            verts.append(float3(v[l],v[l+1],v[l+2]));
+            corner_verts.append(offset);
+            ids.append(id);
+            offset++;
+            centers.append(float3(x,y,z));
+          }
         }
+        j += f_vert[j]+1;
       }
-      j += f_vert[j]+1;
-    }
-  } while(vl.inc());
+    } while(vl.inc());
+  } else {
+    if(vl.start()) do if(con.compute_cell(c,vl)){
+      vl.pos(x,y,z);
+      id=vl.pid();
+      
+      c.neighbors(neigh);
+      c.face_vertices(f_vert);
+      c.vertices(x,y,z,v);
+
+      for(i = 0, j=0; i < neigh.size(); i++){
+        if(std::find(adjacency_list[id].begin(), adjacency_list[id].end(), neigh[i]) ==  adjacency_list[id].end() && (boundary || neigh[i] > -1)){
+          l = f_vert[j];
+          n = f_vert[j];
+          face_sizes.append(n);
+          for(k=0; k < n; k++){
+            l=3*f_vert[j+k+1];
+            verts.append(float3(v[l],v[l+1],v[l+2]));
+            corner_verts.append(offset);
+            ids.append(id);
+            offset++;
+            centers.append(float3(x,y,z));
+          }
+        }
+        j += f_vert[j]+1;
+      }
+    } while(vl.inc());
+  }
  
 
   Mesh *mesh = BKE_mesh_new_nomain(verts.size(), 0,face_sizes.size(), corner_verts.size());
@@ -220,16 +257,24 @@ static Mesh *compute_voronoi_bounds(GeometrySet& sites, const GeometrySet& domai
   return mesh;
 }
 
-static Mesh *compute_voronoi_bravais(GeometrySet& sites, const GeometrySet& domain, AttributeOutputs& attribute_outputs, 
+static Mesh *compute_voronoi_bravais(GeometrySet& sites, AttributeOutputs& attribute_outputs, 
                             const double &a, const double &bx, const double &by, const double &cx, const double &cy, const double &cz,
-                            const Field<int>& group_id, bool boundary)
+                            const Field<int>& group_id, bool edge_group, bool boundary)
   {
   Span<float3> positions;
   VArray<int> group_ids;
+  std::unordered_map<int, std::list<int>> adjacency_list;
 
   if (sites.has_mesh()){
     const Mesh *site_mesh = sites.get_mesh();
     positions = site_mesh->vert_positions();
+    if (edge_group){
+      Span<int2> edges = site_mesh->edges();
+      for (auto edge: edges){
+        adjacency_list[edge[0]].push_back(edge[1]);
+        adjacency_list[edge[1]].push_back(edge[0]);
+      }
+    }
 
     const bke::AttrDomain att_domain = bke::AttrDomain::Point;
     const int domain_size = site_mesh->attributes().domain_size(att_domain);
@@ -292,32 +337,59 @@ static Mesh *compute_voronoi_bravais(GeometrySet& sites, const GeometrySet& doma
 
   int offset = 0;
 
-  if(vl.start()) do if(con.compute_cell(c,vl)){
-    vl.pos(x,y,z);
-    id=vl.pid();
-    
-    c.neighbors(neigh);
-    c.face_vertices(f_vert);
-    c.vertices(x,y,z,v);
+  if (!edge_group) {
+    if(vl.start()) do if(con.compute_cell(c,vl)){
+      vl.pos(x,y,z);
+      id=vl.pid();
+      
+      c.neighbors(neigh);
+      c.face_vertices(f_vert);
+      c.vertices(x,y,z,v);
 
-    for(i = 0, j=0; i < neigh.size(); i++){
-      if(neigh[i] != id && (boundary || neigh[i] > -1)){
-        l = f_vert[j];
-        n = f_vert[j];
-        face_sizes.append(n);
-        for(k=0; k < n; k++){
-          l=3*f_vert[j+k+1];
-          verts.append(float3(v[l],v[l+1],v[l+2]));
-          corner_verts.append(offset);
-          ids.append(id);
-          offset++;
-          centers.append(float3(x,y,z));
+      for(i = 0, j=0; i < neigh.size(); i++){
+        if(neigh[i] != id && (boundary || neigh[i] > -1)){
+          l = f_vert[j];
+          n = f_vert[j];
+          face_sizes.append(n);
+          for(k=0; k < n; k++){
+            l=3*f_vert[j+k+1];
+            verts.append(float3(v[l],v[l+1],v[l+2]));
+            corner_verts.append(offset);
+            ids.append(id);
+            offset++;
+            centers.append(float3(x,y,z));
+          }
         }
+        j += f_vert[j]+1;
       }
-      j += f_vert[j]+1;
-    }
-  } while(vl.inc());
- 
+    } while(vl.inc());
+  } else {
+    if(vl.start()) do if(con.compute_cell(c,vl)){
+      vl.pos(x,y,z);
+      id=vl.pid();
+      
+      c.neighbors(neigh);
+      c.face_vertices(f_vert);
+      c.vertices(x,y,z,v);
+
+      for(i = 0, j=0; i < neigh.size(); i++){
+        if(std::find(adjacency_list[id].begin(), adjacency_list[id].end(), neigh[i]) ==  adjacency_list[id].end() && (boundary || neigh[i] > -1)){
+          l = f_vert[j];
+          n = f_vert[j];
+          face_sizes.append(n);
+          for(k=0; k < n; k++){
+            l=3*f_vert[j+k+1];
+            verts.append(float3(v[l],v[l+1],v[l+2]));
+            corner_verts.append(offset);
+            ids.append(id);
+            offset++;
+            centers.append(float3(x,y,z));
+          }
+        }
+        j += f_vert[j]+1;
+      }
+    } while(vl.inc());
+  }
 
   Mesh *mesh = BKE_mesh_new_nomain(verts.size(), 0,face_sizes.size(), corner_verts.size());
   mesh->vert_positions_for_write().copy_from(verts);
@@ -364,7 +436,7 @@ static void node_geo_exec(GeoNodeExecParams params)
   const GeometryNodeVoronoiMode mode = (GeometryNodeVoronoiMode)storage.mode;
 
   const bool boundary = params.extract_input<bool>("Boundary");
-  const GeometrySet domain = params.extract_input<GeometrySet>("Domain");
+  const bool edge_group = params.extract_input<bool>("Group By Edge");
   Field<int> id_field = params.extract_input<Field<int>>("Group ID");
 
   // Map<int, std::unique_ptr<GeometrySet>> geometry_by_group_id;
@@ -381,8 +453,8 @@ static void node_geo_exec(GeoNodeExecParams params)
         const bool x_p = params.extract_input<bool>("Periodic X");
         const bool y_p = params.extract_input<bool>("Periodic Y");
         const bool z_p = params.extract_input<bool>("Periodic Z");
-        Mesh *voronoi = compute_voronoi_bounds(site_geometry, domain, attribute_outputs, 
-                                        min, max, id_field, 
+        Mesh *voronoi = compute_voronoi_bounds(site_geometry, attribute_outputs, 
+                                        min, max, id_field, edge_group,
                                         x_p, y_p, z_p, boundary);
         site_geometry.replace_mesh(voronoi);
         site_geometry.keep_only_during_modify({GeometryComponent::Type::Mesh});
@@ -399,9 +471,9 @@ static void node_geo_exec(GeoNodeExecParams params)
         const float cx = params.extract_input<float>("Cx");
         const float cy = params.extract_input<float>("Cy");
         const float cz = params.extract_input<float>("Cz");
-        Mesh *voronoi = compute_voronoi_bravais(site_geometry, domain, attribute_outputs, 
+        Mesh *voronoi = compute_voronoi_bravais(site_geometry, attribute_outputs, 
                                         a, bx, by, cx, cy, cz, 
-                                        id_field, boundary);
+                                        id_field, edge_group, boundary);
         site_geometry.replace_mesh(voronoi);
         site_geometry.keep_only_during_modify({GeometryComponent::Type::Mesh});
       } else {
