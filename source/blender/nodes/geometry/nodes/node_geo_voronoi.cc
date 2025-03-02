@@ -486,14 +486,17 @@ static void node_register()
 {
   static blender::bke::bNodeType ntype;
 
-  geo_node_type_base(&ntype, GEO_NODE_VORONOI, "Voronoi", NODE_CLASS_GEOMETRY);
+  geo_node_type_base(&ntype, "NodeGeometryVoronoi", GEO_NODE_VORONOI);
+  ntype.ui_name = "Voronoi";
+  ntype.ui_description = "Voronoi operator that takes mesh, curve and points";
+  ntype.nclass = NODE_CLASS_GEOMETRY;
+  ntype.geometry_node_execute = node_geo_exec;
   ntype.declare = node_declare;
   ntype.draw_buttons = node_layout;
   blender::bke::node_type_storage(
-      &ntype, "NodeGeometryVoronoi", node_free_standard_storage, node_copy_standard_storage);
+      ntype, "NodeGeometryVoronoi", node_free_standard_storage, node_copy_standard_storage);
   ntype.initfunc = node_init;
-  ntype.geometry_node_execute = node_geo_exec;
-  blender::bke::node_register_type(&ntype);
+  blender::bke::node_register_type(ntype);
 
   node_rna(ntype.rna_ext.srna);
 }
