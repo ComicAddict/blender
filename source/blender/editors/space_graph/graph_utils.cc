@@ -7,7 +7,6 @@
  */
 
 #include <cfloat>
-#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -16,6 +15,8 @@
 #include "DNA_space_types.h"
 
 #include "MEM_guardedalloc.h"
+
+#include "BLI_listbase.h"
 
 #include "BKE_context.hh"
 #include "BKE_fcurve.hh"

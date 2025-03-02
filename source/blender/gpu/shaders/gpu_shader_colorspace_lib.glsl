@@ -4,10 +4,17 @@
 
 #pragma once
 
+#include "infos/gpu_srgb_to_framebuffer_space_info.hh"
+
+SHADER_LIBRARY_CREATE_INFO(gpu_srgb_to_framebuffer_space)
+
 /* Undefine the macro that avoids compilation errors. */
 #undef blender_srgb_to_framebuffer_space
 
-#ifndef USE_GPU_SHADER_CREATE_INFO
+/* Raw python shaders don't have create infos and thus don't generate the needed `srgbTarget`
+ * uniform automatically. For API compatibility, we sill define this loose uniform, but it will
+ * not be parsed by the Metal or Vulkan backend. */
+#ifdef GPU_RAW_PYTHON_SHADER
 uniform bool srgbTarget = false;
 #endif
 

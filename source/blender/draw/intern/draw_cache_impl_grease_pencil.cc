@@ -10,10 +10,11 @@
 
 #include "BKE_attribute.hh"
 #include "BKE_curves.hh"
-#include "BKE_deform.hh"
 #include "BKE_grease_pencil.h"
 #include "BKE_grease_pencil.hh"
 
+#include "BLI_array_utils.hh"
+#include "BLI_listbase.h"
 #include "BLI_offset_indices.hh"
 #include "BLI_task.hh"
 
@@ -27,6 +28,7 @@
 
 #include "GPU_batch.hh"
 
+#include "draw_cache.hh"
 #include "draw_cache_impl.hh"
 
 #include "../engines/gpencil/gpencil_defines.h"
@@ -50,6 +52,8 @@ struct GreasePencilBatchCache {
   gpu::VertBuf *edit_points_pos;
   /* Selection of original points. */
   gpu::VertBuf *edit_points_selection;
+  /* vflag of original points. */
+  gpu::VertBuf *edit_points_vflag;
   /* Indices of visible points. */
   gpu::IndexBuf *edit_points_indices;
 
@@ -80,14 +84,15 @@ struct GreasePencilStrokeVert {
   float uv_fill[2], u_stroke, opacity;
 };
 
-static GPUVertFormat *grease_pencil_stroke_format()
+static const GPUVertFormat *grease_pencil_stroke_format()
 {
-  static GPUVertFormat format = {0};
-  if (format.attr_len == 0) {
+  static const GPUVertFormat format = []() {
+    GPUVertFormat format{};
     GPU_vertformat_attr_add(&format, "pos", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
     GPU_vertformat_attr_add(&format, "ma", GPU_COMP_I32, 4, GPU_FETCH_INT);
     GPU_vertformat_attr_add(&format, "uv", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
-  }
+    return format;
+  }();
   return &format;
 }
 
@@ -97,13 +102,14 @@ struct GreasePencilColorVert {
   float fcol[4]; /* Fill color */
 };
 
-static GPUVertFormat *grease_pencil_color_format()
+static const GPUVertFormat *grease_pencil_color_format()
 {
-  static GPUVertFormat format = {0};
-  if (format.attr_len == 0) {
+  static const GPUVertFormat format = []() {
+    GPUVertFormat format{};
     GPU_vertformat_attr_add(&format, "col", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
     GPU_vertformat_attr_add(&format, "fcol", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
-  }
+    return format;
+  }();
   return &format;
 }
 
@@ -161,6 +167,7 @@ static void grease_pencil_batch_cache_clear(GreasePencil &grease_pencil)
 
   GPU_VERTBUF_DISCARD_SAFE(cache->edit_points_pos);
   GPU_VERTBUF_DISCARD_SAFE(cache->edit_points_selection);
+  GPU_VERTBUF_DISCARD_SAFE(cache->edit_points_vflag);
   GPU_INDEXBUF_DISCARD_SAFE(cache->edit_points_indices);
 
   GPU_VERTBUF_DISCARD_SAFE(cache->edit_line_pos);
@@ -260,15 +267,11 @@ static void grease_pencil_weight_batch_ensure(Object &object,
 
   const Span<const Layer *> layers = grease_pencil.layers();
 
-  static GPUVertFormat format_points_pos = {0};
-  if (format_points_pos.attr_len == 0) {
-    GPU_vertformat_attr_add(&format_points_pos, "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
-  }
+  static const GPUVertFormat format_points_pos = GPU_vertformat_from_attribute(
+      "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
 
-  static GPUVertFormat format_points_weight = {0};
-  if (format_points_weight.attr_len == 0) {
-    GPU_vertformat_attr_add(&format_points_weight, "selection", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
-  }
+  static const GPUVertFormat format_points_weight = GPU_vertformat_from_attribute(
+      "selection", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
 
   GPUUsageType vbo_flag = GPU_USAGE_STATIC | GPU_USAGE_FLAG_BUFFER_TEXTURE_ONLY;
   cache->edit_points_pos = GPU_vertbuf_create_with_format_ex(format_points_pos, vbo_flag);
@@ -664,6 +667,14 @@ static void index_buf_add_bezier_line_points(Object &object,
   *r_drawing_start_offset += bezier_points.size() * 2;
 }
 
+/* Still use legacy vflag for GPv3 for now due to common shader defines. */
+#define GREASE_PENCIL_EDIT_POINT_SELECTED (1 << 0)
+#define GREASE_PENCIL_EDIT_STROKE_SELECTED (1 << 1)
+#define GREASE_PENCIL_EDIT_MULTIFRAME (1 << 2)
+#define GREASE_PENCIL_EDIT_STROKE_START (1 << 3)
+#define GREASE_PENCIL_EDIT_STROKE_END (1 << 4)
+#define GREASE_PENCIL_EDIT_POINT_DIMMED (1 << 5)
+
 static void grease_pencil_edit_batch_ensure(Object &object,
                                             const GreasePencil &grease_pencil,
                                             const Scene &scene)
@@ -686,32 +697,26 @@ static void grease_pencil_edit_batch_ensure(Object &object,
 
   const Span<const Layer *> layers = grease_pencil.layers();
 
-  static GPUVertFormat format_edit_points_pos = {0};
-  if (format_edit_points_pos.attr_len == 0) {
-    GPU_vertformat_attr_add(&format_edit_points_pos, "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
-  }
+  static const GPUVertFormat format_edit_points_pos = GPU_vertformat_from_attribute(
+      "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
 
-  static GPUVertFormat format_edit_line_pos = {0};
-  if (format_edit_line_pos.attr_len == 0) {
-    GPU_vertformat_attr_add(&format_edit_line_pos, "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
-  }
+  static const GPUVertFormat format_edit_line_pos = GPU_vertformat_from_attribute(
+      "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
 
-  static GPUVertFormat format_edit_points_selection = {0};
-  if (format_edit_points_selection.attr_len == 0) {
-    GPU_vertformat_attr_add(
-        &format_edit_points_selection, "selection", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
-  }
+  static const GPUVertFormat format_edit_points_selection = GPU_vertformat_from_attribute(
+      "selection", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
 
-  static GPUVertFormat format_edit_line_selection = {0};
-  if (format_edit_line_selection.attr_len == 0) {
-    GPU_vertformat_attr_add(
-        &format_edit_line_selection, "selection", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
-  }
+  static const GPUVertFormat format_edit_points_vflag = GPU_vertformat_from_attribute(
+      "vflag", GPU_COMP_U32, 1, GPU_FETCH_INT);
+
+  static const GPUVertFormat format_edit_line_selection = GPU_vertformat_from_attribute(
+      "selection", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
 
   GPUUsageType vbo_flag = GPU_USAGE_STATIC | GPU_USAGE_FLAG_BUFFER_TEXTURE_ONLY;
   cache->edit_points_pos = GPU_vertbuf_create_with_format_ex(format_edit_points_pos, vbo_flag);
   cache->edit_points_selection = GPU_vertbuf_create_with_format_ex(format_edit_points_selection,
                                                                    vbo_flag);
+  cache->edit_points_vflag = GPU_vertbuf_create_with_format_ex(format_edit_points_vflag, vbo_flag);
   cache->edit_line_pos = GPU_vertbuf_create_with_format_ex(format_edit_line_pos, vbo_flag);
   cache->edit_line_selection = GPU_vertbuf_create_with_format_ex(format_edit_line_selection,
                                                                  vbo_flag);
@@ -763,14 +768,17 @@ static void grease_pencil_edit_batch_ensure(Object &object,
 
   GPU_vertbuf_data_alloc(*cache->edit_points_pos, total_points_num);
   GPU_vertbuf_data_alloc(*cache->edit_points_selection, total_points_num);
+  GPU_vertbuf_data_alloc(*cache->edit_points_vflag, total_points_num);
   GPU_vertbuf_data_alloc(*cache->edit_line_pos, total_line_points_num);
   GPU_vertbuf_data_alloc(*cache->edit_line_selection, total_line_points_num);
 
   MutableSpan<float3> edit_points = cache->edit_points_pos->data<float3>();
   MutableSpan<float> edit_points_selection = cache->edit_points_selection->data<float>();
+  MutableSpan<uint32_t> edit_points_vflag = cache->edit_points_vflag->data<uint32_t>();
   MutableSpan<float3> edit_line_points = cache->edit_line_pos->data<float3>();
   MutableSpan<float> edit_line_selection = cache->edit_line_selection->data<float>();
   edit_points_selection.fill(0.0f);
+  edit_points_vflag.fill(0);
   edit_line_selection.fill(0.0f);
 
   int visible_points_num = 0;
@@ -810,6 +818,14 @@ static void grease_pencil_edit_batch_ensure(Object &object,
 
     /* Do not show selection for locked layers. */
     if (!layer.is_locked()) {
+
+      /* Flag the start and end points. */
+      for (const int curve_i : curves.curves_range()) {
+        const IndexRange points = points_by_curve[curve_i].shift(drawing_start_offset);
+        edit_points_vflag[points.first()] |= GREASE_PENCIL_EDIT_STROKE_START;
+        edit_points_vflag[points.last()] |= GREASE_PENCIL_EDIT_STROKE_END;
+      }
+
       const IndexMask selected_editable_points =
           ed::greasepencil::retrieve_editable_and_selected_points(
               object, info.drawing, info.layer_index, memory);
@@ -997,6 +1013,7 @@ static void grease_pencil_edit_batch_ensure(Object &object,
   cache->edit_points = GPU_batch_create(
       GPU_PRIM_POINTS, cache->edit_points_pos, cache->edit_points_indices);
   GPU_batch_vertbuf_add(cache->edit_points, cache->edit_points_selection, false);
+  GPU_batch_vertbuf_add(cache->edit_points, cache->edit_points_vflag, false);
 
   cache->edit_lines = GPU_batch_create(
       GPU_PRIM_LINE_STRIP, cache->edit_line_pos, cache->edit_line_indices);
@@ -1007,6 +1024,7 @@ static void grease_pencil_edit_batch_ensure(Object &object,
   GPU_vertbuf_use(cache->edit_line_pos);
   GPU_vertbuf_use(cache->edit_points_selection);
   GPU_vertbuf_use(cache->edit_line_selection);
+  GPU_vertbuf_use(cache->edit_points_vflag);
 
   cache->is_dirty = false;
 }
@@ -1106,8 +1124,8 @@ static void grease_pencil_geom_batch_ensure(Object &object,
 
   GPUUsageType vbo_flag = GPU_USAGE_STATIC | GPU_USAGE_FLAG_BUFFER_TEXTURE_ONLY;
   /* Create VBOs. */
-  GPUVertFormat *format = grease_pencil_stroke_format();
-  GPUVertFormat *format_col = grease_pencil_color_format();
+  const GPUVertFormat *format = grease_pencil_stroke_format();
+  const GPUVertFormat *format_col = grease_pencil_color_format();
   cache->vbo = GPU_vertbuf_create_with_format_ex(*format, vbo_flag);
   cache->vbo_col = GPU_vertbuf_create_with_format_ex(*format_col, vbo_flag);
   /* Add extra space at the end of the buffer because of quad load. */
@@ -1168,7 +1186,7 @@ static void grease_pencil_geom_batch_ensure(Object &object,
     const VArray<float> fill_opacities = *attributes.lookup_or_default<float>(
         "fill_opacity", bke::AttrDomain::Curve, 1.0f);
 
-    const Span<uint3> triangles = info.drawing.triangles();
+    const Span<int3> triangles = info.drawing.triangles();
     const Span<float4x2> texture_matrices = info.drawing.texture_matrices();
     const Span<int> verts_start_offsets = verts_start_offsets_per_visible_drawing[drawing_i];
     const Span<int> tris_start_offsets = tris_start_offsets_per_visible_drawing[drawing_i];
@@ -1201,7 +1219,9 @@ static void grease_pencil_geom_batch_ensure(Object &object,
                        ((start_cap == GP_STROKE_CAP_TYPE_ROUND) ? 1.0f : -1.0f);
       s_vert.point_id = verts_range[idx];
       s_vert.stroke_id = verts_range.first();
-      s_vert.mat = materials[curve_i] % GPENCIL_MATERIAL_BUFFER_LEN;
+      /* The material index is allowed to be negative as it's stored as a generic attribute. To
+       * ensure the material used by the shader is valid this needs to be clamped to zero. */
+      s_vert.mat = std::max(materials[curve_i], 0) % GPENCIL_MATERIAL_BUFFER_LEN;
 
       s_vert.packed_asp_hard_rot = pack_rotation_aspect_hardness(
           rotations[point_i], stroke_point_aspect_ratios[curve_i], stroke_softness[curve_i]);
@@ -1235,8 +1255,8 @@ static void grease_pencil_geom_batch_ensure(Object &object,
 
       /* If the stroke has more than 2 points, add the triangle indices to the index buffer. */
       if (points.size() >= 3) {
-        const Span<uint3> tris_slice = triangles.slice(tris_start_offset, points.size() - 2);
-        for (const uint3 tri : tris_slice) {
+        const Span<int3> tris_slice = triangles.slice(tris_start_offset, points.size() - 2);
+        for (const int3 tri : tris_slice) {
           GPU_indexbuf_add_tri_verts(&ibo,
                                      (verts_range[1] + tri.x) << GP_VERTEX_ID_SHIFT,
                                      (verts_range[1] + tri.y) << GP_VERTEX_ID_SHIFT,
@@ -1319,10 +1339,11 @@ static void grease_pencil_wire_batch_ensure(Object &object,
 
   /* Get the visible drawings. */
   const Vector<ed::greasepencil::DrawingInfo> drawings =
-      ed::greasepencil::retrieve_visible_drawings(scene, grease_pencil, false);
+      ed::greasepencil::retrieve_visible_drawings(scene, grease_pencil, true);
 
   Vector<int> index_start_per_curve;
   Vector<bool> cyclic_per_curve;
+  Vector<bool> is_onion_per_curve;
 
   int index_len = 0;
   for (const ed::greasepencil::DrawingInfo &info : drawings) {
@@ -1340,8 +1361,10 @@ static void grease_pencil_wire_batch_ensure(Object &object,
       const bool is_cyclic = cyclic[curve_i] && (point_len > 2);
       /* Count the primitive restart. */
       index_len += point_len + (is_cyclic ? 1 : 0) + 1;
+      /* Don't draw the onion frames in wireframe mode. */
       index_start_per_curve.append(point_start);
       cyclic_per_curve.append(is_cyclic);
+      is_onion_per_curve.append(info.onion_id != 0);
     });
   }
   index_start_per_curve.append(index_len);
@@ -1359,11 +1382,21 @@ static void grease_pencil_wire_batch_ensure(Object &object,
       /* Shift the range by `curve` to account for the second padding vertices.
        * The first one is already accounted for during counting (as primitive restart). */
       const IndexRange index_range = offset_range.shift(curve + 1);
-      for (const int i : offset_range.index_range()) {
-        indices[offset_range[i]] = index_range[i];
+      if (is_onion_per_curve[curve]) {
+        for (const int i : offset_range.index_range()) {
+          indices[offset_range[i]] = gpu::RESTART_INDEX;
+        }
+        if (cyclic_per_curve[curve]) {
+          indices[offset_range.last()] = gpu::RESTART_INDEX;
+        }
       }
-      if (cyclic_per_curve[curve]) {
-        indices[offset_range.last()] = index_range.first();
+      else {
+        for (const int i : offset_range.index_range()) {
+          indices[offset_range[i]] = index_range[i];
+        }
+        if (cyclic_per_curve[curve]) {
+          indices[offset_range.last()] = index_range.first();
+        }
       }
       indices[offset_range.one_after_last()] = gpu::RESTART_INDEX;
     }
@@ -1428,6 +1461,7 @@ gpu::Batch *DRW_cache_grease_pencil_edit_points_get(const Scene *scene, Object *
   GreasePencilBatchCache *cache = grease_pencil_batch_cache_get(grease_pencil);
   grease_pencil_edit_batch_ensure(*ob, grease_pencil, *scene);
 
+  /* Can be `nullptr` when there's no grease pencil drawing visible. */
   return cache->edit_points;
 }
 
@@ -1437,6 +1471,7 @@ gpu::Batch *DRW_cache_grease_pencil_edit_lines_get(const Scene *scene, Object *o
   GreasePencilBatchCache *cache = grease_pencil_batch_cache_get(grease_pencil);
   grease_pencil_edit_batch_ensure(*ob, grease_pencil, *scene);
 
+  /* Can be `nullptr` when there's no grease pencil drawing visible. */
   return cache->edit_lines;
 }
 
@@ -1464,6 +1499,7 @@ gpu::Batch *DRW_cache_grease_pencil_weight_points_get(const Scene *scene, Object
   GreasePencilBatchCache *cache = grease_pencil_batch_cache_get(grease_pencil);
   grease_pencil_weight_batch_ensure(*ob, grease_pencil, *scene);
 
+  /* Can be `nullptr` when there's no grease pencil drawing visible. */
   return cache->edit_points;
 }
 
@@ -1473,6 +1509,7 @@ gpu::Batch *DRW_cache_grease_pencil_weight_lines_get(const Scene *scene, Object 
   GreasePencilBatchCache *cache = grease_pencil_batch_cache_get(grease_pencil);
   grease_pencil_weight_batch_ensure(*ob, grease_pencil, *scene);
 
+  /* Can be `nullptr` when there's no grease pencil drawing visible. */
   return cache->edit_lines;
 }
 

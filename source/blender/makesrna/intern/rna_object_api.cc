@@ -6,26 +6,17 @@
  * \ingroup RNA
  */
 
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 
-#include "BLI_kdopbvh.h"
+#include "BLI_kdopbvh.hh"
 #include "BLI_math_geom.h"
-#include "BLI_utildefines.h"
 
 #include "RNA_define.hh"
 
 #include "DNA_constraint_types.h"
-#include "DNA_layer_types.h"
 #include "DNA_modifier_types.h"
-#include "DNA_object_types.h"
-
-#include "BKE_gpencil_curve_legacy.h"
-#include "BKE_layer.hh"
-
-#include "DEG_depsgraph.hh"
 
 #include "ED_outliner.hh"
 
@@ -467,7 +458,8 @@ static PointerRNA rna_Object_shape_key_add(
   KeyBlock *kb = nullptr;
 
   if ((kb = BKE_object_shapekey_insert(bmain, ob, name, from_mix))) {
-    PointerRNA keyptr = RNA_pointer_create((ID *)BKE_key_from_object(ob), &RNA_ShapeKey, kb);
+    PointerRNA keyptr = RNA_pointer_create_discrete(
+        (ID *)BKE_key_from_object(ob), &RNA_ShapeKey, kb);
     WM_event_add_notifier(C, NC_OBJECT | ND_DRAW, ob);
 
     DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);
@@ -502,7 +494,7 @@ static void rna_Object_shape_key_remove(Object *ob,
   DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);
   WM_main_add_notifier(NC_OBJECT | ND_DRAW, ob);
 
-  RNA_POINTER_INVALIDATE(kb_ptr);
+  kb_ptr->invalidate();
 }
 
 static void rna_Object_shape_key_clear(Object *ob, Main *bmain)
@@ -625,11 +617,10 @@ static void rna_Object_ray_cast(Object *ob,
            origin, direction_unit, bounds->min, bounds->max, &distmin, nullptr) &&
        distmin <= distance))
   {
-    BVHTreeFromMesh treeData = {nullptr};
 
     /* No need to managing allocation or freeing of the BVH data.
      * This is generated and freed as needed. */
-    BKE_bvhtree_from_mesh_get(&treeData, mesh_eval, BVHTREE_FROM_CORNER_TRIS, 4);
+    blender::bke::BVHTreeFromMesh treeData = mesh_eval->bvh_corner_tris();
 
     /* may fail if the mesh has no faces, in that case the ray-cast misses */
     if (treeData.tree != nullptr) {
@@ -654,8 +645,6 @@ static void rna_Object_ray_cast(Object *ob,
           *r_index = mesh_corner_tri_to_face_index(mesh_eval, hit.index);
         }
       }
-
-      free_bvhtree_from_mesh(&treeData);
     }
   }
   if (success == false) {
@@ -678,7 +667,6 @@ static void rna_Object_closest_point_on_mesh(Object *ob,
                                              float r_normal[3],
                                              int *r_index)
 {
-  BVHTreeFromMesh treeData = {nullptr};
 
   if ((ob = eval_object_ensure(ob, C, reports, rnaptr_depsgraph)) == nullptr) {
     return;
@@ -687,7 +675,7 @@ static void rna_Object_closest_point_on_mesh(Object *ob,
   /* No need to managing allocation or freeing of the BVH data.
    * this is generated and freed as needed. */
   Mesh *mesh_eval = BKE_object_get_evaluated_mesh(ob);
-  BKE_bvhtree_from_mesh_get(&treeData, mesh_eval, BVHTREE_FROM_CORNER_TRIS, 4);
+  blender::bke::BVHTreeFromMesh treeData = mesh_eval->bvh_corner_tris();
 
   if (treeData.tree == nullptr) {
     BKE_reportf(reports,
@@ -710,19 +698,15 @@ static void rna_Object_closest_point_on_mesh(Object *ob,
       copy_v3_v3(r_location, nearest.co);
       copy_v3_v3(r_normal, nearest.no);
       *r_index = mesh_corner_tri_to_face_index(mesh_eval, nearest.index);
+    }
+    else {
+      *r_success = false;
 
-      goto finally;
+      zero_v3(r_location);
+      zero_v3(r_normal);
+      *r_index = -1;
     }
   }
-
-  *r_success = false;
-
-  zero_v3(r_location);
-  zero_v3(r_normal);
-  *r_index = -1;
-
-finally:
-  free_bvhtree_from_mesh(&treeData);
 }
 
 static bool rna_Object_is_modified(Object *ob, Scene *scene, int settings)

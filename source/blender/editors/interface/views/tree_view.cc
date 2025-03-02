@@ -14,6 +14,7 @@
 #include "BLT_translation.hh"
 
 #include "GPU_immediate.hh"
+#include "GPU_state.hh"
 
 #include "interface_intern.hh"
 
@@ -23,6 +24,8 @@
 #include "WM_api.hh"
 #include "WM_types.hh"
 
+#include "BLI_listbase.h"
+#include "BLI_math_base.h"
 #include "BLI_multi_value_map.hh"
 
 #include "UI_tree_view.hh"
@@ -95,9 +98,10 @@ void TreeViewItemContainer::foreach_parent(ItemIterFn iter_fn) const
 
 /* ---------------------------------------------------------------------- */
 
-/* Implementation for the base class virtual function. More specialized iterators below. */
 void AbstractTreeView::foreach_view_item(FunctionRef<void(AbstractViewItem &)> iter_fn) const
 {
+  /* Implementation for the base class virtual function. More specialized iterators below. */
+
   this->foreach_item_recursive(iter_fn);
 }
 
@@ -128,6 +132,34 @@ AbstractTreeViewItem *AbstractTreeView::find_hovered(const ARegion &region, cons
 void AbstractTreeView::set_default_rows(int default_rows)
 {
   custom_height_ = std::make_unique<int>(default_rows * padded_item_height());
+}
+
+std::optional<uiViewState> AbstractTreeView::persistent_state() const
+{
+  if (!custom_height_ && !scroll_value_) {
+    return {};
+  }
+
+  uiViewState state{0};
+
+  if (custom_height_) {
+    state.custom_height = *custom_height_ * UI_INV_SCALE_FAC;
+  }
+  if (scroll_value_) {
+    state.scroll_offset = *scroll_value_;
+  }
+
+  return state;
+}
+
+void AbstractTreeView::persistent_state_apply(const uiViewState &state)
+{
+  if (state.custom_height) {
+    set_default_rows(round_fl_to_int(state.custom_height * UI_SCALE_FAC) / padded_item_height());
+  }
+  if (state.scroll_offset) {
+    scroll_value_ = std::make_shared<int>(state.scroll_offset);
+  }
 }
 
 int AbstractTreeView::count_visible_descendants(const AbstractTreeViewItem &parent) const
@@ -168,6 +200,10 @@ void AbstractTreeView::get_hierarchy_lines(const ARegion &region,
     if (!item->is_collapsible() || item->is_collapsed()) {
       continue;
     }
+    if (item->children_.is_empty()) {
+      BLI_assert(item->is_always_collapsible_);
+      continue;
+    }
 
     /* Draw a hierarchy line for the descendants of this item. */
 
@@ -175,11 +211,14 @@ void AbstractTreeView::get_hierarchy_lines(const ARegion &region,
     const int descendant_count = count_visible_descendants(*item);
 
     const int first_descendant_index = item_index + 1;
-    const int last_descendant_index = first_descendant_index + descendant_count;
+    const int last_descendant_index = item_index + descendant_count;
 
     {
       const bool line_ends_above_visible = last_descendant_index < scroll_ofs;
       if (line_ends_above_visible) {
+        /* We won't recurse into the child items even though they are present (just scrolled out of
+         * view). Still update the index to be the first following item. */
+        visible_item_index = last_descendant_index + 1;
         continue;
       }
 
@@ -194,9 +233,10 @@ void AbstractTreeView::get_hierarchy_lines(const ARegion &region,
     const int x = ((first_descendant->indent_width() + uiLayoutListItemPaddingWidth() -
                     (0.5f * UI_ICON_SIZE) + U.pixelsize + UI_SCALE_FAC) /
                    aspect);
-    const int ymax = std::max(0, first_descendant_index - scroll_ofs) * padded_item_height();
-    const int ymin = std::min(max_visible_row_count, last_descendant_index - scroll_ofs) *
-                     padded_item_height();
+    const int ymax = std::max(0, first_descendant_index - scroll_ofs) * padded_item_height() /
+                     aspect;
+    const int ymin = std::min(max_visible_row_count, last_descendant_index + 1 - scroll_ofs) *
+                     padded_item_height() / aspect;
     lines.append(std::make_pair(int2(x, ymax), int2(x, ymin)));
 
     this->get_hierarchy_lines(region, *item, aspect, lines, visible_item_index);
@@ -205,11 +245,11 @@ void AbstractTreeView::get_hierarchy_lines(const ARegion &region,
 
 static uiButViewItem *find_first_view_item_but(const uiBlock &block, const AbstractTreeView &view)
 {
-  LISTBASE_FOREACH (uiBut *, but, &block.buttons) {
+  for (const std::unique_ptr<uiBut> &but : block.buttons) {
     if (but->type != UI_BTYPE_VIEW_ITEM) {
       continue;
     }
-    uiButViewItem *view_item_but = static_cast<uiButViewItem *>(but);
+    uiButViewItem *view_item_but = static_cast<uiButViewItem *>(but.get());
     if (&view_item_but->view_item->get_view() == &view) {
       return view_item_but;
     }
@@ -270,7 +310,7 @@ void AbstractTreeView::update_children_from_old(const AbstractView &old_view)
 
   custom_height_ = old_tree_view.custom_height_;
   scroll_value_ = old_tree_view.scroll_value_;
-  this->update_children_from_old_recursive(*this, old_tree_view);
+  update_children_from_old_recursive(*this, old_tree_view);
 }
 
 void AbstractTreeView::update_children_from_old_recursive(const TreeViewOrItem &new_items,
@@ -625,6 +665,13 @@ bool AbstractTreeViewItem::toggle_collapsed()
   return this->set_collapsed(is_open_);
 }
 
+void AbstractTreeViewItem::toggle_collapsed_from_view(bContext &C)
+{
+  if (this->toggle_collapsed()) {
+    this->on_collapse_change(C, this->is_collapsed());
+  }
+}
+
 bool AbstractTreeViewItem::set_collapsed(const bool collapsed)
 {
   if (!this->is_collapsible()) {
@@ -636,6 +683,16 @@ bool AbstractTreeViewItem::set_collapsed(const bool collapsed)
 
   is_open_ = !collapsed;
   return true;
+}
+
+void AbstractTreeViewItem::on_collapse_change(bContext & /*C*/, const bool /*is_collapsed*/)
+{
+  /* Do nothing by default. */
+}
+
+std::optional<bool> AbstractTreeViewItem::should_be_collapsed() const
+{
+  return std::nullopt;
 }
 
 void AbstractTreeViewItem::uncollapse_by_default()
@@ -651,27 +708,13 @@ bool AbstractTreeViewItem::is_collapsible() const
 {
   BLI_assert_msg(get_tree_view().is_reconstructed(),
                  "State can't be queried until reconstruction is completed");
+  if (is_always_collapsible_) {
+    return true;
+  }
   if (children_.is_empty()) {
     return false;
   }
   return this->supports_collapsing();
-}
-
-void AbstractTreeViewItem::on_collapse_change(bContext & /*C*/, const bool /*is_collapsed*/)
-{
-  /* Do nothing by default. */
-}
-
-std::optional<bool> AbstractTreeViewItem::should_be_collapsed() const
-{
-  return std::nullopt;
-}
-
-void AbstractTreeViewItem::toggle_collapsed_from_view(bContext &C)
-{
-  if (this->toggle_collapsed()) {
-    this->on_collapse_change(C, this->is_collapsed());
-  }
 }
 
 void AbstractTreeViewItem::change_state_delayed()
@@ -914,12 +957,18 @@ void TreeViewBuilder::ensure_min_rows_items(AbstractTreeView &tree_view)
   }
 }
 
-void TreeViewBuilder::build_tree_view(AbstractTreeView &tree_view,
+void TreeViewBuilder::build_tree_view(const bContext &C,
+                                      AbstractTreeView &tree_view,
                                       uiLayout &layout,
                                       std::optional<StringRef> search_string,
                                       const bool add_box)
 {
   uiBlock &block = *uiLayoutGetBlock(&layout);
+
+  const ARegion *region = CTX_wm_region_popup(&C) ? CTX_wm_region_popup(&C) : CTX_wm_region(&C);
+  if (region) {
+    ui_block_view_persistent_state_restore(*region, block, tree_view);
+  }
 
   tree_view.build_tree();
   tree_view.update_from_old(block);
@@ -951,7 +1000,7 @@ void BasicTreeViewItem::build_row(uiLayout &row)
 void BasicTreeViewItem::add_label(uiLayout &layout, StringRefNull label_override)
 {
   const StringRefNull label = label_override.is_empty() ? StringRefNull(label_) : label_override;
-  uiItemL(&layout, IFACE_(label.c_str()), icon);
+  uiItemL(&layout, IFACE_(label), icon);
 }
 
 void BasicTreeViewItem::on_activate(bContext &C)

@@ -1,9 +1,9 @@
 
 msgid ""
 msgstr ""
-"Project-Id-Version: Blender 4.3.0 Beta (b'89e3ab2a4533')\n"
+"Project-Id-Version: Blender 4.4.0 Beta (b'63c460d93d55')\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-10-14 08:43+0000\n"
+"POT-Creation-Date: 2025-02-24 09:56+0000\n"
 "PO-Revision-Date: 2024-04-29 13:28+0000\n"
 "Last-Translator: Anonymous <noreply@weblate.org>\n"
 "Language-Team: Arabic <https://translate.blender.org/projects/blender-ui/ui/ar/>\n"
@@ -34,6 +34,14 @@ msgstr "ﻥﻮﻠﻟﺍ"
 
 msgid "Value"
 msgstr "ﺔﻤﻴﻗ"
+
+
+msgid "F-Curves"
+msgstr "ﺔﻴﻧﺎﻴﺑ-ﻁﻮﻄﺧ"
+
+
+msgid "Slot"
+msgstr "ﺔﺤﺘﻓ"
 
 
 msgid "Action Group"
@@ -178,6 +186,18 @@ msgstr "ﺓﺭﺎﺘﺨﻣ ﺙﺪﺤﻟﺍ ﺔﻋﻮﻤﺠﻣ"
 
 msgid "Expanded"
 msgstr "ﻊﺳﻮﻣ"
+
+
+msgid "Active"
+msgstr "ﻝﺎﻌﻓ"
+
+
+msgid "Show Expanded"
+msgstr "ﺔﺣﻮﺘﻔﻣ ﺎﻫﺮﻬﻇﺃ"
+
+
+msgid "Keyframe"
+msgstr "ﺡﺎﺘﻔﻤﻟﺍ"
 
 
 msgid "Module"
@@ -1204,126 +1224,6 @@ msgid "Worlds"
 msgstr "ﻢﻟﺍﻮﻌﻟﺍ"
 
 
-msgid "ID Type"
-msgstr "ﻑﺮﻌﻤﻟﺍ ﻉﻮﻧ"
-
-
-msgid "Armature"
-msgstr "ﻞﻜﻴﻫ"
-
-
-msgid "Brush"
-msgstr "ﺓﺎﺷﺮﻓ"
-
-
-msgid "Camera"
-msgstr "ﺍﺮﻴﻤﻜﻟﺍ"
-
-
-msgid "Curve"
-msgstr "ﻰﻨﺤﻨﻣ"
-
-
-msgid "Font"
-msgstr "ﻂﺨﻟﺍ"
-
-
-msgid "Image"
-msgstr "ﺓﺭﻮﺻ"
-
-
-msgid "Key"
-msgstr "ﺡﺎﺘﻔﻣ"
-
-
-msgid "Lattice"
-msgstr "ﺔﻜﺒﺷ"
-
-
-msgid "Library"
-msgstr "ﺔﺒﺘﻜﻣ"
-
-
-msgid "Light"
-msgstr "ءﻮﺿ"
-
-
-msgid "Line Style"
-msgstr "ﻂﺨﻟﺍ ﻂﻤﻧ"
-
-
-msgid "Mask"
-msgstr "ءﺎﻄﻏ"
-
-
-msgid "Material"
-msgstr "ﺔﻣﺎﺧ"
-
-
-msgid "Mesh"
-msgstr "ﻢﺴﺠﻣ"
-
-
-msgid "Metaball"
-msgstr "ﺔﻠﻋﺎﻔﺘﻣ ﺓﺮﻛ"
-
-
-msgid "Movie Clip"
-msgstr "ﻮﻳﺪﻴﻓ ﻂﻳﺮﺷ"
-
-
-msgid "Node Tree"
-msgstr "ﺓﺪﻘﻌﻟﺍ ﺓﺮﺠﺷ"
-
-
-msgid "Paint Curve"
-msgstr "ﻰﻨﺤﻨﻤﻟﺍ ﻢﺳﺭﺍ"
-
-
-msgid "Palette"
-msgstr "ﻥﺍﻮﻟﻻ﻿ﺍ ﺡﻮﻟ"
-
-
-msgid "Particle"
-msgstr "ءﻱﺰﺟ"
-
-
-msgid "Scene"
-msgstr "ﺪﻬﺸﻣ"
-
-
-msgid "Screen"
-msgstr "ﺔﺷﺎﺷ"
-
-
-msgid "Sound"
-msgstr "ﺕﻮﺻ"
-
-
-msgid "Speaker"
-msgstr "ﺕﻮﺻ ﺮﺒﻜﻣ"
-
-
-msgid "Text"
-msgstr "ﺺﻧ"
-
-
-msgid "Texture"
-msgstr "ﺞﻴﺴﻨﻟﺍ"
-
-
-msgid "Volume"
-msgstr "ﻢﺠﺤﻟﺍ"
-
-
-msgid "Window Manager"
-msgstr "ﺬﻓﺍﻮﻧ ﺮﻳﺪﻣ"
-
-
-msgid "World"
-msgstr "ﻢﻟﺎﻌﻟﺍ"
-
-
 msgid "Blender RNA"
 msgstr "ﺍ.ﻥ.ﺭ ﺭﺪﻨﻠﺑ"
 
@@ -1792,6 +1692,10 @@ msgid "All rules are averaged"
 msgstr "ﺪﻋﺍﻮﻘﻟﺍ ﻞﻛ ﻂﻴﺳﻮﺗ"
 
 
+msgid "Volume"
+msgstr "ﻢﺠﺤﻟﺍ"
+
+
 msgid "Automatic"
 msgstr "ﻲﺗﺍﺫ"
 
@@ -2130,20 +2034,12 @@ msgid "Mode"
 msgstr "ﻊﺿﻮﻟﺍ"
 
 
-msgid "Active"
-msgstr "ﻝﺎﻌﻓ"
+msgid "Material"
+msgstr "ﺔﻣﺎﺧ"
 
 
 msgid "Vertex Color"
 msgstr "ﺔﻄﻘﻨﻟﺍ ﻥﻮﻟ"
-
-
-msgid "Direction"
-msgstr "ﻩﺎﺠﺗﺇ"
-
-
-msgid "Normal"
-msgstr "ﻢﻇﺎﻧ"
 
 
 msgid "All"
@@ -2152,10 +2048,6 @@ msgstr "ﻞﻜﻟﺍ"
 
 msgid "Strokes"
 msgstr "ﺕﺎﺒﻄﺸﻟﺍ"
-
-
-msgid "Radius"
-msgstr "ﺮﻄﻘﻟﺍ ﻒﺼﻧ"
 
 
 msgid "Precision"
@@ -2258,6 +2150,10 @@ msgid "Crop"
 msgstr "ﺺﻗ"
 
 
+msgid "Image"
+msgstr "ﺓﺭﻮﺻ"
+
+
 msgid "Image displayed and edited in this space"
 msgstr "ءﺎﻀﻔﻟﺍ ﺍﺬﻫ ﻲﻓ ﺔﻟﺪﻌﻤﻟﺍ ﻭ ﺓﺮﻫﺎﻈﻟﺍ ﺓﺭﻮﺼﻟﺍ"
 
@@ -2294,10 +2190,6 @@ msgid "Show this image as background"
 msgstr "ﺔﻴﻔﻠﺨﻛ ﺓﺭﻮﺼﻟﺍ ﻩﺬﻫ ﺮﻬﻇﺍ"
 
 
-msgid "Show Expanded"
-msgstr "ﺔﺣﻮﺘﻔﻣ ﺎﻫﺮﻬﻇﺃ"
-
-
 msgid "Show On Foreground"
 msgstr "ﻡﺎﻣﻻ﻿ﺍ ﻰﻠﻋ ﺮﻬﻇﺇ"
 
@@ -2312,6 +2204,10 @@ msgstr "ﺔﻴﻔﻠﺨﻟﺍ ﺭﺪﺼﻣ"
 
 msgid "Data source used for background"
 msgstr "ﺔﻴﻔﻠﺨﻠﻟ ﺔﻠﻤﻌﺘﺴﻤﻟﺍ ﺕﺎﻧﺎﻴﺒﻟﺍ ﺭﺪﺼﻣ"
+
+
+msgid "Movie Clip"
+msgstr "ﻮﻳﺪﻴﻓ ﻂﻳﺮﺷ"
 
 
 msgid "Camera Clip"
@@ -2910,6 +2806,10 @@ msgid "Color management settings used for displaying images on the display"
 msgstr "ﻖﺼﻠﻤﻟﺍ ﺽﺮﻌﻟ ﻡﺪﺨﺘﺴﻤﻟﺍ ﻂﺨﻟﺍ ﻢﺠﺣ"
 
 
+msgid "Curve"
+msgstr "ﻰﻨﺤﻨﻣ"
+
+
 msgid "Color curve mapping applied before display transform"
 msgstr "ﺽﺮﻌﻟﺍ ﻝﻮﺤﺗ ﻞﺒﻗ ﻖﺒﻄﻤﻟﺍ ﻥﻮﻠﻟﺍ ﻰﻨﺤﻨﻣ ﻂﻴﻄﺨﺗ"
 
@@ -2996,6 +2896,10 @@ msgstr "ﻢﺘﻋ"
 
 msgid "Lighten"
 msgstr "ﻒﻄﻟ"
+
+
+msgid "Screen"
+msgstr "ﺔﺷﺎﺷ"
 
 
 msgid "Overlay"
@@ -3435,6 +3339,10 @@ msgid "Use transform property of target to look up pose for owner from an Action
 msgstr "ﺙﺪﺤﻟﺍ ﻦﻣ ﻚﻟﺎﻤﻠﻟﺔﻔﻗﻭ ﺪﺠﺗ ﻰﺘﺣ ﻑﺪﻬﻠﻟ ﻝﻮﺤﺘﻟﺍ ﺔﻴﺻﺎﺧ ﻡﺪﺨﺘﺳﺍ"
 
 
+msgid "Armature"
+msgstr "ﻞﻜﻴﻫ"
+
+
 msgid "Child Of"
 msgstr "ﻝ ﻉﺮﻓ"
 
@@ -3855,14 +3763,6 @@ msgid "Copy the scale of the target"
 msgstr "ﻑﺪﻬﻟﺍ ﻢﺠﺣ ﺦﺴﻧﺍ"
 
 
-msgid "Power"
-msgstr "ﺓﺭﺪﻘﻟﺍ"
-
-
-msgid "Additive"
-msgstr "ﻲﻌﻤﺟ"
-
-
 msgid "Copy the target's X scale"
 msgstr "ﻲﻘﻓﻷ﻿ﺍ ﻑﺪﻬﻟﺍ ﻢﻴﺠﺤﺗ ﺦﺴﻧ"
 
@@ -3989,6 +3889,10 @@ msgstr "ﺭﺎﺴﻤﻟﺍ ﻊﺒﺗﺍ ﺪﻴﻗ"
 
 msgid "Lock motion to the target motion track"
 msgstr "ﻑﺪﻬﻟﺍ ﺭﺎﺴﻣ ﺔﻛﺮﺤﺑ ﺔﻛﺮﺤﻟﺍ ﻂﺑﺭﺍ"
+
+
+msgid "Camera"
+msgstr "ﺍﺮﻴﻤﻜﻟﺍ"
 
 
 msgid "Camera to which motion is parented (if empty active scene camera is used)"
@@ -4948,14 +4852,6 @@ msgid "Extrapolate the curve or extend it horizontally"
 msgstr "ﺎﻴﻘﻓﺃ ﻩﺪﻳﺪﻤﺗ ﻭﺃ ﻰﻨﺤﻨﻤﻟﺍ ﻁﺎﺒﻨﺘﺳﺍ"
 
 
-msgid "Horizontal"
-msgstr "ﻲﻘﻓﺃ"
-
-
-msgid "Extrapolated"
-msgstr "ﻂﺒﻨﺘﺴﻣ"
-
-
 msgid "Standard"
 msgstr "ﻲﺳﺎﻴﻗ"
 
@@ -5008,6 +4904,10 @@ msgid "View"
 msgstr "ﺮﻈﻨﻣ"
 
 
+msgid "Radius"
+msgstr "ﺮﻄﻘﻟﺍ ﻒﺼﻧ"
+
+
 msgid "Segments"
 msgstr "ﺢﺋﺍﺮﺷ"
 
@@ -5026,6 +4926,10 @@ msgstr "ﺬﻔﻨﻣ"
 
 msgid "Render"
 msgstr "ﺮﻴﻴﺼﺗ"
+
+
+msgid "Scene"
+msgstr "ﺪﻬﺸﻣ"
 
 
 msgid "Generated Coordinates"
@@ -5872,6 +5776,10 @@ msgid "Data Layer"
 msgstr "ﺕﺎﻧﺎﻴﺒﻟﺍ ﺔﻘﺒﻃ"
 
 
+msgid "Texture"
+msgstr "ﺞﻴﺴﻨﻟﺍ"
+
+
 msgid "Is Active"
 msgstr "ﻝﺎﻌﻓ ﻞﻫ"
 
@@ -6481,6 +6389,10 @@ msgid "Rate control: buffer size (kb)"
 msgstr "(ﺐﻛ) ﻥﺰﺨﻤﻟﺍ ﻢﺠﺣ :ﻝﺪﻌﻤﻟﺎﺑ ﻢﻜﺤﺘﻟﺍ"
 
 
+msgid "H.264"
+msgstr "H.264"
+
+
 msgid "DNxHD"
 msgstr "DNxHD"
 
@@ -6491,10 +6403,6 @@ msgstr "FFmpeg #1 ﺓﺭﻮﺼﻟﺍ ﺮﻔﺸﻣ"
 
 msgid "Flash Video"
 msgstr "Flash Video"
-
-
-msgid "H.264"
-msgstr "H.264"
 
 
 msgid "HuffYUV"
@@ -6525,16 +6433,16 @@ msgid "MPEG-4"
 msgstr "MPEG-4"
 
 
-msgid "Ogg"
-msgstr "Ogg"
-
-
 msgid "Matroska"
 msgstr "Matroska"
 
 
 msgid "Flash"
 msgstr "Flash"
+
+
+msgid "Ogg"
+msgstr "Ogg"
 
 
 msgid "Max Rate"
@@ -6825,6 +6733,10 @@ msgid "Constant factor to offset time by for function"
 msgstr " ﺔﻴﺻﺎﺨﻠﻟ ﻪﺑ ﺔﻴﻨﻣﺰﻟﺍ ﺔﺣﺍﺯﻺ﻿ﻟ ﺖﺑﺎﺜﻟﺍ ﻞﻣﺎﻌﻟﺍ"
 
 
+msgid "Additive"
+msgstr "ﻲﻌﻤﺟ"
+
+
 msgid "Values generated by this modifier are applied on top of the existing values instead of overwriting them"
 msgstr "ﻢﻬﻴﻠﻋ ﺔﺑﺎﺘﻜﻟﺍ ﻝﺪﺑ ﺓﺩﻮﺟﻮﻤﻟﺍ ﻢﻴﻘﻟﺍ ﻕﻮﻓ ﻖﺒﻄﺗ ﺮﻴﻐﻤﻟﺍ ﺍﺬﻫ ﻑﺮﻃ ﻦﻣ ﺓﺪﻟﻮﻤﻟﺍ ﻢﻴﻘﻟﺍ"
 
@@ -6897,6 +6809,10 @@ msgid "Amount of fine level detail present in the noise"
 msgstr " ﺞﻴﺠﻀﻟﺍ ﻲﻓ ﺓﺩﻮﺟﻮﻤﻟﺍ ﻯﻮﺘﺴﻤﻟﺍ ﺔﻌﻴﻓﺮﻟﺍ ﻞﻴﺻﺎﻔﺘﻟﺍ ﺔﻴﻤﻛ"
 
 
+msgid "Lacunarity"
+msgstr "ﻑﻮّﺠﺘﻟﺍ"
+
+
 msgid "Time offset for the noise effect"
 msgstr "ﺔﻴﺋﺍﻮﺸﻌﻟﺍ ﺮﻴﺛﺄﺘﻟ ﻦﻣﺰﻟﺍ ﻑﺍﺮﺤﻧﺍ"
 
@@ -6907,6 +6823,10 @@ msgstr "ﺭﻮﻃ"
 
 msgid "A random seed for the noise effect"
 msgstr "ﻲﺋﺍﻮﺸﻌﻟﺍ ﺮﻴﺛﺄﺘﻠﻟ ﺔﻴﺋﺍﻮﺸﻋ ﺓﺭﺬﺑ"
+
+
+msgid "Roughness"
+msgstr "ﺔﻧﻮﺸﺧ"
 
 
 msgid "Scaling (in time) of the noise"
@@ -7845,6 +7765,10 @@ msgid "Initial"
 msgstr "ﺔﻴﺋﺪﺒﻣ"
 
 
+msgid "Normal"
+msgstr "ﻢﻇﺎﻧ"
+
+
 msgid "Amount of normal directional velocity"
 msgstr "ءﻱﺰﺠﻠﻟ ﺔﻴﺋﺪﺒﻤﻟﺍ ﺔﻋﺮﺴﻟﺍ ﻰﻠﻋ ﺞﻴﺴﻨﻟﺍ ﺮﻴﺛﺄﺗ ﺔﻴﻤﻛ"
 
@@ -8027,6 +7951,10 @@ msgstr "ﻩﺎﻄﻌﻤﻟﺍ ﻪﺟﻮﻟﺍ ﺔﻣﻼ﻿ﻋ ﻁﻭﺮﺸﻟ �
 
 msgid "Select feature edges not satisfying the given face mark conditions"
 msgstr "ﻩﺎﻄﻌﻤﻟﺍ ﻪﺟﻮﻟﺍ ﺔﻣﻼ﻿ﻋ ﻁﻭﺮﺸﻟ ﺔﻴﻓﺍﻭ ﺮﻴﻐﻟﺍ ﺔﻴﺴﻴﺋﺮﻟﺍ ﻑﺍﻮﺤﻟﺍ ﺮﺘﺧﺍ"
+
+
+msgid "Line Style"
+msgstr "ﻂﺨﻟﺍ ﻂﻤﻧ"
 
 
 msgid "Line style settings"
@@ -8445,26 +8373,6 @@ msgid "Grease Pencil Frame"
 msgstr "ﺕﺎﻈﺣﻼ﻿ﻤﻟﺍ ﻢﻠﻗ ﺭﺎﻃﺇ"
 
 
-msgid "Keyframe"
-msgstr "ﺡﺎﺘﻔﻤﻟﺍ"
-
-
-msgid "Breakdown"
-msgstr "ﻲﺋﺪﺒﻣ"
-
-
-msgid "Extreme"
-msgstr "ﻲﺋﺎﻬﻧ"
-
-
-msgid "Jitter"
-msgstr "!"
-
-
-msgid "Generated"
-msgstr "ﺪﻟﻮﺘﻣ"
-
-
 msgid "Grease Pencil Layer"
 msgstr "ﺕﺎﻈﺣﻼ﻿ﻤﻟﺍ ﻢﻠﻗ ﺔﻘﺒﻃ"
 
@@ -8549,6 +8457,10 @@ msgid "Is this ID block linked indirectly"
 msgstr "ﻁﺎﺒﺗﺭﻻ﻿ﺍ ﺓﺮﺷﺎﺒﻣ ﺮﻴﻏ ﻩﺬﻫ ﻑﺮّﻌﻤﻟﺍ ﺔﻠﺘﻛ ﻞﻫ"
 
 
+msgid "Library"
+msgstr "ﺔﺒﺘﻜﻣ"
+
+
 msgid "Tag"
 msgstr "ﻢﺳﻭ"
 
@@ -8569,14 +8481,6 @@ msgid "A collection of F-Curves for animation"
 msgstr "ﻚﻳﺮﺤﺘﻠﻟ ﻞﻤﻌﻟﺍ ﺕﺎﻴﻨﺤﻨﻣ ﻦﻣ ﺔﻋﻮﻤﺠﻣ"
 
 
-msgid "F-Curves"
-msgstr "ﺔﻴﻧﺎﻴﺑ-ﻁﻮﻄﺧ"
-
-
-msgid "The individual F-Curves that make up the action"
-msgstr "ﺙﺪﺤﻟﺍ ﺊﺸﻨﻳ ﻱﺬﻟﺍ ﻱﺩﺮﻔﻟﺍ ﻞﻤﻌﻟﺍ ﻰﻨﺤﻨﻣ"
-
-
 msgid "Frame Range"
 msgstr "ﺭﺎﻄﻟﺍ ﻯﺪﻣ"
 
@@ -8585,12 +8489,8 @@ msgid "Groups"
 msgstr "ﺕﺎﻋﻮﻤﺠﻣ"
 
 
-msgid "Convenient groupings of F-Curves"
-msgstr "ﺔﻴﻧﺎﻴﺒﻟﺍ ﺕﺎﻴﻨﺤﻨﻤﻠﻟ ﻢﺋﻼ﻿ﻣ ﻊﻤﺠﺗ"
-
-
-msgid "Type of ID block that action can be used on - DO NOT CHANGE UNLESS YOU KNOW WHAT YOU ARE DOING"
-msgstr "ﻞﻌﻔﺗ ﺎﻣ ﻑﺮﻌﺗ ﻻ﻿ ﺍﺫﺍ ﺎﻫﺮﻴﻐﺗ ﻻ﻿ - ﺙﺪﺤﻟﺍ ﺎﻬﻴﻠﻋ ﻡﺪﺨﺘﺴﻤﻟﺍ ﻑﺮّﻌﻤﻟﺍ ﺔﻠﺘﻛ ﻉﻮﻧ"
+msgid "Layers"
+msgstr "ﺕﺎﻘﺒﻃ"
 
 
 msgid "Pose Markers"
@@ -8737,42 +8637,6 @@ msgid "Brush's capabilities"
 msgstr "ﺓﺎﺷﺮﻔﻟﺍ ﺕﺍﺭﺪﻗ"
 
 
-msgid "Clone Alpha"
-msgstr "ﺎﻔﻟﻷ﻿ﺍ ﺦﺴﻧﺍ"
-
-
-msgid "Opacity of clone image display"
-msgstr "ﺓﺭﻮﺼﻟﺍ ﺦﺴﻧ ﺽﺮﻋ ﺔﻣﻮﺘﻋ"
-
-
-msgid "Clone Image"
-msgstr "ﺓﺭﻮﺼﻟﺍ ﺦﺴﻧﺍ"
-
-
-msgid "Clone Offset"
-msgstr "ﺦﺴﻨﻟﺍ ﺔﺣﺍﺯﺍ"
-
-
-msgid "Deformation"
-msgstr "ﻩﻮّﺸﺘﻟﺍ"
-
-
-msgid "Inflate"
-msgstr "ﺲﻔّﻧ"
-
-
-msgid "Grab"
-msgstr "ﺐﺤﺳﺍ"
-
-
-msgid "Expand"
-msgstr "ﻊﺳﻮﻣ"
-
-
-msgid "Snake Hook"
-msgstr "ﻰﻌﻓﻻ﻿ﺍ ﺏﺎﻠّﻛ"
-
-
 msgid "Local"
 msgstr "ﻲﻠﺤﻣ"
 
@@ -8815,6 +8679,45 @@ msgstr "ﻉﺎﻨﻘﻟﺍ ﺞﻴﺴﻨﻟ ﺔﻔﻠﻐﻤﻟﺍ ﺎﻔﻟﺍ"
 
 msgid "Editable falloff curve"
 msgstr "ﺮﻳﺮﺤﺘﻠﻟ ﻞﺑﺎﻗ ﻁﻮﻘﺳ ﻰﻨﺤﻨﻣ"
+
+
+msgctxt "Curve"
+msgid "Smooth"
+msgstr "ﻢﻋﺎﻧ"
+
+
+msgctxt "Curve"
+msgid "Sphere"
+msgstr "ﺓﺮﻛ"
+
+
+msgctxt "Curve"
+msgid "Root"
+msgstr "ﺭﺬﺟ"
+
+
+msgctxt "Curve"
+msgid "Sharp"
+msgstr "ﺩﺎﺣ"
+
+
+msgctxt "Curve"
+msgid "Linear"
+msgstr "ﺔﻴﻄﺧ"
+
+
+msgctxt "Curve"
+msgid "Inverse Square"
+msgstr "ﻲﺴﻜﻋ ﻲﻌﻴﺑﺮﺗ"
+
+
+msgctxt "Curve"
+msgid "Constant"
+msgstr "ﺖﺑﺎﺛ"
+
+
+msgid "Direction"
+msgstr "ﻩﺎﺠﺗﺇ"
 
 
 msgid "Add effect of brush"
@@ -8885,6 +8788,10 @@ msgid "Jitter the position of the brush in pixels while painting"
 msgstr "ﻢﺳﺮﻟﺍ ﺪﻨﻋ ﺓﺎﺷﺮﻔﻠﻟ ﻂﻘﻨﻟﺍ ﺐﺴﺤﺑ ﻲﺋﺍﻮﺸﻋ ﻊﻗﻮﻣ"
 
 
+msgid "Brush"
+msgstr "ﺓﺎﺷﺮﻓ"
+
+
 msgid "Mask Stencil Dimensions"
 msgstr "ﻉﺎﻨﻘﻟﺍ ﺔﻴﻓﺎﻔﺷ ﺩﺎﻌﺑﺍ"
 
@@ -8913,6 +8820,10 @@ msgid "Normal Weight"
 msgstr "ﻢﻇﺎﻨﻟﺍ ﻉﺎﻔﺗﺭﺍ"
 
 
+msgid "Paint Curve"
+msgstr "ﻰﻨﺤﻨﻤﻟﺍ ﻢﺳﺭﺍ"
+
+
 msgid "Plane Offset"
 msgstr "ﺢﻄﺴﻟﺍ ﺔﺣﺍﺯﺍ"
 
@@ -8927,6 +8838,10 @@ msgstr "ﺢﻄﺴﻟﺍ ﻢﻴﻠﻘﺗ"
 
 msgid "If a vertex is further away from offset plane than this, then it is not affected"
 msgstr "ﺮﺛﺄﺘﺗ ﻦﻠﻓ ,ﺍﺬﻫ ﻦﻣ ﺔﺣﺍﺯﻻ﻿ﺍ ﺢﻄّﺴﻣ ﻦﻋ ﺪﻌﺑﺍ ﺔﻄﻘﻨﻟﺍ ﺖﻧﺎﻛ ﺍﺫﺍ"
+
+
+msgid "Deformation"
+msgstr "ﻩﻮّﺸﺘﻟﺍ"
 
 
 msgid "Rake"
@@ -8981,10 +8896,6 @@ msgid "Radius of the brush in pixels"
 msgstr "ﺕﻼ﻿ﺴﻜﺒﻟﺎﺑ ﺓﺎﺷﺮﻔﻟﺍ ﻉﺎﻌﺷ"
 
 
-msgid "Pinch"
-msgstr "ﺪﻌّﺟ"
-
-
 msgid "Laplacian"
 msgstr "ﻥﺎﻴﺳﻼ﻿ﺑﻻ﻿"
 
@@ -9033,44 +8944,20 @@ msgid "How powerful the effect of the brush is when applied"
 msgstr "ﻖﻴﺒﻄﺘﻟﺍ ﺪﻨﻋ ﺓﺎﺷﺮﻔﻟﺍ ﺮﻴﺛﺄﺗ ﺓﻮّﻗ ﻢﻛ"
 
 
-msgid "Stroke Method"
-msgstr "ﺐﻄﺸﻟﺍ ﺔﻘﻳﺮﻃ"
-
-
-msgid "Dots"
-msgstr "ﺕﺎﺨﻄﻟ"
-
-
 msgid "Apply paint on each mouse move step"
 msgstr "ﺓﺭﺄﻔﻟﺍ ﺔﻛﺮﺣ ﺓﻮﻄﺧ ﻞﻜﺑ ﻢﺳﺮﻟﺍ ﻖﺒّﻃ"
-
-
-msgid "Drag Dot"
-msgstr "ﺮﺠﻟﺍ ﺔﻄﻘﻧ"
 
 
 msgid "Allows a single dot to be carefully positioned"
 msgstr "ﺔﻗﺪﺑ ﺓﺪﺣﺍﻮﻟﺍ ﺔﺨﻄﻠﻟﺍ ﻊﺿﻮﺗ ﻥﺄﺑ ﺢﻤﺳﺍ"
 
 
-msgid "Space"
-msgstr "ءﺎﻀﻓ"
-
-
 msgid "Limit brush application to the distance specified by spacing"
 msgstr "ﺪﻋﺎﺒﺘﻟﺎﺑ ﺓﺩﺪﺤﻤﻟﺍ ﺔﻓﺎﺴﻤﻠﻟ ﺓﺎﺷﺮﻔﻟﺍ ﻖﻴﺒﻄﺗ ﺮﺼﺣﺍ"
 
 
-msgid "Airbrush"
-msgstr "ﺥﺎﺨﺑ"
-
-
 msgid "Keep applying paint effect while holding mouse (spray)"
 msgstr "ﺔﻃﻮﻐﻀﻣ ﺓﺭﺄﻔﻟﺍ ﺎﻤﻟﺎﻃ ﻢﺳﺮﻟﺍ ﺮﺛﺆﻣ ﻖﻴﺒﻄﺗ ﻰﻠﻋ ﻡﻭﺍﺩ"
-
-
-msgid "Anchored"
-msgstr "ﺓﺰﻜﺗﺮﻣ"
 
 
 msgid "Keep the brush anchored to the initial location"
@@ -9121,8 +9008,16 @@ msgid "Space daubs according to surface orientation instead of screen space"
 msgstr "ﺔﺷﺎﺸﻟﺍ ءﺎﻀﻓ ﻦﻣ ﻻ﻿ﺪﺑ ﺢﻄﺴﻟﺍ ﻪﺟّﻮﺗ ﺐﺴﺣ ﺕﺎﺨﻄﻠﻟﺍ ﺪﻋﺎﺑ"
 
 
+msgid "Airbrush"
+msgstr "ﺥﺎﺨﺑ"
+
+
 msgid "When this is disabled, lock alpha while painting"
 msgstr " ﻢﺳﺮﻟﺍ ﺪﻨﻋ ﺎﻔﻟﻻ﻿ﺍ ﻞﻔﻗﺍ ,ﻞﻴﻄﻌﺘﻟﺍ ﺪﻨﻋ"
+
+
+msgid "Anchored"
+msgstr "ﺓﺰﻜﺗﺮﻣ"
 
 
 msgid "Cavity Mask"
@@ -9443,6 +9338,10 @@ msgstr "ﺱﺎﺴﺤﻟﺍ ﻞﺧﺍﺩ ﺮﻈﻨﻟﺍ ﻞﻘﺣ ﻭ ﺓﺭﻮ�
 
 msgid "Fit to the sensor width or height depending on image resolution"
 msgstr "ﺓﺭﻮﺼﻟﺍ ﺔﻗﺩ ﺐﺴﺣ ﻰﻠﻋ ﺱﺎﺴﺤﻟﺍ ﻝﻮﻃ ﻭﺍ ﺽﺮﻌﻟ ﺐﺳﺎﻧ"
+
+
+msgid "Horizontal"
+msgstr "ﻲﻘﻓﺃ"
 
 
 msgid "Fit to the sensor width"
@@ -9837,6 +9736,10 @@ msgid "Curve deforming text object"
 msgstr "ﺺﻨﻟﺍ ﻦﺋﺎﻜﻟ ﻉﻮّﻄﻤﻟﺍ ﻰﻨﺤﻨﻤﻟﺍ"
 
 
+msgid "Font"
+msgstr "ﻂﺨﻟﺍ"
+
+
 msgid "Font Bold"
 msgstr "ﻚﻴﻤﺳ ﻂﺧ"
 
@@ -10181,6 +10084,10 @@ msgid "If true, chains of feature edges are split at material boundaries"
 msgstr "ﺔﻣﺎﺨﻟﺍ ﺩﻭﺪﺣ ﺪﻨﻋ ﺔﻴﺴﻴﺋﺮﻟﺍ ﻑﺍﻮﺤﻟﺍ ﻂﻘﻓ ﻞﺼﻔﺗ ,ﺢﻴﺤﺻ ﺍﺫﺍ"
 
 
+msgid "Node Tree"
+msgstr "ﺓﺪﻘﻌﻟﺍ ﺓﺮﺠﺷ"
+
+
 msgid "Node tree for node-based shaders"
 msgstr "ﺪﻘﻌﻟﺍ ﻰﻠﻋ ﺔﻤﺋﺎﻘﻟﺍ ﺕﻼ﻿ﻠﻈﻤﻠﻟ ﺓﺪﻘﻌﻟﺍ ﺓﺮﺠﺷ"
 
@@ -10495,10 +10402,6 @@ msgstr "ﺞﻴﺴﻨﻟﺍ ﺕﺎﺒﻄﺷ ﻞﻄّﻋ ﻭﺃ ﻞﻌّﻓ"
 
 msgid "Freehand annotation sketchbook"
 msgstr "ﺓﺩﻮﺴﻤﻟﺍ ﺕﺎﻈﺣﻼ﻿ﻤﻟ ﺮﺣ ﻢﺳﺭ"
-
-
-msgid "Layers"
-msgstr "ﺕﺎﻘﺒﻃ"
 
 
 msgid "Use Custom Ghost Colors"
@@ -10933,20 +10836,12 @@ msgid "Directional area light source"
 msgstr "ﻪﺠﺘﻣ ﺔﻘﻄﻨﻣ ءﻮﺿ ﺭﺪﺼﻣ"
 
 
-msgid "Shadow Buffer Bias"
-msgstr "ﻞﻈﻟﺍ ﺔﻜﺒﺷ ﻑﺍﺮﺤﻧﺇ"
-
-
 msgid "Shadow Buffer Clip Start"
 msgstr "ﺔﻜﺒﺸﻟﺍ ﻞﻇ ﻢﻴﻠﻘﺗ ﺔﻳﺍﺪﺑ"
 
 
 msgid "Shadow map clip start, below which objects will not generate shadows"
 msgstr "ﻝﻼ﻿ﻇ ﺎﻬﻠﺒﻗ ﺪﻟﻮﺘﻳ ﻦﻟ ﻲﺘﻟﺍ ﻭ ,ﻞﻈﻟﺍ ﺔﻄﻳﺮﺧ ﻢﻴﻠﻘﺗ ﺔﻳﺍﺪﺑ"
-
-
-msgid "Shadow Color"
-msgstr "ﻞﻈﻟﺍ ﻥﻮﻟ"
 
 
 msgid "Shadow Soft Size"
@@ -11103,18 +10998,6 @@ msgstr "ﺮﻌﺸﻟﺍ ﻝﺎﺒﺣ"
 
 msgid "Cloth"
 msgstr "ﺵﺎﻤﻗ"
-
-
-msgid "Roughness"
-msgstr "ﺔﻧﻮﺸﺧ"
-
-
-msgid "Opaque"
-msgstr "ﻢﺘﻌﻣ"
-
-
-msgid "Alpha Clip"
-msgstr "ﺎﻔﻟﺍ ﻢﻴﻠﻘﺗ"
 
 
 msgid "Specular Color"
@@ -11353,10 +11236,6 @@ msgid "Global scene frame number at which this movie starts playing (affects all
 msgstr "(ﺔﺻﺎﺼﻘﻟﺎﺑ ﺔﻘﻠّﻌﺘﻤﻟﺍ ﺕﺎﻧﺎﻴﺒﻟﺍ ﻞﻛ ﻰﻠﻋ ﺮﺛﺆﻳ) ﺽﺮﻌﻟﺎﺑ ﻢﻠﻔﻟﺍ ﺍﺬﻫ ﺃﺪﺒﻳ ﻩﺪﻨﻋ ﻱﺬﻟﺍ ﻭ ﻲﻤﻟﺎﻌﻟﺍ ﺪﻬﺸﻤﻟﺍ ﺭﺎﻃﺇ ﻢﻗﺭ"
 
 
-msgid "Grease pencil data for this movie clip"
-msgstr " ﻩﺬﻫ ﻢﻠﻔﻟﺍ ﺔﺻﺎﺼﻘﻟ ﺕﺎﻈﺣﻼ﻿ﻤﻟﺍ ﻢﻠﻗ ﺕﺎﻧﺎﻴﺑ"
-
-
 msgid "Where the clip comes from"
 msgstr "ﺔﺻﺎﺼﻘﻟﺍ ﻲﺗﺄﺗ ﻦﻳﺃ ﻦﻣ"
 
@@ -11413,6 +11292,10 @@ msgid "Shader"
 msgstr "ﻞﻠﻈﻤﻟﺍ"
 
 
+msgid "Pattern"
+msgstr "ﻂﻤﻨﻟﺍ"
+
+
 msgid "Grease Pencil Data"
 msgstr "ﺕﺎﻈﺣﻼ﻿ﻣ ﻢﻠﻗ ﺕﺎﻧﺎﻴﺑ"
 
@@ -11463,6 +11346,10 @@ msgstr "ﺖﺤﻧ"
 
 msgid "Tool"
 msgstr "ﺓﺍﺩﺃ"
+
+
+msgid "Mesh"
+msgstr "ﻢﺴﺠﻣ"
 
 
 msgid "Shader Node Tree"
@@ -11773,6 +11660,10 @@ msgid "The object is parented to an object"
 msgstr "ﻦﺋﺎﻜﻟ ﻉﺮﻓ ﻦﺋﺎﻜﻟﺍ"
 
 
+msgid "Lattice"
+msgstr "ﺔﻜﺒﺷ"
+
+
 msgid "The object is parented to a lattice"
 msgstr "ﺔﻜﺒﺸﻟ ﻉﺮﻓ ﻦﺋﺎﻜﻟﺍ"
 
@@ -11903,10 +11794,6 @@ msgstr "ﻦﺋﺎﻜﻟﺍ ﺩﻭﺪﺣ ﺽﺮﻋﺍ"
 
 msgid "Display the object's name"
 msgstr "ﻦﺋﺎﻜﻟﺍ ﻢﺳﺍ ﺽﺮﻋﺇ"
-
-
-msgid "Shape Key Lock"
-msgstr "ﻞﻜﺸﻟﺍ ﺡﺎﺘﻔﻣ ﻞﻔﻗ"
 
 
 msgid "Display the object's texture space"
@@ -12157,14 +12044,6 @@ msgid "Amount of damping"
 msgstr "ﻝﺅﺎﻀﺘﻟﺍ ﺔﻴﻤﻛ"
 
 
-msgid "Rendered"
-msgstr "ﺓﺮﻴّﺼﻣ"
-
-
-msgid "Cross"
-msgstr "ﻊﻃﺎﻘﺗ"
-
-
 msgid "Display"
 msgstr "ﺽﺮﻋ"
 
@@ -12411,6 +12290,10 @@ msgstr "ﻲﻤﻫﻭ"
 
 msgid "Object Aligned"
 msgstr "ﻯﺫﺎﺤﻣ ﻦﺋﺎﻜﻟﺍ"
+
+
+msgid "Particle"
+msgstr "ءﻱﺰﺟ"
 
 
 msgid "The size of the particles"
@@ -13203,6 +13086,10 @@ msgid "Playback pitch of the sound"
 msgstr "ﺕﻮﺼﻠﻟ ﺽﺮﻌﻟﺍ ﺔﻤﻐﻧ"
 
 
+msgid "Sound"
+msgstr "ﺕﻮﺻ"
+
+
 msgid "How loud the sound is"
 msgstr "ﺕﻮﺼﻟﺍ ﻉﺎﻔﺗﺭﺍ ﻢﻛ"
 
@@ -13863,24 +13750,12 @@ msgid "Marble Texture"
 msgstr "ﻲﻣﺎﺧﺭ ﺞﻴﺴﻧ"
 
 
-msgid "Pattern"
-msgstr "ﻂﻤﻨﻟﺍ"
-
-
 msgid "Use soft marble"
 msgstr "ﻢﻋﺎﻧ ﻡﺎﺧﺭ ﻡﺪﺨﺘﺳﺍ"
 
 
-msgid "Sharp"
-msgstr "ﺩﺎﺣ"
-
-
 msgid "Use more clearly defined marble"
 msgstr "ﺎﺣﻮﺿﻭ ﺮﺜﻛﺍ ﻞﻜﺸﺑ ﻑﺮّﻌﻣ ﻡﺎﺧﺭ ﻡﺪﺨﺘﺳﺇ"
-
-
-msgid "Sharper"
-msgstr "ﺩﺎﺣ"
 
 
 msgid "Use very clearly defined marble"
@@ -13933,10 +13808,6 @@ msgstr "ﺮﻴﺛﺄﺘﻟﺍ"
 
 msgid "The gain multiplier"
 msgstr "ﺐﻠﺠﻟﺍ ﻒﻋﺎﻀﻣ"
-
-
-msgid "Lacunarity"
-msgstr "ﻑﻮّﺠﺘﻟﺍ"
 
 
 msgid "Gap between successive frequencies"
@@ -14013,10 +13884,6 @@ msgstr "ﻲﺑﺎﺒﺿ ﺞﻴﺴﻧ"
 
 msgid "Stucci Texture"
 msgstr "ﻱﺮﺠﺣ ﺞﺴﻴﻧ"
-
-
-msgid "Plastic"
-msgstr "ﻲﻜﻴﺘﺳﻼ﻿ﺑ"
 
 
 msgid "Use standard stucci"
@@ -14175,32 +14042,16 @@ msgid "Wood Texture"
 msgstr "ﺐﺸﺧ ﺞﻴﺴﻧ"
 
 
-msgid "Bands"
-msgstr "ﻡﺰﺣ"
-
-
 msgid "Use standard wood texture in bands"
 msgstr "ﻡﺰﺣ ﻲﻓ ﻲﺟﺫﻮﻤﻨﻟﺍ ﺐﺸﺨﻟﺍ ﺞﻴﺴﻧ ﻡﺪﺨﺘﺳﺍ"
-
-
-msgid "Rings"
-msgstr "ﺕﺎﻘﻠﺤﻟﺍ"
 
 
 msgid "Use wood texture in rings"
 msgstr "ﺕﺎﻘﻠﺤﻟﺍ ﻲﻓ ﻲﺒﺴﺧ ﺞﻴﺴﻧ ﻡﺪﺨﺘﺳﺇ"
 
 
-msgid "Band Noise"
-msgstr "ﺔﻣﺰﺤﻟﺍ ﺔﻴﺑﺎﺒﺿ"
-
-
 msgid "Add noise to standard wood"
 msgstr "ﻲﺟﺫﻮﻤﻨﻟﺍ ﺐﺸﺨﻠﻟ ﺔﻴﺋﺍﻮﺸﻋ ﻒﺿﺃ"
-
-
-msgid "Ring Noise"
-msgstr "ﺔﻘﻠﺤﻟﺍ ﺔﻴﺑﺎﺒﺿ"
 
 
 msgid "Add noise to rings"
@@ -14217,6 +14068,15 @@ msgstr "ﺺﻨﻟﺍ ﺕﺎﻨﺋﺎﻜﻟ ﻪﺠﺘﻣ ﻂﺧ"
 
 msgid "Offset the number of the frame to use in the animation"
 msgstr "ﺔﻛﺮﺤﻟﺍ ﻲﻓ  ﻡﺍﺪﺨﺘﺳﻺ﻿ﻟ ﺭﺎﻃﻻ﻿ﺍ ﻢﻗﺭ ﺡﺯﺍ"
+
+
+msgctxt "Sequence"
+msgid "Clip"
+msgstr "ﺔﺻﺎﺼﻗ"
+
+
+msgid "Window Manager"
+msgstr "ﺬﻓﺍﻮﻧ ﺮﻳﺪﻣ"
 
 
 msgid "Category"
@@ -14467,28 +14327,12 @@ msgid "Codec"
 msgstr "ﺓﺮﻔﻴﺷ"
 
 
-msgid "Codec settings for OpenEXR"
-msgstr "OpenEXRﻝ ﺓﺮﻔﻴﺸﻟﺍ ﺕﺍﺩﺍﺪﻋﺇ"
+msgid "No compression"
+msgstr "ﻂﻐﺿ ﻻ﻿"
 
 
 msgid "Pxr24 (lossy)"
 msgstr "Pxr24 (ﺓﺭﺎﺴﺨﻟﺎﺑ)"
-
-
-msgid "ZIP (lossless)"
-msgstr "ZIP (ﺓﺭﺎﺴﺧ ﻼ﻿ﺑ)"
-
-
-msgid "PIZ (lossless)"
-msgstr "PIZ (ﺓﺭﺎﺴﺧ ﻼ﻿ﺑ)"
-
-
-msgid "RLE (lossless)"
-msgstr "RLE (ﺓﺭﺎﺴﺧ ﻼ﻿ﺑ)"
-
-
-msgid "ZIPS (lossless)"
-msgstr "ZIPS (ﺓﺭﺎﺴﺧ ﻼ﻿ﺑ)"
 
 
 msgid "B44 (lossy)"
@@ -14888,11 +14732,6 @@ msgstr "ﺓﻭﺮﻌﻟﺍ"
 msgctxt "UI_Events_KeyMaps"
 msgid "Return"
 msgstr "ﻊﺟﺍﺮﻟﺍ"
-
-
-msgctxt "UI_Events_KeyMaps"
-msgid "Spacebar"
-msgstr "ﺓﺮﻄﺴﻤﻟﺍ"
 
 
 msgctxt "UI_Events_KeyMaps"
@@ -15833,42 +15672,12 @@ msgid "Falloff"
 msgstr "ﻲﺷﻼ﻿ﺘﻟﺍ"
 
 
-msgctxt "Curve"
-msgid "Smooth"
-msgstr "ﻢﻋﺎﻧ"
-
-
 msgid "Smooth falloff"
 msgstr "ﻢﻴﻌﻨﺘﻟﺍ ﺶﻣﺎﻫ"
 
 
-msgctxt "Curve"
-msgid "Sphere"
-msgstr "ﺓﺮﻛ"
-
-
-msgctxt "Curve"
-msgid "Root"
-msgstr "ﺭﺬﺟ"
-
-
-msgctxt "Curve"
-msgid "Inverse Square"
-msgstr "ﻲﺴﻜﻋ ﻲﻌﻴﺑﺮﺗ"
-
-
 msgid "Inverse Square falloff"
 msgstr "ﻲﺴﻜﻋ ﻲﻌﻴﺑﺮﺗ ﻝﺅﺎﻀﺜﺗ"
-
-
-msgctxt "Curve"
-msgid "Sharp"
-msgstr "ﺩﺎﺣ"
-
-
-msgctxt "Curve"
-msgid "Linear"
-msgstr "ﺔﻴﻄﺧ"
 
 
 msgid "Restrict View"
@@ -15925,6 +15734,10 @@ msgstr "ﻞﺻﻻ﻿ﺍ ﻊﻨّﻗ"
 
 msgid "Parenting settings for masking element"
 msgstr "ﻉﺎﻨﻘﻟﺍ ﺮﺼﻨﻌﻟ ﻞﺻﻻ﻿ﺍ ﺕﺍﺩﺍﺪﻋﺇ"
+
+
+msgid "ID Type"
+msgstr "ﻑﺮﻌﻤﻟﺍ ﻉﻮﻧ"
 
 
 msgid "Sub Parent"
@@ -16043,6 +15856,14 @@ msgid "Mix Factor"
 msgstr "ﺞﻣﺪﻟﺍ ﻞﻣﺎﻌﻣ"
 
 
+msgid "Dots"
+msgstr "ﺕﺎﺨﻄﻟ"
+
+
+msgid "Mask"
+msgstr "ءﺎﻄﻏ"
+
+
 msgid "Material slot in an object"
 msgstr "ﻦﺋﺎﻛ ﻲﻓ ﺔﻣﺎﺧ ﺔﺤﺘﻓ"
 
@@ -16053,6 +15874,10 @@ msgstr "ﻦﺋﺎﻜﻟﺍ ﺕﺎﻧﺎﻴﺑ ﻭﺍ ﻦﺋﺎﻜﻟﺎﺑ ﺔ�
 
 msgid "Material slot name"
 msgstr "ﺔﻣﺎﺨﻟﺍ ﺔﺤﺘﻓ ﻢﺳﺇ"
+
+
+msgid "Mirror"
+msgstr "ﻞﺛﺎﻣ"
 
 
 msgid "Snap"
@@ -16089,6 +15914,14 @@ msgstr "ﺔﻤﺴﻟﺍ ﺐﺴﺣ ﻞﻛ ﺭﺎﻴﺘﺧﺍ"
 
 msgid "Select Linked"
 msgstr "ﺔﻄﺒﺗﺮﻤﻟﺍ ﺭﺎﺘﺧﺇ"
+
+
+msgid "Metaball"
+msgstr "ﺔﻠﻋﺎﻔﺘﻣ ﺓﺮﻛ"
+
+
+msgid "Light"
+msgstr "ءﻮﺿ"
 
 
 msgid "Relations"
@@ -16143,16 +15976,16 @@ msgid "Special Characters"
 msgstr "ﺔﺻﺎﺧ ﻑﺮﺣﺃ"
 
 
+msgid "Text"
+msgstr "ﺺﻧ"
+
+
 msgid "Bone Roll"
 msgstr "ﺔﻤﻈﻌﻟﺍ ءﺍﻮﺘﻟﺍ"
 
 
 msgid "Proportional Editing Falloff"
 msgstr "ﻲﺒﺴﻨﻟﺍ ﺮﻳﺮﺤﺘﻟﺍ ﻲﺷﻼ﻿ﺗ"
-
-
-msgid "Mirror"
-msgstr "ﻞﺛﺎﻣ"
 
 
 msgctxt "MovieClip"
@@ -16184,6 +16017,10 @@ msgid "Channel"
 msgstr "ﺓﺎﻨﻗ"
 
 
+msgid "Key"
+msgstr "ﺡﺎﺘﻔﻣ"
+
+
 msgid "Marker"
 msgstr "ﺔﻣﻼ﻿ﻋ"
 
@@ -16192,6 +16029,7 @@ msgid "Material Specials"
 msgstr "ﺕﺎﻣﺎﺨﻟﺍ ﺕﺎﻓﺎﺿﺇ"
 
 
+msgctxt "Operator"
 msgid "Smooth"
 msgstr "ﻢﻋﺎﻧ"
 
@@ -16345,6 +16183,10 @@ msgid "Loose"
 msgstr "ﻖﻠﻄﻣ"
 
 
+msgid "Sharp"
+msgstr "ﺩﺎﺣ"
+
+
 msgid "Seam"
 msgstr "ﺓﺯﺭﺪﻟﺍ"
 
@@ -16407,6 +16249,10 @@ msgstr "ﻂﻘﻨﻟﺍ ﻥﻮﻟ ﺔﻘﺒﻃ ﻢﺳﺇ"
 
 msgid "Split Normals"
 msgstr "ﻢﻇﺍﻮﻨﻟﺍ ﻢﺴّﻗ"
+
+
+msgid "Smooth"
+msgstr "ﻢﻋﺎﻧ"
 
 
 msgid "Mesh Polygon"
@@ -17121,6 +16967,10 @@ msgid "Midlevel"
 msgstr "ﻂﺳﻮﺘﻤﻟﺍ ﻯﻮﺘﺴﻤﻟﺍ"
 
 
+msgid "Space"
+msgstr "ءﺎﻀﻓ"
+
+
 msgid "Texture Coordinates"
 msgstr "ﺞﻴﺴﻨﻟﺍ ﺕﺎﻴﺛﺍﺪﺣﺇ"
 
@@ -17244,11 +17094,6 @@ msgid "Curve"
 msgstr "ﻰﻨﺤﻨﻣ"
 
 
-msgctxt "Curve"
-msgid "Constant"
-msgstr "ﺖﺑﺎﺛ"
-
-
 msgid "Name of Parent Bone for hook (if applicable), also recalculates and clears offset"
 msgstr "ﺔﺣﺍﺯﻹ﻿ﺍ ﻂﺒﺿ ﻭ ﺏﺎﺴﺣ ﺪﻴﻌﺗ ﺎﻀﻳﺃ ،(ﻖﻴﺒﻄﺘﻠﻟ ﻞﺑﺎﻗ ﺍﺫﺇ) ﻑﺎﻄﺨﻠﻟ ﻞﺻﻷ﻿ﺍ ﺔﻤﻈﻋ ﻢﺳﺍ"
 
@@ -17263,10 +17108,6 @@ msgstr "ﺔﻄﻘﻨﻟﺍ ﺔﻓﺎﺜﻛ"
 
 msgid "Step"
 msgstr "ﺓﻮﻄﺨﻟﺍ"
-
-
-msgid "Shaded"
-msgstr "ﻞﻠﻈﻣ"
 
 
 msgid "Boundaries"
@@ -17637,6 +17478,10 @@ msgid "Show instances when particles are unborn"
 msgstr "ﺓﺪﻟﻮﺘﻣ ﺮﻴﻏ ﺕﺎﻴﺋﺰﺠﻟﺍ ﻥﻮﻜﺗ ﺎﻣﺪﻨﻋ ﺝﺫﺎﻤﻨﻟﺍ ﺮﻬﻇﺍ"
 
 
+msgid "World"
+msgstr "ﻢﻟﺎﻌﻟﺍ"
+
+
 msgid "Create instances from child particles"
 msgstr "ﺔﻴﻋﺮﻔﻟﺍ ﺕﺎﺌﻳﺰﺠﻟﺍ ﻦﻣ ﺝﺫﺎﻤﻧ ﺊﺸﻧﺍ"
 
@@ -17663,10 +17508,6 @@ msgstr "ﻢﻴﺴﺠﺘﻟﺍ ﺓﺩﺎﻋﺍ ﺮﻴﻐﻣ"
 
 msgid "Generate a new surface with regular topology that follows the shape of the input mesh"
 msgstr "ﻞﺧﺪﻤﻟﺍ ﻢﺴﺠﻤﻟﺍ ﻞﻜﺷ ﻊﺒﺘﺗ ﺔﻳﺩﺎﻴﺘﻋﺍ ﺔﻴﻠﻜﻴﻬﺑ ﺪﻳﺪﺟ ﺢﻄﺳ ﺪﻟّﻭ"
-
-
-msgid "Blocks"
-msgstr "ﻞﺘﻛ"
 
 
 msgid "Output a blocky surface with no smoothing"
@@ -18721,10 +18562,6 @@ msgid "Minimal value of correlation between matched pattern and reference that i
 msgstr "ﺔﺤﺟﺎﻧ ﺔﻘﺣﻼ﻿ﻣ ﻪﻧﺍ ﻰﻠﻋ ﻞﻣﺎﻌﻤﻟﺍ ﻊﺟﺮﻤﻟﺍ ﻭ ﻥﺭﺎﻘﻤﻟﺍ ﻂﻤﻨﻟﺍ ﻦﻴﺑ ﻂﺑﺍﺮﺗ ﺔﻤﻴﻗ ﻞﻗﺍ"
 
 
-msgid "Grease pencil data for this track"
-msgstr "ﺭﺎﺴﻤﻟﺍ ﺍﺬﻬﻟ ﺕﺎﻈﺣﻼ﻿ﻤﻟﺍ ﻢﻠﻗ ﺕﺎﻧﺎﻴﺑ"
-
-
 msgid "Has Bundle"
 msgstr "ﺔﻣﺰﺣ ﻪﻳﺪﻟ"
 
@@ -19097,10 +18934,6 @@ msgid "Channel Key"
 msgstr "ﺓﺎﻨﻘﻟﺍ ﺡﺎﺘﻔﻣ"
 
 
-msgid "RGB color space"
-msgstr "RGB ﻥﻮﻟ ﻝﺎﺠﻣ"
-
-
 msgid "High"
 msgstr "ﻲﻟﺎﻋ"
 
@@ -19349,10 +19182,6 @@ msgid "Red spillmap scale"
 msgstr "spillmap ﺔﻄﻳﺮﺧ ﻢﺠﺣ"
 
 
-msgid "Combine YCbCrA"
-msgstr "ﻊﻤﺠﻣ"
-
-
 msgid "Composite"
 msgstr "ﺐﻴﻛﺮﺗ"
 
@@ -19453,6 +19282,10 @@ msgid "Z-Scale"
 msgstr "Z ﻰﻠﻋ ﻢﻴﺠﺤﺗ"
 
 
+msgid "High quality"
+msgstr "ﺔﻴﻟﺎﻋ ﺓﺩﻮﺟ"
+
+
 msgid "Despeckle"
 msgstr "ﻊﻘﺒﻟﺍ ﻲﻐﻟﺍ"
 
@@ -19483,6 +19316,10 @@ msgstr "ﺶﻣﺎﻬﻟﺍ"
 
 msgid "Distance Key"
 msgstr "ﺪﻌﺑ"
+
+
+msgid "RGB color space"
+msgstr "RGB ﻥﻮﻟ ﻝﺎﺠﻣ"
 
 
 msgid "Double Edge Mask"
@@ -19565,10 +19402,6 @@ msgid "Flip X & Y"
 msgstr "X, Y ﻰﻠﻋ ﺲﻜﻋﺇ"
 
 
-msgid "Glare"
-msgstr "ﺞﻫﻮﺗ"
-
-
 msgid "Angle Offset"
 msgstr "ﺔﻳﻭﺍﺰﻟﺍ ﺔﺣﺍﺯﺍ"
 
@@ -19587,10 +19420,6 @@ msgstr "ﺕﻻ﻿ﺎﻴﺧ"
 
 msgid "Simple Star"
 msgstr "ﺔﻄﻴﺴﺑ ﺔﻤﺠﻧ"
-
-
-msgid "Total number of streaks"
-msgstr "ﺔﻌﺷﻷ﻿ﺍ ﺩﺪﻋ ﻞﺻﺎﺣ"
 
 
 msgid "Rotate 45"
@@ -19830,22 +19659,6 @@ msgid "Coordinate space to scale relative to"
 msgstr "ـﻟ ﺎﻴﺒﺴﻧ ءﺎﻀﻔﻟﺍ ﻲﺛﺍﺪﺣﺇ ﻢﻴﺠﺤﺗ"
 
 
-msgid "Separate HSVA"
-msgstr "HSVA ﻞﺼﻓﺇ"
-
-
-msgid "Separate RGBA"
-msgstr "RGBA ﻞﺼﻓﺇ"
-
-
-msgid "Separate YCbCrA"
-msgstr "YCCA ﻞﺼﻓﺇ"
-
-
-msgid "Separate YUVA"
-msgstr "YUVA ﻞﺼﻓﺇ"
-
-
 msgid "Separate XYZ"
 msgstr "XYZ ﻞﺼﻓﺇ"
 
@@ -19912,10 +19725,6 @@ msgstr "ﻲﺒﺴﻧ ﺭﺎﻃﺍ"
 
 msgid "Absolute Frame"
 msgstr "ﻖﻠﻄﻤﻟﺍ ﺭﺎﻃﻹ﻿ﺍ"
-
-
-msgid "Wrapping"
-msgstr "ءﺎﺴﻛﻹ﻿ﺍ"
 
 
 msgid "X Axis"
@@ -20166,14 +19975,6 @@ msgid "Auto Update"
 msgstr "ﺚﻳﺪﺤﺗ"
 
 
-msgid "Separate HSV"
-msgstr "HSVA ﻞﺼﻓﺇ"
-
-
-msgid "Separate RGB"
-msgstr "RGB ﻞﺼﻓﺇ"
-
-
 msgid "Subsurface Scattering"
 msgstr "ﻲﺤﻄﺳ ﺖﺤﺗ ﺭﺎﺸﺘﻧﺍ"
 
@@ -20366,8 +20167,16 @@ msgid "Wave Type"
 msgstr "ﺔﺟﻮﻤﻟﺍ ﻉﻮﻧ"
 
 
+msgid "Bands"
+msgstr "ﻡﺰﺣ"
+
+
 msgid "Use standard wave texture in bands"
 msgstr "ﻡﺰﺤﻛ ﻲﺟﺫﻮﻤﻨﻟﺍ ﻲﺟﻮﻤﻟﺍ ﺞﻴﺴﻨﻟﺍ ﻡﺪﺨﺘﺳﺍ"
+
+
+msgid "Rings"
+msgstr "ﺕﺎﻘﻠﺤﻟﺍ"
 
 
 msgid "Use wave texture in rings"
@@ -20414,8 +20223,8 @@ msgid "Checker"
 msgstr "ﺔﻌﻗﺭ"
 
 
-msgid "Curve Time"
-msgstr "ﻰﻨﺤﻨﻤﻟﺍ ﻦﻣﺯ"
+msgid "Separate RGBA"
+msgstr "RGBA ﻞﺼﻓﺇ"
 
 
 msgid "Value to Normal"
@@ -21266,6 +21075,22 @@ msgstr "ﺔﻟﺎﻌﻔﻟﺍ ﺔﻋﻮﻤﺠﻤﻟﺍ ﻲﻓ"
 msgctxt "Operator"
 msgid "Set Keyframe Type"
 msgstr "ﺡﺎﺘﻔﻤﻟﺍ ﻉﻮﻧ ﻊﺿ"
+
+
+msgid "Breakdown"
+msgstr "ﻲﺋﺪﺒﻣ"
+
+
+msgid "Extreme"
+msgstr "ﻲﺋﺎﻬﻧ"
+
+
+msgid "Jitter"
+msgstr "!"
+
+
+msgid "Generated"
+msgstr "ﺪﻟﻮﺘﻣ"
 
 
 msgctxt "Operator"
@@ -22872,11 +22697,6 @@ msgid "Set shading to smooth"
 msgstr "ﻢﻋﺎﻨﻟ ﻞﻴﻠﻈﺘﻟﺍ ﻊﺿ"
 
 
-msgctxt "Operator"
-msgid "Smooth"
-msgstr "ﻢﻋﺎﻧ"
-
-
 msgid "Flatten angles of selected points"
 msgstr "ﺓﺭﺎﺘﺨﻤﻟﺍ ﻂﻘﻨﻠﻟ ﺎﻳﺍﻭﺰﻟﺍ ﺢﻄّﺳ"
 
@@ -23104,11 +22924,6 @@ msgstr "ﺔﺼﺼﺨﻤﻟﺍ ﻂﺑﺍﻭﺮﻟﺍ ﺡﺯﺃ"
 
 msgid "Move the active bookmark up/down in the list"
 msgstr "ﺔﻤﺋﺎﻘﻟﺍ ﻲﻓ ﺖﺤﺘﻟ/ﻕﻮﻔﻟ ﻝﺎﻌّﻔﻟﺍ ﺺﺼﺨﻤﻟﺍ ﻂﺑﺍﺮﻟﺍ ﺡﺯﺃ"
-
-
-msgctxt "Operator"
-msgid "Cancel File Load"
-msgstr "ﻒﻠﻤﻟﺍ ﻞﻴﻤﺤﺗ ﻎﻟﺃ"
 
 
 msgctxt "Operator"
@@ -23381,10 +23196,6 @@ msgid "Set Cursor"
 msgstr "ﺮﺷﺆﻤﻟﺍ ﻊﺿ"
 
 
-msgid "Remove"
-msgstr "ﺔﻟﺍﺯﺇ"
-
-
 msgid "Flatten"
 msgstr "ﺢﻄّﺳ"
 
@@ -23468,12 +23279,18 @@ msgid "Grease Pencil Draw"
 msgstr "ﺕﺎﻈﺣﻼ﻿ﻤﻟﺍ ﻢﻠﻗ ﻢﺳﺭﺍ"
 
 
-msgid "Stroke Mode"
-msgstr "ﺐﻴﻄﺸﺘﻟﺍ ﻊﺿﻭ"
+msgctxt "Operator"
+msgid "Invert"
+msgstr "ﺲﻜﻋﺇ"
 
 
 msgid "Invert action of brush for duration of stroke"
 msgstr "ﺔﺒﻄﺸﻟﺍ ﺓﺪﻤﻟ ﺓﺎﺷﺮﻔﻟﺍ ﻞﻤﻋ ﺲﻜﻋﺍ"
+
+
+msgctxt "Operator"
+msgid "Erase"
+msgstr "ﺢﺴﻣﺇ"
 
 
 msgid "Flat"
@@ -23492,10 +23309,6 @@ msgstr "ﻞﻠّﺣ"
 msgctxt "Operator"
 msgid "Duplicate Strokes"
 msgstr "ﺕﺎﺒﻄﺸﻟﺍ ﺭﺮّﻛ"
-
-
-msgid "Only Selected"
-msgstr "ﺭﺎﻴﺘﺧﻻ﻿ﺍ ﻂﻘﻓ"
 
 
 msgctxt "Operator"
@@ -24478,6 +24291,10 @@ msgid "Cut"
 msgstr "ﻊﻄّﻗ"
 
 
+msgid "Only Selected"
+msgstr "ﺭﺎﻴﺘﺧﻻ﻿ﺍ ﻂﻘﻓ"
+
+
 msgid "Only cut selected geometry"
 msgstr "ﻂﻘﻓ ﺭﺎﺘﺨﻤﻟﺍ ﻢﺴﺠﻟﺍ ﻊﻄﻗﺍ"
 
@@ -24771,6 +24588,10 @@ msgstr "ﺔﻓﺎﺤﻟﺍ ﺭﺎﻴﺘﺣﺍ ﻂﻤﻧ"
 
 msgid "Face selection mode"
 msgstr "ﻪﺟﻮﻟﺍ ﺭﺎﻴﺘﺧﺍ ﻊﺿﻭ"
+
+
+msgid "Expand"
+msgstr "ﻊﺳﻮﻣ"
 
 
 msgid "Multiple Faces"
@@ -25138,6 +24959,14 @@ msgid "Exit Tweak Mode"
 msgstr "ﻂﺒﻀﻟﺍ ﻊﺿﻭ ﻦﻣ ﺝﺮﺧﺍ"
 
 
+msgid "Source color"
+msgstr "ﺭﺪﺼﻤﻟﺍ ﻥﻮﻟ"
+
+
+msgid "Gamma Corrected"
+msgstr "ﺔﻟﺪّﻌﻣ ﺓﺭﺎﻧﺇ"
+
+
 msgctxt "Operator"
 msgid "Add File Node"
 msgstr "ﻒﻠﻣ ﻒﺿﺍ ﺓﺪﻘﻋ"
@@ -25352,14 +25181,6 @@ msgstr "ﺔﻴﻄﻐﺘﻟﺍ ﻊﺿﻭ"
 
 msgid "Current"
 msgstr "ﻲﻟﺎﺤﻟﺍ"
-
-
-msgid "Exponent"
-msgstr "ﻒﻋﺎﻀﻤﻟﺍ"
-
-
-msgid "Wrap"
-msgstr "ﻒﻠﻟﺍ"
 
 
 msgctxt "Operator"
@@ -26589,11 +26410,6 @@ msgid "Use the mouse to sample a color in the image"
 msgstr "ﺓﺭﻮﺼﻟﺍ ﻲﻓ ﻥﻮﻟ ﺔﻨﻳﺎﻌﻤﻟ ﺓﺭﺄﻔﻟﺍ ﻡﺪﺨﺘﺳﺍ"
 
 
-msgctxt "Operator"
-msgid "Texture Paint Toggle"
-msgstr "ﺞﻴﺴﻨﻟﺍ ﻦﻳﻮﻠﺗ ﺐﻠﻗ"
-
-
 msgid "Blur strength per iteration"
 msgstr "ﺭﺍﺮﻜﺗ ﻞﻜﻟ ﺔﻴﺑﺎﺒﻀﻟﺍ ﺓﻮﻗ"
 
@@ -26670,6 +26486,10 @@ msgstr "ﻥﺯﻮﻟﺍ ﻢﺳﺭ ﺕﺎﻨﻴﻋ ﺔﻋﻮﻤﺠﻣ "
 msgctxt "Operator"
 msgid "Set Weight"
 msgstr "ﻥﺯﻮﻟﺍ ﺩﺪّﺣ"
+
+
+msgid "Palette"
+msgstr "ﻥﺍﻮﻟﻻ﻿ﺍ ﺡﻮﻟ"
 
 
 msgctxt "Operator"
@@ -27698,6 +27518,11 @@ msgid "Swap Inputs"
 msgstr "ﻞﺧﺪﻟﺍ ﻝﺪّﺑ"
 
 
+msgctxt "Operator"
+msgid "Deselect All"
+msgstr "ءﻲﺷﻻ﻿/ﻞﻜﻟﺍ ﺭﺎﺘﺧﺍ"
+
+
 msgid "Unmute (un)selected strips"
 msgstr "ﺓﺭﺎﺘﺨﻣ ﺮﻴﻐﻟﺍ ﺔﻃﺮﺷﻷ﻿ﺍ ﻞﻌّﻓ"
 
@@ -28103,14 +27928,6 @@ msgid "Drop Color"
 msgstr "ﻥﻮﻠّﻟﺍ ﻖﻟﺃ"
 
 
-msgid "Source color"
-msgstr "ﺭﺪﺼﻤﻟﺍ ﻥﻮﻟ"
-
-
-msgid "Gamma Corrected"
-msgstr "ﺔﻟﺪّﻌﻣ ﺓﺭﺎﻧﺇ"
-
-
 msgctxt "Operator"
 msgid "Edit Source"
 msgstr "ﺭﺪﺼﻤﻟﺍ ﺭﺮﺣ"
@@ -28200,6 +28017,10 @@ msgstr "Y ﻮﻫ ﺐﻄﻘﻟﺍ ﺮﻔﺻ"
 
 msgid "Direction of the sphere or cylinder"
 msgstr "ﺔﻧﺍﻮﻄﺳﻻ﻿ﺍ ﻭﺍ ﺓﺮﻜﻟﺍ ﻩﺎﺠﺗﺍ"
+
+
+msgid "Pinch"
+msgstr "ﺪﻌّﺟ"
 
 
 msgid "Radius of the sphere or cylinder"
@@ -28498,6 +28319,10 @@ msgid "Snap Cursor to Selected"
 msgstr "ﺭﺎﺘﺨﻤﻠﻟ ﺮﺷﺆﻤﻟﺍ ﻱﺫﺎﺣ"
 
 
+msgid "Rendered"
+msgstr "ﺓﺮﻴّﺼﻣ"
+
+
 msgid "All Regions"
 msgstr "ﺕﺎﻗﺎﻄﻨﻟﺍ"
 
@@ -28599,6 +28424,10 @@ msgid "Name of the pie menu"
 msgstr "ﻊﻄﻘﻟﺍ ﺔﻤﺋﺎﻗ ﻢﺳﺇ"
 
 
+msgid "Remove"
+msgstr "ﺔﻟﺍﺯﺇ"
+
+
 msgid "Save a Collada file"
 msgstr "Collada ﻒﻠﻣ ﻆﻔﺣﺍ"
 
@@ -28653,6 +28482,10 @@ msgstr "ﻕﺎﻴﺴﻟﺍ ﺕﺎﻔﺻ"
 
 msgid "Cycle backwards"
 msgstr "ﺎﻴﺴﻜﻋ ﺭﻭَﺩ"
+
+
+msgid "Wrap"
+msgstr "ﻒﻠﻟﺍ"
 
 
 msgid "Text to display in header during scale"
@@ -28965,8 +28798,24 @@ msgid "Image Paint"
 msgstr "ﺓﺭﻮﺼﻟﺍ ﻢﺳﺭ"
 
 
+msgid "Clone Alpha"
+msgstr "ﺎﻔﻟﻷ﻿ﺍ ﺦﺴﻧﺍ"
+
+
+msgid "Opacity of clone image display"
+msgstr "ﺓﺭﻮﺼﻟﺍ ﺦﺴﻧ ﺽﺮﻋ ﺔﻣﻮﺘﻋ"
+
+
+msgid "Clone Image"
+msgstr "ﺓﺭﻮﺼﻟﺍ ﺦﺴﻧﺍ"
+
+
 msgid "Image used as clone source"
 msgstr "ﺦﺴﻧ ﺭﺪﺼﻤﻛ ﺓﺭﻮﺼﻟﺍ ﻡﺪﺨﺘﺴﺗ"
+
+
+msgid "Clone Offset"
+msgstr "ﺦﺴﻨﻟﺍ ﺔﺣﺍﺯﺍ"
 
 
 msgid "Dither"
@@ -29041,20 +28890,12 @@ msgid "Use Deform Only"
 msgstr "ﻂﻘﻓ ﻊﻳﻮﻄﺘﻟﺍ ﻡﺪﺨﺘﺳﺍ"
 
 
-msgid "UV Sculpting"
-msgstr "UV ـﻟﺍ ﺖﺤﻧ"
-
-
 msgid "Restrict"
 msgstr "ﺮﺼﺣﺃ"
 
 
 msgid "Palette Color"
 msgstr "ﻥﻮﻠﻟﺍ ﺔﺣﻮﻟ"
-
-
-msgid "Transform Orientations"
-msgstr "ﻝﻮﺤﺘﻟﺍ ﺕﺎﻫﺎﺠﺗﺍ"
 
 
 msgid "Wire Color"
@@ -29067,6 +28908,10 @@ msgstr "ﺮﻴﻴﺼﺗ ﺮﻤﻣ"
 
 msgid "Motion Tracking"
 msgstr "ﺔﻛﺮﺤﻟﺍ ﺔﻘﺣﻼ﻿ﻣ"
+
+
+msgid "Transform Orientations"
+msgstr "ﻝﻮﺤﺘﻟﺍ ﺕﺎﻫﺎﺠﺗﺍ"
 
 
 msgid "Bone Constraints"
@@ -29197,10 +29042,6 @@ msgid "Text Boxes"
 msgstr "ﺔﺑﺎﺘﻜﻟﺍ ﺕﺎﻧﺎﺧ"
 
 
-msgid "Slot"
-msgstr "ﺔﺤﺘﻓ"
-
-
 msgid "Filters"
 msgstr "ﺕﺎﻴﻔﺼﻣ"
 
@@ -29297,10 +29138,6 @@ msgid "Self Collision"
 msgstr "ﻲﺗﺍﺬﻟﺍ ﻞﻋﺎﻔﺘﻟﺍ"
 
 
-msgid "Indirect Lighting"
-msgstr "ﺓﺮﺷﺎﺒﻣ ﺮﻴﻏ ﺓءﺎﺿﺇ"
-
-
 msgid "Shadows"
 msgstr "ﻝﻼ﻿ﻈﻟﺍ"
 
@@ -29357,6 +29194,10 @@ msgid "Panel Colors"
 msgstr "ﺡﺍﻮﻟﻻ﻿ﺍ ﻥﺍﻮﻟﺍ"
 
 
+msgid "Shaded"
+msgstr "ﻞﻠﻈﻣ"
+
+
 msgid "Styles"
 msgstr "ﺐﻴﻟﺎﺳﻷ﻿ﺍ"
 
@@ -29405,11 +29246,6 @@ msgstr "ﺮﻌﺸﻟﺍ ﺕﺎﺌﻳﺰﺟ ﻞﻘﺛﺃ"
 msgctxt "Operator"
 msgid "Box Mask"
 msgstr "ﻕﻭﺪﻨﺼﺑ ﻊﻨّﻗ"
-
-
-msgctxt "Operator"
-msgid "Erase"
-msgstr "ﺢﺴﻣﺇ"
 
 
 msgctxt "Operator"
@@ -29596,14 +29432,6 @@ msgstr "ﺱﻭﺅﺮﻟﺍ ﺭﺎﻴﺘﺧﺇ ﻊﺿﻭ"
 
 msgid "Shape Object"
 msgstr "ﻞﻜﺸﻟﺍ ﻦﺋﺎﻛ"
-
-
-msgid "Comb"
-msgstr "ﻂﺸﻣ"
-
-
-msgid "Puff"
-msgstr "ﺦﻔّﻧ"
 
 
 msgid "Auto Velocity"
@@ -30052,10 +29880,6 @@ msgstr "ﻑﺪﻬﻟﺍ ﻦﺋﺎﻜﻟﺍ ﻰﻠﻋ ﺕﺎﺌﻳﺰﺠﻟﺍ �
 
 msgid "Cache Compression"
 msgstr "ﻖﺒﺴﻤﻟﺍ ﺏﺎﺴﺤﻟﺍ ﻂﻐﺿ"
-
-
-msgid "No compression"
-msgstr "ﻂﻐﺿ ﻻ﻿"
 
 
 msgid "Fast but not so effective compression"
@@ -30818,10 +30642,6 @@ msgid "Overall sensitivity of the 3D Mouse for panning"
 msgstr "ﻚﻳﺮﺤﺘﻠﻟ ﺔﻴﺛﻼ﻿ﺜﻟﺍ ﺓﺭﺄﻔﻠﻟ ﺔﻣﺎﻌﻟﺍ ﺔﻴﺳﺎﺴﺤﻟﺍ"
 
 
-msgid "Show Navigation Guide"
-msgstr "ﺭﺎﺤﺑﻻ﻿ﺍ ﻞﻴﻟﺩ ﺮﻬﻇﺍ"
-
-
 msgid "Display the center and axis during rotation"
 msgstr "ﻥﺍﺭﻭﺪﻟﺍ ءﺎﻨﺛﺃ ﺭﻮﺤﻤﻟﺍ ﻭ ﺰﻛﺮﻤﻟﺍ ﺮﻬﻇﺃ"
 
@@ -31400,10 +31220,6 @@ msgstr "ﺔﻴﺋﺎﻀﻓ ﻞﺻﺍﻮﻓ ﻡﺪﺨﺘﺳﺍ"
 
 msgid "Use BVH spatial splits: longer builder time, faster render"
 msgstr "ﻉﺮﺳﺍ ﺮﻴﻴﺼﺗ ﻦﻜﻟ ,ءﺎﻨﺒﻟﺍ ﻲﻓ ﻝﻮﻃﺍ ﺖﻗﻭ :ﺔﻴﺋﺎﻀﻔﻟﺍ BVH ﺕﺎﻤﻴﺴﻘﺗ ﻡﺪﺨﺘﺳﺍ"
-
-
-msgid "High quality"
-msgstr "ﺔﻴﻟﺎﻋ ﺓﺩﻮﺟ"
 
 
 msgid "Device to use for rendering"
@@ -32478,10 +32294,6 @@ msgid "Number of samples"
 msgstr "ﺕﺎﻨﻴﻌﻟﺍ ﺩﺪﻋ"
 
 
-msgid "Factor for ambient occlusion blending"
-msgstr "ﻂﻴﺤﻤﻟﺍ ﺱﺎﺒﺤﻧﻻ﻿ﺍ ﺝﺰﻣ ﻞﻣﺎﻋ"
-
-
 msgid "Scene Render View"
 msgstr "ﺪﻬﺸﻤﻠﻟ ﺮﻴﻴﺼﺘﻟﺍ ﺮﻈﻨﻣ"
 
@@ -32494,352 +32306,12 @@ msgid "Disable or enable the render view"
 msgstr "ﺮﻴﻴﺼﺘﻟﺍ ﺮﻈﻨﻣ ﻞﻄّﻋ ﻭﺃ ﻞﻌّﻓ"
 
 
-msgid "Sequence strip in the sequence editor"
-msgstr "ﻂﺋﺍﺮﺸﻟﺍ ﺭﺮﺤﻣ ﻲﻓ ﻞﺴﻠﺴﺘﻟﺍ ﻂﻳﺮﺷ"
-
-
-msgid "Modifiers affecting this strip"
-msgstr "ﻂﻳﺮﺸﻟﺍ ﺍﺬﻬﺑ ﺓﺮﺛﺆﻤﻟﺍ ﺕﺍﺮﻴﻐﻤﻟﺍ"
-
-
-msgctxt "Sequence"
-msgid "Image"
-msgstr "ﺓﺭﻮﺻ"
-
-
-msgctxt "Sequence"
-msgid "Meta"
-msgstr "ﻊﻤّﺠﺗ"
-
-
-msgctxt "Sequence"
-msgid "Scene"
-msgstr "ﺪﻬﺸﻣ"
-
-
-msgctxt "Sequence"
-msgid "Movie"
-msgstr "ﻢﻠﻔﻟﺍ"
-
-
-msgctxt "Sequence"
-msgid "Clip"
-msgstr "ﺔﺻﺎﺼﻗ"
-
-
-msgctxt "Sequence"
-msgid "Mask"
-msgstr "ﻉﺎﻨﻗ"
-
-
-msgctxt "Sequence"
-msgid "Sound"
-msgstr "ﺕﻮﺻ"
-
-
-msgctxt "Sequence"
-msgid "Cross"
-msgstr "ﻊﻃﺎﻘﺗ"
-
-
-msgid "Use Default Fade"
-msgstr "ﻲﺿﺍﺮﺘﻓﻹ﻿ﺍ ﻝﺅﺎﻀﺘﻟﺍ ﻡﺪﺨﺘﺳﺍ"
-
-
-msgid "Use Linear Modifiers"
-msgstr "ﻡﺪﺨﺘﺴﻤﻟﺍ ﻞﺒﻗ ﻦﻣ ﻝﺪﻌﻣ"
-
-
-msgid "Effect Sequence"
-msgstr "ﺮﻴﺛﺄﺘﻟﺍ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Representation of alpha information in the RGBA pixels"
-msgstr "ﺔﻴﻓﺎﻔﺸﻟﺍ ﻭ ﻥﺍﻮﻟﻷ﻿ﺍ ﺕﻼ﻿ﺴﻜﺑ ﻲﻓ ﺎﻔﻟﻷ﻿ﺍ ﺕﺎﻣﻮﻠﻌﻣ ﻞﻴﺜﻤﺗ"
-
-
-msgid "RGB channels in transparent pixels are unaffected by the alpha channel"
-msgstr "ﺎﻔﻟﻷ﻿ﺍ ﺓﺎﻨﻗ ﻲﻓ ﻒﻋﺎﻀﺗ ﺔﻓﺎﻔﺷ ﻥﺍﻮﻟﺃ ﺕﻼ﻿ﺴﻜﺑ"
-
-
-msgid "RGB channels in transparent pixels are multiplied by the alpha channel"
-msgstr "ﺎﻔﻟﻷ﻿ﺍ ﺓﺎﻨﻗ ﻲﻓ ﻒﻋﺎﻀﺗ ﺔﻓﺎﻔﺷ ﻥﺍﻮﻟﺃ ﺕﻼ﻿ﺴﻜﺑ"
-
-
-msgid "Multiply Colors"
-msgstr "ﻥﺍﻮﻟﻻ﻿ﺍ ﻒﻋﺎﺿ"
-
-
-msgid "Strobe"
-msgstr "ﺭﻭّﺪﺘﻟﺍ"
-
-
-msgid "Only display every nth frame"
-msgstr "ﺭﺎﻃﺍ ﺍﺬﻛ ﻞﻛ ﻂﻘﻓ ﺮﻬﻇﺍ"
-
-
-msgid "Flip on the X axis"
-msgstr "X ﺭﻮﺤﻣ ﻰﻠﻋ ﺐﻠﻗﺍ"
-
-
-msgid "Flip on the Y axis"
-msgstr "Y ﺭﻮﺤﻣ ﻰﻠﻋ ﺐﻠﻗﺍ"
-
-
-msgid "Convert Float"
-msgstr "ﻱﺮﺴﻜﻟ ﻝﻮّﺣ"
-
-
-msgid "Reverse Frames"
-msgstr "ﺮﻃﻷ﻿ﺍ ﺲﻜﻋﺇ"
-
-
-msgid "Add Sequence"
-msgstr "ﻞﺴﻠﺴﺗ ﻒﺿﺍ"
-
-
-msgid "Animation End Offset"
-msgstr "ﻙﺮﺤﺘﻟﺍ ﺔﻳﺎﻬﻧ ﺔﺣﺍﺯﺍ"
-
-
-msgid "Animation end offset (trim end)"
-msgstr "(ﺔﻳﺎﻬﻨﻟﺍ ﺺﻗ) ﻙﺮﺤﺘﻟﺍ ﺔﻳﺎﻬﻧ ﺔﺣﺍﺯﺍ"
-
-
-msgid "Animation Start Offset"
-msgstr "ﻙﺮﺤﺘﻟﺍ ﺔﻳﺍﺪﺑ ﺔﺣﺍﺯﺍ"
-
-
-msgid "Animation start offset (trim start)"
-msgstr "(ﺔﻳﺍﺪﺒﻟﺍ ﺺﻗ) ﻙﺮﺤﺘﻟﺍ ﺔﻳﺍﺪﺑ ﺔﺣﺍﺯﺍ"
-
-
-msgid "Alpha Over Sequence"
-msgstr "ﻕﻮﻓ ﺎﻔﻟﺍ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Alpha Under Sequence"
-msgstr "ﺖﺤﺗ ﺎﻔﻟﺍ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Color Sequence"
-msgstr "ﻥﻮﻠﻟﺍ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Cross Sequence"
-msgstr "ﻊﻃﺎﻘﻟﺍ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Gamma Cross Sequence"
-msgstr "ﺓﺭﺎﻧﻻ﻿ﺍ ﻊﻃﺎﻗ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Glow Sequence"
-msgstr "ﺞﻫﻮﻟﺍ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Blur Distance"
-msgstr "ﺪﻌﺒﻟﺍ ﺐﺒﺿ"
-
-
-msgid "Boost Factor"
-msgstr "ﻢﻴﻋﺪﺘﻟﺍ ﻞﻣﺎﻌﻣ"
-
-
-msgid "Brightness multiplier"
-msgstr "ﻉﻮﻄﺴﻟﺍ ﻒﻋﺎﻀﻣ"
-
-
-msgid "Brightness limit of intensity"
-msgstr "ﻉﻮﻄﺴﻠﻟ ﺓﺪّﺸﻟﺍ ﺪﺣ"
-
-
-msgid "Accuracy of the blur effect"
-msgstr "ﺏﺎﺒﻀﻟﺍ ﺮﻴﺛﺄﺗ ﺔﻗﺩ"
-
-
-msgid "Only Boost"
-msgstr "ﻢﻋّﺩ ﻂﻘﻓ"
-
-
-msgid "Sequence strip to perform multicam editing"
-msgstr "ﺓﺩﺪﻌﺘﻣ ﺕﺍﺮﻴﻤﻛ ﺮﻳﺮﺤﺘﺑ ﻡﺎﻴﻘﻠﻟ ﻞﺴﻠﺴﺗ ﻂﻳﺮﺷ"
-
-
-msgid "Multiply Sequence"
-msgstr "ﻒﻋﺎﻀﺘﻟﺍ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Over Drop Sequence"
-msgstr "ﻕﻮﻓ ﺖﻠﻓﺍ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Sequence strip to control the speed of other strips"
-msgstr "ﻯﺮﺧﻻ﻿ﺍ ﺔﻃﺮﺷﻻ﻿ﺍ ﺔﻋﺮﺴﺑ ﻢﻜﺤﺘﻤﻟﺍ ﻞﺴﻠﺴﺘﻟﺍ ﻂﻳﺮﺷ"
-
-
-msgid "Subtract Sequence"
-msgstr "ﺡﺮﻃ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Text Sequence"
-msgstr "ﻞﺴﻠﺴﺗ ﺺﻧ"
-
-
-msgid "Sequence strip creating text"
-msgstr "ﻞﺴﻠﺴﺘﻟﺍ ﻂﻳﺮﺸﻟ ﺺﻧ ءﺎﺸﻧﺍ"
-
-
-msgid "Location of the text"
-msgstr "ﺺﻨﻟﺍ ﻊﻗﻮﻣ"
-
-
-msgid "Outline Width"
-msgstr "ﻂﻴﺤﻤﻟﺍ ﻂﺨﻟﺍ ﺽﺮﻋ"
-
-
-msgid "Transform Sequence"
-msgstr "ﻝﻮّﺤﺗ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Bilinear interpolation"
-msgstr "ﻲﻄﺧ ﺪﻴﻟﻮﺗ"
-
-
-msgid "Bicubic interpolation"
-msgstr "ﻲﺒﻴﻌﻜﺗ ﺪﻴﻟﻮﺗ"
-
-
-msgid "Translate X"
-msgstr "X ﺡﺯﺇ"
-
-
-msgid "Translate Y"
-msgstr "Y ﺡﺯﺇ"
-
-
-msgid "Translation Unit"
-msgstr "ﺔﺣﺍﺯﻹ﻿ﺍ ﺓﺪﺣﻭ"
-
-
-msgid "Wipe Sequence"
-msgstr "ﺢﺴﻤﻟﺍ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Sequence strip creating a wipe transition"
-msgstr "ﻞﺴﻠﺴﺘﻟﺍ ﻂﻳﺮﺸﻟ ﻲﺤﺴﻣ ﻝﺎﻘﺘﻧﺍ ءﺎﺸﻧﺍ"
-
-
-msgid "Blur Width"
-msgstr "ﺏﺎﺒﻀﻟﺍ ﺽﺮﻋ"
-
-
-msgid "Mask Sequence"
-msgstr "ﻉﺎﻨﻘﻟﺍ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Meta Sequence"
-msgstr "ﻊﻤّﺠﺗ ﻞﺴﻠﺴﺗ"
-
-
-msgid "MovieClip Sequence"
-msgstr "ﻢﻠﻔﻟﺍ ﺔﺻﺎﺼﻗ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Sequence strip to load a video from the clip editor"
-msgstr "ﻢﻠﻔﻟﺍ ﺔﺻﺎﺼﻗ ﺭﺮﺤﻣ ﻦﻣ ﻮﻳﺪﻴﻓ ﻞﻴﻤﺤﺘﻟ ﻞﺴﻠﺴﺘﻟﺍ ﻂﻳﺮﺷ"
-
-
-msgid "Stabilize 2D Clip"
-msgstr "ﻲﺋﺎﻨﺜﻟﺍ ﺔﺻﺎﺼﻗ ﺖﺒّﺛ"
-
-
-msgid "Undistort Clip"
-msgstr "ﺔﺻﺎﺼﻘﻟﺍ ﻩﻮّﺸﺗ ﻲﻐﻟﺍ"
-
-
-msgid "Use the undistorted version of the clip"
-msgstr "ﺔﺻﺎﺼﻘﻠﻟ ﺔﻫﻮّﺸﻣ ﺮﻴﻐﻟﺍ ﺔﺨﺴﻨﻟﺍ ﻡﺪﺨﺘﺳﺍ"
-
-
-msgid "Movie Sequence"
-msgstr "ﻢﻠﻔﻟﺍ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Stream Index"
-msgstr "ﻖﻓﺪﺘﻟﺍ ﺮﺷﺆﻣ"
-
-
-msgid "Scene Sequence"
-msgstr "ﺪﻬﺸﻤﻟﺍ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Camera Override"
-msgstr "ﺍﺮﻴﻣﺎﻜﻟﺍ ﺯﻭﺎﺠﺗ"
-
-
-msgid "Sound Sequence"
-msgstr "ﺕﻮﺼﻟﺍ ﻞﺴﻠﺴﺗ"
-
-
-msgid "Sequence strip defining a sound to be played over a period of time"
-msgstr "ﻦﻣﺰﻟﺍ ﻦﻣ ﺓﺮﺘﻓ ﻰﻠﻋ ﺕﻮﺼﻟﺍ ﺽﺮﻋ ﻒﻳﺮﻌﺘﻟ ﻞﺴﻠﺴﺗ ﻂﻳﺮﺷ"
-
-
-msgid "Sequence Color Balance Data"
-msgstr "ﻞﺴﻠﺴﺘﻠﻟ ﻥﻮﻠﻟﺍ ﻥﺯﺍﻮﺗ ﺕﺎﻧﺎﻴﺑ"
-
-
-msgid "Sequence Crop"
-msgstr "ﻞﺴﻠﺴﺘﻟﺍ ﺺﻗ"
-
-
 msgid "Sequencer's active strip"
 msgstr "ﻂﺋﺍﺮﺸﻟﺍ ﺭﺮﺤﻤﻟ ﻝﺎﻌﻔﻟﺍ ﻂﻳﺮﺸﻟﺍ"
 
 
 msgid "Proxy Directory"
 msgstr "ﺏﻭﺪﻨﻤﻟﺍ ﺭﺎﺴﻣ"
-
-
-msgid "All Sequences"
-msgstr "ﺕﻼ﻿ﺴﻠﺴﺘﻟﺍ ﻞﻛ"
-
-
-msgid "Mask Strip"
-msgstr "ﻉﺎﻨﻗ ﻂﻳﺮﺷ"
-
-
-msgid "Strip used as mask input for the modifier"
-msgstr "ﺮﻴّﻐﻤﻠﻟ ﻉﺎﻨﻘﻟﺍ ﻞﺧﺪﻛ ﻡﺪﺨﺘﺴﻤﻟﺍ ﻂﻳﺮﺸﻟﺍ"
-
-
-msgid "Mask Input Type"
-msgstr "ﻉﺎﻨﻘﻟﺍ ﻞﺧﺩ ﻉﻮﻧ"
-
-
-msgid "Type of input data used for mask"
-msgstr "ﻉﺎﻨﻘﻠﻟ ﺔﻣﺪﺨﺘﺴﻤﻟﺍ ﻝﺎﺧﺩﻻ﻿ﺍ ﺕﺎﻧﺎﻴﺑ ﻉﻮﻧ"
-
-
-msgid "Use mask ID as mask input"
-msgstr "ﻉﺎﻨﻘﻟﺍ ﻞﺧﺪﻛ ﻉﺎﻨﻘﻟﺍ ﻑﺮﻌﻣ ﻡﺪﺨﺘﺳﺍ"
-
-
-msgid "Mute this modifier"
-msgstr "ﺮﻴّﻐﻤﻟﺍ ﺍﺬﻫ ﺊﻔﻃﺃ"
-
-
-msgid "Mute expanded settings for the modifier"
-msgstr "ﺮﻴّﻐﻤﻠﻟ ﺔﺣﻮﺘﻔﻤﻟﺍ ﺕﺍﺩﺍﺪﻋﻻ﻿ﺍ ﺊﻔﻃﺍ"
-
-
-msgid "Overwrite existing proxy files when building"
-msgstr "ءﺎﻨﺒﻟﺍ ﺪﻨﻋ ﺓﺪﺟﺍﻮﺘﻤﻟﺍ ﺏﻭﺪﻨﻤﻟﺍ ﺕﺎﻔﻠﻣ ﻝﺪﺒﺘﺳﺇ"
-
-
-msgid "Use a custom directory to store data"
-msgstr "ﺕﺎﻧﺎﻴﺒﻟﺍ ﻦﻳﺰﺨﺘﻟ ﺺﺼﺨﻣ ﺪﻠﺠﻣ ﻡﺪﺨﺘﺳﺍ"
 
 
 msgid "Show Cache"
@@ -32868,6 +32340,10 @@ msgstr "ﻲﻨﻜﺳ ﺝﺭﺪﺗ"
 
 msgid "Sepia"
 msgstr "ﻦﻛﺍﺩ ﻲﻨﺑ"
+
+
+msgid "Shadow Color"
+msgstr "ﻞﻈﻟﺍ ﻥﻮﻟ"
 
 
 msgid "Frame for absolute keys"
@@ -33319,6 +32795,10 @@ msgid "Show reconstructed camera path"
 msgstr "ﻩﺅﺎﻨﺑ ﺩﺎﻌﻤﻟﺍ ﺍﺮﻴﻣﺎﻜﻟﺍ ﺭﺎﺴﻣ ﺮﻬﻇﺇ"
 
 
+msgid "Speaker"
+msgstr "ﺕﻮﺻ ﺮﺒﻜﻣ"
+
+
 msgid "Show Reconstruction"
 msgstr "ءﺎﻨﺒﻟﺍ ﺓﺩﺎﻋﺍ ﺮﻬﻇﺇ"
 
@@ -33389,6 +32869,257 @@ msgstr "V ﻩﺎﺠﺗﺍ ﻲﻓ ﻖﻠﻐﻣ ﻞﺴﻠﺴﺗ ﺢﻄﺴﻟﺍ �
 
 msgid "Stereo Mode"
 msgstr "ﻮﻳﺮﻴﺘﺳ ﻂﻤﻧ"
+
+
+msgid "Sequence strip in the sequence editor"
+msgstr "ﻂﺋﺍﺮﺸﻟﺍ ﺭﺮﺤﻣ ﻲﻓ ﻞﺴﻠﺴﺘﻟﺍ ﻂﻳﺮﺷ"
+
+
+msgid "Cross"
+msgstr "ﻊﻃﺎﻘﺗ"
+
+
+msgid "Modifiers affecting this strip"
+msgstr "ﻂﻳﺮﺸﻟﺍ ﺍﺬﻬﺑ ﺓﺮﺛﺆﻤﻟﺍ ﺕﺍﺮﻴﻐﻤﻟﺍ"
+
+
+msgctxt "Sequence"
+msgid "Image"
+msgstr "ﺓﺭﻮﺻ"
+
+
+msgctxt "Sequence"
+msgid "Meta"
+msgstr "ﻊﻤّﺠﺗ"
+
+
+msgctxt "Sequence"
+msgid "Scene"
+msgstr "ﺪﻬﺸﻣ"
+
+
+msgctxt "Sequence"
+msgid "Movie"
+msgstr "ﻢﻠﻔﻟﺍ"
+
+
+msgctxt "Sequence"
+msgid "Mask"
+msgstr "ﻉﺎﻨﻗ"
+
+
+msgctxt "Sequence"
+msgid "Sound"
+msgstr "ﺕﻮﺻ"
+
+
+msgctxt "Sequence"
+msgid "Cross"
+msgstr "ﻊﻃﺎﻘﺗ"
+
+
+msgid "Use Default Fade"
+msgstr "ﻲﺿﺍﺮﺘﻓﻹ﻿ﺍ ﻝﺅﺎﻀﺘﻟﺍ ﻡﺪﺨﺘﺳﺍ"
+
+
+msgid "Use Linear Modifiers"
+msgstr "ﻡﺪﺨﺘﺴﻤﻟﺍ ﻞﺒﻗ ﻦﻣ ﻝﺪﻌﻣ"
+
+
+msgid "Representation of alpha information in the RGBA pixels"
+msgstr "ﺔﻴﻓﺎﻔﺸﻟﺍ ﻭ ﻥﺍﻮﻟﻷ﻿ﺍ ﺕﻼ﻿ﺴﻜﺑ ﻲﻓ ﺎﻔﻟﻷ﻿ﺍ ﺕﺎﻣﻮﻠﻌﻣ ﻞﻴﺜﻤﺗ"
+
+
+msgid "RGB channels in transparent pixels are unaffected by the alpha channel"
+msgstr "ﺎﻔﻟﻷ﻿ﺍ ﺓﺎﻨﻗ ﻲﻓ ﻒﻋﺎﻀﺗ ﺔﻓﺎﻔﺷ ﻥﺍﻮﻟﺃ ﺕﻼ﻿ﺴﻜﺑ"
+
+
+msgid "RGB channels in transparent pixels are multiplied by the alpha channel"
+msgstr "ﺎﻔﻟﻷ﻿ﺍ ﺓﺎﻨﻗ ﻲﻓ ﻒﻋﺎﻀﺗ ﺔﻓﺎﻔﺷ ﻥﺍﻮﻟﺃ ﺕﻼ﻿ﺴﻜﺑ"
+
+
+msgid "Multiply Colors"
+msgstr "ﻥﺍﻮﻟﻻ﻿ﺍ ﻒﻋﺎﺿ"
+
+
+msgid "Strobe"
+msgstr "ﺭﻭّﺪﺘﻟﺍ"
+
+
+msgid "Only display every nth frame"
+msgstr "ﺭﺎﻃﺍ ﺍﺬﻛ ﻞﻛ ﻂﻘﻓ ﺮﻬﻇﺍ"
+
+
+msgid "Flip on the X axis"
+msgstr "X ﺭﻮﺤﻣ ﻰﻠﻋ ﺐﻠﻗﺍ"
+
+
+msgid "Flip on the Y axis"
+msgstr "Y ﺭﻮﺤﻣ ﻰﻠﻋ ﺐﻠﻗﺍ"
+
+
+msgid "Convert Float"
+msgstr "ﻱﺮﺴﻜﻟ ﻝﻮّﺣ"
+
+
+msgid "Reverse Frames"
+msgstr "ﺮﻃﻷ﻿ﺍ ﺲﻜﻋﺇ"
+
+
+msgid "Animation End Offset"
+msgstr "ﻙﺮﺤﺘﻟﺍ ﺔﻳﺎﻬﻧ ﺔﺣﺍﺯﺍ"
+
+
+msgid "Animation end offset (trim end)"
+msgstr "(ﺔﻳﺎﻬﻨﻟﺍ ﺺﻗ) ﻙﺮﺤﺘﻟﺍ ﺔﻳﺎﻬﻧ ﺔﺣﺍﺯﺍ"
+
+
+msgid "Animation Start Offset"
+msgstr "ﻙﺮﺤﺘﻟﺍ ﺔﻳﺍﺪﺑ ﺔﺣﺍﺯﺍ"
+
+
+msgid "Animation start offset (trim start)"
+msgstr "(ﺔﻳﺍﺪﺒﻟﺍ ﺺﻗ) ﻙﺮﺤﺘﻟﺍ ﺔﻳﺍﺪﺑ ﺔﺣﺍﺯﺍ"
+
+
+msgid "Cross Sequence"
+msgstr "ﻊﻃﺎﻘﻟﺍ ﻞﺴﻠﺴﺗ"
+
+
+msgid "Blur Distance"
+msgstr "ﺪﻌﺒﻟﺍ ﺐﺒﺿ"
+
+
+msgid "Boost Factor"
+msgstr "ﻢﻴﻋﺪﺘﻟﺍ ﻞﻣﺎﻌﻣ"
+
+
+msgid "Brightness multiplier"
+msgstr "ﻉﻮﻄﺴﻟﺍ ﻒﻋﺎﻀﻣ"
+
+
+msgid "Brightness limit of intensity"
+msgstr "ﻉﻮﻄﺴﻠﻟ ﺓﺪّﺸﻟﺍ ﺪﺣ"
+
+
+msgid "Accuracy of the blur effect"
+msgstr "ﺏﺎﺒﻀﻟﺍ ﺮﻴﺛﺄﺗ ﺔﻗﺩ"
+
+
+msgid "Only Boost"
+msgstr "ﻢﻋّﺩ ﻂﻘﻓ"
+
+
+msgid "Sequence strip to perform multicam editing"
+msgstr "ﺓﺩﺪﻌﺘﻣ ﺕﺍﺮﻴﻤﻛ ﺮﻳﺮﺤﺘﺑ ﻡﺎﻴﻘﻠﻟ ﻞﺴﻠﺴﺗ ﻂﻳﺮﺷ"
+
+
+msgid "Sequence strip to control the speed of other strips"
+msgstr "ﻯﺮﺧﻻ﻿ﺍ ﺔﻃﺮﺷﻻ﻿ﺍ ﺔﻋﺮﺴﺑ ﻢﻜﺤﺘﻤﻟﺍ ﻞﺴﻠﺴﺘﻟﺍ ﻂﻳﺮﺷ"
+
+
+msgid "Sequence strip creating text"
+msgstr "ﻞﺴﻠﺴﺘﻟﺍ ﻂﻳﺮﺸﻟ ﺺﻧ ءﺎﺸﻧﺍ"
+
+
+msgid "Location of the text"
+msgstr "ﺺﻨﻟﺍ ﻊﻗﻮﻣ"
+
+
+msgid "Outline Width"
+msgstr "ﻂﻴﺤﻤﻟﺍ ﻂﺨﻟﺍ ﺽﺮﻋ"
+
+
+msgid "Bilinear interpolation"
+msgstr "ﻲﻄﺧ ﺪﻴﻟﻮﺗ"
+
+
+msgid "Bicubic interpolation"
+msgstr "ﻲﺒﻴﻌﻜﺗ ﺪﻴﻟﻮﺗ"
+
+
+msgid "Translate X"
+msgstr "X ﺡﺯﺇ"
+
+
+msgid "Translate Y"
+msgstr "Y ﺡﺯﺇ"
+
+
+msgid "Translation Unit"
+msgstr "ﺔﺣﺍﺯﻹ﻿ﺍ ﺓﺪﺣﻭ"
+
+
+msgid "Sequence strip creating a wipe transition"
+msgstr "ﻞﺴﻠﺴﺘﻟﺍ ﻂﻳﺮﺸﻟ ﻲﺤﺴﻣ ﻝﺎﻘﺘﻧﺍ ءﺎﺸﻧﺍ"
+
+
+msgid "Blur Width"
+msgstr "ﺏﺎﺒﻀﻟﺍ ﺽﺮﻋ"
+
+
+msgid "Mask Strip"
+msgstr "ﻉﺎﻨﻗ ﻂﻳﺮﺷ"
+
+
+msgid "Sequence strip to load a video from the clip editor"
+msgstr "ﻢﻠﻔﻟﺍ ﺔﺻﺎﺼﻗ ﺭﺮﺤﻣ ﻦﻣ ﻮﻳﺪﻴﻓ ﻞﻴﻤﺤﺘﻟ ﻞﺴﻠﺴﺘﻟﺍ ﻂﻳﺮﺷ"
+
+
+msgid "Stabilize 2D Clip"
+msgstr "ﻲﺋﺎﻨﺜﻟﺍ ﺔﺻﺎﺼﻗ ﺖﺒّﺛ"
+
+
+msgid "Undistort Clip"
+msgstr "ﺔﺻﺎﺼﻘﻟﺍ ﻩﻮّﺸﺗ ﻲﻐﻟﺍ"
+
+
+msgid "Use the undistorted version of the clip"
+msgstr "ﺔﺻﺎﺼﻘﻠﻟ ﺔﻫﻮّﺸﻣ ﺮﻴﻐﻟﺍ ﺔﺨﺴﻨﻟﺍ ﻡﺪﺨﺘﺳﺍ"
+
+
+msgid "Stream Index"
+msgstr "ﻖﻓﺪﺘﻟﺍ ﺮﺷﺆﻣ"
+
+
+msgid "Camera Override"
+msgstr "ﺍﺮﻴﻣﺎﻜﻟﺍ ﺯﻭﺎﺠﺗ"
+
+
+msgid "Sequence strip defining a sound to be played over a period of time"
+msgstr "ﻦﻣﺰﻟﺍ ﻦﻣ ﺓﺮﺘﻓ ﻰﻠﻋ ﺕﻮﺼﻟﺍ ﺽﺮﻋ ﻒﻳﺮﻌﺘﻟ ﻞﺴﻠﺴﺗ ﻂﻳﺮﺷ"
+
+
+msgid "Strip used as mask input for the modifier"
+msgstr "ﺮﻴّﻐﻤﻠﻟ ﻉﺎﻨﻘﻟﺍ ﻞﺧﺪﻛ ﻡﺪﺨﺘﺴﻤﻟﺍ ﻂﻳﺮﺸﻟﺍ"
+
+
+msgid "Mask Input Type"
+msgstr "ﻉﺎﻨﻘﻟﺍ ﻞﺧﺩ ﻉﻮﻧ"
+
+
+msgid "Type of input data used for mask"
+msgstr "ﻉﺎﻨﻘﻠﻟ ﺔﻣﺪﺨﺘﺴﻤﻟﺍ ﻝﺎﺧﺩﻻ﻿ﺍ ﺕﺎﻧﺎﻴﺑ ﻉﻮﻧ"
+
+
+msgid "Use mask ID as mask input"
+msgstr "ﻉﺎﻨﻘﻟﺍ ﻞﺧﺪﻛ ﻉﺎﻨﻘﻟﺍ ﻑﺮﻌﻣ ﻡﺪﺨﺘﺳﺍ"
+
+
+msgid "Mute this modifier"
+msgstr "ﺮﻴّﻐﻤﻟﺍ ﺍﺬﻫ ﺊﻔﻃﺃ"
+
+
+msgid "Mute expanded settings for the modifier"
+msgstr "ﺮﻴّﻐﻤﻠﻟ ﺔﺣﻮﺘﻔﻤﻟﺍ ﺕﺍﺩﺍﺪﻋﻻ﻿ﺍ ﺊﻔﻃﺍ"
+
+
+msgid "Overwrite existing proxy files when building"
+msgstr "ءﺎﻨﺒﻟﺍ ﺪﻨﻋ ﺓﺪﺟﺍﻮﺘﻤﻟﺍ ﺏﻭﺪﻨﻤﻟﺍ ﺕﺎﻔﻠﻣ ﻝﺪﺒﺘﺳﺇ"
+
+
+msgid "Use a custom directory to store data"
+msgstr "ﺕﺎﻧﺎﻴﺒﻟﺍ ﻦﻳﺰﺨﺘﻟ ﺺﺼﺨﻣ ﺪﻠﺠﻣ ﻡﺪﺨﺘﺳﺍ"
 
 
 msgid "X Mapping"
@@ -34259,18 +33990,6 @@ msgid "Snap Element"
 msgstr "ﺮﺼﻨﻌﻟﺍ ﻱﺫﺎﺣ"
 
 
-msgid "Snap Node Element"
-msgstr "ﺓﺪﻘﻌﻟﺍ ﺮﺼﻨﻋ ﻱﺫﺎﺣ"
-
-
-msgid "Node X"
-msgstr "X ﺓﺪﻘﻌﻟﺍ"
-
-
-msgid "Node Y"
-msgstr "Y ﺓﺪﻘﻌﻟﺍ"
-
-
 msgid "Snap Target"
 msgstr "ﻑﺪﻬﻟﺍ ﻱﺫﺎﺣ"
 
@@ -34543,6 +34262,10 @@ msgid "Color of the light's specular highlight"
 msgstr "ءﻮﻀﻟﺍ ﻖﻳﺮﺑ ﻉﻮﻄﺳ ﻥﻮﻟ"
 
 
+msgid "UV Sculpting"
+msgstr "UV ـﻟﺍ ﺖﺤﻧ"
+
+
 msgid "Group of vertices, used for armature deform and other purposes"
 msgstr "ﻯﺮﺧﺃ ﺽﺍﺮﻏﺃ ﻭ ﻞﻜﻴﻬﻟﺍ ﻪﻳﻮﺸﺘﻟ ﺔﻠﻤﻌﺘﺴﻣ ،ﻂﻘﻨﻟﺍ ﺔﻋﻮﻤﺠﻣ"
 
@@ -34693,6 +34416,10 @@ msgstr "ﺮﻈﻨﻤﻟﺍ ﻉﺎﻔﺗﺭﺇ"
 
 msgid "Lighting for a World data-block"
 msgstr "ﻢﻟﺎﻋ ﺕﺎﻧﺎﻴﺑ ﺔﻠﺘﻜﻟ ﺓءﺎﺿﻹ﻿ﺍ"
+
+
+msgid "Factor for ambient occlusion blending"
+msgstr "ﻂﻴﺤﻤﻟﺍ ﺱﺎﺒﺤﻧﻻ﻿ﺍ ﺝﺰﻣ ﻞﻣﺎﻋ"
 
 
 msgid "Length of rays, defines how far away other faces give occlusion effect"
@@ -34935,11 +34662,6 @@ msgstr "NLA ﻡﺎﻋ"
 
 
 msgctxt "WindowManager"
-msgid "Timeline"
-msgstr "ﺖﻗﻮﻟﺍ ﻂﺧ"
-
-
-msgctxt "WindowManager"
 msgid "Image"
 msgstr "ﺓﺭﻮﺻ"
 
@@ -35163,22 +34885,9 @@ msgid "Options:"
 msgstr ":ﺕﺍﺭﺎﻴﺨﻟﺍ"
 
 
-msgid "Labels:"
-msgstr "ﻖﺼﻠﻣ"
-
-
-msgid "Tool Tips:"
-msgstr ":ﺓﺍﺩﻷ﻿ﺍ ﺡﺮﺷ"
-
-
 msgctxt "Operator"
 msgid "Reset Settings"
 msgstr "ﻡﺪﺨﺘﺴﻤﻟﺍ ﺕﺍﺩﺍﺪﻋﺍ ﻆﻔﺣﺍ"
-
-
-msgctxt "Operator"
-msgid "Deselect All"
-msgstr "ءﻲﺷﻻ﻿/ﻞﻜﻟﺍ ﺭﺎﺘﺧﺍ"
 
 
 msgctxt "Operator"
@@ -35438,11 +35147,6 @@ msgid "Hide Unselected"
 msgstr "ﺭﺎﺘﺨﻤﻟﺍ ﺮﻴﻐﻟﺍ ﻒﺧﺃ"
 
 
-msgctxt "Operator"
-msgid "Invert"
-msgstr "ﺲﻜﻋﺇ"
-
-
 msgid "Date"
 msgstr "ﺦﻳﺭﺎﺗ"
 
@@ -35578,12 +35282,12 @@ msgid "Wave Clamp"
 msgstr "ﺔﺟﻮﻤﻟﺍ ﺪﺣ"
 
 
+msgid "Exponent"
+msgstr "ﻒﻋﺎﻀﻤﻟﺍ"
+
+
 msgid "Auto-Step"
 msgstr "ﻲﺋﺎﻘﻠﺗ ﻡﺪﻘﺗ"
-
-
-msgid "Refraction"
-msgstr "ﺭﺎﺴﻜﻧﻻ﻿ﺍ"
 
 
 msgid "Paths:"
@@ -35768,11 +35472,6 @@ msgstr "ﺪﻴﻟﻮﺘﻟﺍ ﻊﺿﻭ"
 msgctxt "Operator"
 msgid "Discontinuity (Euler) Filter"
 msgstr "(ﺮﻟﻮﻳ) ﻉﺎﻄﻘﻧﻻ﻿ﺍ ﻲﻔﺼﻣ"
-
-
-msgctxt "Operator"
-msgid "Stash"
-msgstr "ﻥﺰﺧ"
 
 
 msgctxt "Operator"
@@ -36698,6 +36397,10 @@ msgid "Remove All Groups"
 msgstr "ﺕﺎﻋﻮﻤﺠﻤﻟﺍ ﻊﻴﻤﺟ ﻑﺬﺣﺇ"
 
 
+msgid "Inflate"
+msgstr "ﺲﻔّﻧ"
+
+
 msgid "Sharpen"
 msgstr "ﺩﺎﺣ"
 
@@ -36867,18 +36570,6 @@ msgid "Plane Track"
 msgstr "ﺢﻄﺴﻤﻟﺍ ﺭﺎﺴﻣ"
 
 
-msgid "Error writing frame"
-msgstr "ﺔﺌﻴﺑ ﺔﻄﻳﺮﺧ"
-
-
-msgid "No valid formats found"
-msgstr "ﻝﻮﺤﺗ ﻥﻭﺪﺑ"
-
-
-msgid "Could not open file for writing"
-msgstr ".%s‬\", ‪%s‬‪\" :ﻒﻠﻤﻟﺍ ﺓءﺍﺮﻗ ﻦﻜﻤﻳ ﻻ﻿"
-
-
 msgid "unknown error reading file"
 msgstr ".\"%s‬‪\" :ﻞﻴﻤﺤﺗ ءﺎﻨﺛﺃ ﻑﻭﺮﻌﻣ ﺮﻴﻏ ﺄﻄﺧ"
 
@@ -36987,6 +36678,10 @@ msgid "No active Keying Set to use"
 msgstr "ﻡﺍﺪﺨﺘﺳﻺ﻿ﻟ ﺔﻟﺎﻌّﻓ ﺢﻴﺗﺎﻔﻣ ﺔﻋﻮﻤﺠﻣ ﺪﺟﻮﺗ ﻻ﻿"
 
 
+msgid "Cancel"
+msgstr "ﻎﻟﺃ"
+
+
 msgid "No keyframes to slide between"
 msgstr "ﺭﺎﻃﻻ﻿ﺍ ﻊﺿ"
 
@@ -37056,14 +36751,6 @@ msgstr "ﺺﻨﻟﺍ ﻥﻮﻟ"
 
 msgid "Cannot paint stroke"
 msgstr "ﺔﺒﻄﺷ ﻢﺳﺭﺍ"
-
-
-msgid "Nowhere for grease pencil data to go"
-msgstr " ﺔﻄﺒﺗﺮﻣ ﻥﻮﻜﺘﻟ ﺕﺎﻈﺣﻼ﻿ﻤﻟﺍ ﻢﻠﻗ ﺕﺎﻧﺎﻴﺑ ﺢﻔﺼﺗ"
-
-
-msgid "No grease pencil data"
-msgstr "ﺕﺎﻈﺣﻼ﻿ﻣ ﻢﻠﻗ ﺕﺎﻧﺎﻴﺑ"
 
 
 msgid "No active frame to delete"
@@ -37179,24 +36866,20 @@ msgid "OK"
 msgstr "ﺎﻨﺴﺣ"
 
 
-msgid "Cancel"
-msgstr "ﻎﻟﺃ"
-
-
 msgid "Movie"
 msgstr "ﻢﻠﻔﻟﺍ"
 
 
-msgid "ID-Block:"
-msgstr "ﻑﺮﻌﻤﻟﺍ-ﺔﻠﺘﻛ"
-
-
-msgid "No Properties"
-msgstr "ﺹﺍﻮﺧ ﻻ﻿"
-
-
 msgid "Pos"
 msgstr ":ﺔﻔﻗﻭ"
+
+
+msgid "Delete the active position"
+msgstr "ﻲﻟﺎﺤﻟﺍ ﻊﻗﻮﻤﻟﺍ ﻑﺬﺣﺍ"
+
+
+msgid "Choose active color stop"
+msgstr "ﺔﻴﻟﺎﺤﻟﺍ ﻥﻮﻠﻟﺍ ﺔﻔﻗﻭ ﺮﺘﺧﺍ"
 
 
 msgid "Use Clipping"
@@ -37219,22 +36902,6 @@ msgid "Reset Curve"
 msgstr "ﻰﻨﺤﻨﻤﻟﺍ ﻂﺒﺿ ﺪﻋﺃ"
 
 
-msgid "Anim Player"
-msgstr "ﺮﻴﻴﺼﺘﻟﺍ ﻞﻐﺸﻣ"
-
-
-msgid "Reset operator defaults"
-msgstr "ﻞﻣﺎﻌﻠﻟ ﺔﻴﻠﺻﻻ﻿ﺍ ﻢﻴﻘﻠﻟ ﺮﻔﺻ"
-
-
-msgid "Delete the active position"
-msgstr "ﻲﻟﺎﺤﻟﺍ ﻊﻗﻮﻤﻟﺍ ﻑﺬﺣﺍ"
-
-
-msgid "Choose active color stop"
-msgstr "ﺔﻴﻟﺎﺤﻟﺍ ﻥﻮﻠﻟﺍ ﺔﻔﻗﻭ ﺮﺘﺧﺍ"
-
-
 msgid "Zoom in"
 msgstr "ﺏﺮّﻗ"
 
@@ -37255,12 +36922,8 @@ msgid "Reset Black/White point and curves"
 msgstr "ﺕﺎﻴﻨﺤﻨﻤﻟﺍ ﻭ ءﺎﻀﻴﺒﻟﺍ/ءﺍﺩﻮﺴﻟﺍ ﻂﻘﻨﻟﺍ ﻂﺒﺿ ﺪﻋﺃ"
 
 
-msgid "Stop this job"
-msgstr "ﺔﻴﻠﻤﻌﻟﺍ ﻩﺬﻫ ﻒﻗﻭﺃ"
-
-
-msgid "Stop animation playback"
-msgstr "ﺮﻴﻴﺼﺘﻟﺍ ﻞﻴﻐﺸﺗ ﻒﻗﺃ"
+msgid "ID-Block:"
+msgstr "ﻑﺮﻌﻤﻟﺍ-ﺔﻠﺘﻛ"
 
 
 msgid "Browse Scene to be linked"
@@ -37371,10 +37034,6 @@ msgid "Browse ID data to be linked"
 msgstr "ﺔﻄﺒﺗﺮﻣ ﻥﻮﻜﺘﻟ ﻑﺮﻌﻤﻟﺍ ﺕﺎﻧﺎﻴﺑ ﺢﻔﺼﺗ"
 
 
-msgid "Modified"
-msgstr "ﻝﺪّﻌﻣ"
-
-
 msgctxt "Action"
 msgid "New"
 msgstr "ﺪﻳﺪﺟ"
@@ -37473,6 +37132,30 @@ msgstr "ﺪﻳﺪﺟ"
 msgctxt "World"
 msgid "New"
 msgstr "ﺪﻳﺪﺟ"
+
+
+msgid "No Properties"
+msgstr "ﺹﺍﻮﺧ ﻻ﻿"
+
+
+msgid "Reset operator defaults"
+msgstr "ﻞﻣﺎﻌﻠﻟ ﺔﻴﻠﺻﻻ﻿ﺍ ﻢﻴﻘﻠﻟ ﺮﻔﺻ"
+
+
+msgid "Modified"
+msgstr "ﻝﺪّﻌﻣ"
+
+
+msgid "Anim Player"
+msgstr "ﺮﻴﻴﺼﺘﻟﺍ ﻞﻐﺸﻣ"
+
+
+msgid "Stop this job"
+msgstr "ﺔﻴﻠﻤﻌﻟﺍ ﻩﺬﻫ ﻒﻗﻭﺃ"
+
+
+msgid "Stop animation playback"
+msgstr "ﺮﻴﻴﺼﺘﻟﺍ ﻞﻴﻐﺸﺗ ﻒﻗﺃ"
 
 
 msgctxt "Mesh"
@@ -37778,6 +37461,10 @@ msgstr "ﺹﺎﺻﺭ"
 
 msgid "Plaster"
 msgstr "ﺺﺟ"
+
+
+msgid "Plastic"
+msgstr "ﻲﻜﻴﺘﺳﻼ﻿ﺑ"
 
 
 msgid "Silver"
@@ -38096,10 +37783,6 @@ msgid "Mask not found"
 msgstr "ﺔﻴﻔﻠﺨﻟﺍ ﻲﻔﺧﺍ"
 
 
-msgid "Please select all related strips"
-msgstr "ﺓﺭﺪّﻘﻤﻟﺍ ﺕﺭﺎﺴﻤﻟﺍ ﺮﺘﺧﺍ"
-
-
 msgid "Please select two strips"
 msgstr "ﺓﺭﺎﺘﺨﻤﻟﺍ ﺔﻃﺮﺷﻷ﻿ﺍ ﻊﻄﻗﺇ"
 
@@ -38333,9 +38016,16 @@ msgid "UV Vertex"
 msgstr "ﺔﻄﻘﻨﻟﺍ ﻡﺪﺨﺘﺳﺍ"
 
 
-msgctxt "Action"
-msgid "Group"
-msgstr "ﺔﻋﻮﻤﺠﻣ"
+msgid "Error writing frame"
+msgstr "ﺔﺌﻴﺑ ﺔﻄﻳﺮﺧ"
+
+
+msgid "No valid formats found"
+msgstr "ﻝﻮﺤﺗ ﻥﻭﺪﺑ"
+
+
+msgid "Could not open file for writing"
+msgstr ".%s‬\", ‪%s‬‪\" :ﻒﻠﻤﻟﺍ ﺓءﺍﺮﻗ ﻦﻜﻤﻳ ﻻ﻿"
 
 
 msgid "Keying set path could not be added"
@@ -38489,6 +38179,10 @@ msgstr "ﺮﻴﻨﻣ"
 
 msgid "Layer:"
 msgstr ":ﺔﻘﺒﻃ"
+
+
+msgid "Glare"
+msgstr "ﺞﻫﻮﺗ"
 
 
 msgid "Dot"
@@ -38801,10 +38495,6 @@ msgstr "‪%s‬ '‪%s‬' ﺩﻮﺟﻮﻣ ﺮﻴﻏ"
 
 msgid "Pose Library"
 msgstr "ﺕﺎﻔﻗﻮﻟﺍ ﺔﺒﺘﻜﻣ"
-
-
-msgid "All Add-ons"
-msgstr "ﺲﺑﺎﻘﻤﻟﺍ ﻞﻛ"
 
 
 msgid "All Add-ons Installed by User"

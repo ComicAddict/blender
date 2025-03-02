@@ -5,8 +5,8 @@
 #include "BKE_colortools.hh"
 #include "BKE_context.hh"
 #include "BKE_curves.hh"
+#include "BKE_deform.hh"
 #include "BKE_grease_pencil.hh"
-#include "BKE_material.h"
 #include "BKE_paint.hh"
 
 #include "BLI_array_utils.hh"
@@ -238,7 +238,7 @@ static std::optional<FramesMapKeyIntervalT> find_frames_interval(
 }
 
 /* Build index lists for curve interpolation using index. */
-static void find_curve_mapping_from_index(const GreasePencil &grease_pencil,
+static bool find_curve_mapping_from_index(const GreasePencil &grease_pencil,
                                           const bke::greasepencil::Layer &layer,
                                           const int current_frame,
                                           const bool exclude_breakdowns,
@@ -250,17 +250,34 @@ static void find_curve_mapping_from_index(const GreasePencil &grease_pencil,
   const std::optional<FramesMapKeyIntervalT> interval = find_frames_interval(
       layer, current_frame, exclude_breakdowns);
   if (!interval) {
-    return;
+    return false;
   }
 
   BLI_assert(layer.has_drawing_at(interval->first));
   BLI_assert(layer.has_drawing_at(interval->second));
   const Drawing &from_drawing = *grease_pencil.get_drawing_at(layer, interval->first);
   const Drawing &to_drawing = *grease_pencil.get_drawing_at(layer, interval->second);
+  /* In addition to interpolated pairs, the unselected original strokes are also included, making
+   * the total pair count the same as the "from" curve count. */
+  const int pairs_num = from_drawing.strokes().curves_num();
+
+  const int old_pairs_num = pairs.from_frames.size();
+  pairs.from_frames.append_n_times(interval->first, pairs_num);
+  pairs.to_frames.append_n_times(interval->second, pairs_num);
+  pairs.from_curves.resize(old_pairs_num + pairs_num);
+  pairs.to_curves.resize(old_pairs_num + pairs_num);
+  MutableSpan<int> from_curves = pairs.from_curves.as_mutable_span().slice(old_pairs_num,
+                                                                           pairs_num);
+  MutableSpan<int> to_curves = pairs.to_curves.as_mutable_span().slice(old_pairs_num, pairs_num);
+
+  /* Write source indices into the pair data. If one drawing has more selected curves than the
+   * other the remainder is ignored. */
 
   IndexMaskMemory memory;
   IndexMask from_selection, to_selection;
-  if (only_selected) {
+  if (only_selected && ed::curves::has_anything_selected(from_drawing.strokes()) &&
+      ed::curves::has_anything_selected(to_drawing.strokes()))
+  {
     from_selection = ed::curves::retrieve_selected_curves(from_drawing.strokes(), memory);
     to_selection = ed::curves::retrieve_selected_curves(to_drawing.strokes(), memory);
   }
@@ -268,21 +285,30 @@ static void find_curve_mapping_from_index(const GreasePencil &grease_pencil,
     from_selection = from_drawing.strokes().curves_range();
     to_selection = to_drawing.strokes().curves_range();
   }
+  /* Discard additional elements of the larger selection. */
+  if (from_selection.size() > to_selection.size()) {
+    from_selection = from_selection.slice(0, to_selection.size());
+  }
+  else if (to_selection.size() > from_selection.size()) {
+    to_selection = to_selection.slice(0, from_selection.size());
+  }
 
-  const int pairs_num = std::min(from_selection.size(), to_selection.size());
+  /* By default: copy the "from" curve and ignore the "to" curve. */
+  array_utils::fill_index_range(from_curves);
+  to_curves.fill(-1);
+  /* Selected curves are interpolated. */
+  IndexMask::foreach_segment_zipped({from_selection, to_selection},
+                                    [&](Span<IndexMaskSegment> segments) {
+                                      const IndexMaskSegment &from_segment = segments[0];
+                                      const IndexMaskSegment &to_segment = segments[1];
+                                      BLI_assert(from_segment.size() == to_segment.size());
+                                      for (const int i : from_segment.index_range()) {
+                                        to_curves[from_segment[i]] = to_segment[i];
+                                      }
+                                      return true;
+                                    });
 
-  const int old_pairs_num = pairs.from_frames.size();
-  pairs.from_frames.append_n_times(interval->first, pairs_num);
-  pairs.to_frames.append_n_times(interval->second, pairs_num);
-  pairs.from_curves.resize(old_pairs_num + pairs_num);
-  pairs.to_curves.resize(old_pairs_num + pairs_num);
-
-  /* Write source indices into the pair data. The drawing with fewer curves will discard some based
-   * on index. */
-  from_selection.slice(0, pairs_num)
-      .to_indices(pairs.from_curves.as_mutable_span().slice(old_pairs_num, pairs_num));
-  to_selection.slice(0, pairs_num)
-      .to_indices(pairs.to_curves.as_mutable_span().slice(old_pairs_num, pairs_num));
+  return true;
 }
 
 InterpolateOpData *InterpolateOpData::from_operator(const bContext &C, const wmOperator &op)
@@ -308,6 +334,7 @@ InterpolateOpData *InterpolateOpData::from_operator(const bContext &C, const wmO
   data->smooth_factor = RNA_float_get(op.ptr, "smooth_factor");
   data->smooth_steps = RNA_int_get(op.ptr, "smooth_steps");
   data->active_layer_index = *grease_pencil.get_layer_index(active_layer);
+  const bool use_selection = RNA_boolean_get(op.ptr, "use_selection");
 
   const auto layer_mode = InterpolateLayerMode(RNA_enum_get(op.ptr, "layers"));
   switch (layer_mode) {
@@ -323,20 +350,27 @@ InterpolateOpData *InterpolateOpData::from_operator(const bContext &C, const wmO
       break;
   }
 
+  bool found_mapping = false;
   data->layer_data.reinitialize(grease_pencil.layers().size());
   data->layer_mask.foreach_index([&](const int layer_index) {
     const Layer &layer = grease_pencil.layer(layer_index);
     InterpolateOpData::LayerData &layer_data = data->layer_data[layer_index];
 
     /* Pair from/to curves by index. */
-    const bool only_selected = true;
-    find_curve_mapping_from_index(grease_pencil,
-                                  layer,
-                                  current_frame,
-                                  data->exclude_breakdowns,
-                                  only_selected,
-                                  layer_data.curve_pairs);
+    const bool has_curve_mapping = find_curve_mapping_from_index(grease_pencil,
+                                                                 layer,
+                                                                 current_frame,
+                                                                 data->exclude_breakdowns,
+                                                                 use_selection,
+                                                                 layer_data.curve_pairs);
+    found_mapping = found_mapping || has_curve_mapping;
   });
+
+  /* No mapping between frames was found. */
+  if (!found_mapping) {
+    MEM_delete(data);
+    return nullptr;
+  }
 
   const std::optional<FramesMapKeyIntervalT> active_layer_interval = find_frames_interval(
       active_layer, current_frame, data->exclude_breakdowns);
@@ -346,6 +380,43 @@ InterpolateOpData *InterpolateOpData::from_operator(const bContext &C, const wmO
                           0.5f;
 
   return data;
+}
+
+/* Find ranges of sorted pairs with the same from/to frame intervals. */
+static Vector<int> find_curve_pair_offsets(const InterpolationPairs &curve_pairs,
+                                           const Span<int> order)
+{
+  Vector<int> pair_offsets;
+
+  int prev_from_frame = INT_MIN;
+  int prev_to_frame = INT_MIN;
+  int current_count = 0;
+  for (const int pair_index : order) {
+    const int from_frame = curve_pairs.from_frames[pair_index];
+    const int to_frame = curve_pairs.to_frames[pair_index];
+    if (from_frame != prev_from_frame || to_frame != prev_to_frame) {
+      /* New pair. */
+      if (current_count > 0) {
+        pair_offsets.append(current_count);
+      }
+      current_count = 0;
+    }
+    ++current_count;
+  }
+  if (current_count > 0) {
+    pair_offsets.append(current_count);
+  }
+
+  /* Last entry for overall size. */
+  if (pair_offsets.is_empty()) {
+    return {};
+  }
+
+  /* Extra element for the total size needed for OffsetIndices. */
+  pair_offsets.append(0);
+  offset_indices::accumulate_counts_to_offsets(pair_offsets);
+
+  return pair_offsets;
 }
 
 static bool compute_auto_flip(const Span<float3> from_positions, const Span<float3> to_positions)
@@ -384,6 +455,109 @@ static bool compute_auto_flip(const Span<float3> from_positions, const Span<floa
   return math::dot(from_last - from_first, to_last - to_first) < 0.0f;
 }
 
+static void assign_samples_to_segments(const int num_dst_points,
+                                       const Span<float3> src_positions,
+                                       const bool cyclic,
+                                       MutableSpan<int> dst_sample_offsets)
+{
+  const IndexRange src_points = src_positions.index_range();
+  /* Extra segment at the end for cyclic curves. */
+  const int num_src_segments = src_points.size() - 1 + cyclic;
+  const int num_free_samples = num_dst_points - num_src_segments;
+  BLI_assert(dst_sample_offsets.size() == num_src_segments + 1);
+
+  Array<float> segment_lengths(num_src_segments + 1);
+  segment_lengths[0] = 0.0f;
+  for (const int i : src_points.drop_front(1)) {
+    segment_lengths[i] = segment_lengths[i - 1] + math::distance(src_positions[src_points[i - 1]],
+                                                                 src_positions[src_points[i]]);
+  }
+  if (cyclic) {
+    const int i = src_points.size();
+    segment_lengths[i] = segment_lengths[i - 1] + math::distance(src_positions[src_points[i - 1]],
+                                                                 src_positions[src_points[0]]);
+  }
+  const float total_length = segment_lengths.last();
+
+  constexpr float length_epsilon = 1e-4f;
+  if (total_length > length_epsilon) {
+    /* Factor for computing the fraction of remaining samples in a segment. */
+    const float length_to_free_sample_count = math::safe_divide(float(num_free_samples),
+                                                                total_length);
+    int samples_start = 0;
+    for (const int segment : IndexRange(num_src_segments)) {
+      const int free_samples_start = math::round(segment_lengths[segment] *
+                                                 length_to_free_sample_count);
+      const int free_samples_end = math::round(segment_lengths[segment + 1] *
+                                               length_to_free_sample_count);
+      dst_sample_offsets[segment] = samples_start;
+      samples_start += 1 + free_samples_end - free_samples_start;
+    }
+  }
+  else {
+    /* If source segment lengths are zero use uniform mapping by index as fallback. */
+    const float index_to_free_sample_count = math::safe_divide(float(num_free_samples),
+                                                               float(num_src_segments));
+    int samples_start = 0;
+    for (const int segment : IndexRange(num_src_segments)) {
+      dst_sample_offsets[segment] = samples_start;
+      const int free_samples_start = math::round(segment * index_to_free_sample_count);
+      const int free_samples_end = math::round((segment + 1) * index_to_free_sample_count);
+      samples_start += 1 + free_samples_end - free_samples_start;
+    }
+  }
+  /* This also assigns any remaining samples in case of rounding error. */
+  dst_sample_offsets.last() = num_dst_points;
+}
+
+/**
+ * Copy existing sample positions and insert new samples in between to reach the final count.
+ */
+static void sample_curve_padded(const bke::CurvesGeometry &curves,
+                                const int curve_index,
+                                const bool cyclic,
+                                const bool reverse,
+                                MutableSpan<int> r_segment_indices,
+                                MutableSpan<float> r_factors)
+{
+  const int num_dst_points = r_segment_indices.size();
+  const IndexRange src_points = curves.points_by_curve()[curve_index];
+  /* Extra segment at the end for cyclic curves. */
+  const int num_src_segments = src_points.size() - 1 + cyclic;
+  /* There should be at least one source point for every output sample. */
+  BLI_assert(num_dst_points >= num_src_segments);
+  if (src_points.is_empty()) {
+    return;
+  }
+
+  /* First destination point in each source segment. */
+  Array<int> dst_sample_offsets(num_src_segments + 1);
+  assign_samples_to_segments(
+      num_dst_points, curves.positions().slice(src_points), cyclic, dst_sample_offsets);
+
+  OffsetIndices dst_samples_by_src_segment = OffsetIndices<int>(dst_sample_offsets);
+  for (const int segment : IndexRange(num_src_segments)) {
+    const IndexRange samples = dst_samples_by_src_segment[segment];
+    BLI_assert(samples.size() >= 1);
+
+    const int point_index = segment < src_points.size() ? segment : 0;
+    r_segment_indices.slice(samples).fill(point_index);
+    for (const int sample_i : samples.index_range()) {
+      const int sample = reverse ? samples[samples.size() - 1 - sample_i] : samples[sample_i];
+      const float factor = float(sample_i) / samples.size();
+      r_factors[sample] = reverse ? 1.0f - factor : factor;
+    }
+  }
+  if (cyclic) {
+    r_segment_indices.last() = 0;
+    r_factors.last() = 0.0f;
+  }
+  else {
+    r_segment_indices.last() = src_points.size() - 1;
+    r_factors.last() = 0.0f;
+  }
+}
+
 static bke::CurvesGeometry interpolate_between_curves(const GreasePencil &grease_pencil,
                                                       const bke::greasepencil::Layer &layer,
                                                       const InterpolationPairs &curve_pairs,
@@ -413,36 +587,8 @@ static bke::CurvesGeometry interpolate_between_curves(const GreasePencil &grease
   });
 
   /* Find ranges of sorted pairs with the same from/to frame intervals. */
-  Vector<int> pair_offsets;
-  const OffsetIndices curves_by_pair = [&]() {
-    int prev_from_frame = INT_MIN;
-    int prev_to_frame = INT_MIN;
-    int current_count = 0;
-    for (const int sorted_index : IndexRange(dst_curve_num)) {
-      const int pair_index = sorted_pairs[sorted_index];
-      const int from_frame = curve_pairs.from_frames[pair_index];
-      const int to_frame = curve_pairs.to_frames[pair_index];
-      if (from_frame != prev_from_frame || to_frame != prev_to_frame) {
-        /* New pair. */
-        if (current_count > 0) {
-          pair_offsets.append(current_count);
-        }
-        current_count = 0;
-      }
-      ++current_count;
-    }
-    if (current_count > 0) {
-      pair_offsets.append(current_count);
-    }
-
-    /* Last entry for overall size. */
-    if (pair_offsets.is_empty()) {
-      return OffsetIndices<int>{};
-    }
-
-    pair_offsets.append(0);
-    return offset_indices::accumulate_counts_to_offsets(pair_offsets);
-  }();
+  Vector<int> pair_offsets = find_curve_pair_offsets(curve_pairs, sorted_pairs);
+  const OffsetIndices<int> curves_by_pair(pair_offsets);
 
   /* Compute curve length and flip mode for each pair. */
   Array<int> dst_curve_offsets(curves_by_pair.size() + 1, 0);
@@ -474,23 +620,44 @@ static bke::CurvesGeometry interpolate_between_curves(const GreasePencil &grease
         const int pair_index = sorted_pairs[sorted_index];
         const int from_curve = curve_pairs.from_curves[pair_index];
         const int to_curve = curve_pairs.to_curves[pair_index];
-        const IndexRange from_points = from_points_by_curve[from_curve];
-        const IndexRange to_points = to_points_by_curve[to_curve];
 
-        dst_curve_offsets[pair_index] = std::max(from_points.size(), to_points.size());
-        switch (flip_mode) {
-          case InterpolateFlipMode::None:
-            dst_curve_flip[pair_index] = false;
-            break;
-          case InterpolateFlipMode::Flip:
-            dst_curve_flip[pair_index] = true;
-            break;
-          case InterpolateFlipMode::FlipAuto: {
-            dst_curve_flip[pair_index] = compute_auto_flip(from_positions.slice(from_points),
-                                                           to_positions.slice(to_points));
-            break;
+        int curve_size = 0;
+        bool curve_flip = false;
+        if (from_curve < 0 && to_curve < 0) {
+          /* No output curve. */
+        }
+        else if (from_curve < 0) {
+          const IndexRange to_points = to_points_by_curve[to_curve];
+          curve_size = to_points.size();
+          curve_flip = false;
+        }
+        else if (to_curve < 0) {
+          const IndexRange from_points = from_points_by_curve[from_curve];
+          curve_size = from_points.size();
+          curve_flip = false;
+        }
+        else {
+          const IndexRange from_points = from_points_by_curve[from_curve];
+          const IndexRange to_points = to_points_by_curve[to_curve];
+
+          curve_size = std::max(from_points.size(), to_points.size());
+          switch (flip_mode) {
+            case InterpolateFlipMode::None:
+              curve_flip = false;
+              break;
+            case InterpolateFlipMode::Flip:
+              curve_flip = true;
+              break;
+            case InterpolateFlipMode::FlipAuto: {
+              curve_flip = compute_auto_flip(from_positions.slice(from_points),
+                                             to_positions.slice(to_points));
+              break;
+            }
           }
         }
+
+        dst_curve_offsets[pair_index] = curve_size;
+        dst_curve_flip[pair_index] = curve_flip;
       }
     }
     return offset_indices::accumulate_counts_to_offsets(dst_curve_offsets);
@@ -503,14 +670,30 @@ static bke::CurvesGeometry interpolate_between_curves(const GreasePencil &grease
     dst_curves.offsets_for_write().copy_from(dst_curve_offsets);
   }
 
+  /* Copy vertex group names since we still have other parts of the code depends on vertex group
+   * names to be available. */
+  BKE_defgroup_copy_list(&dst_curves.vertex_group_names, &grease_pencil.vertex_group_names);
+
   /* Sorted map arrays that can be passed to the interpolation function directly.
    * These index maps have the same order as the sorted indices, so slices of indices can be used
    * for interpolating all curves of a frame pair at once. */
-  Array<int> sorted_from_curve_indices(dst_curve_num);
-  Array<int> sorted_to_curve_indices(dst_curve_num);
+  Array<int> from_curve_buffer(dst_curve_num);
+  Array<int> to_curve_buffer(dst_curve_num);
+  Array<int> from_sample_indices(dst_point_num);
+  Array<int> to_sample_indices(dst_point_num);
+  Array<float> from_sample_factors(dst_point_num);
+  Array<float> to_sample_factors(dst_point_num);
+  IndexMaskMemory memory;
 
   for (const int pair_range_i : curves_by_pair.index_range()) {
     const IndexRange pair_range = curves_by_pair[pair_range_i];
+    /* Subset of target curves that are filled by this frame pair. Selection is built from pair
+     * indices, which correspond to dst curve indices. */
+    const IndexMask dst_curve_mask = IndexMask::from_indices(
+        sorted_pairs.as_span().slice(pair_range), memory);
+    MutableSpan<int> from_indices = from_curve_buffer.as_mutable_span().slice(pair_range);
+    MutableSpan<int> to_indices = to_curve_buffer.as_mutable_span().slice(pair_range);
+
     const int first_pair_index = sorted_pairs[pair_range.first()];
     const int from_frame = curve_pairs.from_frames[first_pair_index];
     const int to_frame = curve_pairs.to_frames[first_pair_index];
@@ -519,32 +702,74 @@ static bke::CurvesGeometry interpolate_between_curves(const GreasePencil &grease
     if (!from_drawing || !to_drawing) {
       continue;
     }
-    const IndexRange from_curves = from_drawing->strokes().curves_range();
-    const IndexRange to_curves = to_drawing->strokes().curves_range();
+    const OffsetIndices from_points_by_curve = from_drawing->strokes().points_by_curve();
+    const OffsetIndices to_points_by_curve = to_drawing->strokes().points_by_curve();
+    const VArray<bool> from_curves_cyclic = from_drawing->strokes().cyclic();
+    const VArray<bool> to_curves_cyclic = to_drawing->strokes().cyclic();
 
-    IndexMaskMemory selection_memory;
-    /* Subset of target curves that are filled by this frame pair. Selection is built from pair
-     * indices, which correspond to dst curve indices. */
-    const IndexMask dst_curve_mask = IndexMask::from_indices(
-        sorted_pairs.as_span().slice(pair_range), selection_memory);
-    MutableSpan<int> pair_from_indices = sorted_from_curve_indices.as_mutable_span().slice(
-        pair_range);
-    MutableSpan<int> pair_to_indices = sorted_to_curve_indices.as_mutable_span().slice(pair_range);
-    for (const int i : pair_range) {
-      const int pair_index = sorted_pairs[i];
-      sorted_from_curve_indices[i] = std::clamp(
-          curve_pairs.from_curves[pair_index], 0, int(from_curves.last()));
-      sorted_to_curve_indices[i] = std::clamp(
-          curve_pairs.to_curves[pair_index], 0, int(to_curves.last()));
+    for (const int i : pair_range.index_range()) {
+      const int pair_index = sorted_pairs[pair_range[i]];
+      const IndexRange dst_points = dst_points_by_curve[pair_index];
+      from_indices[i] = curve_pairs.from_curves[pair_index];
+      to_indices[i] = curve_pairs.to_curves[pair_index];
+
+      const int from_curve = curve_pairs.from_curves[pair_index];
+      const int to_curve = curve_pairs.to_curves[pair_index];
+
+      BLI_assert(from_curve >= 0 || to_curve >= 0);
+      if (to_curve < 0) {
+        /* Copy "from" curve. */
+        array_utils::fill_index_range(from_sample_indices.as_mutable_span().slice(dst_points));
+        from_sample_factors.fill(0.0f);
+        continue;
+      }
+      if (from_curve < 0) {
+        /* Copy "to" curve. */
+        array_utils::fill_index_range(to_sample_indices.as_mutable_span().slice(dst_points));
+        to_sample_factors.fill(0.0f);
+        continue;
+      }
+
+      const IndexRange from_points = from_points_by_curve[from_curve];
+      const IndexRange to_points = to_points_by_curve[to_curve];
+      if (from_points.size() >= to_points.size()) {
+        /* Target curve samples match 'from' points. */
+        BLI_assert(from_points.size() == dst_points.size());
+        array_utils::fill_index_range(from_sample_indices.as_mutable_span().slice(dst_points));
+        from_sample_factors.as_mutable_span().slice(dst_points).fill(0.0f);
+        sample_curve_padded(to_drawing->strokes(),
+                            to_curve,
+                            to_curves_cyclic[to_curve],
+                            dst_curve_flip[pair_index],
+                            to_sample_indices.as_mutable_span().slice(dst_points),
+                            to_sample_factors.as_mutable_span().slice(dst_points));
+      }
+      else {
+        /* Target curve samples match 'to' points. */
+        BLI_assert(to_points.size() == dst_points.size());
+        sample_curve_padded(from_drawing->strokes(),
+                            from_curve,
+                            from_curves_cyclic[from_curve],
+                            dst_curve_flip[pair_index],
+                            from_sample_indices.as_mutable_span().slice(dst_points),
+                            from_sample_factors.as_mutable_span().slice(dst_points));
+        array_utils::fill_index_range(to_sample_indices.as_mutable_span().slice(dst_points));
+        to_sample_factors.fill(0.0f);
+      }
     }
-    geometry::interpolate_curves(from_drawing->strokes(),
-                                 to_drawing->strokes(),
-                                 pair_from_indices,
-                                 pair_to_indices,
-                                 dst_curve_mask,
-                                 dst_curve_flip,
-                                 mix_factor,
-                                 dst_curves);
+
+    geometry::interpolate_curves_with_samples(from_drawing->strokes(),
+                                              to_drawing->strokes(),
+                                              from_indices,
+                                              to_indices,
+                                              from_sample_indices,
+                                              to_sample_indices,
+                                              from_sample_factors,
+                                              to_sample_factors,
+                                              dst_curve_mask,
+                                              mix_factor,
+                                              dst_curves,
+                                              memory);
   }
 
   return dst_curves;
@@ -567,7 +792,7 @@ static void grease_pencil_interpolate_status_indicators(bContext &C,
   std::string status;
   if (hasNumInput(&opdata.numeric_input)) {
     char str_ofs[NUM_STR_REP_LEN];
-    outputNumInput(&const_cast<NumInput &>(opdata.numeric_input), str_ofs, &scene.unit);
+    outputNumInput(&const_cast<NumInput &>(opdata.numeric_input), str_ofs, scene.unit);
     status = msg + std::string(str_ofs);
   }
   else {
@@ -705,6 +930,9 @@ static bool grease_pencil_interpolate_init(const bContext &C, wmOperator &op)
   using bke::greasepencil::Layer;
 
   op.customdata = InterpolateOpData::from_operator(C, op);
+  if (op.customdata == nullptr) {
+    return false;
+  }
   InterpolateOpData &data = *static_cast<InterpolateOpData *>(op.customdata);
 
   const Scene &scene = *CTX_data_scene(&C);
@@ -905,6 +1133,12 @@ static void GREASE_PENCIL_OT_interpolate(wmOperatorType *ot)
                   false,
                   "Exclude Breakdowns",
                   "Exclude existing Breakdowns keyframes as interpolation extremes");
+
+  RNA_def_boolean(ot->srna,
+                  "use_selection",
+                  false,
+                  "Use Selection",
+                  "Use only selected strokes for interpolating");
 
   RNA_def_enum(ot->srna,
                "flip",
@@ -1114,6 +1348,9 @@ static int grease_pencil_interpolate_sequence_exec(bContext *C, wmOperator *op)
   using bke::greasepencil::Layer;
 
   op->customdata = InterpolateOpData::from_operator(*C, *op);
+  if (op->customdata == nullptr) {
+    return OPERATOR_FINISHED;
+  }
   InterpolateOpData &opdata = *static_cast<InterpolateOpData *>(op->customdata);
 
   const Scene &scene = *CTX_data_scene(C);
@@ -1202,50 +1439,53 @@ static void grease_pencil_interpolate_sequence_ui(bContext *C, wmOperator *op)
   uiLayoutSetPropSep(layout, true);
   uiLayoutSetPropDecorate(layout, false);
   row = uiLayoutRow(layout, true);
-  uiItemR(row, op->ptr, "step", UI_ITEM_NONE, nullptr, ICON_NONE);
+  uiItemR(row, op->ptr, "step", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
   row = uiLayoutRow(layout, true);
-  uiItemR(row, op->ptr, "layers", UI_ITEM_NONE, nullptr, ICON_NONE);
+  uiItemR(row, op->ptr, "layers", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
   if (CTX_data_mode_enum(C) == CTX_MODE_EDIT_GPENCIL_LEGACY) {
     row = uiLayoutRow(layout, true);
-    uiItemR(row, op->ptr, "interpolate_selected_only", UI_ITEM_NONE, nullptr, ICON_NONE);
+    uiItemR(row, op->ptr, "interpolate_selected_only", UI_ITEM_NONE, std::nullopt, ICON_NONE);
   }
 
   row = uiLayoutRow(layout, true);
-  uiItemR(row, op->ptr, "exclude_breakdowns", UI_ITEM_NONE, nullptr, ICON_NONE);
+  uiItemR(row, op->ptr, "exclude_breakdowns", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
   row = uiLayoutRow(layout, true);
-  uiItemR(row, op->ptr, "flip", UI_ITEM_NONE, nullptr, ICON_NONE);
+  uiItemR(row, op->ptr, "use_selection", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+
+  row = uiLayoutRow(layout, true);
+  uiItemR(row, op->ptr, "flip", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
   col = uiLayoutColumn(layout, true);
-  uiItemR(col, op->ptr, "smooth_factor", UI_ITEM_NONE, nullptr, ICON_NONE);
-  uiItemR(col, op->ptr, "smooth_steps", UI_ITEM_NONE, nullptr, ICON_NONE);
+  uiItemR(col, op->ptr, "smooth_factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  uiItemR(col, op->ptr, "smooth_steps", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
   row = uiLayoutRow(layout, true);
-  uiItemR(row, op->ptr, "type", UI_ITEM_NONE, nullptr, ICON_NONE);
+  uiItemR(row, op->ptr, "type", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
   if (type == InterpolationType::CurveMap) {
     /* Get an RNA pointer to ToolSettings to give to the custom curve. */
     Scene *scene = CTX_data_scene(C);
     ToolSettings *ts = scene->toolsettings;
-    PointerRNA gpsettings_ptr = RNA_pointer_create(
+    PointerRNA gpsettings_ptr = RNA_pointer_create_discrete(
         &scene->id, &RNA_GPencilInterpolateSettings, &ts->gp_interpolate);
     uiTemplateCurveMapping(
         layout, &gpsettings_ptr, "interpolation_curve", 0, false, true, true, false);
   }
   else if (type != InterpolationType::Linear) {
     row = uiLayoutRow(layout, false);
-    uiItemR(row, op->ptr, "easing", UI_ITEM_NONE, nullptr, ICON_NONE);
+    uiItemR(row, op->ptr, "easing", UI_ITEM_NONE, std::nullopt, ICON_NONE);
     if (type == InterpolationType::Back) {
       row = uiLayoutRow(layout, false);
-      uiItemR(row, op->ptr, "back", UI_ITEM_NONE, nullptr, ICON_NONE);
+      uiItemR(row, op->ptr, "back", UI_ITEM_NONE, std::nullopt, ICON_NONE);
     }
     else if (type == InterpolationType::Elastic) {
       row = uiLayoutRow(layout, false);
-      uiItemR(row, op->ptr, "amplitude", UI_ITEM_NONE, nullptr, ICON_NONE);
+      uiItemR(row, op->ptr, "amplitude", UI_ITEM_NONE, std::nullopt, ICON_NONE);
       row = uiLayoutRow(layout, false);
-      uiItemR(row, op->ptr, "period", UI_ITEM_NONE, nullptr, ICON_NONE);
+      uiItemR(row, op->ptr, "period", UI_ITEM_NONE, std::nullopt, ICON_NONE);
     }
   }
 }
@@ -1281,16 +1521,16 @@ static void GREASE_PENCIL_OT_interpolate_sequence(wmOperatorType *ot)
                "Layers included in the interpolation");
 
   RNA_def_boolean(ot->srna,
-                  "interpolate_selected_only",
-                  false,
-                  "Only Selected",
-                  "Interpolate only selected strokes");
-
-  RNA_def_boolean(ot->srna,
                   "exclude_breakdowns",
                   false,
                   "Exclude Breakdowns",
                   "Exclude existing Breakdowns keyframes as interpolation extremes");
+
+  RNA_def_boolean(ot->srna,
+                  "use_selection",
+                  false,
+                  "Use Selection",
+                  "Use only selected strokes for interpolating");
 
   RNA_def_enum(ot->srna,
                "flip",
@@ -1337,15 +1577,16 @@ static void GREASE_PENCIL_OT_interpolate_sequence(wmOperatorType *ot)
       "easing interpolation is applied to");
   RNA_def_property_translation_context(prop, BLT_I18NCONTEXT_ID_GPENCIL);
 
-  RNA_def_float(ot->srna,
-                "back",
-                1.702f,
-                0.0f,
-                FLT_MAX,
-                "Back",
-                "Amount of overshoot for 'back' easing",
-                0.0f,
-                FLT_MAX);
+  prop = RNA_def_float(ot->srna,
+                       "back",
+                       1.702f,
+                       0.0f,
+                       FLT_MAX,
+                       "Back",
+                       "Amount of overshoot for 'back' easing",
+                       0.0f,
+                       FLT_MAX);
+  RNA_def_property_translation_context(prop, BLT_I18NCONTEXT_ID_GPENCIL);
 
   RNA_def_float(ot->srna,
                 "amplitude",

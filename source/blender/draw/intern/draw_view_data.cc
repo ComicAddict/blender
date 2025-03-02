@@ -8,15 +8,14 @@
 
 #include <memory>
 
+#include "BLI_listbase.h"
+#include "BLI_math_vector.h"
 #include "BLI_vector.hh"
 
-#include "GPU_capabilities.hh"
 #include "GPU_viewport.hh"
 
 #include "DRW_gpu_wrapper.hh"
 #include "DRW_render.hh"
-
-#include "draw_instance_data.hh"
 
 #include "draw_manager_text.hh"
 
@@ -33,7 +32,7 @@ struct DRWViewData {
   bool from_viewport = false;
   /** Common size for texture in the engines texture list.
    * We free all texture lists if it changes. */
-  int texture_list_size[2] = {0, 0};
+  int2 texture_list_size = {0, 0};
 
   double cache_time = 0.0;
 
@@ -123,28 +122,12 @@ void DRW_view_data_default_lists_from_viewport(DRWViewData *view_data, GPUViewpo
 static void draw_viewport_engines_data_clear(ViewportEngineData *data, bool clear_instance_data)
 {
   DrawEngineType *engine_type = data->engine_type->draw_engine;
-  const DrawEngineDataSize *data_size = engine_type->vedata_size;
-
-  for (int i = 0; data->fbl && i < data_size->fbl_len; i++) {
-    GPU_FRAMEBUFFER_FREE_SAFE(data->fbl->framebuffers[i]);
-  }
-  for (int i = 0; data->txl && i < data_size->txl_len; i++) {
-    GPU_TEXTURE_FREE_SAFE(data->txl->textures[i]);
-  }
-  for (int i = 0; data->stl && i < data_size->stl_len; i++) {
-    MEM_SAFE_FREE(data->stl->storage[i]);
-  }
 
   if (clear_instance_data && data->instance_data) {
     BLI_assert(engine_type->instance_free != nullptr);
     engine_type->instance_free(data->instance_data);
     data->instance_data = nullptr;
   }
-
-  MEM_SAFE_FREE(data->fbl);
-  MEM_SAFE_FREE(data->txl);
-  MEM_SAFE_FREE(data->psl);
-  MEM_SAFE_FREE(data->stl);
 
   if (data->text_draw_cache) {
     DRW_text_cache_destroy(data->text_draw_cache);
@@ -181,7 +164,7 @@ void DRW_view_data_free(DRWViewData *view_data)
 
 void DRW_view_data_texture_list_size_validate(DRWViewData *view_data, const int size[2])
 {
-  if (!equals_v2v2_int(view_data->texture_list_size, size)) {
+  if (view_data->texture_list_size != int2(size)) {
     draw_view_data_clear(view_data, false);
     copy_v2_v2_int(view_data->texture_list_size, size);
   }
@@ -192,17 +175,6 @@ ViewportEngineData *DRW_view_data_engine_data_get_ensure(DRWViewData *view_data,
 {
   for (ViewportEngineData &engine : view_data->engines) {
     if (engine.engine_type->draw_engine == engine_type) {
-      if (engine.fbl == nullptr) {
-        const DrawEngineDataSize *data_size = engine_type->vedata_size;
-        engine.fbl = (FramebufferList *)MEM_calloc_arrayN(
-            data_size->fbl_len, sizeof(GPUFrameBuffer *), "FramebufferList");
-        engine.txl = (TextureList *)MEM_calloc_arrayN(
-            data_size->txl_len, sizeof(GPUTexture *), "TextureList");
-        engine.psl = (PassList *)MEM_calloc_arrayN(
-            data_size->psl_len, sizeof(DRWPass *), "PassList");
-        engine.stl = (StorageList *)MEM_calloc_arrayN(
-            data_size->stl_len, sizeof(void *), "StorageList");
-      }
       return &engine;
     }
   }
@@ -279,28 +251,28 @@ ViewportEngineData *DRW_view_data_enabled_engine_iter_step(DRWEngineIterator *it
 
 draw::Manager *DRW_manager_get()
 {
-  BLI_assert(DST.view_data_active->manager);
-  return reinterpret_cast<draw::Manager *>(DST.view_data_active->manager);
+  BLI_assert(drw_get().view_data_active->manager);
+  return drw_get().view_data_active->manager;
 }
 
 draw::ObjectRef DRW_object_ref_get(Object *object)
 {
-  BLI_assert(DST.view_data_active->manager);
-  return {object, DST.dupli_source, DST.dupli_parent, 0};
+  BLI_assert(drw_get().view_data_active->manager);
+  return {object, drw_get().dupli_source, drw_get().dupli_parent, draw::ResourceHandle(0)};
 }
 
 void DRW_manager_begin_sync()
 {
-  if (DST.view_data_active->manager == nullptr) {
+  if (drw_get().view_data_active->manager == nullptr) {
     return;
   }
-  reinterpret_cast<draw::Manager *>(DST.view_data_active->manager)->begin_sync();
+  drw_get().view_data_active->manager->begin_sync();
 }
 
 void DRW_manager_end_sync()
 {
-  if (DST.view_data_active->manager == nullptr) {
+  if (drw_get().view_data_active->manager == nullptr) {
     return;
   }
-  reinterpret_cast<draw::Manager *>(DST.view_data_active->manager)->end_sync();
+  drw_get().view_data_active->manager->end_sync();
 }

@@ -6,16 +6,12 @@
  * \ingroup spview3d
  */
 
-#include <cmath>
-
 #include "DNA_object_types.h"
-#include "DNA_scene_types.h"
 #include "DNA_screen_types.h"
 #include "DNA_space_types.h"
-#include "DNA_view3d_types.h"
 
-#include "BLI_blenlib.h"
-#include "BLI_utildefines.h"
+#include "BLI_listbase.h"
+#include "BLI_path_utils.hh"
 
 #include "BKE_appdir.hh"
 #include "BKE_blender_copybuffer.hh"
@@ -61,20 +57,22 @@ static int view3d_copybuffer_exec(bContext *C, wmOperator *op)
 
   Main *bmain = CTX_data_main(C);
   PartialWriteContext copybuffer{BKE_main_blendfile_path(bmain)};
-  int num_copied = 0;
 
   /* context, selection, could be generalized */
   CTX_DATA_BEGIN (C, Object *, ob, selected_objects) {
     copybuffer.id_add(&ob->id,
-                      PartialWriteContext::IDAddOptions{PartialWriteContext::IDAddOperations(
-                          PartialWriteContext::IDAddOperations::SET_FAKE_USER |
-                          PartialWriteContext::IDAddOperations::SET_CLIPBOARD_MARK |
-                          PartialWriteContext::IDAddOperations::ADD_DEPENDENCIES)},
+                      PartialWriteContext::IDAddOptions{
+                          (PartialWriteContext::IDAddOperations::SET_FAKE_USER |
+                           PartialWriteContext::IDAddOperations::SET_CLIPBOARD_MARK |
+                           PartialWriteContext::IDAddOperations::ADD_DEPENDENCIES)},
                       nullptr);
-
-    num_copied++;
   }
   CTX_DATA_END;
+
+  /* Explicitly adding an object to the copy/paste buffer _may_ add others as dependencies (e.g. a
+   * parent object). So count to total amount of objects added, to get a matching number with the
+   * one reported by the "paste" operation. */
+  const int num_copied = BLI_listbase_count(&copybuffer.bmain.objects);
 
   char filepath[FILE_MAX];
   view3d_copybuffer_filepath_get(filepath, sizeof(filepath));
@@ -232,7 +230,7 @@ void view3d_operatortypes()
   WM_operatortype_append(VIEW3D_OT_ruler_add);
   WM_operatortype_append(VIEW3D_OT_ruler_remove);
 
-  transform_operatortypes();
+  blender::ed::transform::transform_operatortypes();
 }
 
 void view3d_keymap(wmKeyConfig *keyconf)

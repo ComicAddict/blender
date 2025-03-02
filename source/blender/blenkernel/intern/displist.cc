@@ -7,7 +7,6 @@
  */
 
 #include <cmath>
-#include <cstdio>
 #include <cstring>
 
 #include "MEM_guardedalloc.h"
@@ -19,6 +18,7 @@
 #include "BLI_index_range.hh"
 #include "BLI_listbase.h"
 #include "BLI_math_rotation.h"
+#include "BLI_math_vector.h"
 #include "BLI_memarena.h"
 #include "BLI_scanfill.h"
 #include "BLI_span.hh"
@@ -38,11 +38,11 @@
 #include "BKE_object_types.hh"
 #include "BKE_vfont.hh"
 
-#include "BLI_sys_types.h" /* For #intptr_t support. */
-
 #include "DEG_depsgraph.hh"
 #include "DEG_depsgraph_query.hh"
 
+using blender::Array;
+using blender::float3;
 using blender::IndexRange;
 
 static void displist_elem_free(DispList *dl)
@@ -575,8 +575,7 @@ void BKE_curve_calc_modifiers_pre(Depsgraph *depsgraph,
   }
 
   float *keyVerts = nullptr;
-  float(*deformedVerts)[3] = nullptr;
-  int numVerts = 0;
+  Array<float3> deformedVerts;
   if (!editmode) {
     int numElems = 0;
     keyVerts = BKE_key_evaluate_object(ob, &numElems);
@@ -588,7 +587,7 @@ void BKE_curve_calc_modifiers_pre(Depsgraph *depsgraph,
        * tilts, which is passed through in the modifier stack.
        * this is also the reason curves do not use a virtual
        * shape key modifier yet. */
-      deformedVerts = BKE_curve_nurbs_key_vert_coords_alloc(source_nurb, keyVerts, &numVerts);
+      deformedVerts = BKE_curve_nurbs_key_vert_coords_alloc(source_nurb, keyVerts);
     }
   }
 
@@ -611,12 +610,11 @@ void BKE_curve_calc_modifiers_pre(Depsgraph *depsgraph,
 
       blender::bke::ScopedModifierTimer modifier_timer{*md};
 
-      if (!deformedVerts) {
-        deformedVerts = BKE_curve_nurbs_vert_coords_alloc(source_nurb, &numVerts);
+      if (deformedVerts.is_empty()) {
+        deformedVerts = BKE_curve_nurbs_vert_coords_alloc(source_nurb);
       }
 
-      mti->deform_verts(
-          md, &mectx, nullptr, {reinterpret_cast<blender::float3 *>(deformedVerts), numVerts});
+      mti->deform_verts(md, &mectx, nullptr, deformedVerts);
 
       if (md == pretessellatePoint) {
         break;
@@ -624,9 +622,8 @@ void BKE_curve_calc_modifiers_pre(Depsgraph *depsgraph,
     }
   }
 
-  if (deformedVerts) {
+  if (!deformedVerts.is_empty()) {
     BKE_curve_nurbs_vert_coords_apply(target_nurb, deformedVerts, false);
-    MEM_freeN(deformedVerts);
   }
   if (keyVerts) { /* these are not passed through modifier stack */
     BKE_curve_nurbs_key_vert_tilts_apply(target_nurb, keyVerts);
@@ -644,10 +641,11 @@ void BKE_curve_calc_modifiers_pre(Depsgraph *depsgraph,
 static bool do_curve_implicit_mesh_conversion(const Curve *curve,
                                               ModifierData *first_modifier,
                                               const Scene *scene,
-                                              const ModifierMode required_mode)
+                                              const ModifierMode required_mode,
+                                              const bool editmode)
 {
   /* Skip implicit filling and conversion to mesh when using "fast text editing". */
-  if (curve->flag & CU_FAST) {
+  if ((curve->flag & CU_FAST) && editmode) {
     return false;
   }
 
@@ -710,7 +708,9 @@ static blender::bke::GeometrySet curve_calc_modifiers_post(Depsgraph *depsgraph,
                          pretessellatePoint->next;
 
   blender::bke::GeometrySet geometry_set;
-  if (ob->type == OB_SURF || do_curve_implicit_mesh_conversion(cu, md, scene, required_mode)) {
+  if (ob->type == OB_SURF ||
+      do_curve_implicit_mesh_conversion(cu, md, scene, required_mode, editmode))
+  {
     Mesh *mesh = BKE_mesh_new_nomain_from_curve_displist(ob, dispbase);
     geometry_set.replace_mesh(mesh);
   }

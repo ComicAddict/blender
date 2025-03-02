@@ -44,7 +44,7 @@
 #include "BKE_cpp_types.hh"
 #include "BKE_global.hh"
 #include "BKE_idtype.hh"
-#include "BKE_material.h"
+#include "BKE_material.hh"
 #include "BKE_modifier.hh"
 #include "BKE_node.hh"
 #include "BKE_particle.h"
@@ -61,6 +61,8 @@
 
 #include "IMB_imbuf.hh" /* For #IMB_init. */
 
+#include "MOV_util.hh"
+
 #include "RE_engine.h"
 #include "RE_texture.h"
 
@@ -70,7 +72,9 @@
 
 #include "RNA_define.hh"
 
-#include "GPU_compilation_subprocess.hh"
+#ifdef WITH_OPENGL_BACKEND
+#  include "GPU_compilation_subprocess.hh"
+#endif
 
 #ifdef WITH_FREESTYLE
 #  include "FRS_freestyle.h"
@@ -82,15 +86,17 @@
 #  include <floatingpoint.h>
 #endif
 
+#ifdef _OPENMP
+#  include <omp.h>
+#endif
+
 #ifdef WITH_BINRELOC
 #  include "binreloc.h"
 #endif
 
 #ifdef WITH_LIBMV
 #  include "libmv-capi.h"
-#endif
-
-#ifdef WITH_CYCLES_LOGGING
+#elif defined(WITH_CYCLES_LOGGING)
 #  include "CCL_api.h"
 #endif
 
@@ -282,11 +288,6 @@ int main(int argc,
   bArgs *ba;
 #endif
 
-#ifdef USE_WIN32_UNICODE_ARGS
-  char **argv;
-  int argv_num;
-#endif
-
   /* Ensure we free data on early-exit. */
   CreatorAtExitData app_init_data = {nullptr};
   BKE_blender_atexit_register(callback_main_atexit, &app_init_data);
@@ -300,28 +301,35 @@ int main(int argc,
   setvbuf(stdout, nullptr, _IONBF, 0);
 #endif
 
-#ifdef WIN32
-/* We delay loading of OPENMP so we can set the policy here. */
-#  if defined(_MSC_VER)
+#ifdef _OPENMP
+#  if defined(WIN32) && defined(_MSC_VER)
+  /* We delay loading of OPENMP so we can set the policy here. */
   _putenv_s("OMP_WAIT_POLICY", "PASSIVE");
 #  endif
+  /* Ensure the OpenMP runtime is initialized as soon as possible to make sure duplicate
+   * `libomp/libiomp5` runtime conflicts are detected as soon as a second runtime is initialized.
+   * Initialization must be done after setting any relevant environment variables, but before
+   * installing signal handlers. */
+  omp_get_max_threads();
+#endif
 
+#ifdef WIN32
 #  ifdef USE_WIN32_UNICODE_ARGS
   /* Win32 Unicode Arguments. */
   {
     /* NOTE: Can't use `guardedalloc` allocation here, as it's not yet initialized
      * (it depends on the arguments passed in, which is what we're getting here!). */
     wchar_t **argv_16 = CommandLineToArgvW(GetCommandLineW(), &argc);
-    argv = static_cast<char **>(malloc(argc * sizeof(char *)));
-    for (argv_num = 0; argv_num < argc; argv_num++) {
-      argv[argv_num] = alloc_utf_8_from_16(argv_16[argv_num], 0);
+    app_init_data.argv = static_cast<char **>(malloc(argc * sizeof(char *)));
+    for (int i = 0; i < argc; i++) {
+      app_init_data.argv[i] = alloc_utf_8_from_16(argv_16[i], 0);
     }
     LocalFree(argv_16);
 
     /* Free on early-exit. */
-    app_init_data.argv = argv;
-    app_init_data.argv_num = argv_num;
+    app_init_data.argv_num = argc;
   }
+  const char **argv = const_cast<const char **>(app_init_data.argv);
 #  endif /* USE_WIN32_UNICODE_ARGS */
 #endif   /* WIN32 */
 
@@ -441,7 +449,7 @@ int main(int argc,
 
 /* First test for background-mode (#Global.background). */
 #ifndef WITH_PYTHON_MODULE
-  ba = BLI_args_create(argc, (const char **)argv); /* Skip binary path. */
+  ba = BLI_args_create(argc, argv); /* Skip binary path. */
 
   /* Ensure we free on early exit. */
   app_init_data.ba = ba;
@@ -484,10 +492,8 @@ int main(int argc,
 
   /* Must be initialized after #BKE_appdir_init to account for color-management paths. */
   IMB_init();
-#ifdef WITH_FFMPEG
   /* Keep after #ARG_PASS_SETTINGS since debug flags are checked. */
-  IMB_ffmpeg_init();
-#endif
+  MOV_init();
 
   /* After #ARG_PASS_SETTINGS arguments, this is so #WM_main_playanim skips #RNA_init. */
   RNA_init();
@@ -524,7 +530,7 @@ int main(int argc,
   BLI_args_parse(ba, ARG_PASS_SETTINGS_FORCE, nullptr, nullptr);
 #endif
 
-  WM_init(C, argc, (const char **)argv);
+  WM_init(C, argc, argv);
 
 #ifndef WITH_PYTHON
   printf(

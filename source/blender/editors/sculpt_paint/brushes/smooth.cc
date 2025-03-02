@@ -9,22 +9,22 @@
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 
-#include "BKE_key.hh"
 #include "BKE_mesh.hh"
 #include "BKE_paint.hh"
-#include "BKE_pbvh.hh"
+#include "BKE_paint_bvh.hh"
 #include "BKE_subdiv_ccg.hh"
 
 #include "BLI_array.hh"
 #include "BLI_enumerable_thread_specific.hh"
 #include "BLI_task.hh"
-#include "BLI_virtual_array.hh"
 
 #include "editors/sculpt_paint/mesh_brush_common.hh"
 #include "editors/sculpt_paint/sculpt_automask.hh"
 #include "editors/sculpt_paint/sculpt_boundary.hh"
 #include "editors/sculpt_paint/sculpt_intern.hh"
 #include "editors/sculpt_paint/sculpt_smooth.hh"
+
+#include "bmesh.hh"
 
 namespace blender::ed::sculpt_paint {
 
@@ -50,7 +50,8 @@ struct LocalData {
   Vector<float3> positions;
   Vector<float> factors;
   Vector<float> distances;
-  Vector<Vector<int>> vert_neighbors;
+  Vector<int> neighbor_offsets;
+  Vector<int> neighbor_data;
   Vector<float3> new_positions;
   Vector<float3> translations;
 };
@@ -106,7 +107,7 @@ BLI_NOINLINE static void do_smooth_brush_mesh(const Depsgraph &depsgraph,
   const OffsetIndices faces = mesh.faces();
   const Span<int> corner_verts = mesh.corner_verts();
   const GroupedSpan<int> vert_to_face_map = mesh.vert_to_face_map();
-  const MeshAttributeData attribute_data(mesh.attributes());
+  const MeshAttributeData attribute_data(mesh);
 
   const PositionDeformData position_data(depsgraph, object);
   const Span<float3> vert_normals = bke::pbvh::vert_normals_eval(depsgraph, object);
@@ -125,18 +126,18 @@ BLI_NOINLINE static void do_smooth_brush_mesh(const Depsgraph &depsgraph,
     node_mask.foreach_index(GrainSize(1), [&](const int i, const int pos) {
       LocalData &tls = all_tls.local();
       const Span<int> verts = nodes[i].verts();
-      tls.vert_neighbors.resize(verts.size());
-      calc_vert_neighbors_interior(faces,
-                                   corner_verts,
-                                   vert_to_face_map,
-                                   ss.vertex_info.boundary,
-                                   attribute_data.hide_poly,
-                                   verts,
-                                   tls.vert_neighbors);
+      const GroupedSpan<int> neighbors = calc_vert_neighbors_interior(faces,
+                                                                      corner_verts,
+                                                                      vert_to_face_map,
+                                                                      ss.vertex_info.boundary,
+                                                                      attribute_data.hide_poly,
+                                                                      verts,
+                                                                      tls.neighbor_offsets,
+                                                                      tls.neighbor_data);
       smooth::neighbor_data_average_mesh_check_loose(
           position_data.eval,
           verts,
-          tls.vert_neighbors,
+          neighbors,
           new_positions.as_mutable_span().slice(node_vert_offsets[pos]));
     });
 
@@ -279,7 +280,7 @@ void do_smooth_brush(const Depsgraph &depsgraph,
     }
   }
   pbvh.tag_positions_changed(node_mask);
-  bke::pbvh::update_bounds(depsgraph, object, pbvh);
+  pbvh.update_bounds(depsgraph, object);
 }
 
 }  // namespace blender::ed::sculpt_paint

@@ -42,15 +42,17 @@
 #include "BKE_curve.hh"
 #include "BKE_editmesh.hh"
 #include "BKE_global.hh"
-#include "BKE_image.h"
+#include "BKE_image.hh"
 #include "BKE_layer.hh"
 #include "BKE_lib_id.hh"
 #include "BKE_lib_query.hh"
 #include "BKE_lib_remap.hh"
+#include "BKE_library.hh"
 #include "BKE_lightprobe.h"
 #include "BKE_linestyle.h"
 #include "BKE_main.hh"
-#include "BKE_material.h"
+#include "BKE_main_invariants.hh"
+#include "BKE_material.hh"
 #include "BKE_node.hh"
 #include "BKE_node_runtime.hh"
 #include "BKE_node_tree_update.hh"
@@ -765,7 +767,7 @@ static int new_material_exec(bContext *C, wmOperator * /*op*/)
   }
   else {
     const char *name = DATA_("Material");
-    if (!(ob != nullptr && ELEM(ob->type, OB_GPENCIL_LEGACY, OB_GREASE_PENCIL))) {
+    if (!(ob != nullptr && ob->type == OB_GREASE_PENCIL)) {
       ma = BKE_material_add(bmain, name);
     }
     else {
@@ -1239,19 +1241,19 @@ void SCENE_OT_view_layer_remove_lightgroup(wmOperatorType *ot)
 /** \name View Layer Add Used Lightgroups Operator
  * \{ */
 
-static GSet *get_used_lightgroups(Scene *scene)
+static blender::Set<blender::StringRefNull> get_used_lightgroups(Scene *scene)
 {
-  GSet *used_lightgroups = BLI_gset_str_new(__func__);
+  blender::Set<blender::StringRefNull> used_lightgroups;
 
   FOREACH_SCENE_OBJECT_BEGIN (scene, ob) {
     if (ob->lightgroup && ob->lightgroup->name[0]) {
-      BLI_gset_add(used_lightgroups, ob->lightgroup->name);
+      used_lightgroups.add_as(ob->lightgroup->name);
     }
   }
   FOREACH_SCENE_OBJECT_END;
 
   if (scene->world && scene->world->lightgroup && scene->world->lightgroup->name[0]) {
-    BLI_gset_add(used_lightgroups, scene->world->lightgroup->name);
+    used_lightgroups.add_as(scene->world->lightgroup->name);
   }
 
   return used_lightgroups;
@@ -1262,16 +1264,15 @@ static int view_layer_add_used_lightgroups_exec(bContext *C, wmOperator * /*op*/
   Scene *scene = CTX_data_scene(C);
   ViewLayer *view_layer = CTX_data_view_layer(C);
 
-  GSet *used_lightgroups = get_used_lightgroups(scene);
-  GSET_FOREACH_BEGIN (const char *, used_lightgroup, used_lightgroups) {
-    if (!BLI_findstring(
-            &view_layer->lightgroups, used_lightgroup, offsetof(ViewLayerLightgroup, name)))
+  blender::Set<blender::StringRefNull> used_lightgroups = get_used_lightgroups(scene);
+  for (const blender::StringRefNull used_lightgroup : used_lightgroups) {
+    if (!BLI_findstring(&view_layer->lightgroups,
+                        used_lightgroup.c_str(),
+                        offsetof(ViewLayerLightgroup, name)))
     {
-      BKE_view_layer_add_lightgroup(view_layer, used_lightgroup);
+      BKE_view_layer_add_lightgroup(view_layer, used_lightgroup.c_str());
     }
   }
-  GSET_FOREACH_END();
-  BLI_gset_free(used_lightgroups, nullptr);
 
   if (scene->nodetree) {
     ntreeCompositUpdateRLayers(scene->nodetree);
@@ -1309,13 +1310,12 @@ static int view_layer_remove_unused_lightgroups_exec(bContext *C, wmOperator * /
   Scene *scene = CTX_data_scene(C);
   ViewLayer *view_layer = CTX_data_view_layer(C);
 
-  GSet *used_lightgroups = get_used_lightgroups(scene);
+  blender::Set<blender::StringRefNull> used_lightgroups = get_used_lightgroups(scene);
   LISTBASE_FOREACH_MUTABLE (ViewLayerLightgroup *, lightgroup, &view_layer->lightgroups) {
-    if (!BLI_gset_haskey(used_lightgroups, lightgroup->name)) {
+    if (!used_lightgroups.contains_as(lightgroup->name)) {
       BKE_view_layer_remove_lightgroup(view_layer, lightgroup);
     }
   }
-  BLI_gset_free(used_lightgroups, nullptr);
 
   if (scene->nodetree) {
     ntreeCompositUpdateRLayers(scene->nodetree);
@@ -1442,6 +1442,11 @@ static int lightprobe_cache_bake_invoke(bContext *C, wmOperator *op, const wmEve
 
   wmJob *wm_job = EEVEE_NEXT_lightbake_job_create(
       wm, win, bmain, view_layer, scene, probes, data->report, scene->r.cfra, 0);
+  if (wm_job == nullptr) {
+    MEM_delete(data);
+    BKE_report(op->reports, RPT_WARNING, "Can't bake light probe while rendering");
+    return OPERATOR_CANCELLED;
+  }
 
   WM_event_add_modal_handler(C, op);
 
@@ -1644,7 +1649,7 @@ static int render_view_add_exec(bContext *C, wmOperator * /*op*/)
   WM_event_add_notifier(C, NC_SCENE | ND_RENDER_OPTIONS, scene);
 
   BKE_ntree_update_tag_id_changed(bmain, &scene->id);
-  ED_node_tree_propagate_change(C, bmain, nullptr);
+  BKE_main_ensure_invariants(*bmain);
 
   return OPERATOR_FINISHED;
 }
@@ -1683,7 +1688,7 @@ static int render_view_remove_exec(bContext *C, wmOperator * /*op*/)
   WM_event_add_notifier(C, NC_SCENE | ND_RENDER_OPTIONS, scene);
 
   BKE_ntree_update_tag_id_changed(bmain, &scene->id);
-  ED_node_tree_propagate_change(C, bmain, nullptr);
+  BKE_main_ensure_invariants(*bmain);
 
   return OPERATOR_FINISHED;
 }
@@ -2617,12 +2622,12 @@ static int copy_material_exec(bContext *C, wmOperator *op)
   PartialWriteContext copybuffer{BKE_main_blendfile_path(bmain)};
 
   /* Add the material to the copybuffer (and all of its dependencies). */
-  copybuffer.id_add(&ma->id,
-                    PartialWriteContext::IDAddOptions{PartialWriteContext::IDAddOperations(
-                        PartialWriteContext::IDAddOperations::SET_FAKE_USER |
-                        PartialWriteContext::IDAddOperations::SET_CLIPBOARD_MARK |
-                        PartialWriteContext::IDAddOperations::ADD_DEPENDENCIES)},
-                    nullptr);
+  copybuffer.id_add(
+      &ma->id,
+      PartialWriteContext::IDAddOptions{(PartialWriteContext::IDAddOperations::SET_FAKE_USER |
+                                         PartialWriteContext::IDAddOperations::SET_CLIPBOARD_MARK |
+                                         PartialWriteContext::IDAddOperations::ADD_DEPENDENCIES)},
+      nullptr);
 
   char filepath[FILE_MAX];
   material_copybuffer_filepath_get(filepath, sizeof(filepath));
@@ -2837,7 +2842,7 @@ static int paste_material_exec(bContext *C, wmOperator *op)
 
   /* There are some custom updates to the node tree above, better do a full update pass. */
   BKE_ntree_update_tag_all(ma->nodetree);
-  ED_node_tree_propagate_change(C, bmain, nullptr);
+  BKE_main_ensure_invariants(*bmain);
 
   DEG_id_tag_update(&ma->id, ID_RECALC_SYNC_TO_EVAL);
   WM_event_add_notifier(C, NC_MATERIAL | ND_SHADING_LINKS, ma);

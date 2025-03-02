@@ -6,12 +6,8 @@
  * \ingroup edobj
  */
 
-#include <cmath>
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
-
-#include "MEM_guardedalloc.h"
 
 #include "DNA_grease_pencil_types.h"
 #include "DNA_object_types.h"
@@ -61,7 +57,7 @@ ShaderFxData *shaderfx_add(
   ShaderFxData *new_fx = nullptr;
   const ShaderFxTypeInfo *fxi = BKE_shaderfx_get_info(ShaderFxType(type));
 
-  if (!ELEM(ob->type, OB_GPENCIL_LEGACY, OB_GREASE_PENCIL)) {
+  if (!ELEM(ob->type, OB_GREASE_PENCIL)) {
     BKE_reportf(reports, RPT_WARNING, "Effect cannot be added to object '%s'", ob->id.name + 2);
     return nullptr;
   }

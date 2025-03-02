@@ -8,14 +8,15 @@
  * Engine for debugging the selection map drawing.
  */
 
+#include "BLT_translation.hh"
+
 #include "DNA_ID.h"
-#include "DNA_vec_types.h"
 
 #include "DRW_engine.hh"
-#include "DRW_select_buffer.hh"
+#include "DRW_render.hh"
 
-#include "draw_cache.hh"
-#include "draw_manager_c.hh"
+#include "draw_manager.hh"
+#include "draw_pass.hh"
 
 #include "select_engine.hh"
 
@@ -25,21 +26,38 @@
 /** \name Structs and static variables
  * \{ */
 
-struct SELECTIDDEBUG_PassList {
-  struct DRWPass *debug_pass;
-};
-
 struct SELECTIDDEBUG_Data {
   void *engine_type;
-  DRWViewportEmptyList *fbl;
-  DRWViewportEmptyList *txl;
-  SELECTIDDEBUG_PassList *psl;
-  DRWViewportEmptyList *stl;
 };
 
-static struct {
-  struct GPUShader *select_debug_sh;
-} e_data = {{nullptr}}; /* Engine data */
+namespace blender::draw::SelectDebug {
+
+using StaticShader = gpu::StaticShader;
+
+class ShaderCache {
+ private:
+  static gpu::StaticShaderCache<ShaderCache> &get_static_cache()
+  {
+    static gpu::StaticShaderCache<ShaderCache> static_cache;
+    return static_cache;
+  }
+
+ public:
+  static ShaderCache &get()
+  {
+    return get_static_cache().get();
+  }
+  static void release()
+  {
+    get_static_cache().release();
+  }
+
+  StaticShader select_debug = {"select_debug_fullscreen"};
+};
+
+}  // namespace blender::draw::SelectDebug
+
+using namespace blender::draw::SelectDebug;
 
 /** \} */
 
@@ -47,32 +65,29 @@ static struct {
 /** \name Engine Functions
  * \{ */
 
-static void select_debug_engine_init(void *vedata)
+static void select_debug_draw_scene(void * /*vedata*/)
 {
-  SELECTIDDEBUG_PassList *psl = ((SELECTIDDEBUG_Data *)vedata)->psl;
-
-  if (!e_data.select_debug_sh) {
-    e_data.select_debug_sh = GPU_shader_create_from_info_name("select_debug_fullscreen");
-  }
-
-  psl->debug_pass = DRW_pass_create("Debug Pass", DRW_STATE_WRITE_COLOR | DRW_STATE_BLEND_ALPHA);
   GPUTexture *texture_u32 = DRW_engine_select_texture_get();
-  if (texture_u32) {
-    DRWShadingGroup *shgrp = DRW_shgroup_create(e_data.select_debug_sh, psl->debug_pass);
-    DRW_shgroup_uniform_texture(shgrp, "image", texture_u32);
-    DRW_shgroup_call_procedural_triangles(shgrp, nullptr, 1);
+  if (texture_u32 == nullptr) {
+    return;
   }
+
+  using namespace blender::draw;
+
+  PassSimple pass = {"SelectEngineDebug"};
+  pass.init();
+  pass.state_set(DRW_STATE_WRITE_COLOR | DRW_STATE_BLEND_ALPHA);
+  pass.shader_set(ShaderCache::get().select_debug.get());
+  pass.bind_texture("image", texture_u32);
+  pass.bind_texture("image", texture_u32);
+  pass.draw_procedural(GPU_PRIM_TRIS, 1, 3);
+
+  DRW_manager_get()->submit(pass);
 }
 
-static void select_debug_draw_scene(void *vedata)
+static void select_debug_engine_free()
 {
-  SELECTIDDEBUG_PassList *psl = ((SELECTIDDEBUG_Data *)vedata)->psl;
-  DRW_draw_pass(psl->debug_pass);
-}
-
-static void select_debug_engine_free(void)
-{
-  DRW_SHADER_FREE_SAFE(e_data.select_debug_sh);
+  ShaderCache::release();
 }
 
 /** \} */
@@ -81,15 +96,11 @@ static void select_debug_engine_free(void)
 /** \name Engine Type
  * \{ */
 
-static const DrawEngineDataSize select_debug_data_size = DRW_VIEWPORT_DATA_SIZE(
-    SELECTIDDEBUG_Data);
-
 DrawEngineType draw_engine_debug_select_type = {
     /*next*/ nullptr,
     /*prev*/ nullptr,
     /*idname*/ N_("Select ID Debug"),
-    /*vedata_size*/ &select_debug_data_size,
-    /*engine_init*/ &select_debug_engine_init,
+    /*engine_init*/ nullptr,
     /*engine_free*/ &select_debug_engine_free,
     /*instance_free*/ nullptr,
     /*cache_init*/ nullptr,

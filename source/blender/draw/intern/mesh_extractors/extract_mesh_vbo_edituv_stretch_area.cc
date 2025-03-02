@@ -6,9 +6,8 @@
  * \ingroup draw
  */
 
+#include "BLI_math_geom.h"
 #include "BLI_math_vector_types.hh"
-
-#include "MEM_guardedalloc.h"
 
 #include "BKE_attribute.hh"
 #include "BKE_mesh.hh"
@@ -39,7 +38,7 @@ struct AreaInfo {
 };
 static AreaInfo compute_area_ratio(const MeshRenderData &mr, MutableSpan<float> r_area_ratio)
 {
-  if (mr.extract_type == MR_EXTRACT_BMESH) {
+  if (mr.extract_type == MeshExtractType::BMesh) {
     const BMesh &bm = *mr.bm;
     const int uv_offset = CustomData_get_offset(&bm.ldata, CD_PROP_FLOAT2);
     return threading::parallel_reduce(
@@ -101,17 +100,15 @@ void extract_edituv_stretch_area(const MeshRenderData &mr,
   tot_area = info.tot_area;
   tot_uv_area = info.tot_uv_area;
 
-  static GPUVertFormat format = {0};
-  if (format.attr_len == 0) {
-    GPU_vertformat_attr_add(&format, "ratio", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
-  }
+  static const GPUVertFormat format = GPU_vertformat_from_attribute(
+      "ratio", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
   GPU_vertbuf_init_with_format(vbo, format);
   GPU_vertbuf_data_alloc(vbo, mr.corners_num);
   MutableSpan<float> vbo_data = vbo.data<float>();
 
   const int64_t bytes = area_ratio.as_span().size_in_bytes() + vbo_data.size_in_bytes();
   threading::memory_bandwidth_bound_task(bytes, [&]() {
-    if (mr.extract_type == MR_EXTRACT_BMESH) {
+    if (mr.extract_type == MeshExtractType::BMesh) {
       const BMesh &bm = *mr.bm;
       threading::parallel_for(IndexRange(bm.totface), 2048, [&](const IndexRange range) {
         for (const int face_index : range) {
@@ -122,7 +119,7 @@ void extract_edituv_stretch_area(const MeshRenderData &mr,
       });
     }
     else {
-      BLI_assert(mr.extract_type == MR_EXTRACT_MESH);
+      BLI_assert(mr.extract_type == MeshExtractType::Mesh);
       const OffsetIndices<int> faces = mr.faces;
       threading::parallel_for(faces.index_range(), 2048, [&](const IndexRange range) {
         for (const int face : range) {
@@ -139,10 +136,8 @@ void extract_edituv_stretch_area_subdiv(const MeshRenderData &mr,
                                         float &tot_area,
                                         float &tot_uv_area)
 {
-  static GPUVertFormat format = {0};
-  if (format.attr_len == 0) {
-    GPU_vertformat_attr_add(&format, "ratio", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
-  }
+  static const GPUVertFormat format = GPU_vertformat_from_attribute(
+      "ratio", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
   GPU_vertbuf_init_build_on_device(vbo, format, subdiv_cache.num_subdiv_loops);
 
   gpu::VertBuf *coarse_vbo = GPU_vertbuf_calloc();

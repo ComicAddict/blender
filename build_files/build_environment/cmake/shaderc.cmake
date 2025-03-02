@@ -8,7 +8,9 @@ set(SHADERC_EXTRA_ARGS
   -DSHADERC_SPIRV_HEADERS_DIR=${BUILD_DIR}/shaderc_spirv_headers/src/external_shaderc_spirv_headers
   -DSHADERC_GLSLANG_DIR=${BUILD_DIR}/shaderc_glslang/src/external_shaderc_glslang
   -DCMAKE_DEBUG_POSTFIX=_d
-  -DPYTHON_EXECUTABLE=${PYTHON_BINARY}
+  -DPython_EXECUTABLE=${PYTHON_BINARY}
+  -DPython3_EXECUTABLE=${PYTHON_BINARY}
+  -DSHADERC_ENABLE_SHARED_CRT=ON
 )
 
 ExternalProject_Add(external_shaderc
@@ -16,6 +18,7 @@ ExternalProject_Add(external_shaderc
   URL_HASH ${SHADERC_HASH_TYPE}=${SHADERC_HASH}
   DOWNLOAD_DIR ${DOWNLOAD_DIR}
   PREFIX ${BUILD_DIR}/shaderc
+  CMAKE_GENERATOR ${PLATFORM_ALT_GENERATOR}
 
   CMAKE_ARGS
     -DCMAKE_INSTALL_PREFIX=${LIBDIR}/shaderc

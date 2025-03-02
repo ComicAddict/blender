@@ -355,9 +355,7 @@ class IndexRangeCyclic {
     if (this->cycles_ > 0) {
       return this->size_before_loop() + this->end_ + (this->cycles_ - 1) * this->range_size_;
     }
-    else {
-      return int(this->end_ - this->start_);
-    }
+    return int(this->end_ - this->start_);
   }
 
   /**
@@ -415,10 +413,7 @@ class IndexRangeCyclic {
       BLI_assert(0 <= index && index <= range_end);
     }
 
-    constexpr CyclicIterator(const CyclicIterator &copy)
-        : index_(copy.index_), range_end_(copy.range_end_), cycles_(copy.cycles_)
-    {
-    }
+    constexpr CyclicIterator(const CyclicIterator &copy) = default;
     ~CyclicIterator() = default;
 
     constexpr CyclicIterator &operator=(const CyclicIterator &copy)
@@ -470,6 +465,10 @@ class IndexRangeCyclic {
 /** \name Utility Functions
  * \{ */
 
+IndexMask curve_to_point_selection(OffsetIndices<int> points_by_curve,
+                                   const IndexMask &curve_selection,
+                                   IndexMaskMemory &memory);
+
 void fill_points(OffsetIndices<int> points_by_curve,
                  const IndexMask &curve_selection,
                  GPointer value,
@@ -508,6 +507,36 @@ void foreach_curve_by_type(const VArray<int8_t> &types,
                            FunctionRef<void(IndexMask)> poly_fn,
                            FunctionRef<void(IndexMask)> bezier_fn,
                            FunctionRef<void(IndexMask)> nurbs_fn);
+
+using SelectedCallback = FunctionRef<void(
+    int curve_i, IndexRange curve_points, Span<IndexRange> selected_point_ranges)>;
+using UnselectedCallback = FunctionRef<void(IndexRange curves, IndexRange unselected_points)>;
+
+/**
+ * Calls callback function for each curve having selected points.
+ *
+ * \param mask: selected points.
+ * \param points_by_curve: The offsets of every curve into arrays on the points domain.
+ * \param selected_fn: callback function called for each curve with at least one point selected.
+ */
+void foreach_selected_point_ranges_per_curve(const IndexMask &mask,
+                                             const OffsetIndices<int> points_by_curve,
+                                             SelectedCallback selected_fn);
+
+/**
+ * Calls callback function for each curve having selected points.
+ * Calls second callback for groups of curves with no points selected.
+ *
+ * \param mask: selected points.
+ * \param points_by_curve: The offsets of every curve into arrays on the points domain.
+ * \param selected_fn: callback function called for each curve with at least one point selected.
+ * \param unselected_fn: callback function called for groups of curves with no selected points.
+ */
+void foreach_selected_point_ranges_per_curve(const IndexMask &mask,
+                                             const OffsetIndices<int> points_by_curve,
+                                             SelectedCallback selected_fn,
+                                             UnselectedCallback unselected_fn);
+
 namespace bezier {
 
 /**
@@ -559,11 +588,9 @@ inline bool CurvePoint::operator<(const CurvePoint &other) const
   if (index == other.index) {
     return parameter < other.parameter;
   }
-  else {
-    /* Use next index for cyclic comparison due to loop segment < first segment. */
-    return next_index < other.next_index &&
-           !(next_index == other.index && parameter == 1.0 && other.parameter == 0.0);
-  }
+  /* Use next index for cyclic comparison due to loop segment < first segment. */
+  return next_index < other.next_index &&
+         !(next_index == other.index && parameter == 1.0 && other.parameter == 0.0);
 }
 
 /** \} */

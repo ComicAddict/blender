@@ -11,19 +11,7 @@
 #include "DRW_engine.hh"
 #include "DRW_render.hh"
 
-#include "DEG_depsgraph_query.hh"
-
-#include "ED_view3d.hh"
-
-#include "UI_interface.hh"
-
-#include "BKE_duplilist.hh"
-#include "BKE_object.hh"
-#include "BKE_paint.hh"
-
-#include "GPU_capabilities.hh"
-
-#include "DNA_space_types.h"
+#include "BLT_translation.hh"
 
 #include "draw_manager.hh"
 #include "overlay_next_instance.hh"
@@ -74,7 +62,7 @@ static void OVERLAY_next_cache_populate(void *vedata, Object *object)
   ref.object = object;
   ref.dupli_object = DRW_object_get_dupli(object);
   ref.dupli_parent = DRW_object_get_dupli_parent(object);
-  ref.handle.raw = 0;
+  ref.handle = ResourceHandle(0);
 
   reinterpret_cast<Instance *>(reinterpret_cast<OVERLAY_Data *>(vedata)->instance)
       ->object_sync(ref, *DRW_manager_get());
@@ -94,9 +82,12 @@ static void OVERLAY_next_draw_scene(void *vedata)
 static void OVERLAY_next_instance_free(void *instance_)
 {
   Instance *instance = (Instance *)instance_;
-  if (instance != nullptr) {
-    delete instance;
-  }
+  delete instance;
+}
+
+static void OVERLAY_next_engine_free()
+{
+  overlay::ShaderModule::module_free();
 }
 
 /** \} */
@@ -105,15 +96,12 @@ static void OVERLAY_next_instance_free(void *instance_)
 /** \name Engine Type
  * \{ */
 
-static const DrawEngineDataSize overlay_data_size = DRW_VIEWPORT_DATA_SIZE(OVERLAY_Data);
-
 DrawEngineType draw_engine_overlay_next_type = {
     /*next*/ nullptr,
     /*prev*/ nullptr,
     /*idname*/ N_("Overlay"),
-    /*vedata_size*/ &overlay_data_size,
     /*engine_init*/ &OVERLAY_next_engine_init,
-    /*engine_free*/ nullptr,
+    /*engine_free*/ &OVERLAY_next_engine_free,
     /*instance_free*/ &OVERLAY_next_instance_free,
     /*cache_init*/ &OVERLAY_next_cache_init,
     /*cache_populate*/ &OVERLAY_next_cache_populate,

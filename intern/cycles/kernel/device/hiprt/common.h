@@ -320,10 +320,7 @@ ccl_device_inline bool point_custom_intersect(const hiprtRay &ray,
                                               void *payload,
                                               hiprtHit &hit)
 {
-  /* Point cloud intersections are currently disabled to decrease register pressure in the ray
-   * tracing kernels. This increases the number of in-flight ray traversal waves, and fixes the
-   * performance regression reported in #127464 */
-#  if defined(__POINTCLOUD__) && 0
+#  if defined(__POINTCLOUD__)
   RayPayload *local_payload = (RayPayload *)payload;
   KernelGlobals kg = local_payload->kg;
   int object_id = kernel_data_fetch(user_instance_id, hit.instanceID);
@@ -462,7 +459,7 @@ ccl_device_inline bool shadow_intersection_filter(const hiprtRay &ray,
 #  else
 
   if (num_hits >= max_hits ||
-      !(intersection_get_shader_flags(NULL, prim, type) & SD_HAS_TRANSPARENT_SHADOW))
+      !(intersection_get_shader_flags(nullptr, prim, type) & SD_HAS_TRANSPARENT_SHADOW))
   {
     return false;
   }
@@ -561,7 +558,7 @@ ccl_device_inline bool shadow_intersection_filter_curves(const hiprtRay &ray,
 #  else
 
   if (num_hits >= max_hits ||
-      !(intersection_get_shader_flags(NULL, prim, type) & SD_HAS_TRANSPARENT_SHADOW))
+      !(intersection_get_shader_flags(nullptr, prim, type) & SD_HAS_TRANSPARENT_SHADOW))
   {
     return false;
   }
@@ -656,8 +653,8 @@ ccl_device_inline bool volume_intersection_filter(const hiprtRay &ray,
     return false;
 }
 
-HIPRT_DEVICE bool intersectFunc(uint geomType,
-                                uint rayType,
+HIPRT_DEVICE bool intersectFunc(const uint geomType,
+                                const uint rayType,
                                 const hiprtFuncTableHeader &tableHeader,
                                 const hiprtRay &ray,
                                 void *payload,
@@ -685,8 +682,8 @@ HIPRT_DEVICE bool intersectFunc(uint geomType,
   return false;
 }
 
-HIPRT_DEVICE bool filterFunc(uint geomType,
-                             uint rayType,
+HIPRT_DEVICE bool filterFunc(const uint geomType,
+                             const uint rayType,
                              const hiprtFuncTableHeader &tableHeader,
                              const hiprtRay &ray,
                              void *payload,

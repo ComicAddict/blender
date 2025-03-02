@@ -10,16 +10,21 @@
 
 #include "vk_common.hh"
 
+namespace blender::gpu {
+struct VKWorkarounds;
+}
+
 namespace blender::gpu::render_graph {
 class VKCommandBufferInterface {
  public:
+  bool use_dynamic_rendering = true;
+  bool use_dynamic_rendering_local_read = true;
+
   VKCommandBufferInterface() {}
   virtual ~VKCommandBufferInterface() = default;
 
   virtual void begin_recording() = 0;
   virtual void end_recording() = 0;
-  virtual void submit_with_cpu_synchronization(VkFence vk_fence = VK_NULL_HANDLE) = 0;
-  virtual void wait_for_cpu_synchronization(VkFence vk_fence = VK_NULL_HANDLE) = 0;
 
   virtual void bind_pipeline(VkPipelineBindPoint pipeline_bind_point, VkPipeline pipeline) = 0;
   virtual void bind_descriptor_sets(VkPipelineBindPoint pipeline_bind_point,
@@ -126,6 +131,8 @@ class VKCommandBufferInterface {
                                 uint32_t first_query,
                                 uint32_t query_count) = 0;
 
+  virtual void begin_render_pass(const VkRenderPassBeginInfo *render_pass_begin_info) = 0;
+  virtual void end_render_pass() = 0;
   /* VK_KHR_dynamic_rendering */
   virtual void begin_rendering(const VkRenderingInfo *p_rendering_info) = 0;
   virtual void end_rendering() = 0;
@@ -136,24 +143,13 @@ class VKCommandBufferInterface {
 
 class VKCommandBufferWrapper : public VKCommandBufferInterface {
  private:
-  VkCommandPoolCreateInfo vk_command_pool_create_info_;
-  VkCommandBufferAllocateInfo vk_command_buffer_allocate_info_;
-  VkCommandBufferBeginInfo vk_command_buffer_begin_info_;
-  VkFenceCreateInfo vk_fence_create_info_;
-  VkSubmitInfo vk_submit_info_;
-
-  VkCommandPool vk_command_pool_ = VK_NULL_HANDLE;
   VkCommandBuffer vk_command_buffer_ = VK_NULL_HANDLE;
-  VkFence vk_fence_ = VK_NULL_HANDLE;
 
  public:
-  VKCommandBufferWrapper();
-  virtual ~VKCommandBufferWrapper();
+  VKCommandBufferWrapper(VkCommandBuffer vk_command_buffer, const VKWorkarounds &workarounds);
 
   void begin_recording() override;
   void end_recording() override;
-  void submit_with_cpu_synchronization(VkFence vk_fence) override;
-  void wait_for_cpu_synchronization(VkFence vk_fence) override;
 
   void bind_pipeline(VkPipelineBindPoint pipeline_bind_point, VkPipeline pipeline) override;
   void bind_descriptor_sets(VkPipelineBindPoint pipeline_bind_point,
@@ -255,6 +251,8 @@ class VKCommandBufferWrapper : public VKCommandBufferInterface {
                    VkQueryControlFlags vk_query_control_flags) override;
   void end_query(VkQueryPool vk_query_pool, uint32_t query_index) override;
   void reset_query_pool(VkQueryPool, uint32_t first_query, uint32_t query_count) override;
+  void begin_render_pass(const VkRenderPassBeginInfo *vk_render_pass) override;
+  void end_render_pass() override;
   void begin_rendering(const VkRenderingInfo *p_rendering_info) override;
   void end_rendering() override;
   void begin_debug_utils_label(const VkDebugUtilsLabelEXT *vk_debug_utils_label) override;

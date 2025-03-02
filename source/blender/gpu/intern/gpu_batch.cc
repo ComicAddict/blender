@@ -9,14 +9,11 @@
  * Contains VAOs + VBOs + Shader representing a drawable entity.
  */
 
-#include "MEM_guardedalloc.h"
-
 #include "BLI_math_base.h"
 #include "BLI_utildefines.h"
 
 #include "GPU_batch.hh"
 #include "GPU_batch_presets.hh"
-#include "GPU_platform.hh"
 #include "GPU_shader.hh"
 
 #include "GPU_index_buffer.hh"
@@ -24,8 +21,6 @@
 #include "gpu_backend.hh"
 #include "gpu_context_private.hh"
 #include "gpu_shader_private.hh"
-
-#include "GPU_batch.hh"
 
 #include <cstring>
 
@@ -276,6 +271,11 @@ static uint16_t bind_attribute_as_ssbo(const ShaderInterface *interface,
       BLI_assert((offset % 4) == 0);
       int descriptor[2] = {int(stride) / 4, int(offset) / 4};
       GPU_shader_uniform_2iv(shader, uniform_name, descriptor);
+      /* WORKAROUND: Fix for polyline workaround. Ideally should be fused with `gpu_attr_0`.
+       * But for now, changes are a bit too invasive. Will need to be revisited later on. */
+      char uniform_name_len[] = "gpu_attr_0_len";
+      uniform_name_len[9] = '0' + input->location;
+      GPU_shader_uniform_1i(shader, uniform_name_len, a->comp_len);
     }
   }
   return bound_attr;
@@ -325,14 +325,12 @@ void GPU_batch_bind_as_resources(Batch *batch, GPUShader *shader)
 /** \name Drawing / Drawcall functions
  * \{ */
 
-void GPU_batch_draw_parameter_get(Batch *gpu_batch,
+void GPU_batch_draw_parameter_get(Batch *batch,
                                   int *r_vertex_count,
                                   int *r_vertex_first,
                                   int *r_base_index,
                                   int *r_instance_count)
 {
-  Batch *batch = static_cast<Batch *>(gpu_batch);
-
   if (batch->elem) {
     *r_vertex_count = batch->elem_()->index_len_get();
     *r_vertex_first = batch->elem_()->index_start_get();
@@ -352,51 +350,107 @@ void GPU_batch_draw_parameter_get(Batch *gpu_batch,
   *r_instance_count = i_count;
 }
 
-blender::IndexRange GPU_batch_draw_expanded_parameter_get(const blender::gpu::Batch *batch,
-                                                          GPUPrimType expanded_prim_type,
+blender::IndexRange GPU_batch_draw_expanded_parameter_get(GPUPrimType input_prim_type,
+                                                          GPUPrimType output_prim_type,
                                                           int vertex_count,
-                                                          int vertex_first)
+                                                          int vertex_first,
+                                                          int output_primitive_cout)
 {
-  int vert_per_original_primitive = indices_per_primitive(batch->prim_type);
-  int vert_per_expanded_primitive = indices_per_primitive(expanded_prim_type);
-
-  BLI_assert_msg(vert_per_original_primitive != -1,
-                 "Primitive expansion only works for primitives with known amount of vertices");
+  int vert_per_original_primitive = indices_per_primitive(input_prim_type);
+  int vert_per_expanded_primitive = indices_per_primitive(output_prim_type);
 
   int prim_first = vertex_first / vert_per_original_primitive;
   int prim_len = vertex_count / vert_per_original_primitive;
 
-  int out_vertex_first = prim_first * vert_per_expanded_primitive;
-  int out_vertex_count = prim_len * vert_per_expanded_primitive;
+  BLI_assert_msg(vert_per_original_primitive != -1,
+                 "Primitive expansion only works for primitives with known amount of vertices");
+
+  /* WORKAROUND: Needed for polyline_draw_workaround. */
+  if (input_prim_type == GPU_PRIM_LINE_STRIP) {
+    prim_len = vertex_count - 1;
+  }
+
+  int out_vertex_first = prim_first * vert_per_expanded_primitive * output_primitive_cout;
+  int out_vertex_count = prim_len * vert_per_expanded_primitive * output_primitive_cout;
 
   return blender::IndexRange(out_vertex_first, out_vertex_count);
 }
 
+static void polyline_draw_workaround(
+    Batch *batch, int vertex_first, int vertex_count, int instance_first, int instance_count)
+{
+  /* Check compatible input primitive. */
+  BLI_assert(ELEM(batch->prim_type, GPU_PRIM_LINES, GPU_PRIM_LINE_STRIP, GPU_PRIM_LINE_LOOP));
+
+  GPU_batch_bind_as_resources(batch, batch->shader);
+  blender::IndexRange range = GPU_batch_draw_expanded_parameter_get(
+      batch->prim_type, GPU_PRIM_TRIS, vertex_count, vertex_first, 2);
+  Batch *tri_batch = Context::get()->procedural_triangles_batch_get();
+  GPU_batch_set_shader(tri_batch, batch->shader);
+
+  int vert_stride_count[3] = {(batch->prim_type == GPU_PRIM_LINES) ? 2 : 1, vertex_count, 0};
+  GPU_shader_uniform_3iv(batch->shader, "gpu_vert_stride_count_offset", vert_stride_count);
+  /* Assume GPU_FETCH_FLOAT for now. A bit cumbersome to assert for this or to find the correct
+   * attribute. */
+  GPU_shader_uniform_1b(batch->shader, "gpu_attr_0_fetch_int", false);
+
+  /* Allow byte color fetch. */
+  const GPUVertFormat *format = GPU_vertbuf_get_format(batch->verts[0]);
+  int id = GPU_vertformat_attr_id_get(format, "color");
+  if (id != -1) {
+    const GPUVertAttr &attr = format->attrs[id];
+    BLI_assert_msg(ELEM(attr.fetch_mode, GPU_FETCH_INT_TO_FLOAT_UNIT, GPU_FETCH_FLOAT),
+                   "color attribute for polylines can only use GPU_FETCH_INT_TO_FLOAT_UNIT or "
+                   "GPU_FETCH_FLOAT");
+    GPU_shader_uniform_1b(batch->shader,
+                          "gpu_attr_1_fetch_unorm8",
+                          (attr.fetch_mode == GPU_FETCH_INT_TO_FLOAT_UNIT));
+  }
+
+  GPU_batch_draw_advanced(tri_batch, range.start(), range.size(), instance_first, instance_count);
+}
+
 void GPU_batch_draw(Batch *batch)
 {
+  BLI_assert(batch != nullptr);
   GPU_shader_bind(batch->shader);
-  GPU_batch_draw_advanced(batch, 0, 0, 0, 0);
+  if (unwrap(batch->shader)->is_polyline) {
+    polyline_draw_workaround(batch, 0, batch->vertex_count_get(), 0, 0);
+  }
+  else {
+    GPU_batch_draw_advanced(batch, 0, 0, 0, 0);
+  }
 }
 
 void GPU_batch_draw_range(Batch *batch, int vertex_first, int vertex_count)
 {
+  BLI_assert(batch != nullptr);
   GPU_shader_bind(batch->shader);
-  GPU_batch_draw_advanced(batch, vertex_first, vertex_count, 0, 0);
+  if (unwrap(batch->shader)->is_polyline) {
+    polyline_draw_workaround(batch, vertex_first, vertex_count, 0, 0);
+  }
+  else {
+    GPU_batch_draw_advanced(batch, vertex_first, vertex_count, 0, 0);
+  }
 }
 
 void GPU_batch_draw_instance_range(Batch *batch, int instance_first, int instance_count)
 {
+  BLI_assert(batch != nullptr);
   BLI_assert(batch->inst[0] == nullptr);
+  /* Not polyline shaders support instancing. */
+  BLI_assert(unwrap(batch->shader)->is_polyline == false);
 
   GPU_shader_bind(batch->shader);
   GPU_batch_draw_advanced(batch, 0, 0, instance_first, instance_count);
 }
 
 void GPU_batch_draw_advanced(
-    Batch *gpu_batch, int vertex_first, int vertex_count, int instance_first, int instance_count)
+    Batch *batch, int vertex_first, int vertex_count, int instance_first, int instance_count)
 {
+  BLI_assert(batch != nullptr);
   BLI_assert(Context::get()->shader != nullptr);
-  Batch *batch = static_cast<Batch *>(gpu_batch);
+  Context::get()->assert_framebuffer_shader_compatibility(Context::get()->shader);
 
   if (vertex_count == 0) {
     if (batch->elem) {
@@ -422,21 +476,23 @@ void GPU_batch_draw_advanced(
   batch->draw(vertex_first, vertex_count, instance_first, instance_count);
 }
 
-void GPU_batch_draw_indirect(Batch *gpu_batch, GPUStorageBuf *indirect_buf, intptr_t offset)
+void GPU_batch_draw_indirect(Batch *batch, GPUStorageBuf *indirect_buf, intptr_t offset)
 {
-  BLI_assert(Context::get()->shader != nullptr);
+  BLI_assert(batch != nullptr);
   BLI_assert(indirect_buf != nullptr);
-  Batch *batch = static_cast<Batch *>(gpu_batch);
+  BLI_assert(Context::get()->shader != nullptr);
+  Context::get()->assert_framebuffer_shader_compatibility(Context::get()->shader);
 
   batch->draw_indirect(indirect_buf, offset);
 }
 
 void GPU_batch_multi_draw_indirect(
-    Batch *gpu_batch, GPUStorageBuf *indirect_buf, int count, intptr_t offset, intptr_t stride)
+    Batch *batch, GPUStorageBuf *indirect_buf, int count, intptr_t offset, intptr_t stride)
 {
-  BLI_assert(Context::get()->shader != nullptr);
+  BLI_assert(batch != nullptr);
   BLI_assert(indirect_buf != nullptr);
-  Batch *batch = static_cast<Batch *>(gpu_batch);
+  BLI_assert(Context::get()->shader != nullptr);
+  Context::get()->assert_framebuffer_shader_compatibility(Context::get()->shader);
 
   batch->multi_draw_indirect(indirect_buf, count, offset, stride);
 }
@@ -463,6 +519,26 @@ void GPU_batch_program_set_builtin(Batch *batch, eGPUBuiltinShader shader_id)
 void GPU_batch_program_set_imm_shader(Batch *batch)
 {
   GPU_batch_set_shader(batch, immGetShader());
+}
+
+blender::gpu::Batch *GPU_batch_procedural_points_get()
+{
+  return blender::gpu::Context::get()->procedural_points_batch_get();
+}
+
+blender::gpu::Batch *GPU_batch_procedural_lines_get()
+{
+  return blender::gpu::Context::get()->procedural_lines_batch_get();
+}
+
+blender::gpu::Batch *GPU_batch_procedural_triangles_get()
+{
+  return blender::gpu::Context::get()->procedural_triangles_batch_get();
+}
+
+blender::gpu::Batch *GPU_batch_procedural_triangle_strips_get()
+{
+  return blender::gpu::Context::get()->procedural_triangle_strips_batch_get();
 }
 
 /** \} */

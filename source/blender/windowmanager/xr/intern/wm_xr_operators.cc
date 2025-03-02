@@ -10,12 +10,14 @@
  * Collection of XR-related operators.
  */
 
-#include "BLI_kdopbvh.h"
+#include "BLI_kdopbvh.hh"
 #include "BLI_listbase.h"
 #include "BLI_math_matrix.h"
 #include "BLI_math_rotation.h"
 #include "BLI_math_vector.h"
 #include "BLI_time.h"
+
+#include "BLT_translation.hh"
 
 #include "BKE_context.hh"
 #include "BKE_global.hh"
@@ -33,6 +35,7 @@
 #include "GHOST_Types.h"
 
 #include "GPU_immediate.hh"
+#include "GPU_state.hh"
 
 #include "MEM_guardedalloc.h"
 
@@ -736,25 +739,26 @@ static void wm_xr_raycast(Scene *scene,
                           float r_obmat[4][4])
 {
   /* Uses same raycast method as Scene.ray_cast(). */
-  SnapObjectContext *sctx = ED_transform_snap_object_context_create(scene, 0);
+  blender::ed::transform::SnapObjectContext *sctx =
+      blender::ed::transform::snap_object_context_create(scene, 0);
 
-  SnapObjectParams params{};
+  blender::ed::transform::SnapObjectParams params{};
   params.snap_target_select = (selectable_only ? SCE_SNAP_TARGET_ONLY_SELECTABLE :
                                                  SCE_SNAP_TARGET_ALL);
-  ED_transform_snap_object_project_ray_ex(sctx,
-                                          depsgraph,
-                                          nullptr,
-                                          &params,
-                                          origin,
-                                          direction,
-                                          ray_dist,
-                                          r_location,
-                                          r_normal,
-                                          r_index,
-                                          r_ob,
-                                          r_obmat);
+  blender::ed::transform::snap_object_project_ray_ex(sctx,
+                                                     depsgraph,
+                                                     nullptr,
+                                                     &params,
+                                                     origin,
+                                                     direction,
+                                                     ray_dist,
+                                                     r_location,
+                                                     r_normal,
+                                                     r_index,
+                                                     r_ob,
+                                                     r_obmat);
 
-  ED_transform_snap_object_context_destroy(sctx);
+  blender::ed::transform::snap_object_context_destroy(sctx);
 }
 
 /** \} */
@@ -1112,6 +1116,8 @@ static int wm_xr_navigation_fly_modal(bContext *C, wmOperator *op, const wmEvent
 
 static void WM_OT_xr_navigation_fly(wmOperatorType *ot)
 {
+  PropertyRNA *prop;
+
   /* Identifiers. */
   ot->name = "XR Navigation Fly";
   ot->idname = "WM_OT_xr_navigation_fly";
@@ -1156,7 +1162,9 @@ static void WM_OT_xr_navigation_fly(wmOperatorType *ot)
   static const float default_speed_p0[2] = {0.0f, 0.0f};
   static const float default_speed_p1[2] = {1.0f, 1.0f};
 
-  RNA_def_enum(ot->srna, "mode", fly_modes, XR_FLY_VIEWER_FORWARD, "Mode", "Fly mode");
+  prop = RNA_def_enum(ot->srna, "mode", fly_modes, XR_FLY_VIEWER_FORWARD, "Mode", "Fly mode");
+  RNA_def_property_translation_context(prop, BLT_I18NCONTEXT_NAVIGATION);
+
   RNA_def_boolean(
       ot->srna, "lock_location_z", false, "Lock Elevation", "Prevent changes to viewer elevation");
   RNA_def_boolean(ot->srna,

@@ -8,15 +8,16 @@
 
 #pragma once
 
-#include "BLI_compiler_attrs.h"
 #include "BLI_sys_types.h"
 #include "BLI_vector.hh"
 
 struct Base;
 struct CLG_LogRef;
+struct ID;
+struct MemFile;
+struct PointerRNA;
 struct Object;
 struct Scene;
-struct MemFile;
 struct UndoStack;
 struct ViewLayer;
 struct bContext;
@@ -72,7 +73,7 @@ bool ED_undo_is_memfile_compatible(const bContext *C);
  * For example, changing a brush property isn't stored by sculpt-mode undo steps.
  * This workaround is needed until the limitation is removed, see: #61948.
  */
-bool ED_undo_is_legacy_compatible_for_property(bContext *C, ID *id);
+bool ED_undo_is_legacy_compatible_for_property(bContext *C, ID *id, PointerRNA &ptr);
 
 /**
  * This function addresses the problem of restoring undo steps when multiple windows are used.

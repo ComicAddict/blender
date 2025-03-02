@@ -8,14 +8,11 @@
  * based on mouse cursor position, split of vertices along the closest edge.
  */
 
-#include "MEM_guardedalloc.h"
-
 #include "DNA_object_types.h"
 
 #include "BKE_context.hh"
 #include "BKE_editmesh.hh"
 #include "BKE_layer.hh"
-#include "BKE_report.hh"
 
 #include "BLI_math_geom.h"
 #include "BLI_math_vector.h"
@@ -234,5 +231,5 @@ void MESH_OT_rip_edge(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO | OPTYPE_DEPENDS_ON_CURSOR;
 
   /* to give to transform */
-  Transform_Properties(ot, P_PROPORTIONAL | P_MIRROR_DUMMY);
+  blender::ed::transform::properties_register(ot, P_PROPORTIONAL | P_MIRROR_DUMMY);
 }

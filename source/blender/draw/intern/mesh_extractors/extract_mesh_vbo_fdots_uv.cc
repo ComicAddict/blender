@@ -65,17 +65,18 @@ static void extract_face_dots_uv_bm(const MeshRenderData &mr, MutableSpan<float2
 
 void extract_face_dots_uv(const MeshRenderData &mr, gpu::VertBuf &vbo)
 {
-  static GPUVertFormat format = {0};
-  if (format.attr_len == 0) {
+  static const GPUVertFormat format = []() {
+    GPUVertFormat format{};
     GPU_vertformat_attr_add(&format, "u", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
     GPU_vertformat_alias_add(&format, "au");
     GPU_vertformat_alias_add(&format, "pos");
-  }
+    return format;
+  }();
   GPU_vertbuf_init_with_format(vbo, format);
   GPU_vertbuf_data_alloc(vbo, mr.faces_num);
   MutableSpan<float2> vbo_data = vbo.data<float2>();
 
-  if (mr.extract_type == MR_EXTRACT_MESH) {
+  if (mr.extract_type == MeshExtractType::Mesh) {
     extract_face_dots_uv_mesh(mr, vbo_data);
   }
   else {

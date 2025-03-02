@@ -8,9 +8,10 @@
 #include "BKE_grease_pencil.hh"
 #include "BKE_instances.hh"
 
-#include "UI_resources.hh"
-
+#include "GEO_join_geometries.hh"
 #include "GEO_randomize.hh"
+
+#include "DNA_mesh_types.h"
 
 #include "node_geometry_util.hh"
 
@@ -70,13 +71,7 @@ static void grease_pencil_to_mesh(GeometrySet &geometry_set,
     return;
   }
 
-  InstancesComponent &instances_component =
-      geometry_set.get_component_for_write<InstancesComponent>();
-  bke::Instances *instances = instances_component.get_for_write();
-  if (instances == nullptr) {
-    instances = new bke::Instances();
-    instances_component.replace(instances);
-  }
+  bke::Instances *instances = new bke::Instances();
   for (Mesh *mesh : mesh_by_layer) {
     if (!mesh) {
       /* Add an empty reference so the number of layers and instances match.
@@ -90,10 +85,18 @@ static void grease_pencil_to_mesh(GeometrySet &geometry_set,
     const int handle = instances->add_reference(bke::InstanceReference{temp_set});
     instances->add_instance(handle, float4x4::identity());
   }
-  GeometrySet::propagate_attributes_from_layer_to_instances(
-      geometry_set.get_grease_pencil()->attributes(),
-      geometry_set.get_instances_for_write()->attributes_for_write(),
+
+  bke::copy_attributes(geometry_set.get_grease_pencil()->attributes(),
+                       bke::AttrDomain::Layer,
+                       bke::AttrDomain::Instance,
+                       attribute_filter,
+                       instances->attributes_for_write());
+  InstancesComponent &dst_component = geometry_set.get_component_for_write<InstancesComponent>();
+  GeometrySet new_instances = geometry::join_geometries(
+      {GeometrySet::from_instances(dst_component.release()),
+       GeometrySet::from_instances(instances)},
       attribute_filter);
+  dst_component.replace(new_instances.get_component_for_write<InstancesComponent>().release());
   geometry_set.replace_grease_pencil(nullptr);
 }
 
@@ -110,6 +113,10 @@ static void node_geo_exec(GeoNodeExecParams params)
     if (geometry_set.has_curves()) {
       const Curves &curves = *geometry_set.get_curves();
       Mesh *mesh = curve_to_mesh(curves.geometry.wrap(), profile_set, fill_caps, attribute_filter);
+      if (mesh != nullptr) {
+        mesh->mat = static_cast<Material **>(MEM_dupallocN(curves.mat));
+        mesh->totcol = curves.totcol;
+      }
       geometry_set.replace_mesh(mesh);
     }
     if (geometry_set.has_grease_pencil()) {
@@ -125,10 +132,15 @@ static void node_register()
 {
   static blender::bke::bNodeType ntype;
 
-  geo_node_type_base(&ntype, GEO_NODE_CURVE_TO_MESH, "Curve to Mesh", NODE_CLASS_GEOMETRY);
+  geo_node_type_base(&ntype, "GeometryNodeCurveToMesh", GEO_NODE_CURVE_TO_MESH);
+  ntype.ui_name = "Curve to Mesh";
+  ntype.ui_description =
+      "Convert curves into a mesh, optionally with a custom profile shape defined by curves";
+  ntype.enum_name_legacy = "CURVE_TO_MESH";
+  ntype.nclass = NODE_CLASS_GEOMETRY;
   ntype.declare = node_declare;
   ntype.geometry_node_execute = node_geo_exec;
-  blender::bke::node_register_type(&ntype);
+  blender::bke::node_register_type(ntype);
 }
 NOD_REGISTER_NODE(node_register)
 

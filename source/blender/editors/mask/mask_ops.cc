@@ -6,6 +6,8 @@
  * \ingroup edmask
  */
 
+#include <algorithm>
+
 #include "MEM_guardedalloc.h"
 
 #include "BLI_listbase.h"
@@ -590,9 +592,7 @@ static void slide_point_delta_all_feather(SlidePointData *data, float delta)
     MaskSplinePoint *orig_point = &data->orig_spline->points[i];
 
     point->bezt.weight = orig_point->bezt.weight + delta;
-    if (point->bezt.weight < 0.0f) {
-      point->bezt.weight = 0.0f;
-    }
+    point->bezt.weight = std::max(point->bezt.weight, 0.0f);
   }
 }
 
@@ -671,7 +671,7 @@ static int slide_point_modal(bContext *C, wmOperator *op, const wmEvent *event)
     case MOUSEMOVE: {
       ScrArea *area = CTX_wm_area(C);
       ARegion *region = CTX_wm_region(C);
-      float delta[2];
+      blender::float2 delta;
 
       ED_mask_mouse_pos(area, region, event->mval, co);
       sub_v2_v2v2(delta, co, data->prev_mouse_coord);
@@ -708,7 +708,7 @@ static int slide_point_modal(bContext *C, wmOperator *op, const wmEvent *event)
 
             /* flip last point */
             if (data->point != &data->spline->points[0]) {
-              negate_v2(delta);
+              delta *= -1.0f;
             }
           }
         }

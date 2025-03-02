@@ -1,9 +1,9 @@
 
 msgid ""
 msgstr ""
-"Project-Id-Version: Blender 4.3.0 Beta (b'89e3ab2a4533')\n"
+"Project-Id-Version: Blender 4.4.0 Beta (b'63c460d93d55')\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-10-14 08:43+0000\n"
+"POT-Creation-Date: 2025-02-24 09:56+0000\n"
 "PO-Revision-Date: 2015-03-03 16:21+0530\n"
 "Last-Translator: Roshan Lal Gumasta <roshan@anisecrets.com>\n"
 "Language-Team: Hindi <www.anisecrets.com>\n"
@@ -523,78 +523,6 @@ msgid "Window Managers"
 msgstr "खिडकी प्रबंधक"
 
 
-msgid "Brush"
-msgstr "तूलिका"
-
-
-msgid "Camera"
-msgstr "प्रतिबिंबक"
-
-
-msgid "Curve"
-msgstr "वक्र"
-
-
-msgid "Font"
-msgstr "मुद्र"
-
-
-msgid "Image"
-msgstr "छवि"
-
-
-msgid "Key"
-msgstr "कुंजी"
-
-
-msgid "Light"
-msgstr "प्रकाश"
-
-
-msgid "Mask"
-msgstr "आवरण"
-
-
-msgid "Material"
-msgstr "पदार्थ"
-
-
-msgid "Mesh"
-msgstr "जाल"
-
-
-msgid "Scene"
-msgstr "दृश्य"
-
-
-msgid "Screen"
-msgstr "चित्रपट"
-
-
-msgid "Sound"
-msgstr "ध्वनि"
-
-
-msgid "Text"
-msgstr "पाठ"
-
-
-msgid "Texture"
-msgstr "बनावट"
-
-
-msgid "Volume"
-msgstr "आयतन"
-
-
-msgid "Window Manager"
-msgstr "खिडकी प्रबंधक"
-
-
-msgid "World"
-msgstr "जगत"
-
-
 msgid "Goal"
 msgstr "लक्ष्य"
 
@@ -637,6 +565,10 @@ msgstr "अस्पष्ट"
 
 msgid "Random"
 msgstr "यादृच्छिक"
+
+
+msgid "Volume"
+msgstr "आयतन"
 
 
 msgid "Automatic"
@@ -729,20 +661,16 @@ msgid "Mode"
 msgstr "रूप"
 
 
+msgid "Material"
+msgstr "पदार्थ"
+
+
 msgid "Vertex Color"
 msgstr "शिरोबिन्दु रंग"
 
 
-msgid "Direction"
-msgstr "दिशा"
-
-
 msgid "All"
 msgstr "सभी"
-
-
-msgid "Radius"
-msgstr "त्रिज्या"
 
 
 msgid "Iterations"
@@ -767,6 +695,10 @@ msgstr "उचित"
 
 msgid "Crop"
 msgstr "कर्तन"
+
+
+msgid "Image"
+msgstr "छवि"
 
 
 msgid "Image User"
@@ -869,6 +801,10 @@ msgid "Quality"
 msgstr "गुणवत्ता"
 
 
+msgid "Curve"
+msgstr "वक्र"
+
+
 msgid "Gamma"
 msgstr "गामा"
 
@@ -879,6 +815,10 @@ msgstr "मिश्रण प्रकार"
 
 msgid "Mix"
 msgstr "मिश्रण"
+
+
+msgid "Screen"
+msgstr "चित्रपट"
 
 
 msgid "RGB"
@@ -974,8 +914,8 @@ msgid "ZYX Euler"
 msgstr "ZYX यूलर"
 
 
-msgid "Power"
-msgstr "शक्ति"
+msgid "Camera"
+msgstr "प्रतिबिंबक"
 
 
 msgid "Depth Object"
@@ -1074,8 +1014,16 @@ msgid "View"
 msgstr "दृश्य"
 
 
+msgid "Radius"
+msgstr "त्रिज्या"
+
+
 msgid "Render"
 msgstr " प्रतिपादन"
+
+
+msgid "Scene"
+msgstr "दृश्य"
 
 
 msgid "ID"
@@ -1238,6 +1186,10 @@ msgid "Data Layer"
 msgstr "सामग्री परत"
 
 
+msgid "Texture"
+msgstr "बनावट"
+
+
 msgid "Point Cache"
 msgstr "बिंदु द्रुतिका"
 
@@ -1339,12 +1291,12 @@ msgid "Realtime"
 msgstr "ससमय"
 
 
-msgid "Ogg"
-msgstr "ओजीजी"
-
-
 msgid "Flash"
 msgstr "फ्लैश"
+
+
+msgid "Ogg"
+msgstr "ओजीजी"
 
 
 msgid "Lossless Output"
@@ -1607,10 +1559,6 @@ msgid "Grease Pencil Frame"
 msgstr "तैलीय पेंसिल गठन"
 
 
-msgid "Generated"
-msgstr "उत्पन्न"
-
-
 msgid "Grease Pencil Layer"
 msgstr "तैलीय पेंसिल परत"
 
@@ -1655,6 +1603,10 @@ msgid "Users"
 msgstr "प्रयोक्ता"
 
 
+msgid "Layers"
+msgstr "परतें"
+
+
 msgid "Stick"
 msgstr "छड़ी"
 
@@ -1687,26 +1639,6 @@ msgid "Loop"
 msgstr "कुण्डली"
 
 
-msgid "Clone Alpha"
-msgstr "प्रतिरूप पारदर्शिता"
-
-
-msgid "Clone Image"
-msgstr "प्रतिरूप छवि"
-
-
-msgid "Push"
-msgstr "दबाव"
-
-
-msgid "Grab"
-msgstr "स्थानांतर"
-
-
-msgid "Expand"
-msgstr "विस्तृत करें"
-
-
 msgid "Local"
 msgstr "स्थानीय"
 
@@ -1723,6 +1655,30 @@ msgid "Add Color"
 msgstr "रंग जोड़ें"
 
 
+msgctxt "Curve"
+msgid "Smooth"
+msgstr "चिकना"
+
+
+msgctxt "Curve"
+msgid "Sphere"
+msgstr "गोला"
+
+
+msgctxt "Curve"
+msgid "Root"
+msgstr "मूल"
+
+
+msgctxt "Curve"
+msgid "Sharp"
+msgstr "पैना"
+
+
+msgid "Direction"
+msgstr "दिशा"
+
+
 msgid "Draw"
 msgstr "चित्रण"
 
@@ -1737,6 +1693,10 @@ msgstr "धब्बा"
 
 msgid "Clamp"
 msgstr "कीलक"
+
+
+msgid "Brush"
+msgstr "तूलिका"
 
 
 msgid "Normal Weight"
@@ -1757,18 +1717,6 @@ msgstr "क्षेत्र समतल"
 
 msgid "View Plane"
 msgstr "दृश्य समतल"
-
-
-msgid "Pinch"
-msgstr "चुटकी"
-
-
-msgid "Dots"
-msgstr "बिन्दु्"
-
-
-msgid "Space"
-msgstr "रिक्त स्थान"
 
 
 msgid "Use Vertex"
@@ -1867,6 +1815,10 @@ msgid "Text on Curve"
 msgstr "वक्र पर पाठ"
 
 
+msgid "Font"
+msgstr "मुद्र"
+
+
 msgid "Font Bold"
 msgstr "मोटा(सुस्पष्ट) मुद्र"
 
@@ -1913,10 +1865,6 @@ msgstr "अधिकतम"
 
 msgid "Rounds"
 msgstr "दौर"
-
-
-msgid "Layers"
-msgstr "परतें"
 
 
 msgid "Fade"
@@ -2135,6 +2083,10 @@ msgid "Tool"
 msgstr "यंत्र"
 
 
+msgid "Mesh"
+msgstr "जाल"
+
+
 msgid "Data"
 msgstr "सामग्री"
 
@@ -2205,14 +2157,6 @@ msgstr "गुच्छ"
 
 msgid "Damp"
 msgstr "आद्र"
-
-
-msgid "Rendered"
-msgstr "प्रदान की गई"
-
-
-msgid "Cross"
-msgstr "पार"
 
 
 msgid "Display"
@@ -2364,6 +2308,10 @@ msgid "Mute the speaker"
 msgstr "स्पीकर म्यूट करें"
 
 
+msgid "Sound"
+msgstr "ध्वनि"
+
+
 msgid "Current Line"
 msgstr "वर्तमान रेखा"
 
@@ -2420,10 +2368,6 @@ msgid "Calculate Alpha"
 msgstr "पारदर्शिता गणना"
 
 
-msgid "Sharp"
-msgstr "पैना"
-
-
 msgid "Sin"
 msgstr "ज्या"
 
@@ -2440,12 +2384,13 @@ msgid "fBM"
 msgstr "एफ़बीएम"
 
 
-msgid "Bands"
-msgstr "मोड"
+msgctxt "Sequence"
+msgid "Clip"
+msgstr "छांटन"
 
 
-msgid "Rings"
-msgstr "छल्ले"
+msgid "Window Manager"
+msgstr "खिडकी प्रबंधक"
 
 
 msgid "Category"
@@ -2636,26 +2581,6 @@ msgid "Squares"
 msgstr "वर्ग"
 
 
-msgctxt "Curve"
-msgid "Smooth"
-msgstr "चिकना"
-
-
-msgctxt "Curve"
-msgid "Sphere"
-msgstr "गोला"
-
-
-msgctxt "Curve"
-msgid "Root"
-msgstr "मूल"
-
-
-msgctxt "Curve"
-msgid "Sharp"
-msgstr "पैना"
-
-
 msgid "Restrict View"
 msgstr "दृश्य प्रतिबंधित करें"
 
@@ -2672,8 +2597,24 @@ msgid "Flip"
 msgstr "पलटें"
 
 
+msgid "Dots"
+msgstr "बिन्दु्"
+
+
+msgid "Mask"
+msgstr "आवरण"
+
+
+msgid "Mirror"
+msgstr "दर्पण"
+
+
 msgid "Snap"
 msgstr "स्नैप"
+
+
+msgid "Light"
+msgstr "प्रकाश"
 
 
 msgid "Rigid Body"
@@ -2720,12 +2661,12 @@ msgid "Merge"
 msgstr "विलय करें"
 
 
+msgid "Text"
+msgstr "पाठ"
+
+
 msgid "Bone Roll"
 msgstr "हड्डी पंजी"
-
-
-msgid "Mirror"
-msgstr "दर्पण"
 
 
 msgid "Basic"
@@ -2753,6 +2694,10 @@ msgid "Channel"
 msgstr "सरणि"
 
 
+msgid "Key"
+msgstr "कुंजी"
+
+
 msgid "Marker"
 msgstr "चिन्हक"
 
@@ -2761,6 +2706,7 @@ msgid "Files"
 msgstr "संचिकाएँ"
 
 
+msgctxt "Operator"
 msgid "Smooth"
 msgstr "चिकना"
 
@@ -2850,8 +2796,16 @@ msgid "Loose"
 msgstr "ढीले"
 
 
+msgid "Sharp"
+msgstr "पैना"
+
+
 msgid "Seam"
 msgstr "सीवन"
+
+
+msgid "Smooth"
+msgstr "चिकना"
 
 
 msgid "Root"
@@ -2946,6 +2900,10 @@ msgid "All Layers"
 msgstr "सब परतें"
 
 
+msgid "Space"
+msgstr "रिक्त स्थान"
+
+
 msgid "Dynamic Paint Modifier"
 msgstr "गतिकी रंग संशोधक"
 
@@ -2983,10 +2941,6 @@ msgid "Step"
 msgstr "कदम"
 
 
-msgid "Shaded"
-msgstr "छायांकित"
-
-
 msgid "Subdivisions"
 msgstr "उप विभाजन"
 
@@ -2997,6 +2951,10 @@ msgstr "बाध्य"
 
 msgid "Copy"
 msgstr "प्रतिलिपि"
+
+
+msgid "World"
+msgstr "जगत"
 
 
 msgid "Limits"
@@ -3272,16 +3230,20 @@ msgid "Wave Type"
 msgstr "लहर प्रकार"
 
 
+msgid "Bands"
+msgstr "मोड"
+
+
+msgid "Rings"
+msgstr "छल्ले"
+
+
 msgid "At"
 msgstr "पर"
 
 
 msgid "Bricks"
 msgstr "ईंटें"
-
-
-msgid "Curve Time"
-msgstr "वक्र समय"
 
 
 msgctxt "Operator"
@@ -3363,6 +3325,10 @@ msgstr "अनुकृति"
 msgctxt "Operator"
 msgid "Insert Keyframes"
 msgstr "अनुबोधक चिन्ह सम्मिलित करें"
+
+
+msgid "Generated"
+msgstr "उत्पन्न"
 
 
 msgid "Frame Relative"
@@ -3670,11 +3636,6 @@ msgstr "कम"
 
 
 msgctxt "Operator"
-msgid "Smooth"
-msgstr "चिकना"
-
-
-msgctxt "Operator"
 msgid "Spin"
 msgstr "चक्रण"
 
@@ -3774,10 +3735,6 @@ msgid "Italic"
 msgstr "तिर्यगक्षर"
 
 
-msgid "Remove"
-msgstr "हटाएँ"
-
-
 msgid "Flatten"
 msgstr "समतल"
 
@@ -3798,16 +3755,17 @@ msgid "Next Keyframe"
 msgstr "अगले अनुबोधक चिन्ह"
 
 
+msgctxt "Operator"
+msgid "Erase"
+msgstr "मिटा"
+
+
 msgid "Flat"
 msgstr "समतल"
 
 
 msgid "Limit"
 msgstr "सीमा"
-
-
-msgid "Only Selected"
-msgstr "केवल चयनित"
 
 
 msgctxt "Operator"
@@ -3928,6 +3886,10 @@ msgid "Knife Project"
 msgstr "चाकू प्रक्षेपण"
 
 
+msgid "Only Selected"
+msgstr "केवल चयनित"
+
+
 msgid "X-Ray"
 msgstr "एक्स-रे"
 
@@ -4012,6 +3974,10 @@ msgid "Negative Axis"
 msgstr "नकारात्मक अक्ष"
 
 
+msgid "Expand"
+msgstr "विस्तृत करें"
+
+
 msgid "Fan"
 msgstr "प्रशंसक"
 
@@ -4039,10 +4005,6 @@ msgstr "छिपाएँ"
 
 msgid "Current"
 msgstr "वर्तमान"
-
-
-msgid "Wrap"
-msgstr "आच्छादन"
 
 
 msgid "Set the boundaries for viewer operations"
@@ -4404,6 +4366,10 @@ msgid "Cylinder Projection"
 msgstr "बेलन प्रक्षेपण"
 
 
+msgid "Pinch"
+msgstr "चुटकी"
+
+
 msgctxt "Operator"
 msgid "Pin"
 msgstr "कील"
@@ -4437,6 +4403,10 @@ msgid "Set 3D Cursor"
 msgstr "त्रि-आयाम प्रसंकेतक स्थापना"
 
 
+msgid "Rendered"
+msgstr "प्रदान की गई"
+
+
 msgid "Orbit"
 msgstr "कक्षा"
 
@@ -4459,6 +4429,14 @@ msgstr "बाएँ पैन करें"
 
 msgid "Pan Right"
 msgstr "दाएँ पैन करें"
+
+
+msgid "Remove"
+msgstr "हटाएँ"
+
+
+msgid "Wrap"
+msgstr "आच्छादन"
 
 
 msgid "Open a Blender file"
@@ -4557,6 +4535,14 @@ msgid "Canvas"
 msgstr "चित्रपटी"
 
 
+msgid "Clone Alpha"
+msgstr "प्रतिरूप पारदर्शिता"
+
+
+msgid "Clone Image"
+msgstr "प्रतिरूप छवि"
+
+
 msgid "Single Image"
 msgstr "एकल छवि"
 
@@ -4569,12 +4555,12 @@ msgid "Lock Y"
 msgstr "तालाबंदी y"
 
 
-msgid "Transform Orientations"
-msgstr "दिक् विन्यास संरचनांतरण"
-
-
 msgid "Motion Tracking"
 msgstr "गति मार्गन"
+
+
+msgid "Transform Orientations"
+msgstr "दिक् विन्यास संरचनांतरण"
 
 
 msgid "Predefined tracking camera intrinsics"
@@ -4649,6 +4635,10 @@ msgid "Bone Color Sets"
 msgstr "हड्डी रंग समूह"
 
 
+msgid "Shaded"
+msgstr "छायांकित"
+
+
 msgid "Text Style"
 msgstr "पाठ शैली"
 
@@ -4656,11 +4646,6 @@ msgstr "पाठ शैली"
 msgctxt "Operator"
 msgid "Draw"
 msgstr "चित्रण"
-
-
-msgctxt "Operator"
-msgid "Erase"
-msgstr "मिटा"
 
 
 msgctxt "Operator"
@@ -4687,10 +4672,6 @@ msgstr "चाबियाँ"
 
 msgid "Tip"
 msgstr "युक्ति"
-
-
-msgid "Puff"
-msgstr "कश"
 
 
 msgid "Enemy"
@@ -4845,40 +4826,6 @@ msgid "Factor Rest Length"
 msgstr "कारक शेष लंबाई"
 
 
-msgid "Blend Opacity"
-msgstr "मिश्रण अपारदर्शिता"
-
-
-msgctxt "Sequence"
-msgid "Image"
-msgstr "छवि"
-
-
-msgctxt "Sequence"
-msgid "Scene"
-msgstr "दृश्य"
-
-
-msgctxt "Sequence"
-msgid "Movie"
-msgstr "चलचित्र"
-
-
-msgctxt "Sequence"
-msgid "Clip"
-msgstr "छांटन"
-
-
-msgctxt "Sequence"
-msgid "Mask"
-msgstr "आवरण"
-
-
-msgctxt "Sequence"
-msgid "Sound"
-msgstr "ध्वनि"
-
-
 msgid "Active Strip"
 msgstr "सक्रिय पट्टी"
 
@@ -4921,6 +4868,10 @@ msgstr "त्रुटि सीमा"
 
 msgid "Pull"
 msgstr "खिंचाव"
+
+
+msgid "Push"
+msgstr "दबाव"
 
 
 msgid "Spring Vertex Group"
@@ -5015,6 +4966,39 @@ msgstr "वस्तु के लिए तालाबंदी"
 
 msgid "3D"
 msgstr "त्रि-आयाम"
+
+
+msgid "Blend Opacity"
+msgstr "मिश्रण अपारदर्शिता"
+
+
+msgid "Cross"
+msgstr "पार"
+
+
+msgctxt "Sequence"
+msgid "Image"
+msgstr "छवि"
+
+
+msgctxt "Sequence"
+msgid "Scene"
+msgstr "दृश्य"
+
+
+msgctxt "Sequence"
+msgid "Movie"
+msgstr "चलचित्र"
+
+
+msgctxt "Sequence"
+msgid "Mask"
+msgstr "आवरण"
+
+
+msgctxt "Sequence"
+msgid "Sound"
+msgstr "ध्वनि"
 
 
 msgid "Density Factor"
@@ -5261,54 +5245,6 @@ msgid "Options:"
 msgstr "विकल्प:"
 
 
-msgid "Save to PO File"
-msgstr "PO फाइल को बचाने के लिए"
-
-
-msgid "Rebuild MO File"
-msgstr "एमओ संचिका के पुनर्निर्माण"
-
-
-msgid "Erase Local MO files"
-msgstr "स्थानीय MO संचिकाें मिटाएँ"
-
-
-msgid "    RNA Path: bpy.types."
-msgstr "    आर एन ए पथ: bpy.types."
-
-
-msgid "    RNA Context: "
-msgstr "    आर एन ए संदर्भ: "
-
-
-msgid "Button Label:"
-msgstr "बटन सूचक पत्र:"
-
-
-msgid "RNA Label:"
-msgstr "आर एन ए सूचक पत्र:"
-
-
-msgid "Enum Item Label:"
-msgstr "Enum आइटम सूचक पत्र:"
-
-
-msgid "Button Tip:"
-msgstr "बटन युक्ति:"
-
-
-msgid "RNA Tip:"
-msgstr "आर एन ए टिप:"
-
-
-msgid "Enum Item Tip:"
-msgstr "Enum आइटम टिप:"
-
-
-msgid "Could not write to po file ({})"
-msgstr "पो संचिका (()) करने के लिए नहीं लिख सकता है"
-
-
 msgctxt "Operator"
 msgid "Save Persistent To..."
 msgstr "सहेजें करने के लिए लगातार..."
@@ -5492,10 +5428,6 @@ msgstr "ऊपरी"
 
 msgid "Auto-Step"
 msgstr "स्वत:-चरण"
-
-
-msgid "Refraction"
-msgstr "अपवर्तन"
 
 
 msgid "Paths:"
@@ -5927,10 +5859,6 @@ msgid "Key %d"
 msgstr "कुंजी %d"
 
 
-msgid "GPencil"
-msgstr "तैलीय पेंसिल"
-
-
 msgid "No new files have been packed"
 msgstr "कोई संचिकाएँ संकुल नहीं की गईं"
 
@@ -5965,38 +5893,6 @@ msgstr "स्मृति से बाहर त्रुटि"
 
 msgid "Undefined Type"
 msgstr "अपरिभाषित प्रकार"
-
-
-msgid "Error writing frame"
-msgstr "गठन लेखन में त्रुटि"
-
-
-msgid "No valid formats found"
-msgstr "कोई मान्य स्वरूप नहीं मिला"
-
-
-msgid "Render width has to be 720 pixels for DV!"
-msgstr " प्रतिपादन चौड़ाई डीवी के लिए ७२० पिक्सल होना चाहिए!"
-
-
-msgid "Render height has to be 480 pixels for DV-NTSC!"
-msgstr " प्रतिपादन ऊंचाई DV NTSC के लिए ४८० पिक्सेल होना चाहिए!"
-
-
-msgid "Render height has to be 576 pixels for DV-PAL!"
-msgstr " प्रतिपादन ऊंचाई ५७६ पिक्सल DV-पाल लिए होना चाहिए!"
-
-
-msgid "Error initializing video stream"
-msgstr "वीडियो स्ट्रीम आरंभ करने में त्रुटि"
-
-
-msgid "Error initializing audio stream"
-msgstr "श्रव्य स्ट्रीम आरंभ करने में त्रुटि"
-
-
-msgid "Could not open file for writing"
-msgstr "लेखन के लिए संचिका को नहीं खोल सकता"
 
 
 msgid "unknown error reading file"
@@ -6077,6 +5973,10 @@ msgstr "\"%s\" संपत्ति एनिमेटेड किया ज�
 
 msgid "Same bone selected..."
 msgstr "एक ही हड्डी का चयन किया..."
+
+
+msgid "Cancel"
+msgstr "रद्द करें"
 
 
 msgctxt "Curve"
@@ -6161,10 +6061,6 @@ msgid "OK"
 msgstr "ठीक है"
 
 
-msgid "Cancel"
-msgstr "रद्द करें"
-
-
 msgid "Movie"
 msgstr "चलचित्र"
 
@@ -6175,14 +6071,6 @@ msgstr "पीओएस"
 
 msgid "Delete points"
 msgstr "बिंदु मिटाएँ"
-
-
-msgid "Stop animation playback"
-msgstr "अनुप्राणन चलाएँ रोकें"
-
-
-msgid "Modified"
-msgstr "संशोधित"
 
 
 msgctxt "Action"
@@ -6283,6 +6171,14 @@ msgstr "नई"
 msgctxt "World"
 msgid "New"
 msgstr "नई"
+
+
+msgid "Modified"
+msgstr "संशोधित"
+
+
+msgid "Stop animation playback"
+msgstr "अनुप्राणन चलाएँ रोकें"
 
 
 msgid "Rigging"
@@ -6500,14 +6396,6 @@ msgid "Blender Render"
 msgstr "ब्लेंडर  प्रतिपादन"
 
 
-msgid "ON"
-msgstr "ऑन"
-
-
-msgid "OFF"
-msgstr "बंद"
-
-
 msgid "No active camera set"
 msgstr "कोई सक्रिय प्रतिबिंबक नहीं"
 
@@ -6709,9 +6597,36 @@ msgid "Overwrite %s"
 msgstr "अधिलेखित करें %s"
 
 
-msgctxt "Action"
-msgid "Group"
-msgstr "समूह"
+msgid "Error writing frame"
+msgstr "गठन लेखन में त्रुटि"
+
+
+msgid "No valid formats found"
+msgstr "कोई मान्य स्वरूप नहीं मिला"
+
+
+msgid "Render width has to be 720 pixels for DV!"
+msgstr " प्रतिपादन चौड़ाई डीवी के लिए ७२० पिक्सल होना चाहिए!"
+
+
+msgid "Render height has to be 480 pixels for DV-NTSC!"
+msgstr " प्रतिपादन ऊंचाई DV NTSC के लिए ४८० पिक्सेल होना चाहिए!"
+
+
+msgid "Render height has to be 576 pixels for DV-PAL!"
+msgstr " प्रतिपादन ऊंचाई ५७६ पिक्सल DV-पाल लिए होना चाहिए!"
+
+
+msgid "Error initializing video stream"
+msgstr "वीडियो स्ट्रीम आरंभ करने में त्रुटि"
+
+
+msgid "Error initializing audio stream"
+msgstr "श्रव्य स्ट्रीम आरंभ करने में त्रुटि"
+
+
+msgid "Could not open file for writing"
+msgstr "लेखन के लिए संचिका को नहीं खोल सकता"
 
 
 msgid "Flame"
@@ -6789,6 +6704,14 @@ msgstr "रिम"
 
 msgid "Blender File View"
 msgstr "ब्लेंडर संचिका दृश्य"
+
+
+msgid "ON"
+msgstr "ऑन"
+
+
+msgid "OFF"
+msgstr "बंद"
 
 
 msgctxt "Operator"

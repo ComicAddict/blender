@@ -22,7 +22,6 @@
 #include "bmesh.hh"
 
 #include "GPU_vertex_buffer.hh"
-#include "GPU_vertex_format.hh"
 
 #include "draw_cache_extract.hh"
 
@@ -41,13 +40,13 @@ namespace blender::draw {
 /** \name Mesh Render Data
  * \{ */
 
-enum eMRExtractType {
-  MR_EXTRACT_BMESH,
-  MR_EXTRACT_MESH,
+enum class MeshExtractType {
+  BMesh,
+  Mesh,
 };
 
 struct MeshRenderData {
-  eMRExtractType extract_type;
+  MeshExtractType extract_type;
 
   int verts_num;
   int edges_num;
@@ -190,7 +189,6 @@ std::unique_ptr<MeshRenderData> mesh_render_data_create(Object &object,
                                                         Mesh &mesh,
                                                         bool is_editmode,
                                                         bool is_paint_mode,
-                                                        bool edit_mode_active,
                                                         const float4x4 &object_to_world,
                                                         bool do_final,
                                                         bool do_uvedit,
@@ -225,22 +223,6 @@ void mesh_render_data_loop_edge_flag(const MeshRenderData &mr,
                                      const BMLoop *l,
                                      BMUVOffsets offsets,
                                      EditLoopData &eattr);
-
-template<typename GPUType> inline GPUType convert_normal(const float3 &src);
-
-template<> inline GPUPackedNormal convert_normal(const float3 &src)
-{
-  return GPU_normal_convert_i10_v3(src);
-}
-
-template<> inline short4 convert_normal(const float3 &src)
-{
-  short4 dst;
-  normal_float_to_short_v3(dst, src);
-  return dst;
-}
-
-template<typename GPUType> void convert_normals(Span<float3> src, MutableSpan<GPUType> dst);
 
 template<typename T>
 void extract_mesh_loose_edge_data(const Span<T> vert_data,

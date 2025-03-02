@@ -6,10 +6,14 @@
  * \ingroup draw
  */
 
-#include "BKE_global.hh"
+#include "DNA_userdef_types.h"
+
+#include "BKE_paint.hh"
+#include "BKE_paint_bvh.hh"
+
+#include "BLI_math_base.h"
 #include "GPU_compute.hh"
 
-#include "draw_debug.hh"
 #include "draw_defines.hh"
 #include "draw_manager.hh"
 #include "draw_manager_c.hh"
@@ -17,6 +21,8 @@
 #include "draw_shader.hh"
 
 namespace blender::draw {
+
+std::atomic<uint32_t> Manager::global_sync_counter_ = 1;
 
 Manager::~Manager()
 {
@@ -28,6 +34,9 @@ Manager::~Manager()
 
 void Manager::begin_sync()
 {
+  /* Add 2 to always have a non-null number even in case of overflow. */
+  sync_counter_ = (global_sync_counter_ += 2);
+
   matrix_buf.swap();
   bounds_buf.swap();
   infos_buf.swap();
@@ -65,7 +74,7 @@ void Manager::begin_sync()
   attribute_len_ = 0;
   /* TODO(fclem): Resize buffers if too big, but with an hysteresis threshold. */
 
-  object_active = DST.draw_ctx.obact;
+  object_active = drw_get().draw_ctx.obact;
 
   /* Init the 0 resource. */
   resource_handle(float4x4::identity());
@@ -89,7 +98,7 @@ void Manager::sync_layer_attributes()
 
   for (uint32_t id : id_list) {
     if (layer_attributes_buf[count].sync(
-            DST.draw_ctx.scene, DST.draw_ctx.view_layer, layer_attributes.lookup(id)))
+            drw_get().draw_ctx.scene, drw_get().draw_ctx.view_layer, layer_attributes.lookup(id)))
     {
       /* Check if the buffer is full. */
       if (++count == size) {
@@ -112,7 +121,6 @@ void Manager::end_sync()
   infos_buf.current().push_update();
   attributes_buf.push_update();
   layer_attributes_buf.push_update();
-  attributes_buf_legacy.push_update();
 
   /* Useful for debugging the following resource finalize. But will trigger the drawing of the GPU
    * debug draw/print buffers for every frame. Not nice for performance. */
@@ -134,8 +142,8 @@ void Manager::end_sync()
 
 void Manager::debug_bind()
 {
-#ifdef _DEBUG
-  if (DST.debug == nullptr) {
+#ifdef WITH_DRAW_DEBUG
+  if (drw_get().debug == nullptr) {
     return;
   }
   GPU_storagebuf_bind(drw_debug_gpu_draw_buf_get(), DRW_DEBUG_DRAW_SLOT);
@@ -152,21 +160,103 @@ void Manager::resource_bind()
   GPU_storagebuf_bind(infos_buf.current(), DRW_OBJ_INFOS_SLOT);
   GPU_storagebuf_bind(attributes_buf, DRW_OBJ_ATTR_SLOT);
   GPU_uniformbuf_bind(layer_attributes_buf, DRW_LAYER_ATTR_UBO_SLOT);
-  /* 2 is the hardcoded location of the uniform attr UBO. */
-  /* TODO(@fclem): Remove this workaround. */
-  GPU_uniformbuf_bind(attributes_buf_legacy, 2);
 }
 
-void Manager::submit(PassSimple &pass, View &view)
+uint64_t Manager::fingerprint_get()
 {
+  /* Covers new sync cycle, added resources and different #Manager. */
+  return sync_counter_ | (uint64_t(resource_len_) << 32);
+}
+
+ResourceHandleRange Manager::resource_handle_for_sculpt(const ObjectRef &ref)
+{
+  /* TODO(fclem): Deduplicate with other engine. */
+  const bke::pbvh::Tree &pbvh = *bke::object::pbvh_get(*ref.object);
+  const blender::Bounds<float3> bounds = bke::pbvh::bounds_get(pbvh);
+  const float3 center = math::midpoint(bounds.min, bounds.max);
+  const float3 half_extent = bounds.max - center;
+  return resource_handle(ref, nullptr, &center, &half_extent);
+}
+
+void Manager::compute_visibility(View &view)
+{
+  bool freeze_culling = (USER_EXPERIMENTAL_TEST(&U, use_viewport_debug) &&
+                         drw_get().draw_ctx.v3d &&
+                         (drw_get().draw_ctx.v3d->debug_flag & V3D_DEBUG_FREEZE_CULLING) != 0);
+
+  BLI_assert_msg(view.manager_fingerprint_ != this->fingerprint_get(),
+                 "Resources did not changed, no need to update");
+
+  view.manager_fingerprint_ = this->fingerprint_get();
+
   view.bind();
+  view.compute_visibility(
+      bounds_buf.current(), infos_buf.current(), resource_len_, freeze_culling);
+}
+
+void Manager::ensure_visibility(View &view)
+{
+  if (view.manager_fingerprint_ != this->fingerprint_get()) {
+    compute_visibility(view);
+  }
+}
+
+void Manager::generate_commands(PassMain &pass, View &view)
+{
+  BLI_assert_msg((pass.manager_fingerprint_ != this->fingerprint_get()) ||
+                     (pass.view_fingerprint_ != view.fingerprint_get()),
+                 "Resources and view did not changed no need to update");
+  BLI_assert_msg((view.manager_fingerprint_ == this->fingerprint_get()) &&
+                     (view.fingerprint_get() != 0),
+                 "Resources or view changed, but compute_visibility was not called");
+
+  pass.manager_fingerprint_ = this->fingerprint_get();
+  pass.view_fingerprint_ = view.fingerprint_get();
+
+  pass.draw_commands_buf_.generate_commands(pass.headers_,
+                                            pass.commands_,
+                                            view.get_visibility_buffer(),
+                                            view.visibility_word_per_draw(),
+                                            view.view_len_,
+                                            pass.use_custom_ids);
+}
+
+void Manager::generate_commands(PassSortable &pass, View &view)
+{
+  pass.sort();
+  generate_commands(static_cast<PassMain &>(pass), view);
+}
+
+void Manager::generate_commands(PassSimple &pass)
+{
+  BLI_assert_msg(pass.manager_fingerprint_ != this->fingerprint_get(),
+                 "Resources did not changed since last generate_command, no need to update");
+  pass.manager_fingerprint_ = this->fingerprint_get();
+
+  pass.draw_commands_buf_.generate_commands(pass.headers_, pass.commands_, pass.sub_passes_);
+}
+
+void Manager::submit_only(PassMain &pass, View &view)
+{
+  BLI_assert_msg(view.manager_fingerprint_ != 0, "compute_visibility was not called on this view");
+  BLI_assert_msg(view.manager_fingerprint_ == this->fingerprint_get(),
+                 "Resources changed since last compute_visibility");
+  BLI_assert_msg(pass.manager_fingerprint_ != 0, "generate_command was not called on this pass");
+  BLI_assert_msg(pass.manager_fingerprint_ == this->fingerprint_get(),
+                 "Resources changed since last generate_command");
+  /* The function generate_commands needs to be called for each view this pass is going to be
+   * submitted with. This is because the commands are stored inside the pass and not per view. */
+  BLI_assert_msg(pass.view_fingerprint_ == view.fingerprint_get(),
+                 "View have changed since last generate_commands or "
+                 "submitting with a different view");
 
   debug_bind();
 
   command::RecordingState state;
   state.inverted_view = view.is_inverted();
 
-  pass.draw_commands_buf_.bind(state, pass.headers_, pass.commands_, pass.sub_passes_);
+  view.bind();
+  pass.draw_commands_buf_.bind(state);
 
   resource_bind();
 
@@ -177,32 +267,17 @@ void Manager::submit(PassSimple &pass, View &view)
 
 void Manager::submit(PassMain &pass, View &view)
 {
-  view.bind();
+  if (view.manager_fingerprint_ != this->fingerprint_get()) {
+    compute_visibility(view);
+  }
 
-  debug_bind();
+  if (pass.manager_fingerprint_ != this->fingerprint_get() ||
+      pass.view_fingerprint_ != view.fingerprint_get())
+  {
+    generate_commands(pass, view);
+  }
 
-  bool freeze_culling = (U.experimental.use_viewport_debug && DST.draw_ctx.v3d &&
-                         (DST.draw_ctx.v3d->debug_flag & V3D_DEBUG_FREEZE_CULLING) != 0);
-
-  view.compute_visibility(
-      bounds_buf.current(), infos_buf.current(), resource_len_, freeze_culling);
-
-  command::RecordingState state;
-  state.inverted_view = view.is_inverted();
-
-  pass.draw_commands_buf_.bind(state,
-                               pass.headers_,
-                               pass.commands_,
-                               view.get_visibility_buffer(),
-                               view.visibility_word_per_draw(),
-                               view.view_len_,
-                               pass.use_custom_ids);
-
-  resource_bind();
-
-  pass.submit(state);
-
-  state.cleanup();
+  this->submit_only(pass, view);
 }
 
 void Manager::submit(PassSortable &pass, View &view)
@@ -212,19 +287,33 @@ void Manager::submit(PassSortable &pass, View &view)
   this->submit(static_cast<PassMain &>(pass), view);
 }
 
-void Manager::submit(PassSimple &pass)
+void Manager::submit(PassSimple &pass, bool inverted_view)
 {
+  if (!pass.has_generated_commands()) {
+    generate_commands(pass);
+  }
+
   debug_bind();
 
   command::RecordingState state;
+  state.inverted_view = inverted_view;
 
-  pass.draw_commands_buf_.bind(state, pass.headers_, pass.commands_, pass.sub_passes_);
+  pass.draw_commands_buf_.bind(state);
 
   resource_bind();
 
   pass.submit(state);
 
   state.cleanup();
+}
+
+void Manager::submit(PassSimple &pass, View &view)
+{
+  debug_bind();
+
+  view.bind();
+
+  this->submit(pass, view.is_inverted());
 }
 
 Manager::SubmitDebugOutput Manager::submit_debug(PassSimple &pass, View &view)

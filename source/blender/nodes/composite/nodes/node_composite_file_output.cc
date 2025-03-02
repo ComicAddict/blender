@@ -9,8 +9,8 @@
 #include <cstring>
 
 #include "BLI_assert.h"
-#include "BLI_fileops.h"
 #include "BLI_index_range.hh"
+#include "BLI_listbase.h"
 #include "BLI_math_vector.h"
 #include "BLI_path_utils.hh"
 #include "BLI_string.h"
@@ -26,14 +26,13 @@
 
 #include "BKE_context.hh"
 #include "BKE_cryptomatte.hh"
-#include "BKE_image.h"
-#include "BKE_image_format.h"
+#include "BKE_image.hh"
+#include "BKE_image_format.hh"
 #include "BKE_main.hh"
 #include "BKE_node_tree_update.hh"
 #include "BKE_scene.hh"
 
 #include "RNA_access.hh"
-#include "RNA_prototypes.hh"
 
 #include "UI_interface.hh"
 #include "UI_resources.hh"
@@ -41,13 +40,12 @@
 #include "WM_api.hh"
 
 #include "IMB_imbuf.hh"
-#include "IMB_imbuf_types.hh"
-#include "IMB_openexr.hh"
 
 #include "GPU_state.hh"
 #include "GPU_texture.hh"
 
 #include "COM_node_operation.hh"
+#include "COM_utilities.hh"
 
 #include "NOD_socket_search_link.hh"
 
@@ -145,7 +143,7 @@ bNodeSocket *ntreeCompositOutputFileAddSocket(bNodeTree *ntree,
 {
   NodeImageMultiFile *nimf = (NodeImageMultiFile *)node->storage;
   bNodeSocket *sock = blender::bke::node_add_static_socket(
-      ntree, node, SOCK_IN, SOCK_RGBA, PROP_NONE, nullptr, name);
+      *ntree, *node, SOCK_IN, SOCK_RGBA, PROP_NONE, "", name);
 
   /* create format data for the input socket */
   NodeImageMultiFileSocket *sockdata = MEM_cnew<NodeImageMultiFileSocket>(__func__);
@@ -194,7 +192,7 @@ int ntreeCompositOutputFileRemoveActiveSocket(bNodeTree *ntree, bNode *node)
   /* free format data */
   MEM_freeN(sock->storage);
 
-  blender::bke::node_remove_socket(ntree, node, sock);
+  blender::bke::node_remove_socket(*ntree, *node, *sock);
   return 1;
 }
 
@@ -290,13 +288,13 @@ static void update_output_file(bNodeTree *ntree, bNode *node)
    * This is not ideal, but prevents crashes from missing storage.
    * FileOutput node needs a redesign to support this properly.
    */
-  LISTBASE_FOREACH (bNodeSocket *, sock, &node->inputs) {
+  LISTBASE_FOREACH_MUTABLE (bNodeSocket *, sock, &node->inputs) {
     if (sock->storage == nullptr) {
-      blender::bke::node_remove_socket(ntree, node, sock);
+      blender::bke::node_remove_socket(*ntree, *node, *sock);
     }
   }
-  LISTBASE_FOREACH (bNodeSocket *, sock, &node->outputs) {
-    blender::bke::node_remove_socket(ntree, node, sock);
+  LISTBASE_FOREACH_MUTABLE (bNodeSocket *, sock, &node->outputs) {
+    blender::bke::node_remove_socket(*ntree, *node, *sock);
   }
 
   cmp_node_update_default(ntree, node);
@@ -343,7 +341,7 @@ static void node_composit_buts_file_output_ex(uiLayout *layout, bContext *C, Poi
     uiLayout *column = uiLayoutColumn(layout, true);
     uiLayoutSetPropSep(column, true);
     uiLayoutSetPropDecorate(column, false);
-    uiItemR(column, ptr, "save_as_render", UI_ITEM_R_SPLIT_EMPTY_NAME, nullptr, ICON_NONE);
+    uiItemR(column, ptr, "save_as_render", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
   }
   const bool save_as_render = RNA_boolean_get(ptr, "save_as_render");
   uiTemplateImageSettings(layout, &imfptr, save_as_render);
@@ -460,7 +458,7 @@ static void node_composit_buts_file_output_ex(uiLayout *layout, bContext *C, Poi
               &active_input_ptr,
               "use_node_format",
               UI_ITEM_R_SPLIT_EMPTY_NAME,
-              nullptr,
+              std::nullopt,
               ICON_NONE);
 
       const bool use_node_format = RNA_boolean_get(&active_input_ptr, "use_node_format");
@@ -474,7 +472,7 @@ static void node_composit_buts_file_output_ex(uiLayout *layout, bContext *C, Poi
                   &active_input_ptr,
                   "save_as_render",
                   UI_ITEM_R_SPLIT_EMPTY_NAME,
-                  nullptr,
+                  std::nullopt,
                   ICON_NONE);
         }
 
@@ -502,7 +500,7 @@ static void node_composit_buts_file_output_ex(uiLayout *layout, bContext *C, Poi
   }
 }
 
-using namespace blender::realtime_compositor;
+using namespace blender::compositor;
 
 class FileOutputOperation : public NodeOperation {
  public:
@@ -512,23 +510,15 @@ class FileOutputOperation : public NodeOperation {
       InputDescriptor &descriptor = this->get_input_descriptor(input->identifier);
       /* Inputs for multi-layer files need to be the same size, while they can be different for
        * individual file outputs. */
-      descriptor.realization_options.realize_on_operation_domain = this->is_multi_layer();
+      descriptor.realization_mode = this->is_multi_layer() ?
+                                        InputRealizationMode::OperationDomain :
+                                        InputRealizationMode::Transforms;
+      descriptor.skip_type_conversion = true;
     }
   }
 
   void execute() override
   {
-    /* Not yet supported on CPU. */
-    if (!context().use_gpu()) {
-      for (const bNodeSocket *output : this->node()->output_sockets()) {
-        Result &output_result = get_result(output->identifier);
-        if (output_result.should_compute()) {
-          output_result.allocate_invalid();
-        }
-      }
-      return;
-    }
-
     if (is_multi_layer()) {
       execute_multi_layer();
     }
@@ -646,8 +636,8 @@ class FileOutputOperation : public NodeOperation {
     }
   }
 
-  /* Read the data stored in the GPU texture of the given result and add a pass of the given name,
-   * view, and read buffer. The pass channel identifiers follows the EXR conventions. */
+  /* Read the data stored in the given result and add a pass of the given name, view, and read
+   * buffer. The pass channel identifiers follows the EXR conventions. */
   void add_pass_for_result(FileOutput &file_output,
                            const Result &result,
                            const char *pass_name,
@@ -665,8 +655,14 @@ class FileOutputOperation : public NodeOperation {
       buffer = this->inflate_result(result, size);
     }
     else {
-      GPU_memory_barrier(GPU_BARRIER_TEXTURE_UPDATE);
-      buffer = static_cast<float *>(GPU_texture_read(result, GPU_DATA_FLOAT, 0));
+      if (context().use_gpu()) {
+        GPU_memory_barrier(GPU_BARRIER_TEXTURE_UPDATE);
+        buffer = static_cast<float *>(GPU_texture_read(result, GPU_DATA_FLOAT, 0));
+      }
+      else {
+        /* Copy the result into a new buffer. */
+        buffer = static_cast<float *>(MEM_dupallocN(result.cpu_data().data()));
+      }
     }
 
     switch (result.type()) {
@@ -681,19 +677,26 @@ class FileOutputOperation : public NodeOperation {
           file_output.add_pass(pass_name, view_name, "RGBA", buffer);
         }
         break;
-      case ResultType::Vector:
-        if (result.meta_data.is_4d_vector) {
-          file_output.add_pass(pass_name, view_name, "XYZW", buffer);
-        }
-        else {
+      case ResultType::Float3:
+        /* Float3 results might be stored in 4-component textures due to hardware limitations, so
+         * we need to convert the buffer to a 3-component buffer on the host. */
+        if (this->context().use_gpu() && GPU_texture_component_len(GPU_texture_format(result))) {
           file_output.add_pass(pass_name, view_name, "XYZ", float4_to_float3_image(size, buffer));
         }
+        else {
+          file_output.add_pass(pass_name, view_name, "XYZ", buffer);
+        }
+        break;
+      case ResultType::Float4:
+        file_output.add_pass(pass_name, view_name, "XYZW", buffer);
         break;
       case ResultType::Float:
         file_output.add_pass(pass_name, view_name, "V", buffer);
         break;
-      default:
-        /* Other types are internal and needn't be handled by operations. */
+      case ResultType::Float2:
+      case ResultType::Int2:
+      case ResultType::Int:
+        /* Not supported. */
         BLI_assert_unreachable();
         break;
     }
@@ -710,34 +713,45 @@ class FileOutputOperation : public NodeOperation {
         float *buffer = static_cast<float *>(MEM_malloc_arrayN(
             size_t(size.x) * size.y, sizeof(float), "File Output Inflated Buffer."));
 
-        const float value = result.get_float_value();
-        threading::parallel_for(IndexRange(size.y), 1, [&](const IndexRange sub_y_range) {
-          for (const int64_t y : sub_y_range) {
-            for (const int64_t x : IndexRange(size.x)) {
-              buffer[y * size.x + x] = value;
-            }
-          }
-        });
+        const float value = result.get_single_value<float>();
+        parallel_for(
+            size, [&](const int2 texel) { buffer[int64_t(texel.y) * size.x + texel.x] = value; });
         return buffer;
       }
-      case ResultType::Vector:
       case ResultType::Color: {
         float *buffer = static_cast<float *>(MEM_malloc_arrayN(
             size_t(size.x) * size.y, sizeof(float[4]), "File Output Inflated Buffer."));
 
-        const float4 value = result.type() == ResultType::Color ? result.get_color_value() :
-                                                                  result.get_vector_value();
-        threading::parallel_for(IndexRange(size.y), 1, [&](const IndexRange sub_y_range) {
-          for (const int64_t y : sub_y_range) {
-            for (const int64_t x : IndexRange(size.x)) {
-              copy_v4_v4(buffer + ((y * size.x + x) * 4), value);
-            }
-          }
+        const float4 value = result.get_single_value<float4>();
+        parallel_for(size, [&](const int2 texel) {
+          copy_v4_v4(buffer + ((int64_t(texel.y) * size.x + texel.x) * 4), value);
         });
         return buffer;
       }
-      default:
-        /* Other types are internal and needn't be handled by operations. */
+      case ResultType::Float4: {
+        float *buffer = static_cast<float *>(MEM_malloc_arrayN(
+            size_t(size.x) * size.y, sizeof(float[4]), "File Output Inflated Buffer."));
+
+        const float4 value = result.get_single_value<float4>();
+        parallel_for(size, [&](const int2 texel) {
+          copy_v4_v4(buffer + ((int64_t(texel.y) * size.x + texel.x) * 4), value);
+        });
+        return buffer;
+      }
+      case ResultType::Float3: {
+        float *buffer = static_cast<float *>(MEM_malloc_arrayN(
+            size_t(size.x) * size.y, sizeof(float[3]), "File Output Inflated Buffer."));
+
+        const float3 value = result.get_single_value<float3>();
+        parallel_for(size, [&](const int2 texel) {
+          copy_v3_v3(buffer + ((int64_t(texel.y) * size.x + texel.x) * 3), value);
+        });
+        return buffer;
+      }
+      case ResultType::Int:
+      case ResultType::Int2:
+      case ResultType::Float2:
+        /* Not supported. */
         break;
     }
 
@@ -745,28 +759,46 @@ class FileOutputOperation : public NodeOperation {
     return nullptr;
   }
 
-  /* Read the data stored in the GPU texture of the given result and add a view of the given name
-   * and read buffer. */
+  /* Read the data stored the given result and add a view of the given name and read buffer. */
   void add_view_for_result(FileOutput &file_output, const Result &result, const char *view_name)
   {
     /* The image buffer in the file output will take ownership of this buffer and freeing it will
      * be its responsibility. */
-    GPU_memory_barrier(GPU_BARRIER_TEXTURE_UPDATE);
-    float *buffer = static_cast<float *>(GPU_texture_read(result, GPU_DATA_FLOAT, 0));
+    float *buffer = nullptr;
+    if (context().use_gpu()) {
+      GPU_memory_barrier(GPU_BARRIER_TEXTURE_UPDATE);
+      buffer = static_cast<float *>(GPU_texture_read(result, GPU_DATA_FLOAT, 0));
+    }
+    else {
+      /* Copy the result into a new buffer. */
+      buffer = static_cast<float *>(MEM_dupallocN(result.cpu_data().data()));
+    }
 
     const int2 size = result.domain().size;
     switch (result.type()) {
       case ResultType::Color:
         file_output.add_view(view_name, 4, buffer);
         break;
-      case ResultType::Vector:
-        file_output.add_view(view_name, 3, float4_to_float3_image(size, buffer));
+      case ResultType::Float4:
+        file_output.add_view(view_name, 4, buffer);
+        break;
+      case ResultType::Float3:
+        /* Float3 results might be stored in 4-component textures due to hardware limitations, so
+         * we need to convert the buffer to a 3-component buffer on the host. */
+        if (this->context().use_gpu() && GPU_texture_component_len(GPU_texture_format(result))) {
+          file_output.add_view(view_name, 3, float4_to_float3_image(size, buffer));
+        }
+        else {
+          file_output.add_view(view_name, 3, buffer);
+        }
         break;
       case ResultType::Float:
         file_output.add_view(view_name, 1, buffer);
         break;
-      default:
-        /* Other types are internal and needn't be handled by operations. */
+      case ResultType::Float2:
+      case ResultType::Int2:
+      case ResultType::Int:
+        /* Not supported. */
         BLI_assert_unreachable();
         break;
     }
@@ -779,14 +811,10 @@ class FileOutputOperation : public NodeOperation {
     float *float3_image = static_cast<float *>(MEM_malloc_arrayN(
         size_t(size.x) * size.y, sizeof(float[3]), "File Output Vector Buffer."));
 
-    threading::parallel_for(IndexRange(size.y), 1, [&](const IndexRange sub_y_range) {
-      for (const int64_t y : sub_y_range) {
-        for (const int64_t x : IndexRange(size.x)) {
-          for (int i = 0; i < 3; i++) {
-            const int pixel_index = y * size.x + x;
-            float3_image[pixel_index * 3 + i] = float4_image[pixel_index * 4 + i];
-          }
-        }
+    parallel_for(size, [&](const int2 texel) {
+      for (int i = 0; i < 3; i++) {
+        const int64_t pixel_index = int64_t(texel.y) * size.x + texel.x;
+        float3_image[pixel_index * 3 + i] = float4_image[pixel_index * 4 + i];
       }
     });
 
@@ -915,15 +943,19 @@ void register_node_type_cmp_output_file()
 
   static blender::bke::bNodeType ntype;
 
-  cmp_node_type_base(&ntype, CMP_NODE_OUTPUT_FILE, "File Output", NODE_CLASS_OUTPUT);
+  cmp_node_type_base(&ntype, "CompositorNodeOutputFile", CMP_NODE_OUTPUT_FILE);
+  ntype.ui_name = "File Output";
+  ntype.ui_description = "Write image file to disk";
+  ntype.enum_name_legacy = "OUTPUT_FILE";
+  ntype.nclass = NODE_CLASS_OUTPUT;
   ntype.draw_buttons = file_ns::node_composit_buts_file_output;
   ntype.draw_buttons_ex = file_ns::node_composit_buts_file_output_ex;
   ntype.initfunc_api = file_ns::init_output_file;
   ntype.flag |= NODE_PREVIEW;
   blender::bke::node_type_storage(
-      &ntype, "NodeImageMultiFile", file_ns::free_output_file, file_ns::copy_output_file);
+      ntype, "NodeImageMultiFile", file_ns::free_output_file, file_ns::copy_output_file);
   ntype.updatefunc = file_ns::update_output_file;
   ntype.get_compositor_operation = file_ns::get_compositor_operation;
 
-  blender::bke::node_register_type(&ntype);
+  blender::bke::node_register_type(ntype);
 }

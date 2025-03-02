@@ -14,6 +14,7 @@
 #include "AS_asset_library.hh"
 
 #include "BLI_function_ref.hh"
+#include "BLI_listbase.h"
 #include "BLI_string.h"
 
 #include "BKE_context.hh"
@@ -364,7 +365,7 @@ void region_init(wmWindowManager *wm, ARegion *region)
 
   wmKeyMap *keymap = WM_keymap_ensure(
       wm->defaultconf, "View2D Buttons List", SPACE_EMPTY, RGN_TYPE_WINDOW);
-  WM_event_add_keymap_handler(&region->handlers, keymap);
+  WM_event_add_keymap_handler(&region->runtime->handlers, keymap);
 
   region->v2d.scroll = V2D_SCROLL_RIGHT | V2D_SCROLL_VERTICAL_HIDE;
   region->v2d.keepzoom |= V2D_LOCKZOOM_X | V2D_LOCKZOOM_Y;
@@ -527,8 +528,7 @@ void region_layout(const bContext *C, ARegion *region)
                                      0,
                                      style);
 
-  build_asset_view(
-      *layout, active_shelf->settings.asset_library_reference, *active_shelf, *C, *region);
+  build_asset_view(*layout, active_shelf->settings.asset_library_reference, *active_shelf, *C);
 
   int layout_height;
   UI_block_layout_resolve(block, nullptr, &layout_height);
@@ -537,6 +537,14 @@ void region_layout(const bContext *C, ARegion *region)
   UI_view2d_curRect_validate(&region->v2d);
 
   region_resize_to_preferred(CTX_wm_area(C), region);
+
+  /* View2D matrix might have changed due to dynamic sized regions.
+   * Without this, tooltips jump around, see #129347. Reason is that #UI_but_tooltip_refresh() is
+   * called as part of #UI_block_end(), so the block's window matrix needs to be up-to-date. */
+  {
+    UI_view2d_view_ortho(&region->v2d);
+    UI_blocklist_update_window_matrix(C, &region->runtime->uiblocks);
+  }
 
   UI_block_end(C, block);
 }
@@ -549,9 +557,9 @@ void region_draw(const bContext *C, ARegion *region)
   UI_view2d_view_ortho(&region->v2d);
 
   /* View2D matrix might have changed due to dynamic sized regions. */
-  UI_blocklist_update_window_matrix(C, &region->uiblocks);
+  UI_blocklist_update_window_matrix(C, &region->runtime->uiblocks);
 
-  UI_blocklist_draw(C, &region->uiblocks);
+  UI_blocklist_draw(C, &region->runtime->uiblocks);
 
   /* Restore view matrix. */
   UI_view2d_view_restore(C);
@@ -910,6 +918,25 @@ void type_unlink(const Main &bmain, const AssetShelfType &shelf_type)
   }
 
   type_popup_unlink(shelf_type);
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name External helpers
+ * \{ */
+
+void show_catalog_in_visible_shelves(const bContext &C, const StringRefNull catalog_path)
+{
+  wmWindowManager *wm = CTX_wm_manager(&C);
+  LISTBASE_FOREACH (wmWindow *, win, &wm->windows) {
+    const bScreen *screen = WM_window_get_active_screen(win);
+    LISTBASE_FOREACH (ScrArea *, area, &screen->areabase) {
+      if (AssetShelf *shelf = asset::shelf::active_shelf_from_area(area)) {
+        settings_set_catalog_path_enabled(*shelf, catalog_path.c_str());
+      }
+    }
+  }
 }
 
 /** \} */

@@ -7,33 +7,32 @@
  */
 
 #include <algorithm>
-#include <cmath>
 #include <cstring>
 
 #include "MEM_guardedalloc.h"
 
 #include "DNA_collection_types.h"
 
-#include "BLI_blenlib.h"
 #include "BLI_fnmatch.h"
 #include "BLI_listbase.h"
 #include "BLI_mempool.h"
+#include "BLI_rect.h"
+#include "BLI_string.h"
 #include "BLI_utildefines.h"
 
 #include "BKE_layer.hh"
 #include "BKE_main.hh"
 #include "BKE_modifier.hh"
 #include "BKE_outliner_treehash.hh"
+#include "BKE_screen.hh"
 
 #include "ED_screen.hh"
 
 #include "UI_interface.hh"
 
 #include "outliner_intern.hh"
-#include "tree/common.hh"
 #include "tree/tree_display.hh"
 #include "tree/tree_element.hh"
-#include "tree/tree_element_overrides.hh"
 
 #ifdef WIN32
 #  include "BLI_math_base.h" /* M_PI */
@@ -299,7 +298,7 @@ TreeElement *AbstractTreeDisplay::add_element(ListBase *lb,
     te->abstract_element->display_ = this;
   }
 
-  if (ELEM(type, TSE_SEQUENCE, TSE_SEQ_STRIP, TSE_SEQUENCE_DUP)) {
+  if (ELEM(type, TSE_STRIP, TSE_STRIP_DATA, TSE_STRIP_DUP)) {
     /* pass */
   }
   else if (ELEM(type, TSE_RNA_STRUCT, TSE_RNA_PROPERTY, TSE_RNA_ARRAY_ELEM)) {
@@ -582,7 +581,7 @@ static void outliner_sort(ListBase *lb)
         if (!ELEM(tselem->type, TSE_SOME_ID, TSE_DEFGROUP)) {
           tp->idcode = 0; /* Don't sort this. */
         }
-        if (tselem->type == TSE_ID_BASE) {
+        if (ELEM(tselem->type, TSE_ID_BASE, TSE_DEFGROUP)) {
           tp->idcode = 1; /* Do sort this. */
         }
 
@@ -1166,7 +1165,7 @@ void outliner_build_tree(Main *mainvar,
   }
   space_outliner->storeflag &= ~SO_TREESTORE_REBUILD;
 
-  if (region->do_draw & RGN_DRAW_NO_REBUILD) {
+  if (region->runtime->do_draw & RGN_DRAW_NO_REBUILD) {
     BLI_assert_msg(space_outliner->runtime->tree_display != nullptr,
                    "Skipping rebuild before tree was built properly, a full redraw should be "
                    "triggered instead");

@@ -5,7 +5,6 @@
 #include <algorithm>
 
 #include "BLI_array.hh"
-#include "BLI_array_utils.hh"
 #include "BLI_index_mask.hh"
 #include "BLI_math_base.hh"
 #include "BLI_math_geom.h"
@@ -18,10 +17,14 @@
 #include "BKE_crazyspace.hh"
 #include "BKE_curves.hh"
 #include "BKE_grease_pencil.hh"
+#include "BKE_material.hh"
 #include "BKE_paint.hh"
 
 #include "DEG_depsgraph_query.hh"
+
 #include "DNA_brush_enums.h"
+#include "DNA_brush_types.h"
+#include "DNA_material_types.h"
 
 #include "ED_grease_pencil.hh"
 #include "ED_view3d.hh"
@@ -34,15 +37,6 @@
 namespace blender::ed::sculpt_paint::greasepencil {
 
 class EraseOperation : public GreasePencilStrokeOperation {
-
- public:
-  EraseOperation(bool temp_use_eraser) : temp_eraser_(temp_use_eraser) {}
-  ~EraseOperation() override {}
-
-  void on_stroke_begin(const bContext &C, const InputSample &start_sample) override;
-  void on_stroke_extended(const bContext &C, const InputSample &extension_sample) override;
-  void on_stroke_done(const bContext &C) override;
-
   friend struct EraseOperationExecutor;
 
  private:
@@ -56,6 +50,14 @@ class EraseOperation : public GreasePencilStrokeOperation {
   bool active_layer_only_ = false;
 
   Set<GreasePencilDrawing *> affected_drawings_;
+
+ public:
+  EraseOperation(bool temp_use_eraser = false) : temp_eraser_(temp_use_eraser) {}
+  ~EraseOperation() override = default;
+
+  void on_stroke_begin(const bContext &C, const InputSample &start_sample) override;
+  void on_stroke_extended(const bContext &C, const InputSample &extension_sample) override;
+  void on_stroke_done(const bContext &C) override;
 };
 
 struct SegmentCircleIntersection {
@@ -130,6 +132,28 @@ struct EraseOperationExecutor {
     const int64_t a = math::distance_squared(s0, s1);
     const int64_t b = 2 * math::dot(s0 - center, s1 - s0);
     const int64_t c = d_s0_center - radius_2;
+
+    /* If points are close together there is no direction vector.
+     * Since the solution multiplies by this factor for integer math,
+     * the valid case of degenerate segments inside the circle needs special handling. */
+    if (a == 0) {
+      const int64_t i = -4 * c;
+      if (i < 0) {
+        /* No intersections. */
+        return 0;
+      }
+      if (i == 0) {
+        /* One intersection. */
+        r_mu0 = 0.0f;
+        return 1;
+      }
+      /* Two intersections. */
+      const float i_sqrt = math::sqrt(float(i));
+      r_mu0 = math::round(i_sqrt / 2.0f);
+      r_mu1 = math::round(-i_sqrt / 2.0f);
+      return 2;
+    }
+
     const int64_t i = b * b - 4 * a * c;
 
     if (i < 0) {
@@ -447,11 +471,36 @@ struct EraseOperationExecutor {
     return total_intersections;
   }
 
+  static bool skip_strokes_with_locked_material(
+      Object &ob,
+      const int src_curve,
+      const IndexRange &src_points,
+      const VArray<int> stroke_material,
+      const VArray<float> &point_opacity,
+      Array<Vector<ed::greasepencil::PointTransferData>> &src_to_dst_points)
+  {
+    const MaterialGPencilStyle *mat = BKE_gpencil_material_settings(
+        &ob, stroke_material[src_curve] + 1);
+
+    if ((mat->flag & GP_MATERIAL_LOCKED) == 0) {
+      return false;
+    }
+
+    for (const int src_point : src_points) {
+      const int src_next_point = (src_point == src_points.last()) ? src_points.first() :
+                                                                    (src_point + 1);
+      src_to_dst_points[src_point].append(
+          {src_point, src_next_point, 0.0f, true, false, point_opacity[src_point]});
+    }
+    return true;
+  }
+
   /* The hard eraser cuts out the curves at their intersection with the eraser, and removes
    * everything that lies in-between two consecutive intersections. Note that intersections are
    * computed using integers (pixel-space) to avoid floating-point approximation errors. */
 
-  bool hard_eraser(const bke::CurvesGeometry &src,
+  bool hard_eraser(Object &ob,
+                   const bke::CurvesGeometry &src,
                    const Span<float2> screen_space_positions,
                    bke::CurvesGeometry &dst,
                    const bool keep_caps) const
@@ -474,9 +523,21 @@ struct EraseOperationExecutor {
         src, screen_space_positions, eraser_rings, src_point_ring, src_intersections);
 
     Array<Vector<ed::greasepencil::PointTransferData>> src_to_dst_points(src_points_num);
+
+    const VArray<int> &stroke_material = *src.attributes().lookup_or_default<int>(
+        "material_index", bke::AttrDomain::Curve, 0);
+    const VArray<float> &point_opacity = *src.attributes().lookup_or_default<float>(
+        "opacity", bke::AttrDomain::Point, 1.0f);
+
     const OffsetIndices<int> src_points_by_curve = src.points_by_curve();
     for (const int src_curve : src.curves_range()) {
       const IndexRange src_points = src_points_by_curve[src_curve];
+
+      if (skip_strokes_with_locked_material(
+              ob, src_curve, src_points, stroke_material, point_opacity, src_to_dst_points))
+      {
+        continue;
+      }
 
       for (const int src_point : src_points) {
         Vector<ed::greasepencil::PointTransferData> &dst_points = src_to_dst_points[src_point];
@@ -553,7 +614,7 @@ struct EraseOperationExecutor {
 
       if (sample_index == nb_samples - 1) {
         /* If this is the last samples, we need to keep it at the same position (it corresponds
-         * to the brush overall radius). It is a cut if the opacity is under the threshold.*/
+         * to the brush overall radius). It is a cut if the opacity is under the threshold. */
         sample.hard_erase = (sample.opacity < opacity_threshold);
         continue;
       }
@@ -576,7 +637,7 @@ struct EraseOperationExecutor {
                       (sample_after.opacity - sample.opacity);
 
       const int64_t radius = math::round(
-          math::interpolate(float(sample.radius), float(sample_after.radius), t));
+          math::interpolate(sample.radius, float(sample_after.radius), t));
 
       sample.radius = radius;
       sample.squared_radius = radius * radius;
@@ -634,7 +695,8 @@ struct EraseOperationExecutor {
    * If the opacity of a point falls below a threshold, then the point is removed from the
    * curves.
    */
-  bool soft_eraser(const blender::bke::CurvesGeometry &src,
+  bool soft_eraser(Object &ob,
+                   const blender::bke::CurvesGeometry &src,
                    const Span<float2> screen_space_positions,
                    blender::bke::CurvesGeometry &dst,
                    const bool keep_caps)
@@ -660,6 +722,9 @@ struct EraseOperationExecutor {
     /* Function to get the resulting opacity at a specific point in the source. */
     const VArray<float> &src_opacity = *src.attributes().lookup_or_default<float>(
         opacity_attr, bke::AttrDomain::Point, 1.0f);
+    const VArray<int> &stroke_material = *src.attributes().lookup_or_default<int>(
+        "material_index", bke::AttrDomain::Curve, 0);
+
     const auto compute_opacity = [&](const int src_point) {
       const float distance = math::distance(screen_space_positions[src_point],
                                             this->mouse_position);
@@ -679,6 +744,11 @@ struct EraseOperationExecutor {
     for (const int src_curve : src.curves_range()) {
       const IndexRange src_points = src_points_by_curve[src_curve];
 
+      if (skip_strokes_with_locked_material(
+              ob, src_curve, src_points, stroke_material, src_opacity, src_to_dst_points))
+      {
+        continue;
+      }
       for (const int src_point : src_points) {
         Vector<ed::greasepencil::PointTransferData> &dst_points = src_to_dst_points[src_point];
         const int src_next_point = (src_point == src_points.last()) ? src_points.first() :
@@ -740,18 +810,22 @@ struct EraseOperationExecutor {
     /* Set opacity. */
     bke::MutableAttributeAccessor dst_attributes = dst.attributes_for_write();
 
-    bke::SpanAttributeWriter<float> dst_opacity =
-        dst_attributes.lookup_or_add_for_write_span<float>(opacity_attr, bke::AttrDomain::Point);
-    threading::parallel_for(dst.points_range(), 4096, [&](const IndexRange dst_points_range) {
-      for (const int dst_point_index : dst_points_range) {
-        const ed::greasepencil::PointTransferData &dst_point = dst_points[dst_point_index];
-        dst_opacity.span[dst_point_index] = dst_point.opacity;
-      }
-    });
-    dst_opacity.finish();
+    if (bke::SpanAttributeWriter<float> dst_opacity =
+            dst_attributes.lookup_or_add_for_write_span<float>(opacity_attr,
+                                                               bke::AttrDomain::Point))
+    {
+      threading::parallel_for(dst.points_range(), 4096, [&](const IndexRange dst_points_range) {
+        for (const int dst_point_index : dst_points_range) {
+          const ed::greasepencil::PointTransferData &dst_point = dst_points[dst_point_index];
+          dst_opacity.span[dst_point_index] = dst_point.opacity;
+        }
+      });
+      dst_opacity.finish();
+    }
 
     SpanAttributeWriter<bool> dst_inserted = dst_attributes.lookup_or_add_for_write_span<bool>(
         "_eraser_inserted", bke::AttrDomain::Point);
+    BLI_assert(dst_inserted);
     const OffsetIndices<int> &dst_points_by_curve = dst.points_by_curve();
     threading::parallel_for(dst.curves_range(), 4096, [&](const IndexRange dst_curves_range) {
       for (const int dst_curve : dst_curves_range) {
@@ -775,7 +849,8 @@ struct EraseOperationExecutor {
     return true;
   }
 
-  bool stroke_eraser(const bke::CurvesGeometry &src,
+  bool stroke_eraser(Object &ob,
+                     const bke::CurvesGeometry &src,
                      const Span<float2> screen_space_positions,
                      bke::CurvesGeometry &dst) const
   {
@@ -783,8 +858,17 @@ struct EraseOperationExecutor {
     const VArray<bool> src_cyclic = src.cyclic();
 
     IndexMaskMemory memory;
+    const VArray<int> &stroke_materials = *src.attributes().lookup_or_default<int>(
+        "material_index", bke::AttrDomain::Curve, 0);
     const IndexMask strokes_to_keep = IndexMask::from_predicate(
         src.curves_range(), GrainSize(256), memory, [&](const int src_curve) {
+          const MaterialGPencilStyle *mat = BKE_gpencil_material_settings(
+              &ob, stroke_materials[src_curve] + 1);
+          /* Keep strokes with locked material. */
+          if (mat->flag & GP_MATERIAL_LOCKED) {
+            return true;
+          }
+
           const IndexRange src_curve_points = src_points_by_curve[src_curve];
 
           /* One-point stroke : remove the stroke if the point lies inside of the eraser. */
@@ -901,13 +985,13 @@ struct EraseOperationExecutor {
           bool erased = false;
           switch (self.eraser_mode_) {
             case GP_BRUSH_ERASER_STROKE:
-              erased = stroke_eraser(src, screen_space_positions, dst);
+              erased = stroke_eraser(*obact, src, screen_space_positions, dst);
               break;
             case GP_BRUSH_ERASER_HARD:
-              erased = hard_eraser(src, screen_space_positions, dst, self.keep_caps_);
+              erased = hard_eraser(*obact, src, screen_space_positions, dst, self.keep_caps_);
               break;
             case GP_BRUSH_ERASER_SOFT:
-              erased = soft_eraser(src, screen_space_positions, dst, self.keep_caps_);
+              erased = soft_eraser(*obact, src, screen_space_positions, dst, self.keep_caps_);
               break;
           }
 

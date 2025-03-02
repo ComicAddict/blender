@@ -11,12 +11,13 @@
  */
 
 #include "BLI_bounds.hh"
+#include "GPU_capabilities.hh"
 
 #include "eevee_instance.hh"
 #include "eevee_pipeline.hh"
 #include "eevee_shadow.hh"
 
-#include <iostream>
+#include "GPU_debug.hh"
 
 #include "draw_common.hh"
 
@@ -77,8 +78,9 @@ void BackgroundPipeline::clear(View &view)
   inst_.manager->submit(clear_ps_, view);
 }
 
-void BackgroundPipeline::render(View &view)
+void BackgroundPipeline::render(View &view, Framebuffer &combined_fb)
 {
+  GPU_framebuffer_bind(combined_fb);
   inst_.manager->submit(world_ps_, view);
 }
 
@@ -435,7 +437,7 @@ void ForwardPipeline::render(View &view,
     return;
   }
 
-  DRW_stats_group_start("Forward.Opaque");
+  GPU_debug_group_begin("Forward.Opaque");
 
   prepass_fb.bind();
   inst_.manager->submit(prepass_ps_, view);
@@ -451,7 +453,7 @@ void ForwardPipeline::render(View &view,
     inst_.manager->submit(opaque_ps_, view);
   }
 
-  DRW_stats_group_end();
+  GPU_debug_group_end();
 
   inst_.volume.draw_resolve(view);
 
@@ -594,6 +596,10 @@ void DeferredLayer::end_sync(bool is_first_pass,
                               GPU_ATTACHMENT_IGNORE,
                               GPU_ATTACHMENT_IGNORE});
       sub.shader_set(sh);
+      if (GPU_stencil_clasify_buffer_workaround()) {
+        /* Binding any buffer to satisfy the binding. The buffer is not actually used. */
+        sub.bind_ssbo("dummy_workaround_buf", &inst_.film.aovs_info);
+      }
       sub.state_set(DRW_STATE_WRITE_STENCIL | DRW_STATE_STENCIL_ALWAYS);
       if (GPU_stencil_export_support()) {
         /* The shader sets the stencil directly in one full-screen pass. */
@@ -954,9 +960,7 @@ PassMain::Sub *DeferredPipeline::prepass_add(::Material *blender_mat,
   if (!use_combined_lightprobe_eval && (blender_mat->blend_flag & MA_BL_SS_REFRACTION)) {
     return refraction_layer_.prepass_add(blender_mat, gpumat, has_motion);
   }
-  else {
-    return opaque_layer_.prepass_add(blender_mat, gpumat, has_motion);
-  }
+  return opaque_layer_.prepass_add(blender_mat, gpumat, has_motion);
 }
 
 PassMain::Sub *DeferredPipeline::material_add(::Material *blender_mat, GPUMaterial *gpumat)
@@ -964,9 +968,7 @@ PassMain::Sub *DeferredPipeline::material_add(::Material *blender_mat, GPUMateri
   if (!use_combined_lightprobe_eval && (blender_mat->blend_flag & MA_BL_SS_REFRACTION)) {
     return refraction_layer_.material_add(blender_mat, gpumat);
   }
-  else {
-    return opaque_layer_.material_add(blender_mat, gpumat);
-  }
+  return opaque_layer_.material_add(blender_mat, gpumat);
 }
 
 void DeferredPipeline::render(View &main_view,
@@ -980,7 +982,7 @@ void DeferredPipeline::render(View &main_view,
 {
   GPUTexture *feedback_tx = nullptr;
 
-  DRW_stats_group_start("Deferred.Opaque");
+  GPU_debug_group_begin("Deferred.Opaque");
   feedback_tx = opaque_layer_.render(main_view,
                                      render_view,
                                      prepass_fb,
@@ -989,9 +991,9 @@ void DeferredPipeline::render(View &main_view,
                                      extent,
                                      rt_buffer_opaque_layer,
                                      feedback_tx);
-  DRW_stats_group_end();
+  GPU_debug_group_end();
 
-  DRW_stats_group_start("Deferred.Refract");
+  GPU_debug_group_begin("Deferred.Refract");
   feedback_tx = refraction_layer_.render(main_view,
                                          render_view,
                                          prepass_fb,
@@ -1000,7 +1002,7 @@ void DeferredPipeline::render(View &main_view,
                                          extent,
                                          rt_buffer_refract_layer,
                                          feedback_tx);
-  DRW_stats_group_end();
+  GPU_debug_group_end();
 }
 
 /** \} */
@@ -1184,6 +1186,12 @@ VolumeLayer *VolumePipeline::register_and_get_layer(Object *ob)
 {
   /* TODO(fclem): This is against design. Sync shouldn't depend on view properties (camera). */
   VolumeObjectBounds object_bounds(inst_.camera, ob);
+  if (math::reduce_max(object_bounds.screen_bounds->size()) < 1e-5) {
+    /* WORKAROUND(fclem): Fixes an issue with 0 scaled object (see #132889).
+     * Is likely to be an issue somewhere else in the pipeline but it is hard to find. */
+    return nullptr;
+  }
+
   object_integration_range_ = bounds::merge(object_integration_range_, object_bounds.z_range);
 
   /* Do linear search in all layers in order. This can be optimized. */
@@ -1206,7 +1214,7 @@ std::optional<Bounds<float>> VolumePipeline::object_integration_range() const
 
 bool VolumePipeline::use_hit_list() const
 {
-  for (auto &layer : layers_) {
+  for (const auto &layer : layers_) {
     if (layer->use_hit_list) {
       return true;
     }

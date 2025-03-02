@@ -7,12 +7,9 @@
  */
 #pragma once
 
-#include "MEM_guardedalloc.h"
-
 #include "gpu_context_private.hh"
 
 #include "GPU_common_types.hh"
-#include "GPU_context.hh"
 
 /* Don't generate OpenGL deprecation warning. This is a known thing, and is not something easily
  * solvable in a short term. */
@@ -454,7 +451,7 @@ struct MTLStorageBufferBinding {
 };
 
 struct MTLContextGlobalShaderPipelineState {
-  bool initialised;
+  bool initialised = false;
 
   /* Whether the pipeline state has been modified since application.
    * `dirty_flags` is a bitmask of the types of state which have been updated.
@@ -462,14 +459,14 @@ struct MTLContextGlobalShaderPipelineState {
    * Some state parameters are dynamically applied on the RenderCommandEncoder,
    * others may be encapsulated in GPU-resident state objects such as
    * MTLDepthStencilState or MTLRenderPipelineState. */
-  bool dirty;
-  MTLPipelineStateDirtyFlag dirty_flags;
+  bool dirty = true;
+  MTLPipelineStateDirtyFlag dirty_flags = MTL_PIPELINE_STATE_NULL_FLAG;
 
   /* Shader resources. */
-  MTLShader *null_shader;
+  MTLShader *null_shader = nullptr;
 
   /* Active Shader State. */
-  MTLShader *active_shader;
+  MTLShader *active_shader = nullptr;
 
   /* Global Uniform Buffers. */
   MTLUniformBufferBinding ubo_bindings[MTL_MAX_BUFFER_BINDINGS];
@@ -672,6 +669,13 @@ class MTLCommandBufferManager {
     return num_active_cmd_bufs;
   }
 
+  void wait_until_active_command_buffers_complete()
+  {
+    while (get_active_command_buffer_count()) {
+      std::this_thread::yield();
+    }
+  }
+
  private:
   /* Begin new command buffer. */
   id<MTLCommandBuffer> ensure_begin();
@@ -843,7 +847,7 @@ class MTLContext : public Context {
    * to every draw call, to ensure that all state is applied and up
    * to date. We handle:
    *
-   * - Buffer bindings (Vertex buffers, Uniforms, UBOs, transform feedback)
+   * - Buffer bindings (Vertex buffers, Uniforms, UBOs)
    * - Texture bindings
    * - Sampler bindings (+ argument buffer bindings)
    * - Dynamic Render pipeline state (on encoder)

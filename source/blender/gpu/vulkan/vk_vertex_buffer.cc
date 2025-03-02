@@ -107,8 +107,7 @@ void VKVertexBuffer::resize_data()
 void VKVertexBuffer::release_data()
 {
   if (vk_buffer_view_ != VK_NULL_HANDLE) {
-    const VKDevice &device = VKBackend::get().device;
-    vkDestroyBufferView(device.vk_handle(), vk_buffer_view_, nullptr);
+    VKDiscardPool::discard_pool_get().discard_buffer_view(vk_buffer_view_);
     vk_buffer_view_ = VK_NULL_HANDLE;
   }
 
@@ -148,7 +147,7 @@ void VKVertexBuffer::upload_data()
 
   if (flag & GPU_VERTBUF_DATA_DIRTY) {
     device_format_ensure();
-    if (buffer_.is_mapped()) {
+    if (buffer_.is_mapped() && !data_uploaded_) {
       upload_data_direct(buffer_);
     }
     else {
@@ -158,6 +157,7 @@ void VKVertexBuffer::upload_data()
     if (usage_ == GPU_USAGE_STATIC) {
       MEM_SAFE_FREE(data_);
     }
+    data_uploaded_ = true;
 
     flag &= ~GPU_VERTBUF_DATA_DIRTY;
     flag |= GPU_VERTBUF_DATA_UPLOADED;
@@ -190,7 +190,11 @@ void VKVertexBuffer::allocate()
                                        VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT |
                                        VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
-  buffer_.create(size_alloc_get(), GPU_USAGE_STATIC, vk_buffer_usage, false);
+  buffer_.create(size_alloc_get(),
+                 vk_buffer_usage,
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+                 VmaAllocationCreateFlags(0));
   debug::object_label(buffer_.vk_handle(), "VertexBuffer");
 }
 

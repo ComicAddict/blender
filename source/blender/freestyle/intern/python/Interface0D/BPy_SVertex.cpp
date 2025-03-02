@@ -14,10 +14,6 @@
 
 #include "BLI_sys_types.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 using namespace Freestyle;
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -86,7 +82,7 @@ PyDoc_STRVAR(
     "   is already in the set, nothing changes.\n"
     "\n"
     "   :arg normal: A three-dimensional vector.\n"
-    "   :type normal: :class:`mathutils.Vector`, list or tuple of 3 real numbers");
+    "   :type normal: :class:`mathutils.Vector` | tuple[float, float, float] | list[float]");
 
 static PyObject *SVertex_add_normal(BPy_SVertex *self, PyObject *args, PyObject *kwds)
 {
@@ -510,7 +506,3 @@ PyTypeObject SVertex_Type = {
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////
-
-#ifdef __cplusplus
-}
-#endif

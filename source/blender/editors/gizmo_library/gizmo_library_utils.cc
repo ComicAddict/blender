@@ -16,7 +16,9 @@
 #include "BKE_context.hh"
 #include "BKE_global.hh"
 #include "BKE_main.hh"
+#include "BKE_screen.hh"
 
+#include "BLI_listbase.h"
 #include "BLI_math_geom.h"
 #include "BLI_math_matrix.h"
 #include "BLI_math_vector.h"
@@ -265,14 +267,16 @@ wmGizmo *gizmo_find_from_properties(const IDProperty *properties,
         continue;
       }
       LISTBASE_FOREACH (ARegion *, region, &area->regionbase) {
-        if (region->gizmo_map == nullptr) {
+        if (region->runtime->gizmo_map == nullptr) {
           continue;
         }
         if (!ELEM(regionid, RGN_TYPE_ANY, region->regiontype)) {
           continue;
         }
 
-        LISTBASE_FOREACH (wmGizmoGroup *, gzgroup, WM_gizmomap_group_list(region->gizmo_map)) {
+        LISTBASE_FOREACH (
+            wmGizmoGroup *, gzgroup, WM_gizmomap_group_list(region->runtime->gizmo_map))
+        {
           LISTBASE_FOREACH (wmGizmo *, gz, &gzgroup->gizmos) {
             if (gz->properties == properties) {
               return gz;

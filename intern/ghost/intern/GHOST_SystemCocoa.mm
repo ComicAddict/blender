@@ -888,60 +888,36 @@ GHOST_TSuccess GHOST_SystemCocoa::setCursorPosition(int32_t x, int32_t y)
 
 GHOST_TSuccess GHOST_SystemCocoa::getPixelAtCursor(float r_color[3]) const
 {
-  /* NOTE: There are known issues/limitations at the moment:
-   *
-   * - User needs to allow screen capture permission for Blender.
-   * - Blender has no control of the cursor outside its window, so the eyedropper cursor won't be
-   *   available
-   * - GHOST does not report click events from outside the window, so the user needs to press Enter
-   *   instead.
-   *
-   * Ref #111303.
-   */
-
   @autoreleasepool {
-    /* Check for screen capture access permission early to prevent issues.
-     * Without permission, macOS may capture only the Blender window, wallpaper, and taskbar.
-     * This behavior could confuse users, especially when trying to pick a color from another app,
-     * potentially capturing the wallpaper under that app window.
-     */
-    if (!CGPreflightScreenCaptureAccess()) {
-      CGRequestScreenCaptureAccess();
-      return GHOST_kFailure;
+    NSColorSampler *sampler = [[NSColorSampler alloc] init];
+    __block BOOL selectCompleted = NO;
+    __block BOOL samplingSucceeded = NO;
+
+    [sampler showSamplerWithSelectionHandler:^(NSColor *selectedColor) {
+      dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)),
+                     dispatch_get_main_queue(),
+                     ^{
+                       if (selectedColor != nil) {
+                         NSColor *rgbColor = [selectedColor
+                             colorUsingColorSpace:[NSColorSpace deviceRGBColorSpace]];
+                         if (rgbColor) {
+                           r_color[0] = [rgbColor redComponent];
+                           r_color[1] = [rgbColor greenComponent];
+                           r_color[2] = [rgbColor blueComponent];
+                         }
+                         samplingSucceeded = YES;
+                       }
+                       selectCompleted = YES;
+                     });
+    }];
+
+    while (!selectCompleted) {
+      [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                               beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
     }
 
-    const CGEventRef event = CGEventCreate(nil);
-    if (!event) {
-      return GHOST_kFailure;
-    }
-    const CGPoint mouseLocation = CGEventGetLocation(event);
-    CFRelease(event);
-
-    const CGRect rect = CGRectMake(mouseLocation.x, mouseLocation.y, 1, 1);
-    const CGImageRef image = CGWindowListCreateImage(
-        rect, kCGWindowListOptionOnScreenOnly, kCGNullWindowID, kCGWindowImageDefault);
-    if (!image) {
-      return GHOST_kFailure;
-    }
-    NSBitmapImageRep *bitmap = [[[NSBitmapImageRep alloc] initWithCGImage:image] autorelease];
-    CGImageRelease(image);
-
-    NSColor *color = [bitmap colorAtX:0 y:0];
-    if (!color) {
-      return GHOST_kFailure;
-    }
-    NSColor *srgbColor = [color colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
-    if (!srgbColor) {
-      return GHOST_kFailure;
-    }
-
-    CGFloat red = 0.0, green = 0.0, blue = 0.0;
-    [color getRed:&red green:&green blue:&blue alpha:nil];
-    r_color[0] = red;
-    r_color[1] = green;
-    r_color[2] = blue;
+    return samplingSucceeded ? GHOST_kSuccess : GHOST_kFailure;
   }
-  return GHOST_kSuccess;
 }
 
 GHOST_TSuccess GHOST_SystemCocoa::setMouseCursorPosition(int32_t x, int32_t y)
@@ -1502,7 +1478,9 @@ GHOST_TSuccess GHOST_SystemCocoa::handleTabletEvent(void *eventPtr, short eventT
 
       ct.Pressure = event.pressure;
       ct.Xtilt = event.tilt.x;
-      ct.Ytilt = event.tilt.y;
+      /* On macOS, the y tilt behavior is inverted; an increase in the tilt
+       * value corresponds to tilting the device away from the user. */
+      ct.Ytilt = -event.tilt.y;
       break;
 
     case NSEventTypeTabletProximity:
@@ -2040,7 +2018,7 @@ void GHOST_SystemCocoa::putClipboard(const char *buffer, bool selection) const
 
 static NSURL *NSPasteboardGetImageFile()
 {
-  NSURL *pasteboardImageFile = Nil;
+  NSURL *pasteboardImageFile = nil;
 
   @autoreleasepool {
     NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
@@ -2053,7 +2031,7 @@ static NSURL *NSPasteboardGetImageFile()
                                                            options:pasteboardFilteringOptions];
 
     if (!pasteboardMatches || !pasteboardMatches.count) {
-      return Nil;
+      return nil;
     }
 
     pasteboardImageFile = [[pasteboardMatches firstObject] copy];
@@ -2077,7 +2055,7 @@ GHOST_TSuccess GHOST_SystemCocoa::hasClipboardImage() const
 
     /* If we got a file, ensure it's an image file. */
     if ([pasteboard availableTypeFromArray:@[ NSPasteboardTypeFileURL ]] &&
-        NSPasteboardGetImageFile() == Nil)
+        NSPasteboardGetImageFile() == nil)
     {
       return GHOST_kFailure;
     }
@@ -2095,8 +2073,8 @@ uint *GHOST_SystemCocoa::getClipboardImage(int *r_width, int *r_height) const
   @autoreleasepool {
     NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
 
-    NSImage *clipboardImage = Nil;
-    if (NSURL *pasteboardImageFile = NSPasteboardGetImageFile(); pasteboardImageFile != Nil) {
+    NSImage *clipboardImage = nil;
+    if (NSURL *pasteboardImageFile = NSPasteboardGetImageFile(); pasteboardImageFile != nil) {
       /* Image file. */
       clipboardImage = [[[NSImage alloc] initWithContentsOfURL:pasteboardImageFile] autorelease];
     }
@@ -2113,8 +2091,13 @@ uint *GHOST_SystemCocoa::getClipboardImage(int *r_width, int *r_height) const
     const NSSize clipboardImageSize = getNSImagePixelSize(clipboardImage);
 
     if (ibuf) {
-      const uint64_t byteCount = clipboardImageSize.width * clipboardImageSize.height * 4;
+      const size_t byteCount = clipboardImageSize.width * clipboardImageSize.height * 4;
       uint *rgba = (uint *)malloc(byteCount);
+
+      if (!rgba) {
+        IMB_freeImBuf(ibuf);
+        return nullptr;
+      }
 
       memcpy(rgba, ibuf->byte_buffer.data, byteCount);
       IMB_freeImBuf(ibuf);
@@ -2132,8 +2115,10 @@ uint *GHOST_SystemCocoa::getClipboardImage(int *r_width, int *r_height) const
 GHOST_TSuccess GHOST_SystemCocoa::putClipboardImage(uint *rgba, int width, int height) const
 {
   @autoreleasepool {
+    const size_t rowByteCount = width * 4;
+
     NSBitmapImageRep *imageRep = [[NSBitmapImageRep alloc]
-        initWithBitmapDataPlanes:reinterpret_cast<unsigned char **>(&rgba)
+        initWithBitmapDataPlanes:nil
                       pixelsWide:width
                       pixelsHigh:height
                    bitsPerSample:8
@@ -2141,8 +2126,18 @@ GHOST_TSuccess GHOST_SystemCocoa::putClipboardImage(uint *rgba, int width, int h
                         hasAlpha:YES
                         isPlanar:NO
                   colorSpaceName:NSDeviceRGBColorSpace
-                     bytesPerRow:width * 4
+                     bytesPerRow:rowByteCount
                     bitsPerPixel:32];
+
+    /* Copy the source image data to imageRep, flipping it vertically. */
+    uint8_t *srcBuffer = reinterpret_cast<uint8_t *>(rgba);
+    uint8_t *dstBuffer = static_cast<uint8_t *>([imageRep bitmapData]);
+
+    for (int y = 0; y < height; y++) {
+      const int dstOff = (height - y - 1) * rowByteCount;
+      const int srcOff = y * rowByteCount;
+      memcpy(dstBuffer + dstOff, srcBuffer + srcOff, rowByteCount);
+    }
 
     NSImage *image = [[[NSImage alloc] initWithSize:NSMakeSize(width, height)] autorelease];
     [image addRepresentation:imageRep];

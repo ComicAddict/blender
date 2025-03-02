@@ -16,10 +16,6 @@
 
 #include "BLI_sys_types.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 using namespace Freestyle;
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -51,7 +47,7 @@ PyDoc_STRVAR(
     "      value type is float if func is of the :class:`UnaryFunction0DDouble`\n"
     "      or :class:`UnaryFunction0DFloat` type, and int if func is of the\n"
     "      :class:`UnaryFunction0DUnsigned` type.\n"
-    "   :rtype: int or float");
+    "   :rtype: int | float");
 
 static PyObject *Integrator_integrate(PyObject * /*self*/, PyObject *args, PyObject *kwds)
 {
@@ -239,7 +235,3 @@ int IntegrationType_Init(PyObject *module)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
-
-#ifdef __cplusplus
-}
-#endif

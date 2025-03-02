@@ -8,50 +8,30 @@
  * Operators for dealing with GP data-blocks and layers.
  */
 
-#include <algorithm>
-#include <cmath>
-#include <cstddef>
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
-#include "MEM_guardedalloc.h"
-
-#include "BLI_blenlib.h"
-#include "BLI_ghash.h"
-#include "BLI_math_geom.h"
-#include "BLI_math_matrix.h"
-#include "BLI_math_vector.h"
-#include "BLI_string_utils.hh"
+#include "BLI_listbase.h"
 #include "BLI_utildefines.h"
 
 #include "BLT_translation.hh"
 
-#include "DNA_anim_types.h"
-#include "DNA_brush_types.h"
 #include "DNA_gpencil_legacy_types.h"
-#include "DNA_material_types.h"
-#include "DNA_meshdata_types.h"
-#include "DNA_object_types.h"
-#include "DNA_scene_types.h"
 #include "DNA_screen_types.h"
-#include "DNA_view3d_types.h"
 
 #include "BKE_anim_data.hh"
 #include "BKE_animsys.h"
 #include "BKE_brush.hh"
 #include "BKE_context.hh"
-#include "BKE_deform.hh"
 #include "BKE_fcurve_driver.h"
 #include "BKE_gpencil_legacy.h"
 #include "BKE_lib_id.hh"
 #include "BKE_main.hh"
-#include "BKE_material.h"
+#include "BKE_material.hh"
 #include "BKE_paint.hh"
 #include "BKE_report.hh"
 
 #include "UI_interface.hh"
-#include "UI_resources.hh"
 
 #include "WM_api.hh"
 #include "WM_types.hh"
@@ -82,7 +62,7 @@ static bool gpencil_data_add_poll(bContext *C)
 /* add new datablock - wrapper around API */
 static int gpencil_data_add_exec(bContext *C, wmOperator *op)
 {
-  PointerRNA gpd_owner = {nullptr};
+  PointerRNA gpd_owner = {};
   bGPdata **gpd_ptr = ED_annotation_data_get_pointers(C, &gpd_owner);
 
   if (gpd_ptr == nullptr) {
@@ -191,52 +171,25 @@ void GPENCIL_OT_data_unlink(wmOperatorType *ot)
 /* add new layer - wrapper around API */
 static int gpencil_layer_add_exec(bContext *C, wmOperator *op)
 {
-  const bool is_annotation = STREQ(op->idname, "GPENCIL_OT_layer_annotation_add");
-
-  PointerRNA gpd_owner = {nullptr};
+  PointerRNA gpd_owner = {};
   Main *bmain = CTX_data_main(C);
-  Scene *scene = CTX_data_scene(C);
   bGPdata *gpd = nullptr;
 
-  if (is_annotation) {
-    bGPdata **gpd_ptr = ED_annotation_data_get_pointers(C, &gpd_owner);
-    /* if there's no existing Grease-Pencil data there, add some */
-    if (gpd_ptr == nullptr) {
-      BKE_report(op->reports, RPT_ERROR, "Nowhere for Grease Pencil data to go");
-      return OPERATOR_CANCELLED;
-    }
-    /* Annotations */
-    if (*gpd_ptr == nullptr) {
-      *gpd_ptr = BKE_gpencil_data_addnew(bmain, DATA_("Annotations"));
-    }
-
-    /* mark as annotation */
-    (*gpd_ptr)->flag |= GP_DATA_ANNOTATIONS;
-    BKE_gpencil_layer_addnew(*gpd_ptr, DATA_("Note"), true, false);
-    gpd = *gpd_ptr;
+  bGPdata **gpd_ptr = ED_annotation_data_get_pointers(C, &gpd_owner);
+  /* if there's no existing Grease-Pencil data there, add some */
+  if (gpd_ptr == nullptr) {
+    BKE_report(op->reports, RPT_ERROR, "Nowhere for Grease Pencil data to go");
+    return OPERATOR_CANCELLED;
   }
-  else {
-    /* GP Object */
-    Object *ob = CTX_data_active_object(C);
-    if ((ob != nullptr) && (ob->type == OB_GPENCIL_LEGACY)) {
-      gpd = (bGPdata *)ob->data;
-      PropertyRNA *prop;
-      char name[128];
-      prop = RNA_struct_find_property(op->ptr, "new_layer_name");
-      if (RNA_property_is_set(op->ptr, prop)) {
-        RNA_property_string_get(op->ptr, prop, name);
-      }
-      else {
-        STRNCPY(name, "GP_Layer");
-      }
-      bGPDlayer *gpl = BKE_gpencil_layer_addnew(gpd, name, true, false);
-
-      /* Add a new frame to make it visible in Dopesheet. */
-      if (gpl != nullptr) {
-        gpl->actframe = BKE_gpencil_layer_frame_get(gpl, scene->r.cfra, GP_GETFRAME_ADD_NEW);
-      }
-    }
+  /* Annotations */
+  if (*gpd_ptr == nullptr) {
+    *gpd_ptr = BKE_gpencil_data_addnew(bmain, DATA_("Annotations"));
   }
+
+  /* mark as annotation */
+  (*gpd_ptr)->flag |= GP_DATA_ANNOTATIONS;
+  BKE_gpencil_layer_addnew(*gpd_ptr, DATA_("Note"), true, false);
+  gpd = *gpd_ptr;
 
   /* notifiers */
   if (gpd) {
@@ -270,10 +223,7 @@ void GPENCIL_OT_layer_annotation_add(wmOperatorType *ot)
 
 static int gpencil_layer_remove_exec(bContext *C, wmOperator *op)
 {
-  const bool is_annotation = STREQ(op->idname, "GPENCIL_OT_layer_annotation_remove");
-
-  bGPdata *gpd = (!is_annotation) ? ED_gpencil_data_get_active(C) :
-                                    ED_annotation_data_get_active(C);
+  bGPdata *gpd = ED_annotation_data_get_active(C);
   bGPDlayer *gpl = BKE_gpencil_layer_active_get(gpd);
 
   /* sanity checks */
@@ -309,7 +259,7 @@ static int gpencil_layer_remove_exec(bContext *C, wmOperator *op)
   WM_event_add_notifier(C, NC_GPENCIL | ND_DATA | NA_SELECTED, nullptr);
 
   /* Free Grease Pencil data block when last annotation layer is removed, see: #112683. */
-  if (is_annotation && gpd->layers.first == nullptr) {
+  if (gpd->layers.first == nullptr) {
     BKE_gpencil_free_data(gpd, true);
 
     bGPdata **gpd_ptr = ED_annotation_data_get_pointers(C, nullptr);
@@ -352,10 +302,7 @@ enum {
 
 static int gpencil_layer_move_exec(bContext *C, wmOperator *op)
 {
-  const bool is_annotation = STREQ(op->idname, "GPENCIL_OT_layer_annotation_move");
-
-  bGPdata *gpd = (!is_annotation) ? ED_gpencil_data_get_active(C) :
-                                    ED_annotation_data_get_active(C);
+  bGPdata *gpd = ED_annotation_data_get_active(C);
   bGPDlayer *gpl = BKE_gpencil_layer_active_get(gpd);
 
   const int direction = RNA_enum_get(op->ptr, "type") * -1;

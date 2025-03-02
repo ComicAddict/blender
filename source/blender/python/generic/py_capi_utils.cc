@@ -7,10 +7,6 @@
  *
  * Extend upon CPython's API, filling in some gaps, these functions use PyC_
  * prefix to distinguish them apart from CPython.
- *
- * \note
- * This module should only depend on CPython, however it currently uses
- * BLI_string_utf8() for unicode conversion.
  */
 
 /* Future-proof, See https://docs.python.org/3/c-api/arg.html#strings-and-buffers */
@@ -29,14 +25,15 @@
 #  include "MEM_guardedalloc.h"
 
 #  include "BLI_string.h"
-
-/* Only for #BLI_strncpy_wchar_from_utf8,
- * should replace with Python functions but too late in release now. */
-#  include "BLI_string_utf8.h"
 #endif
 
 #ifdef _WIN32
 #  include "BLI_math_base.h" /* isfinite() */
+#endif
+
+#if PY_VERSION_HEX < 0x030d0000 /* <3.13 */
+#  define PyLong_AsInt _PyLong_AsInt
+#  define PyUnicode_CompareWithASCIIString _PyUnicode_EqualToASCIIString
 #endif
 
 /* -------------------------------------------------------------------- */
@@ -874,10 +871,12 @@ static void pyc_exception_buffer_handle_system_exit()
   if (!PyErr_ExceptionMatches(PyExc_SystemExit)) {
     return;
   }
-  /* Inspecting, follow Python's logic in #_Py_HandleSystemExit & treat as a regular exception. */
+/* Inspecting, follow Python's logic in #_Py_HandleSystemExit & treat as a regular exception. */
+#  if 0 /* FIXME: */
   if (_Py_GetConfig()->inspect) {
     return;
   }
+#  endif
 
   /* NOTE(@ideasman42): A `SystemExit` exception will exit immediately (unless inspecting).
    * So print the error and exit now. Without this #PyErr_Display shows the error stack-trace
@@ -1424,11 +1423,6 @@ int PyC_FlagSet_ToBitfield(const PyC_FlagSet *items,
   /* set of enum items, concatenate all values with OR */
   int ret, flag = 0;
 
-  /* set looping */
-  Py_ssize_t pos = 0;
-  Py_ssize_t hash = 0;
-  PyObject *key;
-
   if (!PySet_Check(value)) {
     PyErr_Format(PyExc_TypeError,
                  "%.200s expected a set, not %.200s",
@@ -1439,22 +1433,32 @@ int PyC_FlagSet_ToBitfield(const PyC_FlagSet *items,
 
   *r_value = 0;
 
-  while (_PySet_NextEntry(value, &pos, &key, &hash)) {
-    const char *param = PyUnicode_AsUTF8(key);
+  if (PySet_GET_SIZE(value) > 0) {
+    PyObject *it = PyObject_GetIter(value);
+    PyObject *key;
+    while ((key = PyIter_Next(it))) {
+      /* Borrow from the set. */
+      Py_DECREF(key);
 
-    if (param == nullptr) {
-      PyErr_Format(PyExc_TypeError,
-                   "%.200s set must contain strings, not %.200s",
-                   error_prefix,
-                   Py_TYPE(key)->tp_name);
+      const char *param = PyUnicode_AsUTF8(key);
+      if (param == nullptr) {
+        PyErr_Format(PyExc_TypeError,
+                     "%.200s set must contain strings, not %.200s",
+                     error_prefix,
+                     Py_TYPE(key)->tp_name);
+        break;
+      }
+
+      if (PyC_FlagSet_ValueFromID(items, param, &ret, error_prefix) < 0) {
+        break;
+      }
+
+      flag |= ret;
+    }
+    Py_DECREF(it);
+    if (key != nullptr) {
       return -1;
     }
-
-    if (PyC_FlagSet_ValueFromID(items, param, &ret, error_prefix) < 0) {
-      return -1;
-    }
-
-    flag |= ret;
   }
 
   *r_value = flag;
@@ -1724,7 +1728,7 @@ static ulong pyc_Long_AsUnsignedLong(PyObject *value)
 
 int PyC_Long_AsBool(PyObject *value)
 {
-  const int test = _PyLong_AsInt(value);
+  const int test = PyLong_AsInt(value);
   if (UNLIKELY(test == -1 && PyErr_Occurred())) {
     return -1;
   }
@@ -1737,7 +1741,7 @@ int PyC_Long_AsBool(PyObject *value)
 
 int8_t PyC_Long_AsI8(PyObject *value)
 {
-  const int test = _PyLong_AsInt(value);
+  const int test = PyLong_AsInt(value);
   if (UNLIKELY(test == -1 && PyErr_Occurred())) {
     return -1;
   }
@@ -1750,7 +1754,7 @@ int8_t PyC_Long_AsI8(PyObject *value)
 
 int16_t PyC_Long_AsI16(PyObject *value)
 {
-  const int test = _PyLong_AsInt(value);
+  const int test = PyLong_AsInt(value);
   if (UNLIKELY(test == -1 && PyErr_Occurred())) {
     return -1;
   }

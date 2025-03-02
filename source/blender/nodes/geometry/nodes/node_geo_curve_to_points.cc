@@ -2,9 +2,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#include "BLI_array.hh"
 #include "BLI_math_matrix.hh"
-#include "BLI_task.hh"
 
 #include "DNA_pointcloud_types.h"
 
@@ -13,6 +11,7 @@
 #include "BKE_instances.hh"
 #include "BKE_pointcloud.hh"
 
+#include "GEO_join_geometries.hh"
 #include "GEO_resample_curves.hh"
 
 #include "NOD_rna_define.hh"
@@ -125,7 +124,7 @@ static PointCloud *pointcloud_from_curves(bke::CurvesGeometry curves,
   }
 
   /* Move the curve point custom data to the pointcloud, to avoid any copying. */
-  CustomData_free(&pointcloud->pdata, pointcloud->totpoint);
+  CustomData_free(&pointcloud->pdata);
   pointcloud->pdata = curves.point_data;
   CustomData_reset(&curves.point_data);
 
@@ -272,13 +271,7 @@ static void grease_pencil_to_points(GeometrySet &geometry_set,
                                                                   rotation_anonymous_id);
       }
       if (!pointcloud_by_layer.is_empty()) {
-        InstancesComponent &instances_component =
-            geometry_set.get_component_for_write<InstancesComponent>();
-        bke::Instances *instances = instances_component.get_for_write();
-        if (instances == nullptr) {
-          instances = new bke::Instances();
-          instances_component.replace(instances);
-        }
+        bke::Instances *instances = new bke::Instances();
         for (PointCloud *pointcloud : pointcloud_by_layer) {
           if (!pointcloud) {
             /* Add an empty reference so the number of layers and instances match.
@@ -292,10 +285,19 @@ static void grease_pencil_to_points(GeometrySet &geometry_set,
           const int handle = instances->add_reference(bke::InstanceReference{temp_set});
           instances->add_instance(handle, float4x4::identity());
         }
-        GeometrySet::propagate_attributes_from_layer_to_instances(
-            geometry.get_grease_pencil()->attributes(),
-            geometry.get_instances_for_write()->attributes_for_write(),
+
+        bke::copy_attributes(geometry.get_grease_pencil()->attributes(),
+                             bke::AttrDomain::Layer,
+                             bke::AttrDomain::Instance,
+                             attribute_filter,
+                             instances->attributes_for_write());
+        InstancesComponent &dst_component = geometry.get_component_for_write<InstancesComponent>();
+        GeometrySet new_instances = geometry::join_geometries(
+            {GeometrySet::from_instances(dst_component.release()),
+             GeometrySet::from_instances(instances)},
             attribute_filter);
+        dst_component.replace(
+            new_instances.get_component_for_write<InstancesComponent>().release());
       }
     }
   });
@@ -369,14 +371,18 @@ static void node_register()
 {
   static blender::bke::bNodeType ntype;
 
-  geo_node_type_base(&ntype, GEO_NODE_CURVE_TO_POINTS, "Curve to Points", NODE_CLASS_GEOMETRY);
+  geo_node_type_base(&ntype, "GeometryNodeCurveToPoints", GEO_NODE_CURVE_TO_POINTS);
+  ntype.ui_name = "Curve to Points";
+  ntype.ui_description = "Generate a point cloud by sampling positions along curves";
+  ntype.enum_name_legacy = "CURVE_TO_POINTS";
+  ntype.nclass = NODE_CLASS_GEOMETRY;
   ntype.declare = node_declare;
   ntype.geometry_node_execute = node_geo_exec;
   ntype.draw_buttons = node_layout;
   blender::bke::node_type_storage(
-      &ntype, "NodeGeometryCurveToPoints", node_free_standard_storage, node_copy_standard_storage);
+      ntype, "NodeGeometryCurveToPoints", node_free_standard_storage, node_copy_standard_storage);
   ntype.initfunc = node_init;
-  blender::bke::node_register_type(&ntype);
+  blender::bke::node_register_type(ntype);
 
   node_rna(ntype.rna_ext.srna);
 }

@@ -2,8 +2,12 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#include "common_view_clipping_lib.glsl"
-#include "common_view_lib.glsl"
+#include "infos/overlay_extra_info.hh"
+
+VERTEX_SHADER_CREATE_INFO(overlay_motion_path_point)
+
+#include "draw_view_clipping_lib.glsl"
+#include "draw_view_lib.glsl"
 
 #define pointSize mpathPointSettings.x
 #define frameCurrent mpathPointSettings.y

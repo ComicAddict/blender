@@ -4,8 +4,6 @@
 
 #pragma once
 
-#include "BLI_implicit_sharing_ptr.hh"
-#include "BLI_set.hh"
 #include "BLI_string_ref.hh"
 
 #include "BKE_attribute_filter.hh"

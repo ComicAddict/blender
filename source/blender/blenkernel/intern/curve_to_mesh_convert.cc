@@ -5,15 +5,12 @@
 #include "BLI_array.hh"
 #include "BLI_array_utils.hh"
 #include "BLI_math_matrix.hh"
-#include "BLI_math_rotation.h"
-#include "BLI_set.hh"
 #include "BLI_task.hh"
 
 #include "BKE_attribute_math.hh"
 #include "BKE_curves.hh"
 #include "BKE_customdata.hh"
 #include "BKE_geometry_set.hh"
-#include "BKE_material.h"
 #include "BKE_mesh.hh"
 
 #include "BKE_curve_to_mesh.hh"
@@ -827,7 +824,7 @@ Mesh *curve_to_mesh_sweep(const CurvesGeometry &main,
   /* Add the position attribute later so it can be shared in some cases. */
   Mesh *mesh = BKE_mesh_new_nomain(
       0, offsets.edge.last(), offsets.face.last(), offsets.loop.last());
-  CustomData_free_layer_named(&mesh->vert_data, "position", 0);
+  CustomData_free_layer_named(&mesh->vert_data, "position");
   mesh->verts_num = offsets.vert.last();
 
   MutableSpan<int2> edges = mesh->edges_for_write();

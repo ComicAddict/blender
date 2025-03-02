@@ -49,7 +49,7 @@
 
 #include <optional>
 
-#include "BKE_image.h"
+#include "BKE_image.hh"
 #include "BKE_image_partial_update.hh"
 
 #include "DNA_image_types.h"
@@ -58,6 +58,7 @@
 
 #include "BLI_bit_vector.hh"
 #include "BLI_listbase.h"
+#include "BLI_rect.h"
 #include "BLI_vector.hh"
 
 namespace blender::bke::image::partial_update {
@@ -538,13 +539,12 @@ ePartialUpdateIterResult BKE_image_partial_update_get_next_change(PartialUpdateU
 
 }  // namespace blender::bke::image::partial_update
 
-extern "C" {
-
 using namespace blender::bke::image::partial_update;
 
-/* TODO(@jbakker): cleanup parameter. */
 PartialUpdateUser *BKE_image_partial_update_create(const Image *image)
 {
+  /* TODO(@jbakker): cleanup parameter. */
+
   PartialUpdateUserImpl *user_impl = MEM_new<PartialUpdateUserImpl>(__func__);
 
 #ifdef NDEBUG
@@ -588,5 +588,4 @@ void BKE_image_partial_update_mark_full_update(Image *image)
 {
   PartialUpdateRegisterImpl *partial_updater = unwrap(image_partial_update_register_ensure(image));
   partial_updater->mark_full_update();
-}
 }

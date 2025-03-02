@@ -1,6 +1,11 @@
 /* SPDX-FileCopyrightText: 2016-2023 Blender Authors
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
+
+#include "infos/overlay_extra_info.hh"
+
+FRAGMENT_SHADER_CREATE_INFO(overlay_extra_grid_base)
+
 #include "select_lib.glsl"
 
 void main()
@@ -24,6 +29,10 @@ void main()
   }
 #else
   fragColor = finalColor;
+#endif
+
+#ifdef LINE_OUTPUT
+  lineOutput = vec4(0.0);
 #endif
   select_id_output(select_id);
 }

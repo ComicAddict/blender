@@ -43,6 +43,13 @@ def gather_node(vnode, export_settings):
     else:
         mesh = None
 
+    # If mesh is skined, but failed to export
+    # We should ignore the skin too,
+    # As it will generate a not valid glTF file
+    if mesh is None and skin is not None:
+        skin = None
+        vnode.skin = None
+
     node = gltf2_io.Node(
         camera=__gather_camera(vnode, export_settings),
         children=__gather_children(vnode, export_settings),
@@ -307,6 +314,8 @@ def __gather_mesh(vnode, blender_object, export_settings):
                     # But we need to remove some properties that are not needed
                     for prop in [p for p in blender_object.data.keys() if p in BLACK_LIST]:
                         del blender_mesh[prop]
+                # Store that this evaluated mesh has been created by the exporter, and is not a GN instance mesh
+                blender_mesh['gltf2_mesh_applied'] = True
 
                 if export_settings['gltf_skins']:
                     # restore Armature modifiers

@@ -95,14 +95,17 @@ static void node_register()
 {
   static blender::bke::bNodeType ntype;
 
-  geo_node_type_base(&ntype, GEO_NODE_GET_NAMED_GRID, "Get Named Grid", NODE_CLASS_GEOMETRY);
-
+  geo_node_type_base(&ntype, "GeometryNodeGetNamedGrid", GEO_NODE_GET_NAMED_GRID);
+  ntype.ui_name = "Get Named Grid";
+  ntype.ui_description = "Get volume grid from a volume geometry with the specified name";
+  ntype.enum_name_legacy = "GET_NAMED_GRID";
+  ntype.nclass = NODE_CLASS_GEOMETRY;
   ntype.declare = node_declare;
   ntype.gather_link_search_ops = search_link_ops_for_volume_grid_node;
   ntype.draw_buttons = node_layout;
   ntype.initfunc = node_init;
   ntype.geometry_node_execute = node_geo_exec;
-  blender::bke::node_register_type(&ntype);
+  blender::bke::node_register_type(ntype);
 
   node_rna(ntype.rna_ext.srna);
 }

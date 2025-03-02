@@ -4,6 +4,16 @@
 
 # Some misc utilities...
 
+__all__ = (
+    "I18n",
+    "I18nMessage",
+    "I18nMessages",
+    "enable_addons",
+    "find_best_isocode_matches",
+    "get_po_files_from_dir",
+    "list_po_dir",
+)
+
 import collections
 import os
 import platform
@@ -16,7 +26,6 @@ from bl_i18n_utils import (
     settings,
     utils_rtl,
 )
-from typing import Dict
 
 
 ##### Misc Utils #####
@@ -66,10 +75,11 @@ def locale_explode(locale):
     m = _locale_explode_re.match(locale)
     if m:
         lang, country, variant = m.groups()
-        return (lang, country, variant,
-                "%s_%s" % (lang, country) if country else None,
-                "%s@%s" % (lang, variant) if variant else None)
-
+        return (
+            lang, country, variant,
+            "{:s}_{:s}".format(lang, country) if country else None,
+            "{:s}@{:s}".format(lang, variant) if variant else None
+        )
     try:
         import bpy.app.translations as bpy_translations
         assert ret == bpy_translations.locale_explode(locale)
@@ -1210,7 +1220,7 @@ class I18nMessages:
         """
         Update or create a single PO file (specified by a filepath) from the given POT `I18nMessages` data.
 
-        Callback usable in a context where Blender specific modules (like `bpy`) are not available.
+        Callback usable in a context where Blender specific modules (like ``bpy``) are not available.
         """
         import sys
         sys.stdout.reconfigure(encoding="utf-8")
@@ -1230,7 +1240,7 @@ class I18nMessages:
         """
         Cleanup a single PO file (specified by a filepath).
 
-        Callback usable in a context where Blender specific modules (like `bpy`) are not available.
+        Callback usable in a context where Blender specific modules (like ``bpy``) are not available.
         """
         import sys
         sys.stdout.reconfigure(encoding="utf-8")
@@ -1250,7 +1260,7 @@ class I18nMessages:
         """
         Cleanup and write a single PO file (specified by a filepath) into the relevant Blender source 'compact' PO file.
 
-        Callback usable in a context where Blender specific modules (like `bpy`) are not available.
+        Callback usable in a context where Blender specific modules (like ``bpy``) are not available.
         """
         import sys
         sys.stdout.reconfigure(encoding="utf-8")
@@ -1334,7 +1344,7 @@ class I18n:
 
     def __init__(self, kind=None, src=None, langs=set(), settings=settings):
         self.settings = settings
-        self.trans: Dict[str, I18nMessages] = {}
+        self.trans: dict[str, I18nMessages] = {}
         self.src = {}  # Should have the same keys as self.trans (plus PARSER_PY_ID for py file)!
         self.dst = self._dst  # A callable that transforms src_path into dst_path!
         if kind and src:
@@ -1432,7 +1442,7 @@ class I18n:
         """
         txts = []
         if os.path.isdir(src):
-            for root, dnames, fnames in os.walk(src):
+            for root, _dnames, fnames in os.walk(src):
                 for fname in fnames:
                     if not fname.endswith(".py"):
                         continue

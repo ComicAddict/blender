@@ -16,21 +16,20 @@ void extract_orco(const MeshRenderData &mr, gpu::VertBuf &vbo)
       static_cast<const float3 *>(CustomData_get_layer(&mr.mesh->vert_data, CD_ORCO)),
       mr.corners_num);
 
-  static GPUVertFormat format = {0};
-  if (format.attr_len == 0) {
-    /* FIXME(fclem): We use the last component as a way to differentiate from generic vertex
-     * attributes. This is a substantial waste of video-ram and should be done another way.
-     * Unfortunately, at the time of writing, I did not found any other "non disruptive"
-     * alternative. */
-    GPU_vertformat_attr_add(&format, "orco", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
-  }
+  /* FIXME(fclem): We use the last component as a way to differentiate from generic vertex
+   * attributes. This is a substantial waste of video-ram and should be done another way.
+   * Unfortunately, at the time of writing, I did not found any other "non disruptive"
+   * alternative. */
+  static const GPUVertFormat format = GPU_vertformat_from_attribute(
+      "orco", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
+
   GPU_vertbuf_init_with_format(vbo, format);
   GPU_vertbuf_data_alloc(vbo, mr.corners_num);
   MutableSpan vbo_data = vbo.data<float4>();
 
   const int64_t bytes = orco_data.size_in_bytes() + vbo_data.size_in_bytes();
   threading::memory_bandwidth_bound_task(bytes, [&]() {
-    if (mr.extract_type == MR_EXTRACT_BMESH) {
+    if (mr.extract_type == MeshExtractType::BMesh) {
       const BMesh &bm = *mr.bm;
       threading::parallel_for(IndexRange(bm.totface), 2048, [&](const IndexRange range) {
         for (const int face_index : range) {

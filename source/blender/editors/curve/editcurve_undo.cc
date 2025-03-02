@@ -15,8 +15,8 @@
 #include "DNA_scene_types.h"
 
 #include "BLI_array_utils.h"
-#include "BLI_blenlib.h"
 #include "BLI_ghash.h"
+#include "BLI_listbase.h"
 
 #include "BKE_anim_data.hh"
 #include "BKE_context.hh"

@@ -22,12 +22,13 @@ namespace blender::draw {
 
 static const GPUVertFormat &edituv_data_format()
 {
-  static GPUVertFormat format = {0};
-  if (format.attr_len == 0) {
+  static const GPUVertFormat format = []() {
+    GPUVertFormat format{};
     /* WARNING: Adjust #EditLoopData struct accordingly. */
     GPU_vertformat_attr_add(&format, "data", GPU_COMP_U8, 4, GPU_FETCH_INT);
     GPU_vertformat_alias_add(&format, "flag");
-  }
+    return format;
+  }();
   return format;
 }
 
@@ -102,7 +103,7 @@ void extract_edituv_data(const MeshRenderData &mr, gpu::VertBuf &vbo)
   GPU_vertbuf_data_alloc(vbo, mr.corners_num);
   MutableSpan vbo_data = vbo.data<EditLoopData>();
 
-  if (mr.extract_type == MR_EXTRACT_BMESH) {
+  if (mr.extract_type == MeshExtractType::BMesh) {
     extract_edituv_data_bm(mr, vbo_data);
   }
   else {
@@ -213,7 +214,7 @@ void extract_edituv_data_subdiv(const MeshRenderData &mr,
   GPU_vertbuf_data_alloc(vbo, size);
   MutableSpan vbo_data = vbo.data<EditLoopData>();
 
-  if (mr.extract_type == MR_EXTRACT_BMESH) {
+  if (mr.extract_type == MeshExtractType::BMesh) {
     extract_edituv_subdiv_data_bm(mr, subdiv_cache, vbo_data);
   }
   else {

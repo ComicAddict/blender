@@ -8,6 +8,16 @@
 
 #pragma once
 
+#include "BLI_sys_types.h"
+
+#ifdef WITH_INTERNATIONAL
+
+#  include <optional>
+
+#  include "BLI_string_ref.hh"
+
+#endif
+
 struct ARegionType;
 struct AnimationEvalContext;
 struct ChannelDriver; /* DNA_anim_types.h */
@@ -22,9 +32,8 @@ struct bConstraintTarget; /* DNA_constraint_types.h */
 struct bContext;
 struct bContextDataResult;
 struct bPythonConstraint; /* DNA_constraint_types.h */
+struct StructRNA;
 struct wmWindowManager;
-
-#include "BLI_utildefines.h"
 
 void BPY_pyconstraint_exec(bPythonConstraint *con, bConstraintOb *cob, ListBase *targets);
 //  void BPY_pyconstraint_settings(void *arg1, void *arg2);
@@ -35,7 +44,7 @@ bool BPY_is_pyconstraint(Text *text);
 
 /* global interpreter lock */
 
-typedef void *BPy_ThreadStatePtr;
+using BPy_ThreadStatePtr = void *;
 
 /**
  * Analogue of #PyEval_SaveThread()
@@ -124,6 +133,12 @@ void BPY_context_dict_clear_members_array(void **dict_p,
 void BPY_id_release(ID *id);
 
 /**
+ * Free (actually dereference) the Python type object representing the given #StrucRNA type,
+ * if it is defined.
+ */
+void BPY_free_srna_pytype(StructRNA *srna);
+
+/**
  * Avoids duplicating keyword list.
  */
 bool BPY_string_is_keyword(const char *str);
@@ -135,5 +150,6 @@ void BPY_callback_wm_free(wmWindowManager *wm);
 
 /* I18n for addons */
 #ifdef WITH_INTERNATIONAL
-const char *BPY_app_translations_py_pgettext(const char *msgctxt, const char *msgid);
+std::optional<blender::StringRefNull> BPY_app_translations_py_pgettext(blender::StringRef msgctxt,
+                                                                       blender::StringRef msgid);
 #endif

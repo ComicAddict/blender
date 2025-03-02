@@ -153,11 +153,11 @@ void DM_from_template(DerivedMesh *dm,
 
 void DM_release(DerivedMesh *dm)
 {
-  CustomData_free(&dm->vertData, dm->numVertData);
-  CustomData_free(&dm->edgeData, dm->numEdgeData);
-  CustomData_free(&dm->faceData, dm->numTessFaceData);
-  CustomData_free(&dm->loopData, dm->numLoopData);
-  CustomData_free(&dm->polyData, dm->numPolyData);
+  CustomData_free(&dm->vertData);
+  CustomData_free(&dm->edgeData);
+  CustomData_free(&dm->faceData);
+  CustomData_free(&dm->loopData);
+  CustomData_free(&dm->polyData);
   MEM_SAFE_FREE(dm->face_offsets);
 }
 
@@ -315,7 +315,7 @@ static DerivedMesh *cdDM_from_mesh_ex(Mesh *mesh, const CustomData_MeshMasks *ma
 
   cddata_masks.lmask &= ~CD_MASK_MDISPS;
 
-  /* this does a referenced copy, with an exception for fluidsim */
+  /* This does a referenced copy, with an exception for fluid-simulation. */
 
   DM_init(dm,
           DM_TYPE_CDDM,

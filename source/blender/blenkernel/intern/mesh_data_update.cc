@@ -6,7 +6,6 @@
  * \ingroup bke
  */
 
-#include <climits>
 #include <cstring>
 
 #include "MEM_guardedalloc.h"
@@ -14,70 +13,68 @@
 #include "DNA_cloth_types.h"
 #include "DNA_customdata_types.h"
 #include "DNA_key_types.h"
-#include "DNA_material_types.h"
 #include "DNA_mesh_types.h"
 #include "DNA_meshdata_types.h"
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 
 #include "BLI_bitmap.h"
-#include "BLI_blenlib.h"
 #include "BLI_linklist.h"
 #include "BLI_math_geom.h"
 #include "BLI_math_matrix.h"
 #include "BLI_math_vector_types.hh"
 #include "BLI_span.hh"
-#include "BLI_task.h"
+#include "BLI_string.h"
 #include "BLI_task.hh"
 #include "BLI_utildefines.h"
 #include "BLI_vector.hh"
 
-#include "BKE_bvhutils.hh"
-#include "BKE_deform.hh"
 #include "BKE_editmesh.hh"
 #include "BKE_editmesh_cache.hh"
 #include "BKE_geometry_set.hh"
-#include "BKE_geometry_set_instances.hh"
 #include "BKE_key.hh"
 #include "BKE_layer.hh"
 #include "BKE_lib_id.hh"
-#include "BKE_material.h"
+#include "BKE_material.hh"
 #include "BKE_mesh.hh"
 #include "BKE_mesh_iterators.hh"
-#include "BKE_mesh_mapping.hh"
 #include "BKE_mesh_runtime.hh"
-#include "BKE_mesh_tangent.hh"
 #include "BKE_mesh_wrapper.hh"
 #include "BKE_modifier.hh"
 #include "BKE_multires.hh"
 #include "BKE_object.hh"
-#include "BKE_object_deform.h"
 #include "BKE_object_types.hh"
 #include "BKE_paint.hh"
-#include "BKE_subdiv_modifier.hh"
-
-#include "BLI_sys_types.h" /* for intptr_t support */
 
 #include "BKE_shrinkwrap.hh"
 #include "DEG_depsgraph.hh"
 #include "DEG_depsgraph_query.hh"
 
-#include "CLG_log.h"
-
-#ifdef WITH_OPENSUBDIV
-#  include "DNA_userdef_types.h"
-#endif
-
 namespace blender::bke {
 
-/* very slow! enable for testing only! */
+/**
+ * Validate all meshes being modified, input and output.
+ * This is slow (even for debug mode), enable manually when investigating bugs.
+ *
+ * \note Validating the input as well as the output can be useful
+ * to rule out corrupt input.
+ */
 // #define USE_MODIFIER_VALIDATE
 
 #ifdef USE_MODIFIER_VALIDATE
-#  define ASSERT_IS_VALID_MESH(mesh) \
+#  define ASSERT_IS_VALID_MESH_INPUT(mesh) (BLI_assert(BKE_mesh_is_valid(mesh) == true))
+#  define ASSERT_IS_VALID_MESH_OUTPUT(mesh) \
     (BLI_assert((mesh == nullptr) || (BKE_mesh_is_valid(mesh) == true)))
 #else
-#  define ASSERT_IS_VALID_MESH(mesh)
+#  define ASSERT_IS_VALID_MESH_INPUT(mesh) \
+    { \
+      (void)mesh; \
+    };
+#  define ASSERT_IS_VALID_MESH_OUTPUT(mesh) \
+    { \
+      (void)mesh; \
+    };
+
 #endif
 
 static void mesh_init_origspace(Mesh &mesh);
@@ -229,8 +226,6 @@ static void mesh_calc_finalize(const Mesh &mesh_input, Mesh &mesh_eval)
   /* Make sure the name is the same. This is because mesh allocation from template does not
    * take care of naming. */
   STRNCPY(mesh_eval.id.name, mesh_input.id.name);
-  /* Make evaluated mesh to share same edit mesh pointer as original and copied meshes. */
-  mesh_eval.runtime->edit_mesh = mesh_input.runtime->edit_mesh;
 }
 
 /**
@@ -373,8 +368,9 @@ static void mesh_calc_modifiers(Depsgraph &depsgraph,
 
   if (ob.modifier_flag & OB_MODIFIER_FLAG_ADD_REST_POSITION) {
     if (mesh == nullptr) {
+      ASSERT_IS_VALID_MESH_INPUT(&mesh_input);
       mesh = BKE_mesh_copy_for_eval(mesh_input);
-      ASSERT_IS_VALID_MESH(mesh);
+      ASSERT_IS_VALID_MESH_OUTPUT(mesh);
     }
     set_rest_position(*mesh);
   }
@@ -391,8 +387,9 @@ static void mesh_calc_modifiers(Depsgraph &depsgraph,
       if (mti->type == ModifierTypeType::OnlyDeform && !sculpt_dyntopo) {
         ScopedModifierTimer modifier_timer{*md};
         if (!mesh) {
+          ASSERT_IS_VALID_MESH_INPUT(&mesh_input);
           mesh = BKE_mesh_copy_for_eval(mesh_input);
-          ASSERT_IS_VALID_MESH(mesh);
+          ASSERT_IS_VALID_MESH_OUTPUT(mesh);
         }
 
         if (mti->required_data_mask) {
@@ -486,8 +483,9 @@ static void mesh_calc_modifiers(Depsgraph &depsgraph,
 
     if (mti->type == ModifierTypeType::OnlyDeform) {
       if (!mesh) {
+        ASSERT_IS_VALID_MESH_INPUT(&mesh_input);
         mesh = BKE_mesh_copy_for_eval(mesh_input);
-        ASSERT_IS_VALID_MESH(mesh);
+        ASSERT_IS_VALID_MESH_OUTPUT(mesh);
       }
       BKE_modifier_deform_verts(md, &mectx, mesh, mesh->vert_positions_for_write());
     }
@@ -501,8 +499,9 @@ static void mesh_calc_modifiers(Depsgraph &depsgraph,
         }
       }
       else {
+        ASSERT_IS_VALID_MESH_INPUT(&mesh_input);
         mesh = BKE_mesh_copy_for_eval(mesh_input);
-        ASSERT_IS_VALID_MESH(mesh);
+        ASSERT_IS_VALID_MESH_OUTPUT(mesh);
         check_for_needs_mapping = true;
       }
 
@@ -570,8 +569,9 @@ static void mesh_calc_modifiers(Depsgraph &depsgraph,
         }
       }
 
+      ASSERT_IS_VALID_MESH_INPUT(mesh);
       Mesh *mesh_next = modifier_modify_mesh_and_geometry_set(md, mectx, mesh, geometry_set_final);
-      ASSERT_IS_VALID_MESH(mesh_next);
+      ASSERT_IS_VALID_MESH_OUTPUT(mesh_next);
 
       if (mesh_next) {
         /* if the modifier returned a new mesh, release the old one */
@@ -601,8 +601,9 @@ static void mesh_calc_modifiers(Depsgraph &depsgraph,
         CustomData_MeshMasks_update(&temp_cddata_masks, &nextmask);
         mesh_set_only_copy(mesh_orco, &temp_cddata_masks);
 
+        ASSERT_IS_VALID_MESH_INPUT(mesh_orco);
         mesh_next = BKE_modifier_modify_mesh(md, &mectx_orco, mesh_orco);
-        ASSERT_IS_VALID_MESH(mesh_next);
+        ASSERT_IS_VALID_MESH_OUTPUT(mesh_next);
 
         if (mesh_next) {
           /* if the modifier returned a new mesh, release the old one */
@@ -627,8 +628,9 @@ static void mesh_calc_modifiers(Depsgraph &depsgraph,
         nextmask.pmask |= CD_MASK_ORIGINDEX;
         mesh_set_only_copy(mesh_orco_cloth, &nextmask);
 
+        ASSERT_IS_VALID_MESH_INPUT(mesh_orco_cloth);
         mesh_next = BKE_modifier_modify_mesh(md, &mectx_orco, mesh_orco_cloth);
-        ASSERT_IS_VALID_MESH(mesh_next);
+        ASSERT_IS_VALID_MESH_OUTPUT(mesh_next);
 
         if (mesh_next) {
           /* if the modifier returned a new mesh, release the old one */
@@ -690,7 +692,7 @@ static void mesh_calc_modifiers(Depsgraph &depsgraph,
 
   /* Remove temporary data layer only needed for modifier evaluation.
    * Save some memory, and ensure GPU subdivision does not need to deal with this. */
-  CustomData_free_layers(&mesh->vert_data, CD_CLOTH_ORCO, mesh->verts_num);
+  CustomData_free_layers(&mesh->vert_data, CD_CLOTH_ORCO);
 
   /* Compute normals. */
   if (is_own_mesh) {
@@ -857,7 +859,6 @@ static void editbmesh_calc_modifiers(Depsgraph &depsgraph,
        * cage mesh isn't modified anymore. */
       mesh = BKE_mesh_copy_for_eval(*mesh);
       if (mesh_cage->runtime->edit_mesh) {
-        mesh->runtime->edit_mesh = mesh_cage->runtime->edit_mesh;
         mesh->runtime->is_original_bmesh = true;
         mesh->runtime->deformed_only = mesh_cage->runtime->deformed_only;
         if (mesh_cage->runtime->edit_data) {
@@ -895,8 +896,9 @@ static void editbmesh_calc_modifiers(Depsgraph &depsgraph,
         mask.pmask |= CD_MASK_ORIGINDEX;
         mesh_set_only_copy(mesh_orco, &mask);
 
+        ASSERT_IS_VALID_MESH_INPUT(mesh_orco);
         Mesh *mesh_next = BKE_modifier_modify_mesh(md, &mectx_orco, mesh_orco);
-        ASSERT_IS_VALID_MESH(mesh_next);
+        ASSERT_IS_VALID_MESH_OUTPUT(mesh_next);
 
         if (mesh_next) {
           /* if the modifier returned a new dm, release the old one */
@@ -926,8 +928,9 @@ static void editbmesh_calc_modifiers(Depsgraph &depsgraph,
         }
       }
 
+      ASSERT_IS_VALID_MESH_INPUT(mesh);
       Mesh *mesh_next = modifier_modify_mesh_and_geometry_set(md, mectx, mesh, geometry_set_final);
-      ASSERT_IS_VALID_MESH(mesh_next);
+      ASSERT_IS_VALID_MESH_OUTPUT(mesh_next);
 
       if (mesh_next) {
         if (mesh != mesh_next) {
@@ -1053,12 +1056,6 @@ static void editbmesh_build_data(Depsgraph &depsgraph,
 
   editbmesh_calc_modifiers(
       depsgraph, scene, obedit, dataMask, &me_cage, &me_final, &non_mesh_components);
-
-  /* The modifier stack result is expected to share edit mesh pointer with the input.
-   * This is similar `mesh_calc_finalize()`. */
-  BKE_mesh_free_editmesh(me_final);
-  BKE_mesh_free_editmesh(me_cage);
-  me_final->runtime->edit_mesh = me_cage->runtime->edit_mesh = mesh->runtime->edit_mesh;
 
   /* Object has edit_mesh but is not in edit mode (object shares mesh datablock with another object
    * with is in edit mode).

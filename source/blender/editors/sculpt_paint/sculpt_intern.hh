@@ -9,15 +9,12 @@
 #pragma once
 
 #include <optional>
-#include <queue>
 
-#include "BKE_attribute.hh"
 #include "BKE_paint.hh"
-#include "BKE_pbvh_api.hh"
+#include "BKE_paint_bvh.hh"
 #include "BKE_subdiv_ccg.hh"
 
 #include "BLI_array.hh"
-#include "BLI_generic_array.hh"
 #include "BLI_math_matrix_types.hh"
 #include "BLI_math_quaternion_types.hh"
 #include "BLI_math_vector_types.hh"
@@ -26,6 +23,7 @@
 #include "BLI_vector.hh"
 
 #include "DNA_brush_enums.h"
+#include "DNA_brush_types.h"
 
 #include "ED_view3d.hh"
 
@@ -47,6 +45,7 @@ struct Node;
 enum class Type : int8_t;
 }  // namespace undo
 }  // namespace blender::ed::sculpt_paint
+struct bContext;
 struct BMLog;
 struct Dial;
 struct DistRayAABB_Precalc;
@@ -55,8 +54,8 @@ struct ImageUser;
 struct Key;
 struct KeyBlock;
 struct Object;
-struct bContext;
 struct PaintModeSettings;
+struct ReportList;
 struct wmKeyConfig;
 struct wmKeyMap;
 struct wmOperatorType;
@@ -66,6 +65,15 @@ struct wmOperatorType;
  * \{ */
 
 namespace blender::ed::sculpt_paint {
+
+/** Contains shape key array data for quick access for deformation. */
+struct ShapeKeyData {
+  MutableSpan<float3> active_key_data;
+  bool basis_key_active;
+  Vector<MutableSpan<float3>> dependent_keys;
+
+  static std::optional<ShapeKeyData> from_object(Object &object);
+};
 
 /**
  * This class represents an API to deform original positions based on translations created from
@@ -99,10 +107,7 @@ class PositionDeformData {
    */
   MutableSpan<float3> orig_;
 
-  Key *keys_;
-  KeyBlock *active_key_;
-  bool basis_active_;
-  std::optional<Array<bool>> dependent_keys_;
+  std::optional<ShapeKeyData> shape_key_data_;
 
  public:
   PositionDeformData(const Depsgraph &depsgraph, Object &object_orig);
@@ -148,6 +153,8 @@ enum class TransformDisplacementMode {
 
 namespace blender::ed::sculpt_paint {
 
+static constexpr int plane_brush_max_rolling_average_num = 20;
+
 /**
  * This structure contains all the temporary data
  * needed for individual brush strokes.
@@ -163,6 +170,15 @@ struct StrokeCache {
     float4x4 mat_inv;
   } mirror_modifier_clip;
   float2 initial_mouse;
+
+  /**
+   * Some brushes change behavior drastically depending on the directional value (i.e. the smooth
+   * and enhance details functionality being bound to the Smooth brush).
+   *
+   * Storing the initial direction allows discerning the behavior without checking the sign of the
+   * brush direction at every step, which would have ambiguity at 0.
+   */
+  bool initial_direction_flipped;
 
   /* Variants */
   float radius;
@@ -309,6 +325,26 @@ struct StrokeCache {
 
   } clay_thumb_brush;
 
+  /* Plane Brush */
+  struct {
+    std::optional<float3> last_normal;
+    std::optional<float3> last_center;
+    Array<float3> normals;
+    Array<float3> centers;
+    int normal_index;
+    int center_index;
+
+    /**
+     * True if the current step is the first time the Plane brush is being evaluated.
+     *
+     * We cannot use the generic `first_time` variable used by other brushes because
+     * the Plane brush uses `grab_delta` to compute its local matrix. Since `grab_delta` requires
+     * at least two stroke steps, the first step (and successive steps if the user does not move
+     * the cursor) of the Plane brush is always skipped.
+     */
+    bool first_time;
+  } plane_brush;
+
   /* Cloth brush */
   std::unique_ptr<cloth::SimulationData> cloth_sim;
   float3 initial_location_symm;
@@ -378,17 +414,16 @@ bool SCULPT_poll(bContext *C);
  */
 bool SCULPT_brush_cursor_poll(bContext *C);
 
+namespace blender::ed::sculpt_paint {
 /**
- * Returns true if sculpt session can handle color attributes
- * (pbvh->type() == bke::pbvh::Type::Mesh).  If false an error
- * message will be shown to the user.  Operators should return
- * OPERATOR_CANCELLED in this case.
+ * Returns true if the current Mesh type can handle color attributes. If false an error message
+ * will be shown to the user.  Operators should return OPERATOR_CANCELLED in this case.
  *
- * NOTE: Does not check if a color attribute actually exists.
- * Calling code must handle this itself; in most cases a call to
- * BKE_sculpt_color_layer_create_if_needed() is sufficient.
+ * NOTE: Does not check if a color attribute actually exists. Calling code must handle this itself;
+ * in most cases a call to BKE_sculpt_color_layer_create_if_needed() is sufficient.
  */
-bool SCULPT_handles_colors_report(const Object &object, ReportList *reports);
+bool color_supported_check(const Scene &scene, Object &object, ReportList *reports);
+}  // namespace blender::ed::sculpt_paint
 
 /** \} */
 
@@ -401,7 +436,7 @@ namespace blender::ed::sculpt_paint {
 /**
  * Triggers redraws, updates, and dependency graph tags as necessary after each brush calculation.
  */
-void flush_update_step(bContext *C, UpdateType update_type);
+void flush_update_step(const bContext *C, UpdateType update_type);
 /**
  * Triggers redraws, updates, and dependency graph tags as necessary when a brush stroke finishes.
  */
@@ -437,7 +472,7 @@ bool SCULPT_stroke_get_location_ex(bContext *C,
 
 bool SCULPT_stroke_get_location(bContext *C,
                                 float out[3],
-                                const float mouse[2],
+                                const float mval[2],
                                 bool force_original);
 /**
  * Gets the normal, location and active vertex location of the geometry under the cursor. This also
@@ -445,7 +480,7 @@ bool SCULPT_stroke_get_location(bContext *C,
  */
 bool SCULPT_cursor_geometry_info_update(bContext *C,
                                         SculptCursorGeometryInfo *out,
-                                        const float mouse[2],
+                                        const float mval[2],
                                         bool use_sampled_normal);
 
 namespace blender::ed::sculpt_paint {
@@ -646,7 +681,7 @@ bool node_in_sphere(const bke::pbvh::Node &node,
                     const float3 &location,
                     float radius_sq,
                     bool original);
-bool node_in_cylinder(const DistRayAABB_Precalc &dist_ray_precalc,
+bool node_in_cylinder(const DistRayAABB_Precalc &ray_dist_precalc,
                       const bke::pbvh::Node &node,
                       float radius_sq,
                       bool original);
@@ -671,8 +706,7 @@ void sculpt_apply_texture(const SculptSession &ss,
  */
 void SCULPT_calc_vertex_displacement(const SculptSession &ss,
                                      const Brush &brush,
-                                     float rgba[3],
-                                     float r_offset[3]);
+                                     float translation[3]);
 
 /**
  * Tilts a normal by the x and y tilt values using the view axis.
@@ -689,13 +723,18 @@ void SCULPT_tilt_effective_normal_get(const SculptSession &ss, const Brush &brus
 /** \} */
 
 namespace blender::ed::sculpt_paint {
-
+/**
+ * The brush uses translations calculated at the beginning of the stroke. They can't be calculated
+ * dynamically because changing positions will influence neighboring translations. However we can
+ * reduce the cost in some cases by skipping initializing values for vertices in hidden or masked
+ * nodes.
+ */
 void calc_smooth_translations(const Depsgraph &depsgraph,
                               const Object &object,
                               const IndexMask &node_mask,
                               MutableSpan<float3> translations);
 
-}
+}  // namespace blender::ed::sculpt_paint
 
 /**
  * Flip all the edit-data across the axis/axes specified by \a symm.
@@ -926,23 +965,30 @@ float clay_thumb_get_stabilized_pressure(const blender::ed::sculpt_paint::Stroke
 
 void SCULPT_OT_brush_stroke(wmOperatorType *ot);
 
-}  // namespace blender::ed::sculpt_paint
-
-inline bool SCULPT_brush_type_is_paint(int tool)
+inline bool brush_type_is_paint(const int tool)
 {
   return ELEM(tool, SCULPT_BRUSH_TYPE_PAINT, SCULPT_BRUSH_TYPE_SMEAR);
 }
 
-inline bool SCULPT_brush_type_is_mask(int tool)
+inline bool brush_type_is_mask(const int tool)
 {
   return ELEM(tool, SCULPT_BRUSH_TYPE_MASK);
 }
 
-BLI_INLINE bool SCULPT_brush_type_is_attribute_only(int tool)
+BLI_INLINE bool brush_type_is_attribute_only(const int tool)
 {
-  return SCULPT_brush_type_is_paint(tool) || SCULPT_brush_type_is_mask(tool) ||
+  return brush_type_is_paint(tool) || brush_type_is_mask(tool) ||
          ELEM(tool, SCULPT_BRUSH_TYPE_DRAW_FACE_SETS);
 }
+
+inline bool brush_uses_vector_displacement(const Brush &brush)
+{
+  return brush.sculpt_brush_type == SCULPT_BRUSH_TYPE_DRAW &&
+         brush.flag2 & BRUSH_USE_COLOR_AS_DISPLACEMENT &&
+         brush.mtex.brush_map_mode == MTEX_MAP_MODE_AREA;
+}
+
+}  // namespace blender::ed::sculpt_paint
 
 namespace blender::ed::sculpt_paint {
 void ensure_valid_pivot(const Object &ob, Scene &scene);

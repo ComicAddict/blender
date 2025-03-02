@@ -12,7 +12,6 @@
 
 #include "BLI_array.hh"
 #include "BLI_string.h"
-#include "BLI_utildefines.h"
 
 #include "BKE_context.hh"
 #include "BKE_global.hh"
@@ -129,7 +128,7 @@ static bool interactive_value_update(ValueInteraction *inter,
                       value_scale;
   if (event->modifier & KM_CTRL) {
     const double snap = 0.1;
-    value_delta = float(roundf(double(value_delta) / snap)) * snap;
+    value_delta = roundf(double(value_delta) / snap) * snap;
   }
   if (event->modifier & KM_SHIFT) {
     value_delta *= 0.1f;
@@ -169,7 +168,7 @@ struct ObCustomData_ForEditMode {
   ValueInteraction inter;
 
   /** This could be split into a sub-type if we support different kinds of data. */
-  blender::Array<blender::ed::object::XFormObjectData *> objects_xform;
+  blender::Array<std::unique_ptr<blender::ed::object::XFormObjectData>> objects_xform;
 };
 
 /* Internal callback to free. */
@@ -178,12 +177,6 @@ static void op_generic_value_exit(wmOperator *op)
   ObCustomData_ForEditMode *cd = static_cast<ObCustomData_ForEditMode *>(op->customdata);
   if (cd) {
     interactive_value_exit(&cd->inter);
-
-    for (blender::ed::object::XFormObjectData *xod : cd->objects_xform) {
-      if (xod != nullptr) {
-        blender::ed::object::data_xform_destroy(xod);
-      }
-    }
     MEM_delete(cd);
   }
 
@@ -193,9 +186,9 @@ static void op_generic_value_exit(wmOperator *op)
 static void op_generic_value_restore(wmOperator *op)
 {
   ObCustomData_ForEditMode *cd = static_cast<ObCustomData_ForEditMode *>(op->customdata);
-  for (blender::ed::object::XFormObjectData *xod : cd->objects_xform) {
-    blender::ed::object::data_xform_restore(xod);
-    blender::ed::object::data_xform_tag_update(xod);
+  for (std::unique_ptr<blender::ed::object::XFormObjectData> &xod : cd->objects_xform) {
+    blender::ed::object::data_xform_restore(*xod);
+    blender::ed::object::data_xform_tag_update(*xod);
   }
 }
 

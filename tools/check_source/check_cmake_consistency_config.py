@@ -2,10 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-import os
-from typing import (
-    Tuple,
+__all__ = (
+    "BUILD_DIR",
+    "IGNORE_CMAKE",
+    "IGNORE_SOURCE",
+    "IGNORE_SOURCE_MISSING",
+    "SOURCE_DIR",
+    "UTF8_CHECK",
 )
+
+import os
 
 IGNORE_SOURCE = (
     "/lib/",
@@ -22,7 +28,6 @@ IGNORE_SOURCE = (
     "source/creator/blender_launcher_win32.c",
 
     # Pre-computed headers.
-    "source/blender/compositor/COM_precomp.h",
     "source/blender/freestyle/FRS_precomp.h",
 
     # Specific source files.
@@ -100,7 +105,7 @@ IGNORE_SOURCE = (
 
 # Ignore cmake file, path pairs,
 # NOTE: keep commented block to show the intended format (even when unused).
-IGNORE_SOURCE_MISSING: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+IGNORE_SOURCE_MISSING: tuple[tuple[str, tuple[str, ...]], ...] = (
     (   # Use for `WITH_NANOVDB`.
         "intern/cycles/kernel/CMakeLists.txt", (
             "hiprt/impl/Aabb.h",

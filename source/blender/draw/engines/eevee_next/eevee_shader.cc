@@ -11,6 +11,8 @@
 
 #include "GPU_capabilities.hh"
 
+#include "BKE_material.hh"
+
 #include "gpu_shader_create_info.hh"
 
 #include "eevee_shader.hh"
@@ -27,39 +29,31 @@ namespace blender::eevee {
  *
  * \{ */
 
-ShaderModule *ShaderModule::g_shader_module = nullptr;
-
 ShaderModule *ShaderModule::module_get()
 {
-  if (g_shader_module == nullptr) {
-    /* TODO(@fclem) thread-safety. */
-    g_shader_module = new ShaderModule();
-  }
-  return g_shader_module;
+  return &get_static_cache().get();
 }
 
 void ShaderModule::module_free()
 {
-  if (g_shader_module != nullptr) {
-    /* TODO(@fclem) thread-safety. */
-    delete g_shader_module;
-    g_shader_module = nullptr;
-  }
+  get_static_cache().release();
 }
 
 ShaderModule::ShaderModule()
 {
-  for (GPUShader *&shader : shaders_) {
-    shader = nullptr;
-  }
-
   Vector<const GPUShaderCreateInfo *> infos;
   infos.reserve(MAX_SHADER_TYPE);
 
   for (auto i : IndexRange(MAX_SHADER_TYPE)) {
     const char *name = static_shader_create_info_name_get(eShaderType(i));
     const GPUShaderCreateInfo *create_info = GPU_shader_create_info_get(name);
-    infos.append(create_info);
+
+    if (GPU_use_parallel_compilation()) {
+      infos.append(create_info);
+    }
+    else {
+      shaders_[i] = {name};
+    }
 
 #ifndef NDEBUG
     if (name == nullptr) {
@@ -78,8 +72,9 @@ ShaderModule::ShaderModule()
 
 ShaderModule::~ShaderModule()
 {
-  for (GPUShader *&shader : shaders_) {
-    DRW_SHADER_FREE_SAFE(shader);
+  if (compilation_handle_) {
+    /* Finish compilation to avoid asserts on exit at GLShaderCompiler destructor. */
+    is_ready(true);
   }
 }
 
@@ -94,8 +89,6 @@ void ShaderModule::precompile_specializations(int render_buffers_shadow_id,
                                               int shadow_ray_count,
                                               int shadow_ray_step_count)
 {
-  BLI_assert(specialization_handle_ == 0);
-
   if (!GPU_use_parallel_compilation()) {
     return;
   }
@@ -118,16 +111,22 @@ void ShaderModule::precompile_specializations(int render_buffers_shadow_id,
     }
   }
 
+  std::lock_guard lock = get_static_cache().lock_guard();
+  /* TODO: This is broken. Different scenes can have different specializations. */
+  BLI_assert(specialization_handle_ == 0);
+
   specialization_handle_ = GPU_shader_batch_specializations(specializations);
 }
 
 bool ShaderModule::is_ready(bool block)
 {
+  std::lock_guard lock = get_static_cache().lock_guard();
+
   if (compilation_handle_) {
     if (GPU_shader_batch_is_ready(compilation_handle_) || block) {
       Vector<GPUShader *> shaders = GPU_shader_batch_finalize(compilation_handle_);
       for (int i : IndexRange(MAX_SHADER_TYPE)) {
-        shaders_[i] = shaders[i];
+        shaders_[i].set(shaders[i]);
       }
     }
   }
@@ -378,17 +377,13 @@ const char *ShaderModule::static_shader_create_info_name_get(eShaderType shader_
 GPUShader *ShaderModule::static_shader_get(eShaderType shader_type)
 {
   BLI_assert(is_ready());
-  if (shaders_[shader_type] == nullptr) {
+  if (GPU_use_parallel_compilation() && shaders_[shader_type].get() == nullptr) {
     const char *shader_name = static_shader_create_info_name_get(shader_type);
-    if (GPU_use_parallel_compilation()) {
-      fprintf(stderr, "EEVEE: error: Could not compile static shader \"%s\"\n", shader_name);
-      BLI_assert(0);
-    }
-    else {
-      shaders_[shader_type] = GPU_shader_create_from_info_name(shader_name);
-    }
+    fprintf(stderr, "EEVEE: error: Could not compile static shader \"%s\"\n", shader_name);
+    BLI_assert(0);
   }
-  return shaders_[shader_type];
+
+  return shaders_[shader_type].get();
 }
 
 /** \} */
@@ -410,7 +405,7 @@ class SamplerSlots {
                bool has_shader_to_rgba)
   {
     index_ = 0;
-    if (ELEM(geometry_type, MAT_GEOM_POINT_CLOUD, MAT_GEOM_CURVES)) {
+    if (ELEM(geometry_type, MAT_GEOM_POINTCLOUD, MAT_GEOM_CURVES)) {
       index_ = 1;
     }
     else if (geometry_type == MAT_GEOM_GPENCIL) {
@@ -462,7 +457,7 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
 
   /* WORKAROUND: Add new ob attr buffer. */
   if (GPU_material_uniform_attributes(gpumat) != nullptr) {
-    info.additional_info("draw_object_attribute_new");
+    info.additional_info("draw_object_attributes");
 
     /* Search and remove the old object attribute UBO which would creating bind point collision. */
     for (auto &resource_info : info.batch_resources_) {
@@ -638,7 +633,7 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
         info.additional_info("draw_volume_infos");
       }
       break;
-    case MAT_GEOM_POINT_CLOUD:
+    case MAT_GEOM_POINTCLOUD:
     case MAT_GEOM_CURVES:
       /** Hair attributes come from sampler buffer. Transfer attributes to sampler. */
       for (auto &input : info.vertex_inputs_) {
@@ -709,7 +704,7 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
   attr_load << (!codegen.attr_load.empty() ? codegen.attr_load : "");
   attr_load << "}\n\n";
 
-  std::stringstream vert_gen, frag_gen, comp_gen;
+  std::stringstream vert_gen, frag_gen;
 
   if (do_vertex_attrib_load) {
     vert_gen << global_vars.str() << attr_load.str();
@@ -765,8 +760,8 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
         frag_gen << "return 0.0;\n";
       }
       else {
-        if (info.additional_infos_.first_index_of_try("draw_object_infos_new") == -1) {
-          info.additional_info("draw_object_infos_new");
+        if (info.additional_infos_.first_index_of_try("draw_object_infos") == -1) {
+          info.additional_info("draw_object_infos");
         }
         /* TODO(fclem): Should use `to_scale` but the gpu_shader_math_matrix_lib.glsl isn't
          * included everywhere yet. */
@@ -808,8 +803,8 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
     case MAT_GEOM_MESH:
       info.additional_info("eevee_geom_mesh");
       break;
-    case MAT_GEOM_POINT_CLOUD:
-      info.additional_info("eevee_geom_point_cloud");
+    case MAT_GEOM_POINTCLOUD:
+      info.additional_info("eevee_geom_pointcloud");
       break;
     case MAT_GEOM_VOLUME:
       info.additional_info("eevee_geom_volume");
@@ -998,8 +993,6 @@ GPUMaterial *ShaderModule::world_shader_get(::World *blender_world,
                                this);
 }
 
-/* Variation to compile a material only with a nodetree. Caller needs to maintain the list of
- * materials and call GPU_material_free on it to update the material. */
 GPUMaterial *ShaderModule::material_shader_get(const char *name,
                                                ListBase &materials,
                                                bNodeTree *nodetree,

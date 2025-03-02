@@ -13,10 +13,6 @@
 #include "BLI_hash_mm2a.hh"
 #include "BLI_math_vector.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 using namespace Freestyle;
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -55,15 +51,18 @@ PyDoc_STRVAR(
     "   :arg brother: A Material object to be used as a copy constructor.\n"
     "   :type brother: :class:`Material`\n"
     "   :arg line: The line color.\n"
-    "   :type line: :class:`mathutils.Vector`, list or tuple of 4 float values\n"
+    "   :type line: :class:`mathutils.Vector` | tuple[float, float, float, float] | list[float]\n"
     "   :arg diffuse: The diffuse color.\n"
-    "   :type diffuse: :class:`mathutils.Vector`, list or tuple of 4 float values\n"
+    "   :type diffuse: \n"
     "   :arg ambient: The ambient color.\n"
-    "   :type ambient: :class:`mathutils.Vector`, list or tuple of 4 float values\n"
+    "   :type ambient: :class:`mathutils.Vector` | tuple[float, float, float, float] | "
+    "list[float]\n"
     "   :arg specular: The specular color.\n"
-    "   :type specular: :class:`mathutils.Vector`, list or tuple of 4 float values\n"
+    "   :type specular: :class:`mathutils.Vector` | tuple[float, float, float, float] | "
+    "list[float]\n"
     "   :arg emission: The emissive color.\n"
-    "   :type emission: :class:`mathutils.Vector`, list or tuple of 4 float values\n"
+    "   :type emission: :class:`mathutils.Vector` | tuple[float, float, float, float] | "
+    "list[float]\n"
     "   :arg shininess: The shininess coefficient.\n"
     "   :type shininess: float\n"
     "   :arg priority: The line color priority.\n"
@@ -587,7 +586,3 @@ PyTypeObject FrsMaterial_Type = {
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////
-
-#ifdef __cplusplus
-}
-#endif

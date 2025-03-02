@@ -2,6 +2,10 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
+#include "infos/overlay_paint_info.hh"
+
+FRAGMENT_SHADER_CREATE_INFO(overlay_paint_weight)
+
 float contours(float value, float steps, float width_px, float max_rel_width, float gradient)
 {
   /* Minimum visible and minimum full strength line width in screen space for fade out. */
@@ -99,4 +103,5 @@ void main()
   }
 
   fragColor = vec4(color.rgb, opacity);
+  lineOutput = vec4(0.0);
 }

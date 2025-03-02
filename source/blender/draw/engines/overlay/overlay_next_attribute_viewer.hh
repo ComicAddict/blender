@@ -9,15 +9,22 @@
 #pragma once
 
 #include "BKE_curves.hh"
+#include "BKE_customdata.hh"
 #include "BKE_geometry_set.hh"
 #include "DNA_curve_types.h"
 #include "DNA_pointcloud_types.h"
 
+#include "draw_cache.hh"
 #include "draw_cache_impl.hh"
-#include "overlay_next_private.hh"
+#include "overlay_next_base.hh"
 
 namespace blender::draw::overlay {
-class AttributeViewer {
+
+/**
+ * Displays geometry node viewer output.
+ * Values are displayed as vertex or face colors on top of the active object.
+ */
+class AttributeViewer : Overlay {
  private:
   PassMain ps_ = {"attribute_viewer_ps_"};
 
@@ -27,17 +34,16 @@ class AttributeViewer {
   PassMain::Sub *curves_sub_ = nullptr;
   PassMain::Sub *instance_sub_ = nullptr;
 
-  bool enabled_ = false;
-
  public:
-  void begin_sync(Resources &res, const State &state)
+  void begin_sync(Resources &res, const State &state) final
   {
     ps_.init();
-    enabled_ = state.space_type == SPACE_VIEW3D && res.selection_type == SelectionType::DISABLED &&
-               (state.overlay.flag & V3D_OVERLAY_VIEWER_ATTRIBUTE);
+    enabled_ = state.is_space_v3d() && !res.is_selection() && state.show_attribute_viewer();
     if (!enabled_) {
       return;
     };
+    ps_.bind_ubo(OVERLAY_GLOBALS_SLOT, &res.globals_buf);
+    ps_.bind_ubo(DRW_CLIPPING_UBO_SLOT, &res.clip_planes_buf);
     ps_.state_set(DRW_STATE_WRITE_COLOR | DRW_STATE_DEPTH_LESS_EQUAL | DRW_STATE_BLEND_ALPHA,
                   state.clipping_plane_count);
 
@@ -54,7 +60,10 @@ class AttributeViewer {
     instance_sub_ = create_sub("instance", res.shaders.uniform_color.get());
   }
 
-  void object_sync(const ObjectRef &ob_ref, const State &state, Manager &manager)
+  void object_sync(Manager &manager,
+                   const ObjectRef &ob_ref,
+                   Resources & /*res*/,
+                   const State &state) final
   {
     const DupliObject *dupli_object = DRW_object_get_dupli(ob_ref.object);
     const bool is_preview = dupli_object != nullptr &&
@@ -78,14 +87,23 @@ class AttributeViewer {
     populate_for_geometry(ob_ref, state, manager);
   }
 
-  void draw(Framebuffer &framebuffer, Manager &manager, View &view)
+  void pre_draw(Manager &manager, View &view) final
+  {
+    if (!enabled_) {
+      return;
+    }
+
+    manager.generate_commands(ps_, view);
+  }
+
+  void draw_line(Framebuffer &framebuffer, Manager &manager, View &view) final
   {
     if (!enabled_) {
       return;
     }
 
     GPU_framebuffer_bind(framebuffer);
-    manager.submit(ps_, view);
+    manager.submit_only(ps_, view);
   }
 
  private:
@@ -112,12 +130,12 @@ class AttributeViewer {
         {
           gpu::Batch *batch = DRW_cache_mesh_surface_get(&object);
           auto &sub = *instance_sub_;
-          sub.push_constant("ucolor", color);
+          sub.push_constant("ucolor", float4(color));
           sub.draw(batch, res_handle);
         }
         if (gpu::Batch *batch = DRW_cache_mesh_loose_edges_get(&object)) {
           auto &sub = *instance_sub_;
-          sub.push_constant("ucolor", color);
+          sub.push_constant("ucolor", float4(color));
           sub.draw(batch, res_handle);
         }
 
@@ -125,15 +143,15 @@ class AttributeViewer {
       }
       case OB_POINTCLOUD: {
         auto &sub = *pointcloud_sub_;
-        gpu::Batch *batch = point_cloud_sub_pass_setup(sub, &object, nullptr);
-        sub.push_constant("ucolor", color);
+        gpu::Batch *batch = pointcloud_sub_pass_setup(sub, &object, nullptr);
+        sub.push_constant("ucolor", float4(color));
         sub.draw(batch, manager.unique_handle(ob_ref));
         break;
       }
       case OB_CURVES_LEGACY: {
         gpu::Batch *batch = DRW_cache_curve_edge_wire_get(&object);
         auto &sub = *instance_sub_;
-        sub.push_constant("ucolor", color);
+        sub.push_constant("ucolor", float4(color));
         ResourceHandle res_handle = manager.resource_handle(object.object_to_world());
         sub.draw(batch, res_handle);
         break;
@@ -179,7 +197,7 @@ class AttributeViewer {
           if (attribute_type_supports_viewer_overlay(meta_data->data_type)) {
             gpu::VertBuf **vertbuf = DRW_pointcloud_evaluated_attribute(pointcloud, ".viewer");
             auto &sub = *pointcloud_sub_;
-            gpu::Batch *batch = point_cloud_sub_pass_setup(sub, &object, nullptr);
+            gpu::Batch *batch = pointcloud_sub_pass_setup(sub, &object, nullptr);
             sub.push_constant("opacity", opacity);
             sub.bind_texture("attribute_tx", vertbuf);
             sub.draw(batch, manager.unique_handle(ob_ref));

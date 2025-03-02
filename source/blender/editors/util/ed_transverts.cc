@@ -14,8 +14,10 @@
 #include "DNA_lattice_types.h"
 #include "DNA_meta_types.h"
 #include "DNA_object_types.h"
+#include "DNA_pointcloud_types.h"
 #include "DNA_scene_types.h"
 
+#include "BLI_listbase.h"
 #include "BLI_utildefines.h"
 
 #include "BKE_armature.hh"
@@ -30,6 +32,7 @@
 
 #include "ED_armature.hh"
 #include "ED_curves.hh"
+#include "ED_pointcloud.hh"
 
 #include "ANIM_bone_collections.hh"
 
@@ -113,6 +116,9 @@ void ED_transverts_update_obedit(TransVertStore *tvs, Object *obedit)
 
     /* Ensure all bone tails are correctly adjusted */
     LISTBASE_FOREACH (EditBone *, ebo, arm->edbo) {
+      if (!EBONE_VISIBLE(arm, ebo)) {
+        continue;
+      }
       /* adjust tip if both ends selected */
       if ((ebo->flag & BONE_ROOTSEL) && (ebo->flag & BONE_TIPSEL)) {
         if (tv) {
@@ -133,7 +139,7 @@ void ED_transverts_update_obedit(TransVertStore *tvs, Object *obedit)
     LISTBASE_FOREACH (EditBone *, ebo, arm->edbo) {
       if ((ebo->flag & BONE_CONNECTED) && ebo->parent) {
         /* If this bone has a parent tip that has been moved */
-        if (ebo->parent->flag & BONE_TIPSEL) {
+        if (EBONE_VISIBLE(arm, ebo->parent) && (ebo->parent->flag & BONE_TIPSEL)) {
           copy_v3_v3(ebo->head, ebo->parent->tail);
         }
         /* If this bone has a parent tip that has NOT been moved */
@@ -153,9 +159,19 @@ void ED_transverts_update_obedit(TransVertStore *tvs, Object *obedit)
       outside_lattice(lt->editlatt->latt);
     }
   }
+  else if (obedit->type == OB_CURVES) {
+    Curves *curves_id = static_cast<Curves *>(obedit->data);
+    blender::bke::CurvesGeometry &curves = curves_id->geometry.wrap();
+    curves.tag_positions_changed();
+    curves.calculate_bezier_auto_handles();
+  }
+  else if (obedit->type == OB_POINTCLOUD) {
+    PointCloud *pointcloud = static_cast<PointCloud *>(obedit->data);
+    pointcloud->tag_positions_changed();
+  }
 }
 
-static void set_mapped_co(void *vuserdata, int index, const float co[3], const float[3] /*no*/)
+static void set_mapped_co(void *vuserdata, int index, const float co[3], const float /*no*/[3])
 {
   void **userdata = static_cast<void **>(vuserdata);
   BMEditMesh *em = static_cast<BMEditMesh *>(userdata[0]);
@@ -190,11 +206,14 @@ bool ED_transverts_check_obedit(const Object *obedit)
               OB_SURF,
               OB_CURVES_LEGACY,
               OB_MBALL,
-              OB_CURVES);
+              OB_CURVES,
+              OB_POINTCLOUD);
 }
 
 void ED_transverts_create_from_obedit(TransVertStore *tvs, const Object *obedit, const int mode)
 {
+  using namespace blender;
+
   Nurb *nu;
   BezTriple *bezt;
   BPoint *bp;
@@ -324,11 +343,12 @@ void ED_transverts_create_from_obedit(TransVertStore *tvs, const Object *obedit,
         MEM_callocN(totmalloc * sizeof(TransVert), __func__));
 
     LISTBASE_FOREACH (EditBone *, ebo, arm->edbo) {
-      if (ANIM_bonecoll_is_visible_editbone(arm, ebo)) {
+      if (EBONE_VISIBLE(arm, ebo)) {
         const bool tipsel = (ebo->flag & BONE_TIPSEL) != 0;
         const bool rootsel = (ebo->flag & BONE_ROOTSEL) != 0;
-        const bool rootok = !(ebo->parent && (ebo->flag & BONE_CONNECTED) &&
-                              (ebo->parent->flag & BONE_TIPSEL));
+        const bool rootok = !(
+            ebo->parent && (ebo->flag & BONE_CONNECTED) &&
+            (EBONE_VISIBLE(arm, ebo->parent) && (ebo->parent->flag & BONE_TIPSEL)));
 
         if ((tipsel && rootsel) || (rootsel)) {
           /* Don't add the tip (unless mode & TM_ALL_JOINTS, for getting all joints),
@@ -495,6 +515,25 @@ void ED_transverts_create_from_obedit(TransVertStore *tvs, const Object *obedit,
   else if (obedit->type == OB_CURVES) {
     Curves *curves_id = static_cast<Curves *>(obedit->data);
     blender::ed::curves::transverts_from_curves_positions_create(curves_id->geometry.wrap(), tvs);
+  }
+  else if (obedit->type == OB_POINTCLOUD) {
+    PointCloud *pointcloud = static_cast<PointCloud *>(obedit->data);
+
+    IndexMaskMemory memory;
+    const IndexMask selection = blender::ed::pointcloud::retrieve_selected_points(*pointcloud,
+                                                                                  memory);
+    MutableSpan<float3> positions = pointcloud->positions_for_write();
+
+    tvs->transverts = static_cast<TransVert *>(
+        MEM_calloc_arrayN(selection.size(), sizeof(TransVert), __func__));
+    tvs->transverts_tot = selection.size();
+
+    selection.foreach_index(GrainSize(1024), [&](const int64_t i, const int64_t pos) {
+      TransVert &tv = tvs->transverts[pos];
+      tv.loc = positions[i];
+      tv.flag = SELECT;
+      copy_v3_v3(tv.oldloc, tv.loc);
+    });
   }
 
   if (!tvs->transverts_tot && tvs->transverts) {

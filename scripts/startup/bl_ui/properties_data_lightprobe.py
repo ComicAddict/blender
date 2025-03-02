@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 from bpy.types import Panel
+from bpy.app.translations import contexts as i18n_contexts
 from .space_properties import PropertiesAnimationMixin
 
 
@@ -20,7 +21,10 @@ class DataButtonsPanel:
 class DATA_PT_context_lightprobe(DataButtonsPanel, Panel):
     bl_label = ""
     bl_options = {'HIDE_HEADER'}
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_RENDER', 'BLENDER_EEVEE_NEXT'}
+    COMPAT_ENGINES = {
+        'BLENDER_RENDER',
+        'BLENDER_EEVEE_NEXT'
+    }
 
     def draw(self, context):
         layout = self.layout
@@ -37,7 +41,7 @@ class DATA_PT_context_lightprobe(DataButtonsPanel, Panel):
 
 class DATA_PT_lightprobe(DataButtonsPanel, Panel):
     bl_label = "Probe"
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_RENDER'}
+    COMPAT_ENGINES = {'BLENDER_RENDER'}
 
     def draw(self, context):
         layout = self.layout
@@ -75,13 +79,11 @@ class DATA_PT_lightprobe(DataButtonsPanel, Panel):
             col.prop(probe, "intensity")
 
         sub = col.column(align=True)
-        if probe.type != 'PLANE':
-            sub.prop(probe, "clip_start", text="Clipping Start")
-        else:
+        if probe.type == 'PLANE':
             sub.prop(probe, "clip_start", text="Clipping Offset")
-
-        if probe.type != 'PLANE':
-            sub.prop(probe, "clip_end", text="End")
+        else:
+            sub.prop(probe, "clip_start", text="Clipping Start")
+            sub.prop(probe, "clip_end", text="End", text_ctxt=i18n_contexts.id_camera)
 
 
 class DATA_PT_lightprobe_eevee_next(DataButtonsPanel, Panel):
@@ -139,7 +141,7 @@ class DATA_PT_lightprobe_eevee_next(DataButtonsPanel, Panel):
 class DATA_PT_lightprobe_visibility(DataButtonsPanel, Panel):
     bl_label = "Visibility"
     bl_parent_id = "DATA_PT_lightprobe"
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_RENDER'}
+    COMPAT_ENGINES = {'BLENDER_RENDER'}
 
     def draw(self, context):
         layout = self.layout
@@ -179,7 +181,7 @@ class DATA_PT_lightprobe_capture(DataButtonsPanel, Panel):
         if probe.type == 'SPHERE':
             sub = col.column(align=True)
             sub.prop(probe, "clip_start", text="Clipping Start")
-            sub.prop(probe, "clip_end", text="End")
+            sub.prop(probe, "clip_end", text="End", text_ctxt=i18n_contexts.id_camera)
         elif probe.type == 'PLANE':
             col.prop(probe, "clip_start", text="Clipping Offset")
 
@@ -288,7 +290,10 @@ class DATA_PT_lightprobe_bake_clamping(DataButtonsPanel, Panel):
 class DATA_PT_lightprobe_parallax(DataButtonsPanel, Panel):
     bl_label = "Custom Parallax"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_RENDER', 'BLENDER_EEVEE_NEXT'}
+    COMPAT_ENGINES = {
+        'BLENDER_RENDER',
+        'BLENDER_EEVEE_NEXT',
+    }
 
     @classmethod
     def poll(cls, context):
@@ -319,7 +324,7 @@ class DATA_PT_lightprobe_parallax(DataButtonsPanel, Panel):
 class DATA_PT_lightprobe_display(DataButtonsPanel, Panel):
     bl_label = "Viewport Display"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_RENDER'}
+    COMPAT_ENGINES = {'BLENDER_RENDER'}
 
     def draw(self, context):
         layout = self.layout
@@ -381,10 +386,7 @@ class DATA_PT_lightprobe_display_eevee_next(DataButtonsPanel, Panel):
 
 
 class DATA_PT_lightprobe_animation(DataButtonsPanel, PropertiesAnimationMixin, Panel):
-    COMPAT_ENGINES = {
-        'BLENDER_EEVEE_NEXT',
-        'BLENDER_EEVEE',
-    }
+    COMPAT_ENGINES = {'BLENDER_EEVEE_NEXT'}
     _animated_id_context_property = "lightprobe"
 
 

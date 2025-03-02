@@ -6,6 +6,8 @@
  * \ingroup draw
  */
 
+#include "BLI_math_vector.h"
+
 #include "BKE_attribute.hh"
 #include "BKE_mesh.hh"
 
@@ -194,17 +196,19 @@ static void extract_uv_stretch_angle_mesh(const MeshRenderData &mr,
 
 void extract_edituv_stretch_angle(const MeshRenderData &mr, gpu::VertBuf &vbo)
 {
-  static GPUVertFormat format = {0};
-  if (format.attr_len == 0) {
+  static const GPUVertFormat format = []() {
+    GPUVertFormat format{};
     /* Waning: adjust #UVStretchAngle struct accordingly. */
     GPU_vertformat_attr_add(&format, "uv_angles", GPU_COMP_I16, 2, GPU_FETCH_INT_TO_FLOAT_UNIT);
     GPU_vertformat_attr_add(&format, "angle", GPU_COMP_I16, 1, GPU_FETCH_INT_TO_FLOAT_UNIT);
-  }
+    return format;
+  }();
+
   GPU_vertbuf_init_with_format(vbo, format);
   GPU_vertbuf_data_alloc(vbo, mr.corners_num);
   MutableSpan vbo_data = vbo.data<UVStretchAngle>();
 
-  if (mr.extract_type == MR_EXTRACT_BMESH) {
+  if (mr.extract_type == MeshExtractType::BMesh) {
     extract_uv_stretch_angle_bm(mr, vbo_data);
   }
   else {
@@ -214,12 +218,13 @@ void extract_edituv_stretch_angle(const MeshRenderData &mr, gpu::VertBuf &vbo)
 
 static const GPUVertFormat &get_edituv_stretch_angle_format_subdiv()
 {
-  static GPUVertFormat format = {0};
-  if (format.attr_len == 0) {
+  static const GPUVertFormat format = []() {
+    GPUVertFormat format{};
     /* Waning: adjust #UVStretchAngle struct accordingly. */
     GPU_vertformat_attr_add(&format, "angle", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
     GPU_vertformat_attr_add(&format, "uv_angles", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
-  }
+    return format;
+  }();
   return format;
 }
 
@@ -249,12 +254,12 @@ void extract_edituv_stretch_angle_subdiv(const MeshRenderData &mr,
 
   /* UVs are stored contiguously so we need to compute the offset in the UVs buffer for the active
    * UV layer. */
-  const CustomData *cd_ldata = (mr.extract_type == MR_EXTRACT_MESH) ? &mr.mesh->corner_data :
-                                                                      &mr.bm->ldata;
+  const CustomData *cd_ldata = (mr.extract_type == MeshExtractType::Mesh) ? &mr.mesh->corner_data :
+                                                                            &mr.bm->ldata;
 
   uint32_t uv_layers = cache.cd_used.uv;
   /* HACK to fix #68857 */
-  if (mr.extract_type == MR_EXTRACT_BMESH && cache.cd_used.edit_uv == 1) {
+  if (mr.extract_type == MeshExtractType::BMesh && cache.cd_used.edit_uv == 1) {
     int layer = CustomData_get_active_layer(cd_ldata, CD_PROP_FLOAT2);
     if (layer != -1 && !CustomData_layer_is_anonymous(cd_ldata, CD_PROP_FLOAT2, layer)) {
       uv_layers |= (1 << layer);

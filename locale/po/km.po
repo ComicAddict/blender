@@ -1,9 +1,9 @@
 
 msgid ""
 msgstr ""
-"Project-Id-Version: Blender 4.3.0 Beta (b'89e3ab2a4533')\n"
+"Project-Id-Version: Blender 4.4.0 Beta (b'63c460d93d55')\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-10-14 08:43+0000\n"
+"POT-Creation-Date: 2025-02-24 09:56+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -112,10 +112,6 @@ msgstr "ជំនួយ"
 msgctxt "Operator"
 msgid "Select Box"
 msgstr "ប្រអប់ជ្រើសរើស"
-
-
-msgid "Password"
-msgstr "ពាក្យសម្ងាត់"
 
 
 msgid "Error Message"

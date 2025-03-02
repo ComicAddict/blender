@@ -2,6 +2,10 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
+#include "infos/overlay_grid_info.hh"
+
+FRAGMENT_SHADER_CREATE_INFO(overlay_grid_next)
+
 /**
  * Infinite grid:
  * Draw anti-aliased grid and axes of different sizes with smooth blending between levels of
@@ -26,8 +30,8 @@
 #define GRID_LINE_SMOOTH_END (0.5 - DISC_RADIUS)
 #define GRID_LINE_STEP(dist) smoothstep(GRID_LINE_SMOOTH_START, GRID_LINE_SMOOTH_END, dist)
 
-#include "common_math_lib.glsl"
-#include "common_view_lib.glsl"
+#include "draw_view_lib.glsl"
+#include "gpu_shader_utildefines_lib.glsl"
 
 float get_grid(vec2 co, vec2 fwidthCos, vec2 grid_scale)
 {
@@ -59,12 +63,12 @@ void main()
   vec3 dFdxPos = dFdx(P);
   vec3 dFdyPos = dFdy(P);
   vec3 fwidthPos = abs(dFdxPos) + abs(dFdyPos);
-  P += cameraPos * plane_axes;
+  P += drw_view_position() * plane_axes;
 
   float dist, fade;
   bool is_persp = drw_view.winmat[3][3] == 0.0;
   if (is_persp) {
-    vec3 V = cameraPos - P;
+    vec3 V = drw_view_position() - P;
     dist = length(V);
     V /= dist;
 
@@ -203,7 +207,15 @@ void main()
     }
   }
 
-  float scene_depth = texture(depth_tx, gl_FragCoord.xy / vec2(textureSize(depth_tx, 0)), 0).r;
+  vec2 uv = gl_FragCoord.xy / vec2(textureSize(depth_tx, 0));
+  float scene_depth = texture(depth_tx, uv, 0).r;
+
+  float scene_depth_infront = texture(depth_infront_tx, uv, 0).r;
+  if (scene_depth_infront != 1.0) {
+    /* Treat in front objects as if they were on the near plane to occlude the grid. */
+    scene_depth = 0.0;
+  }
+
   if (flag_test(grid_flag, GRID_BACK)) {
     fade *= (scene_depth == 1.0) ? 1.0 : 0.0;
   }

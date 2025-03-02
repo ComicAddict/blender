@@ -17,9 +17,7 @@
 #include "BLI_math_vector.h"
 #include "BLI_utildefines.h"
 
-#include "DNA_image_types.h"
 #include "DNA_mesh_types.h"
-#include "DNA_node_types.h"
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 #include "DNA_space_types.h"
@@ -231,7 +229,7 @@ static void bm_loop_calc_uv_angle_from_dir(BMLoop *l,
                                            int *r_edge_index)
 {
   /* Calculate 3 directions, return the shortest angle. */
-  float dir_test[3][2];
+  blender::float2 dir_test[3];
   const float *luv = BM_ELEM_CD_GET_FLOAT_P(l, cd_loop_uv_offset);
   const float *luv_prev = BM_ELEM_CD_GET_FLOAT_P(l->prev, cd_loop_uv_offset);
   const float *luv_next = BM_ELEM_CD_GET_FLOAT_P(l->next, cd_loop_uv_offset);
@@ -253,7 +251,7 @@ static void bm_loop_calc_uv_angle_from_dir(BMLoop *l,
   dir_test[1][1] *= -1.0f;
 
   if (BM_face_uv_calc_cross(l->f, cd_loop_uv_offset) > 0.0f) {
-    negate_v2(dir_test[1]);
+    dir_test[1] *= -1.0f;
   }
 
   const float angles[3] = {
@@ -960,7 +958,7 @@ void UV_OT_rip(wmOperatorType *ot)
   ot->poll = ED_operator_uvedit;
 
   /* translation data */
-  Transform_Properties(ot, P_MIRROR_DUMMY);
+  blender::ed::transform::properties_register(ot, P_MIRROR_DUMMY);
 
   /* properties */
   RNA_def_float_vector(

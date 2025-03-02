@@ -31,8 +31,6 @@
 #include "ED_transform.hh"
 #include "ED_view3d.hh"
 
-#include "MEM_guardedalloc.h"
-
 #include "mesh_intern.hh" /* own include */
 
 using blender::Vector;
@@ -471,7 +469,7 @@ void MESH_OT_extrude_region(wmOperatorType *ot)
 
   RNA_def_boolean(ot->srna, "use_normal_flip", false, "Flip Normals", "");
   RNA_def_boolean(ot->srna, "use_dissolve_ortho_edges", false, "Dissolve Orthogonal Edges", "");
-  Transform_Properties(ot, P_NO_DEFAULTS | P_MIRROR_DUMMY);
+  blender::ed::transform::properties_register(ot, P_NO_DEFAULTS | P_MIRROR_DUMMY);
 }
 
 /** \} */
@@ -525,7 +523,7 @@ void MESH_OT_extrude_context(wmOperatorType *ot)
 
   RNA_def_boolean(ot->srna, "use_normal_flip", false, "Flip Normals", "");
   RNA_def_boolean(ot->srna, "use_dissolve_ortho_edges", false, "Dissolve Orthogonal Edges", "");
-  Transform_Properties(ot, P_NO_DEFAULTS | P_MIRROR_DUMMY);
+  blender::ed::transform::properties_register(ot, P_NO_DEFAULTS | P_MIRROR_DUMMY);
 }
 
 /** \} */
@@ -574,7 +572,7 @@ void MESH_OT_extrude_verts_indiv(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 
   /* to give to transform */
-  Transform_Properties(ot, P_NO_DEFAULTS | P_MIRROR_DUMMY);
+  blender::ed::transform::properties_register(ot, P_NO_DEFAULTS | P_MIRROR_DUMMY);
 }
 
 /** \} */
@@ -625,7 +623,7 @@ void MESH_OT_extrude_edges_indiv(wmOperatorType *ot)
 
   /* to give to transform */
   RNA_def_boolean(ot->srna, "use_normal_flip", false, "Flip Normals", "");
-  Transform_Properties(ot, P_NO_DEFAULTS | P_MIRROR_DUMMY);
+  blender::ed::transform::properties_register(ot, P_NO_DEFAULTS | P_MIRROR_DUMMY);
 }
 
 /** \} */
@@ -673,7 +671,7 @@ void MESH_OT_extrude_faces_indiv(wmOperatorType *ot)
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 
-  Transform_Properties(ot, P_NO_DEFAULTS | P_MIRROR_DUMMY);
+  blender::ed::transform::properties_register(ot, P_NO_DEFAULTS | P_MIRROR_DUMMY);
 }
 
 /** \} */

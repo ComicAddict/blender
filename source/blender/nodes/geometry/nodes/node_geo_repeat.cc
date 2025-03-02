@@ -12,8 +12,6 @@
 
 #include "BLO_read_write.hh"
 
-#include "BLI_string_utils.hh"
-
 #include "RNA_access.hh"
 #include "RNA_prototypes.hh"
 
@@ -45,21 +43,21 @@ static void node_layout_ex(uiLayout *layout, bContext *C, PointerRNA *current_no
     return;
   }
   bNode &output_node = const_cast<bNode &>(*zone->output_node);
-  PointerRNA output_node_ptr = RNA_pointer_create(
+  PointerRNA output_node_ptr = RNA_pointer_create_discrete(
       current_node_ptr->owner_id, &RNA_Node, &output_node);
 
-  if (uiLayout *panel = uiLayoutPanel(C, layout, "repeat_items", false, TIP_("Repeat Items"))) {
+  if (uiLayout *panel = uiLayoutPanel(C, layout, "repeat_items", false, IFACE_("Repeat Items"))) {
     socket_items::ui::draw_items_list_with_operators<RepeatItemsAccessor>(
         C, panel, ntree, output_node);
     socket_items::ui::draw_active_item_props<RepeatItemsAccessor>(
         ntree, output_node, [&](PointerRNA *item_ptr) {
           uiLayoutSetPropSep(panel, true);
           uiLayoutSetPropDecorate(panel, false);
-          uiItemR(panel, item_ptr, "socket_type", UI_ITEM_NONE, nullptr, ICON_NONE);
+          uiItemR(panel, item_ptr, "socket_type", UI_ITEM_NONE, std::nullopt, ICON_NONE);
         });
   }
 
-  uiItemR(layout, &output_node_ptr, "inspection_index", UI_ITEM_NONE, nullptr, ICON_NONE);
+  uiItemR(layout, &output_node_ptr, "inspection_index", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 }
 
 namespace repeat_input_node {
@@ -131,7 +129,10 @@ static bool node_insert_link(bNodeTree *ntree, bNode *node, bNodeLink *link)
 static void node_register()
 {
   static blender::bke::bNodeType ntype;
-  geo_node_type_base(&ntype, GEO_NODE_REPEAT_INPUT, "Repeat Input", NODE_CLASS_INTERFACE);
+  geo_node_type_base(&ntype, "GeometryNodeRepeatInput", GEO_NODE_REPEAT_INPUT);
+  ntype.ui_name = "Repeat Input";
+  ntype.enum_name_legacy = "REPEAT_INPUT";
+  ntype.nclass = NODE_CLASS_INTERFACE;
   ntype.initfunc = node_init;
   ntype.declare = node_declare;
   ntype.labelfunc = node_label;
@@ -140,8 +141,8 @@ static void node_register()
   ntype.no_muting = true;
   ntype.draw_buttons_ex = node_layout_ex;
   blender::bke::node_type_storage(
-      &ntype, "NodeGeometryRepeatInput", node_free_standard_storage, node_copy_standard_storage);
-  blender::bke::node_register_type(&ntype);
+      ntype, "NodeGeometryRepeatInput", node_free_standard_storage, node_copy_standard_storage);
+  blender::bke::node_register_type(ntype);
 }
 NOD_REGISTER_NODE(node_register)
 
@@ -222,7 +223,10 @@ static void node_operators()
 static void node_register()
 {
   static blender::bke::bNodeType ntype;
-  geo_node_type_base(&ntype, GEO_NODE_REPEAT_OUTPUT, "Repeat Output", NODE_CLASS_INTERFACE);
+  geo_node_type_base(&ntype, "GeometryNodeRepeatOutput", GEO_NODE_REPEAT_OUTPUT);
+  ntype.ui_name = "Repeat Output";
+  ntype.enum_name_legacy = "REPEAT_OUTPUT";
+  ntype.nclass = NODE_CLASS_INTERFACE;
   ntype.initfunc = node_init;
   ntype.declare = node_declare;
   ntype.labelfunc = repeat_input_node::node_label;
@@ -231,8 +235,8 @@ static void node_register()
   ntype.draw_buttons_ex = node_layout_ex;
   ntype.register_operators = node_operators;
   blender::bke::node_type_storage(
-      &ntype, "NodeGeometryRepeatOutput", node_free_storage, node_copy_storage);
-  blender::bke::node_register_type(&ntype);
+      ntype, "NodeGeometryRepeatOutput", node_free_storage, node_copy_storage);
+  blender::bke::node_register_type(ntype);
 }
 NOD_REGISTER_NODE(node_register)
 

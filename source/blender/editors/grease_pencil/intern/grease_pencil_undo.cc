@@ -6,7 +6,6 @@
  * \ingroup edgrease_pencil
  */
 
-#include "BLI_string.h"
 #include "BLI_task.hh"
 
 #include "BKE_context.hh"
@@ -31,9 +30,6 @@
 
 #include "WM_api.hh"
 #include "WM_types.hh"
-
-#include <iostream>
-#include <ostream>
 
 static CLG_LogRef LOG = {"ed.undo.greasepencil"};
 
@@ -73,7 +69,6 @@ class StepDrawingGeometryBase {
   /* Data from #GreasePencilDrawingBase that needs to be saved in undo steps. */
   uint32_t flag_;
 
- protected:
   /**
    * Ensures that the drawing from the given array at the current index exists,
    * and has the proposer type.
@@ -147,9 +142,7 @@ class StepDrawingGeometry : public StepDrawingGeometryBase {
 
     /* TODO: Check if there is a way to tell if both stored and current geometry are still the
      * same, to avoid recomputing the caches all the time for all drawings? */
-    drawing_geometry.runtime->triangles_cache.tag_dirty();
-    drawing_geometry.runtime->curve_plane_normals_cache.tag_dirty();
-    drawing_geometry.runtime->curve_texture_matrices.tag_dirty();
+    drawing_geometry.wrap().tag_topology_changed();
   }
 };
 
@@ -205,7 +198,6 @@ class StepObject {
   std::string active_node_name_;
   CustomData layers_data_ = {};
 
- private:
   void encode_drawings(const GreasePencil &grease_pencil, StepEncodeStatus &encode_status)
   {
     const Span<const GreasePencilDrawingBase *> drawings = grease_pencil.drawings();
@@ -276,6 +268,7 @@ class StepObject {
     if (grease_pencil.root_group_ptr) {
       MEM_delete(&grease_pencil.root_group());
     }
+    grease_pencil.set_active_node(nullptr);
 
     grease_pencil.root_group_ptr = MEM_new<bke::greasepencil::LayerGroup>(__func__, root_group_);
     BLI_assert(layers_num_ == grease_pencil.layers().size());
@@ -288,7 +281,7 @@ class StepObject {
       }
     }
 
-    CustomData_free(&grease_pencil.layers_data, layers_num_);
+    CustomData_free(&grease_pencil.layers_data);
     CustomData_init_from(
         &layers_data_, &grease_pencil.layers_data, eCustomDataMask(CD_MASK_ALL), layers_num_);
   }
@@ -296,7 +289,7 @@ class StepObject {
  public:
   ~StepObject()
   {
-    CustomData_free(&layers_data_, layers_num_);
+    CustomData_free(&layers_data_);
   }
 
   void encode(Object *ob, StepEncodeStatus &encode_status)

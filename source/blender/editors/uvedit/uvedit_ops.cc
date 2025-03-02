@@ -33,10 +33,12 @@
 #include "BKE_customdata.hh"
 #include "BKE_editmesh.hh"
 #include "BKE_layer.hh"
-#include "BKE_material.h"
+#include "BKE_main_invariants.hh"
+#include "BKE_material.hh"
 #include "BKE_mesh_mapping.hh"
 #include "BKE_mesh_types.hh"
 #include "BKE_node.hh"
+#include "BKE_node_legacy_types.hh"
 
 #include "DEG_depsgraph.hh"
 #include "DEG_depsgraph_query.hh"
@@ -108,7 +110,7 @@ static int UNUSED_FUNCTION(ED_operator_uvmap_mesh)(bContext *C)
 
 static bool is_image_texture_node(bNode *node)
 {
-  return ELEM(node->type, SH_NODE_TEX_IMAGE, SH_NODE_TEX_ENVIRONMENT);
+  return ELEM(node->type_legacy, SH_NODE_TEX_IMAGE, SH_NODE_TEX_ENVIRONMENT);
 }
 
 bool ED_object_get_active_image(Object *ob,
@@ -121,17 +123,17 @@ bool ED_object_get_active_image(Object *ob,
   Material *ma = DEG_is_evaluated_object(ob) ? BKE_object_material_get_eval(ob, mat_nr) :
                                                BKE_object_material_get(ob, mat_nr);
   bNodeTree *ntree = (ma && ma->use_nodes) ? ma->nodetree : nullptr;
-  bNode *node = (ntree) ? bke::node_get_active_texture(ntree) : nullptr;
+  bNode *node = (ntree) ? bke::node_get_active_texture(*ntree) : nullptr;
 
   if (node && is_image_texture_node(node)) {
     if (r_ima) {
       *r_ima = (Image *)node->id;
     }
     if (r_iuser) {
-      if (node->type == SH_NODE_TEX_IMAGE) {
+      if (node->type_legacy == SH_NODE_TEX_IMAGE) {
         *r_iuser = &((NodeTexImage *)node->storage)->iuser;
       }
-      else if (node->type == SH_NODE_TEX_ENVIRONMENT) {
+      else if (node->type_legacy == SH_NODE_TEX_ENVIRONMENT) {
         *r_iuser = &((NodeTexEnvironment *)node->storage)->iuser;
       }
       else {
@@ -166,11 +168,11 @@ bool ED_object_get_active_image(Object *ob,
 void ED_object_assign_active_image(Main *bmain, Object *ob, int mat_nr, Image *ima)
 {
   Material *ma = BKE_object_material_get(ob, mat_nr);
-  bNode *node = (ma && ma->use_nodes) ? bke::node_get_active_texture(ma->nodetree) : nullptr;
+  bNode *node = (ma && ma->use_nodes) ? bke::node_get_active_texture(*ma->nodetree) : nullptr;
 
   if (node && is_image_texture_node(node)) {
     node->id = &ima->id;
-    ED_node_tree_propagate_change(nullptr, bmain, ma->nodetree);
+    BKE_main_ensure_invariants(*bmain, ma->nodetree->id);
   }
 }
 

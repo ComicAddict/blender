@@ -431,11 +431,7 @@ struct FCurveSegment {
  * The caller is responsible for freeing the memory.
  */
 ListBase find_fcurve_segments(FCurve *fcu);
-void clean_fcurve(bAnimContext *ac,
-                  bAnimListElem *ale,
-                  float thresh,
-                  bool cleardefault,
-                  bool only_selected_keys);
+void clean_fcurve(bAnimListElem *ale, float thresh, bool cleardefault, bool only_selected_keys);
 void blend_to_neighbor_fcurve_segment(FCurve *fcu, FCurveSegment *segment, float factor);
 void breakdown_fcurve_segment(FCurve *fcu, FCurveSegment *segment, float factor);
 void scale_average_fcurve_segment(FCurve *fcu, FCurveSegment *segment, float factor);
@@ -475,7 +471,7 @@ void smooth_fcurve_segment(FCurve *fcu,
                            float *samples,
                            float factor,
                            int kernel_size,
-                           double *kernel);
+                           const double *kernel);
 /**
  * Snap the keys on the given FCurve segment to an S-Curve. By modifying the `factor` the part of
  * the S-Curve that the keys are snapped to is moved on the x-axis.
@@ -514,14 +510,39 @@ void smooth_fcurve(FCurve *fcu);
 
 /* ----------- */
 
+/**
+ * Clear the copy-paste buffer.
+ *
+ * Normally this is not necessary, as `copy_animedit_keys()` will do this for
+ * you.
+ */
+void ANIM_fcurves_copybuf_reset();
+
+/**
+ * Free the copy-paste buffer.
+ */
 void ANIM_fcurves_copybuf_free();
-short copy_animedit_keys(bAnimContext *ac, ListBase *anim_data);
+
+/**
+ * Copy animation keys into the copy buffer.
+ *
+ * \returns Whether anything was copied into the buffer.
+ */
+bool copy_animedit_keys(bAnimContext *ac, ListBase *anim_data);
+
+struct KeyframePasteContext {
+  eKeyPasteOffset offset_mode;
+  eKeyPasteValueOffset value_offset_mode;
+  eKeyMergeMode merge_mode;
+  bool flip;
+
+  int num_slots_selected;   /* Number of selected Action Slots to paste into. */
+  int num_fcurves_selected; /* Number of selected F-Curves to paste into. */
+};
+
 eKeyPasteError paste_animedit_keys(bAnimContext *ac,
                                    ListBase *anim_data,
-                                   eKeyPasteOffset offset_mode,
-                                   eKeyPasteValueOffset value_offset_mode,
-                                   eKeyMergeMode merge_mode,
-                                   bool flip);
+                                   const KeyframePasteContext &paste_context);
 
 /* ************************************************ */
 

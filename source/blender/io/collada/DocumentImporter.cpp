@@ -10,44 +10,31 @@
  * * name imported objects
  * * import object rotation as euler */
 
-#include <algorithm> /* sort() */
 #include <map>
 #include <string>
 
 #include "COLLADAFWArrayPrimitiveType.h"
 #include "COLLADAFWCamera.h"
-#include "COLLADAFWColorOrTexture.h"
-#include "COLLADAFWIndexList.h"
 #include "COLLADAFWLibraryNodes.h"
 #include "COLLADAFWLight.h"
-#include "COLLADAFWMeshPrimitiveWithFaceVertexCount.h"
-#include "COLLADAFWPolygons.h"
 #include "COLLADAFWRoot.h"
-#include "COLLADAFWSampler.h"
-#include "COLLADAFWStableHeaders.h"
-#include "COLLADAFWTypes.h"
 #include "COLLADAFWVisualScene.h"
 
-#include "COLLADASaxFWLIExtraDataCallbackHandler.h"
 #include "COLLADASaxFWLLoader.h"
 
-#include "MEM_guardedalloc.h"
-
 #include "BLI_fileops.h"
-#include "BLI_listbase.h"
 #include "BLI_math_matrix.h"
-#include "BLI_string.h"
-#include "BLI_utildefines.h"
 
 #include "BKE_camera.h"
 #include "BKE_collection.hh"
+#include "BKE_constraint.h"
 #include "BKE_fcurve.hh"
 #include "BKE_global.hh"
-#include "BKE_image.h"
+#include "BKE_image.hh"
 #include "BKE_layer.hh"
 #include "BKE_lib_id.hh"
 #include "BKE_light.h"
-#include "BKE_material.h"
+#include "BKE_material.hh"
 #include "BKE_scene.hh"
 
 #include "BLI_path_utils.hh"
@@ -66,7 +53,6 @@
 #include "DocumentImporter.h"
 #include "ErrorHandler.h"
 #include "ExtraHandler.h"
-#include "TransformReader.h"
 
 #include "Materials.h"
 #include "collada_internal.h"
@@ -893,7 +879,7 @@ bool DocumentImporter::writeCamera(const COLLADAFW::Camera *camera)
     case COLLADAFW::Camera::X_AND_Y: {
       switch (cam->type) {
         case CAM_ORTHO:
-          cam->ortho_scale = float(camera->getXMag().getValue()) * 2;
+          cam->ortho_scale = float(camera->getXMag().getValue() * 2.0);
           break;
         case CAM_PERSP:
         default: {
@@ -1009,16 +995,12 @@ bool DocumentImporter::writeLight(const COLLADAFW::Light *light)
     et->setData("red", &(lamp->r));
     et->setData("green", &(lamp->g));
     et->setData("blue", &(lamp->b));
-    et->setData("shadow_r", &(lamp->shdwr));
-    et->setData("shadow_g", &(lamp->shdwg));
-    et->setData("shadow_b", &(lamp->shdwb));
     et->setData("energy", &(lamp->energy));
     et->setData("spotsize", &(lamp->spotsize));
     lamp->spotsize = DEG2RADF(lamp->spotsize);
     et->setData("spotblend", &(lamp->spotblend));
     et->setData("clipsta", &(lamp->clipsta));
-    et->setData("clipend", &(lamp->clipend));
-    et->setData("bias", &(lamp->bias));
+    et->setData("clipend", &(lamp->att_dist));
     et->setData("radius", &(lamp->radius));
     et->setData("area_shape", &(lamp->area_shape));
     et->setData("area_size", &(lamp->area_size));

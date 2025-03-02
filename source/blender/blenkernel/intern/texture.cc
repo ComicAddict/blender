@@ -14,9 +14,8 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "BLI_kdopbvh.h"
+#include "BLI_kdopbvh.hh"
 #include "BLI_listbase.h"
-#include "BLI_math_color.h"
 #include "BLI_math_matrix.h"
 #include "BLI_math_rotation.h"
 #include "BLI_math_vector.h"
@@ -27,13 +26,13 @@
 /* Allow using deprecated functionality for .blend file I/O. */
 #define DNA_DEPRECATED_ALLOW
 
+#include "BKE_node_legacy_types.hh"
 #include "DNA_brush_types.h"
 #include "DNA_color_types.h"
 #include "DNA_defaults.h"
 #include "DNA_linestyle_types.h"
 #include "DNA_material_types.h"
 #include "DNA_node_types.h"
-#include "DNA_object_types.h"
 #include "DNA_particle_types.h"
 
 #include "BKE_brush.hh"
@@ -41,7 +40,7 @@
 #include "BKE_colortools.hh"
 #include "BKE_icons.h"
 #include "BKE_idtype.hh"
-#include "BKE_image.h"
+#include "BKE_image.hh"
 #include "BKE_lib_id.hh"
 #include "BKE_lib_query.hh"
 #include "BKE_node_runtime.hh"
@@ -169,17 +168,10 @@ static void texture_blend_write(BlendWriter *writer, ID *id, const void *id_addr
 
   /* nodetree is integral part of texture, no libdata */
   if (tex->nodetree) {
-    BLO_Write_IDBuffer *temp_embedded_id_buffer = BLO_write_allocate_id_buffer();
-    BLO_write_init_id_buffer_from_id(
-        temp_embedded_id_buffer, &tex->nodetree->id, BLO_write_is_undo(writer));
-    BLO_write_struct_at_address(writer,
-                                bNodeTree,
-                                tex->nodetree,
-                                BLO_write_get_id_buffer_temp_id(temp_embedded_id_buffer));
+    BLO_Write_IDBuffer temp_embedded_id_buffer{tex->nodetree->id, writer};
+    BLO_write_struct_at_address(writer, bNodeTree, tex->nodetree, temp_embedded_id_buffer.get());
     blender::bke::node_tree_blend_write(
-        writer,
-        reinterpret_cast<bNodeTree *>(BLO_write_get_id_buffer_temp_id(temp_embedded_id_buffer)));
-    BLO_write_destroy_id_buffer(&temp_embedded_id_buffer);
+        writer, reinterpret_cast<bNodeTree *>(temp_embedded_id_buffer.get()));
   }
 
   BKE_previewimg_blend_write(writer, tex->preview);
@@ -730,11 +722,11 @@ void BKE_texture_get_value(Tex *texture,
 static void texture_nodes_fetch_images_for_pool(Tex *texture, bNodeTree *ntree, ImagePool *pool)
 {
   for (bNode *node : ntree->all_nodes()) {
-    if (node->type == SH_NODE_TEX_IMAGE && node->id != nullptr) {
+    if (node->type_legacy == SH_NODE_TEX_IMAGE && node->id != nullptr) {
       Image *image = (Image *)node->id;
       BKE_image_pool_acquire_ibuf(image, &texture->iuser, pool);
     }
-    else if (node->type == NODE_GROUP && node->id != nullptr) {
+    else if (node->is_group() && node->id != nullptr) {
       /* TODO(sergey): Do we need to control recursion here? */
       bNodeTree *nested_tree = (bNodeTree *)node->id;
       texture_nodes_fetch_images_for_pool(texture, nested_tree, pool);

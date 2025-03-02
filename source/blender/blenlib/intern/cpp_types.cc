@@ -56,7 +56,9 @@ BLI_CPP_TYPE_MAKE(blender::float4x4, CPPTypeFlags::BasicType)
 BLI_CPP_TYPE_MAKE(int8_t, CPPTypeFlags::BasicType)
 BLI_CPP_TYPE_MAKE(int16_t, CPPTypeFlags::BasicType)
 BLI_CPP_TYPE_MAKE(int32_t, CPPTypeFlags::BasicType)
+BLI_CPP_TYPE_MAKE(blender::short2, CPPTypeFlags::BasicType)
 BLI_CPP_TYPE_MAKE(blender::int2, CPPTypeFlags::BasicType)
+BLI_CPP_TYPE_MAKE(blender::int3, CPPTypeFlags::BasicType)
 BLI_CPP_TYPE_MAKE(int64_t, CPPTypeFlags::BasicType)
 
 BLI_CPP_TYPE_MAKE(uint8_t, CPPTypeFlags::BasicType)
@@ -89,6 +91,7 @@ void register_cpp_types()
   BLI_CPP_TYPE_REGISTER(int16_t);
   BLI_CPP_TYPE_REGISTER(int32_t);
   BLI_CPP_TYPE_REGISTER(blender::int2);
+  BLI_CPP_TYPE_REGISTER(blender::int3);
   BLI_CPP_TYPE_REGISTER(int64_t);
 
   BLI_CPP_TYPE_REGISTER(uint8_t);

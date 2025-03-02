@@ -4,9 +4,7 @@
 
 #include <numeric>
 
-#include "BLI_listbase.h"
 #include "BLI_string.h"
-#include "BLI_string_utf8.h"
 
 #include "RNA_enum_types.hh"
 
@@ -46,8 +44,8 @@ static void node_update(bNodeTree *ntree, bNode *node)
   bNodeSocket *sockB = sockA->next;
   bNodeSocket *sockC = sockB->next;
 
-  bke::node_set_socket_availability(ntree, sockB, !one_input_ops);
-  bke::node_set_socket_availability(ntree, sockC, three_input_ops);
+  bke::node_set_socket_availability(*ntree, *sockB, !one_input_ops);
+  bke::node_set_socket_availability(*ntree, *sockC, three_input_ops);
 
   node_sock_label_clear(sockA);
   node_sock_label_clear(sockB);
@@ -108,7 +106,7 @@ static void node_label(const bNodeTree * /*ntree*/, const bNode *node, char *lab
   if (!enum_label) {
     name = "Unknown";
   }
-  BLI_strncpy(label, IFACE_(name), maxlen);
+  BLI_strncpy(label, CTX_IFACE_(BLT_I18NCONTEXT_ID_NODETREE, name), maxlen);
 }
 
 /* Derived from `divide_round_i` but fixed to be safe and handle negative inputs. */
@@ -294,6 +292,7 @@ static void node_rna(StructRNA *srna)
                            rna_enum_node_integer_math_items,
                            NOD_inline_enum_accessors(custom1),
                            NODE_INTEGER_MATH_ADD);
+  RNA_def_property_translation_context(prop, BLT_I18NCONTEXT_ID_NODETREE);
   RNA_def_property_update_runtime(prop, rna_Node_socket_update);
 }
 
@@ -301,7 +300,10 @@ static void node_register()
 {
   static blender::bke::bNodeType ntype;
 
-  fn_node_type_base(&ntype, FN_NODE_INTEGER_MATH, "Integer Math", NODE_CLASS_CONVERTER);
+  fn_node_type_base(&ntype, "FunctionNodeIntegerMath", FN_NODE_INTEGER_MATH);
+  ntype.ui_name = "Integer Math";
+  ntype.enum_name_legacy = "INTEGER_MATH";
+  ntype.nclass = NODE_CLASS_CONVERTER;
   ntype.declare = node_declare;
   ntype.labelfunc = node_label;
   ntype.updatefunc = node_update;
@@ -312,7 +314,7 @@ static void node_register()
   ntype.eval_inverse_elem = node_eval_inverse_elem;
   ntype.eval_inverse = node_eval_inverse;
 
-  blender::bke::node_register_type(&ntype);
+  blender::bke::node_register_type(ntype);
 
   node_rna(ntype.rna_ext.srna);
 }

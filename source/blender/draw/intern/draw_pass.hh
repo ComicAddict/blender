@@ -40,12 +40,15 @@
  * if any of these reference becomes invalid.
  */
 
+#include "BLI_assert.h"
 #include "BLI_listbase_wrapper.hh"
 #include "BLI_vector.hh"
 
-#include "BKE_image.h"
+#include "BKE_image.hh"
 
+#include "GPU_batch.hh"
 #include "GPU_debug.hh"
+#include "GPU_index_buffer.hh"
 #include "GPU_material.hh"
 
 #include "DRW_gpu_wrapper.hh"
@@ -53,12 +56,12 @@
 #include "draw_command.hh"
 #include "draw_handle.hh"
 #include "draw_manager.hh"
-#include "draw_pass.hh"
 #include "draw_shader_shared.hh"
 #include "draw_state.hh"
 
 #include "intern/gpu_codegen.hh"
 
+#include <cstdint>
 #include <sstream>
 
 namespace blender::draw {
@@ -138,6 +141,9 @@ class PassBase {
   SubPassVector<PassBase<DrawCommandBufType>> &sub_passes_;
   /** Currently bound shader. Used for interface queries. */
   GPUShader *shader_;
+
+  uint64_t manager_fingerprint_ = 0;
+  uint64_t view_fingerprint_ = 0;
 
  public:
   const char *debug_name;
@@ -242,14 +248,14 @@ class PassBase {
             uint instance_len = -1,
             uint vertex_len = -1,
             uint vertex_first = -1,
-            ResourceHandle handle = {0},
+            ResourceHandleRange handle = {0},
             uint custom_id = 0);
 
   /**
    * Shorter version for the common case.
    * \note Implemented in derived class. Not a virtual function to avoid indirection.
    */
-  void draw(gpu::Batch *batch, ResourceHandle handle, uint custom_id = 0);
+  void draw(gpu::Batch *batch, ResourceHandleRange handle, uint custom_id = 0);
 
   /**
    * Record a procedural draw call. Geometry is **NOT** source from a gpu::Batch.
@@ -259,7 +265,7 @@ class PassBase {
                        uint instance_len,
                        uint vertex_len,
                        uint vertex_first = -1,
-                       ResourceHandle handle = {0},
+                       ResourceHandleRange handle = {0},
                        uint custom_id = 0);
 
   /**
@@ -281,7 +287,7 @@ class PassBase {
                    uint instance_len,
                    uint vertex_len = -1,
                    uint vertex_first = -1,
-                   ResourceHandle handle = {0},
+                   ResourceHandleRange handle = {0},
                    uint custom_id = 0);
 
   /**
@@ -292,7 +298,7 @@ class PassBase {
                    GPUPrimType primitive_type,
                    uint primitive_len,
                    uint instance_len,
-                   ResourceHandle handle = {0},
+                   ResourceHandleRange handle = {0},
                    uint custom_id = 0);
 
   /**
@@ -455,6 +461,14 @@ class PassBase {
   command::Undetermined &create_command(command::Type type);
 
   void submit(command::RecordingState &state) const;
+
+  bool has_generated_commands() const
+  {
+    /* NOTE: Even though manager fingerprint is not enough to check for update, it is still
+     * guaranteed to not be 0. So we can check weather or not this pass has generated commands
+     * after sync. Asserts will catch invalid usage . */
+    return manager_fingerprint_ != 0;
+  }
 };
 
 template<typename DrawCommandBufType> class Pass : public detail::PassBase<DrawCommandBufType> {
@@ -473,6 +487,8 @@ template<typename DrawCommandBufType> class Pass : public detail::PassBase<DrawC
 
   void init()
   {
+    this->manager_fingerprint_ = 0;
+    this->view_fingerprint_ = 0;
     this->headers_.clear();
     this->commands_.clear();
     this->sub_passes_.clear();
@@ -575,6 +591,9 @@ namespace detail {
 
 template<class T> inline command::Undetermined &PassBase<T>::create_command(command::Type type)
 {
+  /* After render commands have been generated, the pass is read only.
+   * Call `init()` to be able modify it again. */
+  BLI_assert_msg(this->has_generated_commands() == false, "Command added after submission");
   int64_t index = commands_.append_and_get_index({});
   headers_.append({type, uint(index)});
   return commands_[index];
@@ -599,13 +618,13 @@ template<class T> inline gpu::Batch *PassBase<T>::procedural_batch_get(GPUPrimTy
 {
   switch (primitive) {
     case GPU_PRIM_POINTS:
-      return drw_cache_procedural_points_get();
+      return GPU_batch_procedural_points_get();
     case GPU_PRIM_LINES:
-      return drw_cache_procedural_lines_get();
+      return GPU_batch_procedural_lines_get();
     case GPU_PRIM_TRIS:
-      return drw_cache_procedural_triangles_get();
+      return GPU_batch_procedural_triangles_get();
     case GPU_PRIM_TRI_STRIP:
-      return drw_cache_procedural_triangle_strips_get();
+      return GPU_batch_procedural_triangle_strips_get();
     default:
       /* Add new one as needed. */
       BLI_assert_unreachable();
@@ -761,7 +780,7 @@ inline void PassBase<T>::draw(gpu::Batch *batch,
                               uint instance_len,
                               uint vertex_len,
                               uint vertex_first,
-                              ResourceHandle handle,
+                              ResourceHandleRange handle,
                               uint custom_id)
 {
   if (instance_len == 0 || vertex_len == 0) {
@@ -781,7 +800,7 @@ inline void PassBase<T>::draw(gpu::Batch *batch,
 }
 
 template<class T>
-inline void PassBase<T>::draw(gpu::Batch *batch, ResourceHandle handle, uint custom_id)
+inline void PassBase<T>::draw(gpu::Batch *batch, ResourceHandleRange handle, uint custom_id)
 {
   this->draw(batch, -1, -1, -1, handle, custom_id);
 }
@@ -793,7 +812,7 @@ inline void PassBase<T>::draw_expand(gpu::Batch *batch,
                                      uint instance_len,
                                      uint vertex_len,
                                      uint vertex_first,
-                                     ResourceHandle handle,
+                                     ResourceHandleRange handle,
                                      uint custom_id)
 {
   if (instance_len == 0 || vertex_len == 0 || primitive_len == 0) {
@@ -817,7 +836,7 @@ inline void PassBase<T>::draw_expand(gpu::Batch *batch,
                                      GPUPrimType primitive_type,
                                      uint primitive_len,
                                      uint instance_len,
-                                     ResourceHandle handle,
+                                     ResourceHandleRange handle,
                                      uint custom_id)
 {
   this->draw_expand(batch, primitive_type, primitive_len, instance_len, -1, -1, handle, custom_id);
@@ -828,7 +847,7 @@ inline void PassBase<T>::draw_procedural(GPUPrimType primitive,
                                          uint instance_len,
                                          uint vertex_len,
                                          uint vertex_first,
-                                         ResourceHandle handle,
+                                         ResourceHandleRange handle,
                                          uint custom_id)
 {
   this->draw(

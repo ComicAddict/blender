@@ -29,11 +29,10 @@
 #include "DNA_volume_types.h"
 #include "DNA_world_types.h"
 
-#include "BLI_blenlib.h"
-#include "BLI_ghash.h"
-#include "BLI_linklist.h"
+#include "BLI_listbase.h"
 #include "BLI_map.hh"
 #include "BLI_set.hh"
+#include "BLI_string.h"
 #include "BLI_utildefines.h"
 #include "BLI_vector.hh"
 
@@ -52,7 +51,9 @@
 #include "BKE_lib_override.hh"
 #include "BKE_lib_query.hh"
 #include "BKE_lib_remap.hh"
+#include "BKE_library.hh"
 #include "BKE_main.hh"
+#include "BKE_main_invariants.hh"
 #include "BKE_object.hh"
 #include "BKE_report.hh"
 #include "BKE_scene.hh"
@@ -82,6 +83,8 @@
 #include "RNA_access.hh"
 #include "RNA_define.hh"
 #include "RNA_enum_types.hh"
+
+#include "ANIM_action_legacy.hh"
 
 #include "SEQ_relations.hh"
 #include "SEQ_sequencer.hh"
@@ -875,7 +878,7 @@ static uiBlock *merged_element_search_menu(bContext *C, ARegion *region, void *d
            nullptr,
            0,
            0,
-           nullptr);
+           std::nullopt);
 
   /* Center the menu on the cursor */
   const int offset[2] = {-(menu_width / 2), 0};
@@ -1646,7 +1649,7 @@ static void singleuser_action_fn(bContext *C,
     IdAdtTemplate *iat = (IdAdtTemplate *)tsep->id;
     PropertyRNA *prop;
 
-    PointerRNA ptr = RNA_pointer_create(&iat->id, &RNA_AnimData, iat->adt);
+    PointerRNA ptr = RNA_pointer_create_discrete(&iat->id, &RNA_AnimData, iat->adt);
     prop = RNA_struct_find_property(&ptr, "action");
 
     id_single_user(C, id, &ptr, prop);
@@ -2149,27 +2152,27 @@ static void ebone_fn(int event, TreeElement *te, TreeStoreElem * /*tselem*/, voi
 
 static void sequence_fn(int event, TreeElement *te, TreeStoreElem * /*tselem*/, void *scene_ptr)
 {
-  TreeElementSequence *te_seq = tree_element_cast<TreeElementSequence>(te);
-  Sequence *seq = &te_seq->get_sequence();
+  TreeElementStrip *te_strip = tree_element_cast<TreeElementStrip>(te);
+  Strip *strip = &te_strip->get_strip();
   Scene *scene = (Scene *)scene_ptr;
   Editing *ed = SEQ_editing_get(scene);
-  if (BLI_findindex(ed->seqbasep, seq) != -1) {
+  if (BLI_findindex(ed->seqbasep, strip) != -1) {
     if (event == OL_DOP_SELECT) {
-      ED_sequencer_select_sequence_single(scene, seq, true);
+      ED_sequencer_select_sequence_single(scene, strip, true);
     }
     else if (event == OL_DOP_DESELECT) {
-      seq->flag &= ~SELECT;
+      strip->flag &= ~SELECT;
     }
     else if (event == OL_DOP_HIDE) {
-      if (!(seq->flag & SEQ_MUTE)) {
-        seq->flag |= SEQ_MUTE;
-        SEQ_relations_invalidate_dependent(scene, seq);
+      if (!(strip->flag & SEQ_MUTE)) {
+        strip->flag |= SEQ_MUTE;
+        SEQ_relations_invalidate_dependent(scene, strip);
       }
     }
     else if (event == OL_DOP_UNHIDE) {
-      if (seq->flag & SEQ_MUTE) {
-        seq->flag &= ~SEQ_MUTE;
-        SEQ_relations_invalidate_dependent(scene, seq);
+      if (strip->flag & SEQ_MUTE) {
+        strip->flag &= ~SEQ_MUTE;
+        SEQ_relations_invalidate_dependent(scene, strip);
       }
     }
   }
@@ -2596,7 +2599,7 @@ void OUTLINER_OT_object_operation(wmOperatorType *ot)
 using OutlinerDeleteFn = void (*)(bContext *C, ReportList *reports, Scene *scene, Object *ob);
 
 struct ObjectEditData {
-  GSet *objects_set;
+  Set<Object *> objects_set;
   bool is_liboverride_allowed;
   bool is_liboverride_hierarchy_root_allowed;
 };
@@ -2604,13 +2607,10 @@ struct ObjectEditData {
 static void outliner_do_object_delete(bContext *C,
                                       ReportList *reports,
                                       Scene *scene,
-                                      GSet *objects_to_delete,
+                                      const Set<Object *> &objects_to_delete,
                                       OutlinerDeleteFn delete_fn)
 {
-  GSetIterator objects_to_delete_iter;
-  GSET_ITER (objects_to_delete_iter, objects_to_delete) {
-    Object *ob = (Object *)BLI_gsetIterator_getKey(&objects_to_delete_iter);
-
+  for (Object *ob : objects_to_delete) {
     delete_fn(C, reports, scene, ob);
   }
 }
@@ -2618,7 +2618,6 @@ static void outliner_do_object_delete(bContext *C,
 static TreeTraversalAction outliner_collect_objects_to_delete(TreeElement *te, void *customdata)
 {
   ObjectEditData *data = static_cast<ObjectEditData *>(customdata);
-  GSet *objects_to_delete = data->objects_set;
   TreeStoreElem *tselem = TREESTORE(te);
 
   if (outliner_is_collection_tree_element(te)) {
@@ -2659,7 +2658,7 @@ static TreeTraversalAction outliner_collect_objects_to_delete(TreeElement *te, v
     }
   }
 
-  BLI_gset_add(objects_to_delete, id);
+  data->objects_set.add(reinterpret_cast<Object *>(id));
 
   return TRAVERSE_CONTINUE;
 }
@@ -2679,7 +2678,6 @@ static int outliner_delete_exec(bContext *C, wmOperator *op)
   /* Get selected objects skipping duplicates to prevent deleting objects linked to multiple
    * collections twice */
   ObjectEditData object_delete_data = {};
-  object_delete_data.objects_set = BLI_gset_ptr_new(__func__);
   object_delete_data.is_liboverride_allowed = false;
   object_delete_data.is_liboverride_hierarchy_root_allowed = delete_hierarchy;
   outliner_tree_traverse(space_outliner,
@@ -2709,8 +2707,6 @@ static int outliner_delete_exec(bContext *C, wmOperator *op)
         C, op->reports, scene, object_delete_data.objects_set, outliner_object_delete_fn);
   }
 
-  BLI_gset_free(object_delete_data.objects_set, nullptr);
-
   outliner_collection_delete(C, bmain, scene, op->reports, delete_hierarchy);
 
   /* Tree management normally happens from draw_outliner(), but when
@@ -2729,7 +2725,7 @@ static int outliner_delete_exec(bContext *C, wmOperator *op)
     WM_msg_publish_rna_prop(mbus, &scene->id, view_layer, LayerObjects, active);
   }
 
-  ED_node_tree_propagate_change(C, bmain, nullptr);
+  BKE_main_ensure_invariants(*bmain);
 
   DEG_id_tag_update(&scene->id, ID_RECALC_SELECT);
   WM_event_add_notifier(C, NC_SCENE | ND_OB_SELECT, scene);
@@ -3028,7 +3024,7 @@ static int outliner_id_operation_exec(bContext *C, wmOperator *op)
       break;
   }
 
-  ED_node_tree_propagate_change(C, bmain, nullptr);
+  BKE_main_ensure_invariants(*bmain);
 
   /* wrong notifier still... */
   WM_event_add_notifier(C, NC_ID | NA_EDITED, nullptr);
@@ -3119,7 +3115,7 @@ static int outliner_lib_operation_exec(bContext *C, wmOperator *op)
       break;
   }
 
-  ED_node_tree_propagate_change(C, bmain, nullptr);
+  BKE_main_ensure_invariants(*bmain);
 
   /* wrong notifier still... */
   WM_event_add_notifier(C, NC_ID | NA_EDITED, nullptr);
@@ -3206,7 +3202,7 @@ static int outliner_action_set_exec(bContext *C, wmOperator *op)
     BKE_report(op->reports, RPT_ERROR, "No valid action to add");
     return OPERATOR_CANCELLED;
   }
-  if (act->idroot == 0) {
+  if (act->idroot == 0 && blender::animrig::legacy::action_treat_as_legacy(*act)) {
     /* Hopefully in this case (i.e. library of userless actions),
      * the user knows what they're doing. */
     BKE_reportf(op->reports,
@@ -3492,13 +3488,8 @@ static bool outliner_data_operation_poll(bContext *C)
 
   int scenelevel = 0, objectlevel = 0, idlevel = 0, datalevel = 0;
   get_element_operation_type(te, &scenelevel, &objectlevel, &idlevel, &datalevel);
-  return ELEM(datalevel,
-              TSE_POSE_CHANNEL,
-              TSE_BONE,
-              TSE_EBONE,
-              TSE_SEQUENCE,
-              TSE_GP_LAYER,
-              TSE_RNA_STRUCT);
+  return ELEM(
+      datalevel, TSE_POSE_CHANNEL, TSE_BONE, TSE_EBONE, TSE_STRIP, TSE_GP_LAYER, TSE_RNA_STRUCT);
 }
 
 static int outliner_data_operation_exec(bContext *C, wmOperator *op)
@@ -3531,7 +3522,7 @@ static int outliner_data_operation_exec(bContext *C, wmOperator *op)
 
       break;
     }
-    case TSE_SEQUENCE: {
+    case TSE_STRIP: {
       Scene *scene = CTX_data_scene(C);
       outliner_do_data_operation(space_outliner, datalevel, event, sequence_fn, scene);
       WM_event_add_notifier(C, NC_SCENE | ND_SEQUENCER | NA_SELECTED, scene);

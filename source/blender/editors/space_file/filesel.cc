@@ -6,8 +6,6 @@
  * \ingroup spfile
  */
 
-#include <cmath>
-#include <cstdio>
 #include <cstring>
 
 #include <sys/stat.h>
@@ -32,12 +30,13 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "BLI_blenlib.h"
+#include "BLI_fileops.h"
 #include "BLI_fnmatch.h"
 #include "BLI_math_base.h"
+#include "BLI_path_utils.hh"
+#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 #include "BLI_utildefines.h"
-
-#include "BLO_userdef_default.h"
 
 #include "BLT_translation.hh"
 
@@ -46,6 +45,8 @@
 #include "BKE_idtype.hh"
 #include "BKE_main.hh"
 #include "BKE_preferences.h"
+
+#include "BLO_userdef_default.h"
 
 #include "BLF_api.hh"
 
@@ -61,7 +62,6 @@
 #include "UI_interface_icons.hh"
 #include "UI_view2d.hh"
 
-#include "AS_asset_representation.hh"
 #include "AS_essentials_library.hh"
 
 #include "file_intern.hh"
@@ -121,7 +121,7 @@ static void fileselect_ensure_updated_asset_params(SpaceFile *sfile)
   base_params->filter |= FILE_TYPE_BLENDERLIB;
   base_params->filter_id = FILTER_ID_ALL;
   base_params->display = FILE_IMGDISPLAY;
-  base_params->sort = FILE_SORT_ALPHA;
+  base_params->sort = FILE_SORT_ASSET_CATALOG;
   /* Asset libraries include all sub-directories, so enable maximal recursion. */
   base_params->recursion_level = FILE_SELECT_MAX_RECURSIONS;
   /* 'SMALL' size by default. More reasonable since this is typically used as regular editor,
@@ -276,17 +276,15 @@ static FileSelectParams *fileselect_ensure_updated_file_params(SpaceFile *sfile)
     }
     if ((prop = RNA_struct_find_property(op->ptr, "filter_glob"))) {
       /* Protection against Python scripts not setting proper size limit. */
-      char *tmp = RNA_property_string_get_alloc(
-          op->ptr, prop, params->filter_glob, sizeof(params->filter_glob), nullptr);
-      if (tmp != params->filter_glob) {
-        STRNCPY(params->filter_glob, tmp);
-        MEM_freeN(tmp);
-
-        /* Fix stupid things that truncating might have generated,
-         * like last group being a 'match everything' wildcard-only one... */
-        BLI_path_extension_glob_validate(params->filter_glob);
+      char *glob = RNA_property_string_get_alloc(op->ptr, prop, nullptr, 0, nullptr);
+      BLI_SCOPED_DEFER([&]() { MEM_freeN(glob); });
+      STRNCPY(params->filter_glob, glob);
+      /* Fix stupid things that truncating might have generated,
+       * like last group being a 'match everything' wildcard-only one... */
+      BLI_path_extension_glob_validate(params->filter_glob);
+      if (glob[0] != '\0') {
+        params->filter |= (FILE_TYPE_OPERATOR | FILE_TYPE_FOLDER);
       }
-      params->filter |= (FILE_TYPE_OPERATOR | FILE_TYPE_FOLDER);
     }
     else {
       params->filter_glob[0] = '\0';
@@ -1329,7 +1327,6 @@ void ED_fileselect_exit(wmWindowManager *wm, SpaceFile *sfile)
   if (sfile->files) {
     ED_fileselect_clear(wm, sfile);
     filelist_free(sfile->files);
-    MEM_freeN(sfile->files);
     sfile->files = nullptr;
   }
 }
@@ -1471,7 +1468,7 @@ void ED_fileselect_ensure_default_filepath(bContext *C, wmOperator *op, const ch
     const char *blendfile_path = BKE_main_blendfile_path(bmain);
 
     if (blendfile_path[0] == '\0') {
-      STRNCPY(filepath, DATA_("untitled"));
+      STRNCPY(filepath, DATA_("Untitled"));
     }
     else {
       STRNCPY(filepath, blendfile_path);

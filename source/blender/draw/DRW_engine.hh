@@ -8,17 +8,12 @@
 
 #pragma once
 
-#include "BLI_sys_types.h" /* for bool */
-
-#include "DNA_object_enums.h"
-
 struct ARegion;
 struct DRWData;
 struct DRWInstanceDataList;
 struct Depsgraph;
 struct DrawDataList;
 struct DrawEngineType;
-struct GHash;
 struct GPUMaterial;
 struct GPUOffScreen;
 struct GPUVertFormat;
@@ -126,8 +121,6 @@ void DRW_draw_depth_loop(Depsgraph *depsgraph,
                          View3D *v3d,
                          GPUViewport *viewport,
                          const bool use_gpencil,
-                         const bool use_basic,
-                         const bool use_overlay,
                          const bool use_only_selected);
 /**
  * Clears the Depth Buffer and draws only the specified object.
@@ -148,13 +141,6 @@ bool DRW_draw_in_progress();
  */
 bool DRW_render_check_grease_pencil(Depsgraph *depsgraph);
 void DRW_render_gpencil(RenderEngine *engine, Depsgraph *depsgraph);
-
-/**
- * This is here because #GPUViewport needs it.
- */
-DRWInstanceDataList *DRW_instance_data_list_create();
-void DRW_instance_data_list_free(DRWInstanceDataList *idatalist);
-void DRW_uniform_attrs_pool_free(GHash *table);
 
 void DRW_render_context_enable(Render *render);
 void DRW_render_context_disable(Render *render);
@@ -177,10 +163,8 @@ void DRW_cache_free_old_batches(Main *bmain);
 
 namespace blender::draw {
 
+/* Free garbage collected subdivision data. */
 void DRW_cache_free_old_subdiv();
-
-/* For the OpenGL evaluators and garbage collected subdivision data. */
-void DRW_subdiv_free();
 
 }  // namespace blender::draw
 
@@ -211,12 +195,6 @@ void DRW_viewport_data_free(DRWData *drw_data);
 
 bool DRW_gpu_context_release();
 void DRW_gpu_context_activate(bool drw_state);
-
-/**
- * We may want to move this into a more general location.
- * \note This doesn't require the draw context to be in use.
- */
-void DRW_draw_cursor_2d_ex(const ARegion *region, const float cursor[2]);
 
 void DRW_cdlayer_attr_aliases_add(GPUVertFormat *format,
                                   const char *base_name,

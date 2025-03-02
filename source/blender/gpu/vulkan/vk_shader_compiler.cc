@@ -20,9 +20,30 @@
 #include "vk_shader_compiler.hh"
 
 namespace blender::gpu {
+std::optional<std::string> VKShaderCompiler::cache_dir;
+
+static std::optional<std::string> cache_dir_get()
+{
+  static std::optional<std::string> result;
+  if (!result.has_value()) {
+    static char tmp_dir_buffer[FILE_MAX];
+    /* Shader builder doesn't return the correct appdir. */
+    if (!BKE_appdir_folder_caches(tmp_dir_buffer, sizeof(tmp_dir_buffer))) {
+      return std::nullopt;
+    }
+
+    std::string cache_dir = std::string(tmp_dir_buffer) + "vk-spirv-cache" + SEP_STR;
+    BLI_dir_create_recursive(cache_dir.c_str());
+    result = cache_dir;
+  }
+
+  return result;
+}
+
 VKShaderCompiler::VKShaderCompiler()
 {
-  task_pool_ = BLI_task_pool_create(nullptr, TASK_PRIORITY_LOW);
+  task_pool_ = BLI_task_pool_create(nullptr, TASK_PRIORITY_HIGH);
+  cache_dir = cache_dir_get();
 }
 
 VKShaderCompiler::~VKShaderCompiler()
@@ -41,37 +62,20 @@ struct SPIRVSidecar {
   uint64_t spirv_size;
 };
 
-static std::optional<std::string> cache_dir_get()
-{
-  static std::optional<std::string> result;
-  if (!result.has_value()) {
-    static char tmp_dir_buffer[FILE_MAX];
-    /* Shader builder doesn't return the correct appdir*/
-    if (!BKE_appdir_folder_caches(tmp_dir_buffer, sizeof(tmp_dir_buffer))) {
-      return std::nullopt;
-    }
-
-    std::string cache_dir = std::string(tmp_dir_buffer) + "vk-spirv-cache" + SEP_STR;
-    BLI_dir_create_recursive(cache_dir.c_str());
-    result = cache_dir;
-  }
-
-  return result;
-}
-
 static bool read_spirv_from_disk(VKShaderModule &shader_module)
 {
   if (G.debug & G_DEBUG_GPU_RENDERDOC) {
-    /* Renderdoc uses spirv shaders including debug information. */
+    /* RenderDoc uses spirv shaders including debug information. */
     return false;
   }
-  std::optional<std::string> cache_dir = cache_dir_get();
-  if (!cache_dir.has_value()) {
+  if (!VKShaderCompiler::cache_dir.has_value()) {
     return false;
   }
   shader_module.build_sources_hash();
-  std::string spirv_path = (*cache_dir) + SEP_STR + shader_module.sources_hash + ".spv";
-  std::string sidecar_path = (*cache_dir) + SEP_STR + shader_module.sources_hash + ".sidecar.bin";
+  std::string spirv_path = (*VKShaderCompiler::cache_dir) + SEP_STR + shader_module.sources_hash +
+                           ".spv";
+  std::string sidecar_path = (*VKShaderCompiler::cache_dir) + SEP_STR +
+                             shader_module.sources_hash + ".sidecar.bin";
 
   if (!BLI_exists(spirv_path.c_str()) || !BLI_exists(sidecar_path.c_str())) {
     return false;
@@ -80,7 +84,7 @@ static bool read_spirv_from_disk(VKShaderModule &shader_module)
   BLI_file_touch(spirv_path.c_str());
   BLI_file_touch(sidecar_path.c_str());
 
-  /* Read sidecar*/
+  /* Read sidecar. */
   fstream sidecar_file(sidecar_path, std::ios::binary | std::ios::in | std::ios::ate);
   std::streamsize sidecar_size_on_disk = sidecar_file.tellg();
   SPIRVSidecar sidecar = {};
@@ -90,7 +94,7 @@ static bool read_spirv_from_disk(VKShaderModule &shader_module)
   sidecar_file.seekg(0, std::ios::beg);
   sidecar_file.read(reinterpret_cast<char *>(&sidecar), sizeof(sidecar));
 
-  /* Read spirv binary */
+  /* Read spirv binary. */
   fstream spirv_file(spirv_path, std::ios::binary | std::ios::in | std::ios::ate);
   std::streamsize size = spirv_file.tellg();
   if (size != sidecar.spirv_size) {
@@ -107,13 +111,13 @@ static void write_spirv_to_disk(VKShaderModule &shader_module)
   if (G.debug & G_DEBUG_GPU_RENDERDOC) {
     return;
   }
-  std::optional<std::string> cache_dir = cache_dir_get();
-  if (!cache_dir.has_value()) {
+  if (!VKShaderCompiler::cache_dir.has_value()) {
     return;
   }
 
   /* Write the spirv binary */
-  std::string spirv_path = (*cache_dir) + SEP_STR + shader_module.sources_hash + ".spv";
+  std::string spirv_path = (*VKShaderCompiler::cache_dir) + SEP_STR + shader_module.sources_hash +
+                           ".spv";
   size_t size = (shader_module.compilation_result.end() -
                  shader_module.compilation_result.begin()) *
                 sizeof(uint32_t);
@@ -122,14 +126,14 @@ static void write_spirv_to_disk(VKShaderModule &shader_module)
 
   /* Write the sidecar */
   SPIRVSidecar sidecar = {size};
-  std::string sidecar_path = (*cache_dir) + SEP_STR + shader_module.sources_hash + ".sidecar.bin";
+  std::string sidecar_path = (*VKShaderCompiler::cache_dir) + SEP_STR +
+                             shader_module.sources_hash + ".sidecar.bin";
   fstream sidecar_file(sidecar_path, std::ios::binary | std::ios::out);
   sidecar_file.write(reinterpret_cast<const char *>(&sidecar), sizeof(SPIRVSidecar));
 }
 
 void VKShaderCompiler::cache_dir_clear_old()
 {
-  std::optional<std::string> cache_dir = cache_dir_get();
   if (!cache_dir.has_value()) {
     return;
   }
@@ -172,23 +176,23 @@ BatchHandle VKShaderCompiler::batch_compile(Span<const shader::ShaderCreateInfo 
   return handle;
 }
 
-static const std::string to_stage_name(shaderc_shader_kind stage)
+static StringRef to_stage_name(shaderc_shader_kind stage)
 {
   switch (stage) {
     case shaderc_vertex_shader:
-      return std::string("vertex");
+      return "vertex";
     case shaderc_geometry_shader:
-      return std::string("geometry");
+      return "geometry";
     case shaderc_fragment_shader:
-      return std::string("fragment");
+      return "fragment";
     case shaderc_compute_shader:
-      return std::string("compute");
+      return "compute";
 
     default:
       BLI_assert_msg(false, "Do not know how to convert shaderc_shader_kind to stage name.");
       break;
   }
-  return std::string("unknown stage");
+  return "unknown stage";
 }
 
 static bool compile_ex(shaderc::Compiler &compiler,
@@ -208,7 +212,12 @@ static bool compile_ex(shaderc::Compiler &compiler,
     options.SetGenerateDebugInfo();
   }
 
-  std::string full_name = std::string(shader.name_get()) + "_" + to_stage_name(stage);
+  /* WORKAROUND: Qualcomm driver can crash when handling optimized SPIR-V. */
+  if (GPU_type_matches(GPU_DEVICE_QUALCOMM, GPU_OS_ANY, GPU_DRIVER_ANY)) {
+    options.SetOptimizationLevel(shaderc_optimization_level_zero);
+  }
+
+  std::string full_name = shader.name_get() + "_" + to_stage_name(stage);
   shader_module.compilation_result = compiler.CompileGlslToSpv(
       shader_module.combined_sources, stage, full_name.c_str(), options);
   bool compilation_succeeded = shader_module.compilation_result.GetCompilationStatus() ==
@@ -260,8 +269,10 @@ void VKShaderCompiler::run(TaskPool *__restrict /*pool*/, void *task_data)
   if (has_not_succeeded) {
     shader.compilation_failed = true;
   }
-  shader.compilation_finished = true;
   shader.finalize_post();
+  /* Setting compilation finished needs to be the last step. It is used to detect if a compilation
+   * action of a batch has finished. See `VKShaderCompiler::batch_is_ready` */
+  shader.compilation_finished = true;
 }
 
 bool VKShaderCompiler::batch_is_ready(BatchHandle handle)

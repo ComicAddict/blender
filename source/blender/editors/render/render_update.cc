@@ -25,13 +25,14 @@
 
 #include "BLI_listbase.h"
 #include "BLI_threads.h"
-#include "BLI_utildefines.h"
 
 #include "BKE_brush.hh"
 #include "BKE_context.hh"
 #include "BKE_icons.h"
 #include "BKE_main.hh"
-#include "BKE_material.h"
+#include "BKE_main_invariants.hh"
+#include "BKE_material.hh"
+#include "BKE_node_runtime.hh"
 #include "BKE_paint.hh"
 #include "BKE_scene.hh"
 
@@ -50,8 +51,6 @@
 #include "DEG_depsgraph_query.hh"
 
 #include "WM_api.hh"
-
-#include <cstdio>
 
 /* -------------------------------------------------------------------- */
 /** \name Render Engines
@@ -201,6 +200,7 @@ void ED_render_engine_changed(Main *bmain, const bool update_scene_data)
       ntreeCompositUpdateRLayers(scene->nodetree);
     }
   }
+  BKE_main_ensure_invariants(*bmain);
 
   /* Update #CacheFiles to ensure that procedurals are properly taken into account. */
   LISTBASE_FOREACH (CacheFile *, cachefile, &bmain->cachefiles) {
@@ -234,16 +234,18 @@ void ED_render_view_layer_changed(Main *bmain, bScreen *screen)
  * we can get rid of the manual dependency checks.
  * \{ */
 
-static void material_changed(Main * /*bmain*/, Material *ma)
+static void material_changed(Main *bmain, Material *ma)
 {
   /* icons */
   BKE_icon_changed(BKE_icon_id_ensure(&ma->id));
+  ED_previews_tag_dirty_by_id(*bmain, ma->id);
 }
 
-static void lamp_changed(Main * /*bmain*/, Light *la)
+static void lamp_changed(Main *bmain, Light *la)
 {
   /* icons */
   BKE_icon_changed(BKE_icon_id_ensure(&la->id));
+  ED_previews_tag_dirty_by_id(*bmain, la->id);
 }
 
 static void texture_changed(Main *bmain, Tex *tex)
@@ -252,6 +254,7 @@ static void texture_changed(Main *bmain, Tex *tex)
 
   /* icons */
   BKE_icon_changed(BKE_icon_id_ensure(&tex->id));
+  ED_previews_tag_dirty_by_id(*bmain, tex->id);
 
   for (scene = static_cast<Scene *>(bmain->scenes.first); scene;
        scene = static_cast<Scene *>(scene->id.next))
@@ -262,19 +265,20 @@ static void texture_changed(Main *bmain, Tex *tex)
     }
     /* find compositing nodes */
     if (scene->use_nodes && scene->nodetree) {
-      LISTBASE_FOREACH (bNode *, node, &scene->nodetree->nodes) {
+      for (bNode *node : scene->nodetree->all_nodes()) {
         if (node->id == &tex->id) {
-          ED_node_tag_update_id(&scene->id);
+          blender::ed::space_node::tag_update_id(&scene->id);
         }
       }
     }
   }
 }
 
-static void world_changed(Main * /*bmain*/, World *wo)
+static void world_changed(Main *bmain, World *wo)
 {
   /* icons */
   BKE_icon_changed(BKE_icon_id_ensure(&wo->id));
+  ED_previews_tag_dirty_by_id(*bmain, wo->id);
 }
 
 static void image_changed(Main *bmain, Image *ima)
@@ -283,6 +287,7 @@ static void image_changed(Main *bmain, Image *ima)
 
   /* icons */
   BKE_icon_changed(BKE_icon_id_ensure(&ima->id));
+  ED_previews_tag_dirty_by_id(*bmain, ima->id);
 
   /* textures */
   for (tex = static_cast<Tex *>(bmain->textures.first); tex;

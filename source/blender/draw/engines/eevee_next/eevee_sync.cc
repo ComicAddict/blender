@@ -8,20 +8,15 @@
  * Converts the different renderable object types to drawcalls.
  */
 
-#include "eevee_engine.h"
-
-#include "BKE_gpencil_legacy.h"
-#include "BKE_object.hh"
 #include "BKE_paint.hh"
-#include "BKE_pbvh_api.hh"
-#include "DEG_depsgraph_query.hh"
+#include "BKE_paint_bvh.hh"
 #include "DNA_curves_types.h"
-#include "DNA_gpencil_legacy_types.h"
 #include "DNA_modifier_types.h"
 #include "DNA_particle_types.h"
 #include "DNA_pointcloud_types.h"
 #include "DNA_volume_types.h"
 
+#include "draw_cache.hh"
 #include "draw_common.hh"
 #include "draw_sculpt.hh"
 
@@ -88,29 +83,27 @@ static inline void volume_call(
 /** \name Mesh
  * \{ */
 
-void SyncModule::sync_mesh(Object *ob,
-                           ObjectHandle &ob_handle,
-                           ResourceHandle res_handle,
-                           const ObjectRef &ob_ref)
+void SyncModule::sync_mesh(Object *ob, ObjectHandle &ob_handle, const ObjectRef &ob_ref)
 {
   if (!inst_.use_surfaces) {
     return;
   }
 
-  bool has_motion = inst_.velocity.step_object_sync(
-      ob, ob_handle.object_key, res_handle, ob_handle.recalc);
-
-  MaterialArray &material_array = inst_.materials.material_array_get(ob, has_motion);
-
-  gpu::Batch **mat_geom = DRW_cache_object_surface_material_get(
-      ob, material_array.gpu_materials.data(), material_array.gpu_materials.size());
-
-  if (mat_geom == nullptr) {
+  if ((ob->dt < OB_SOLID) && (inst_.is_viewport() && inst_.v3d->shading.type != OB_RENDER)) {
+    /** Do not render objects with display type lower than solid when in material preview mode. */
     return;
   }
 
-  if ((ob->dt < OB_SOLID) && (inst_.is_viewport() && inst_.v3d->shading.type != OB_RENDER)) {
-    /** Do not render objects with display type lower than solid when in material preview mode. */
+  ResourceHandle res_handle = inst_.manager->unique_handle(ob_ref);
+
+  bool has_motion = inst_.velocity.step_object_sync(
+      ob_handle.object_key, ob_ref, ob_handle.recalc, res_handle);
+
+  MaterialArray &material_array = inst_.materials.material_array_get(ob, has_motion);
+
+  Span<gpu::Batch *> mat_geom = DRW_cache_object_surface_material_get(
+      ob, material_array.gpu_materials);
+  if (mat_geom.is_empty()) {
     return;
   }
 
@@ -174,10 +167,7 @@ void SyncModule::sync_mesh(Object *ob,
   inst_.cryptomatte.sync_object(ob, res_handle);
 }
 
-bool SyncModule::sync_sculpt(Object *ob,
-                             ObjectHandle &ob_handle,
-                             ResourceHandle res_handle,
-                             const ObjectRef &ob_ref)
+bool SyncModule::sync_sculpt(Object *ob, ObjectHandle &ob_handle, const ObjectRef &ob_ref)
 {
   if (!inst_.use_surfaces) {
     return false;
@@ -187,6 +177,8 @@ bool SyncModule::sync_sculpt(Object *ob,
   if (!pbvh_draw) {
     return false;
   }
+
+  ResourceHandle res_handle = inst_.manager->unique_handle(ob_ref);
 
   bool has_motion = false;
   MaterialArray &material_array = inst_.materials.material_array_get(ob, has_motion);
@@ -264,25 +256,24 @@ bool SyncModule::sync_sculpt(Object *ob,
 /** \name Point Cloud
  * \{ */
 
-void SyncModule::sync_point_cloud(Object *ob,
-                                  ObjectHandle &ob_handle,
-                                  ResourceHandle res_handle,
-                                  const ObjectRef &ob_ref)
+void SyncModule::sync_pointcloud(Object *ob, ObjectHandle &ob_handle, const ObjectRef &ob_ref)
 {
   const int material_slot = POINTCLOUD_MATERIAL_NR;
 
+  ResourceHandle res_handle = inst_.manager->unique_handle(ob_ref);
+
   bool has_motion = inst_.velocity.step_object_sync(
-      ob, ob_handle.object_key, res_handle, ob_handle.recalc);
+      ob_handle.object_key, ob_ref, ob_handle.recalc, res_handle);
 
   Material &material = inst_.materials.material_get(
-      ob, has_motion, material_slot - 1, MAT_GEOM_POINT_CLOUD);
+      ob, has_motion, material_slot - 1, MAT_GEOM_POINTCLOUD);
 
   auto drawcall_add = [&](MaterialPass &matpass) {
     if (matpass.sub_pass == nullptr) {
       return;
     }
     PassMain::Sub &object_pass = matpass.sub_pass->sub("Point Cloud Sub Pass");
-    gpu::Batch *geometry = point_cloud_sub_pass_setup(object_pass, ob, matpass.gpumat);
+    gpu::Batch *geometry = pointcloud_sub_pass_setup(object_pass, ob, matpass.gpumat);
     object_pass.draw(geometry, res_handle);
   };
 
@@ -334,14 +325,13 @@ void SyncModule::sync_point_cloud(Object *ob,
 /** \name Volume Objects
  * \{ */
 
-void SyncModule::sync_volume(Object *ob,
-                             ObjectHandle &ob_handle,
-                             ResourceHandle res_handle,
-                             const ObjectRef &ob_ref)
+void SyncModule::sync_volume(Object *ob, ObjectHandle &ob_handle, const ObjectRef &ob_ref)
 {
   if (!inst_.use_volumes) {
     return;
   }
+
+  ResourceHandle res_handle = inst_.manager->unique_handle(ob_ref);
 
   const int material_slot = VOLUME_MATERIAL_NR;
 
@@ -376,7 +366,7 @@ void SyncModule::sync_volume(Object *ob,
   };
 
   /* Use bounding box tag empty spaces. */
-  gpu::Batch *geom = DRW_cache_cube_get();
+  gpu::Batch *geom = inst_.volume.unit_cube_batch_get();
 
   bool is_rendered = false;
   is_rendered |= drawcall_add(material.volume_occupancy, geom, res_handle);
@@ -399,8 +389,8 @@ void SyncModule::sync_volume(Object *ob,
 
 void SyncModule::sync_curves(Object *ob,
                              ObjectHandle &ob_handle,
-                             ResourceHandle res_handle,
                              const ObjectRef &ob_ref,
+                             ResourceHandle res_handle,
                              ModifierData *modifier_data,
                              ParticleSystem *particle_sys)
 {
@@ -413,8 +403,13 @@ void SyncModule::sync_curves(Object *ob,
     mat_nr = particle_sys->part->omat;
   }
 
+  if (res_handle.raw == 0) {
+    /* For curve objects. */
+    res_handle = inst_.manager->unique_handle(ob_ref);
+  }
+
   bool has_motion = inst_.velocity.step_object_sync(
-      ob, ob_handle.object_key, res_handle, ob_handle.recalc, modifier_data, particle_sys);
+      ob_handle.object_key, ob_ref, ob_handle.recalc, res_handle, modifier_data, particle_sys);
   Material &material = inst_.materials.material_get(ob, has_motion, mat_nr - 1, MAT_GEOM_CURVES);
 
   auto drawcall_add = [&](MaterialPass &matpass) {

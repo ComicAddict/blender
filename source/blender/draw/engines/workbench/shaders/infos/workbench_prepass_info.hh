@@ -2,6 +2,31 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
+#ifdef GPU_SHADER
+#  pragma once
+
+#  include "BLI_utildefines_variadic.h"
+
+#  include "gpu_glsl_cpp_stubs.hh"
+
+#  include "draw_object_infos_info.hh"
+#  include "draw_view_info.hh"
+
+#  include "workbench_shader_shared.h"
+#  define WORKBENCH_COLOR_MATERIAL
+#  define WORKBENCH_COLOR_TEXTURE
+#  define WORKBENCH_TEXTURE_IMAGE_ARRAY
+#  define WORKBENCH_COLOR_MATERIAL
+#  define WORKBENCH_COLOR_VERTEX
+#  define WORKBENCH_LIGHTING_MATCAP
+
+#  define HAIR_SHADER
+#  define DRW_HAIR_INFO
+
+#  define POINTCLOUD_SHADER
+#  define DRW_POINTCLOUD_INFO
+#endif
+
 #include "gpu_shader_create_info.hh"
 #include "workbench_defines.hh"
 
@@ -15,7 +40,7 @@ VERTEX_IN(1, VEC3, nor)
 VERTEX_IN(2, VEC4, ac)
 VERTEX_IN(3, VEC2, au)
 VERTEX_SOURCE("workbench_prepass_vert.glsl")
-ADDITIONAL_INFO(draw_modelmat_new_with_custom_id)
+ADDITIONAL_INFO(draw_modelmat_with_custom_id)
 ADDITIONAL_INFO(draw_resource_handle_new)
 GPU_SHADER_CREATE_END()
 
@@ -24,16 +49,16 @@ SAMPLER_FREQ(WB_CURVES_COLOR_SLOT, FLOAT_BUFFER, ac, BATCH)
 SAMPLER_FREQ(WB_CURVES_UV_SLOT, FLOAT_BUFFER, au, BATCH)
 PUSH_CONSTANT(INT, emitter_object_id)
 VERTEX_SOURCE("workbench_prepass_hair_vert.glsl")
-ADDITIONAL_INFO(draw_modelmat_new_with_custom_id)
+ADDITIONAL_INFO(draw_modelmat_with_custom_id)
 ADDITIONAL_INFO(draw_resource_handle_new)
-ADDITIONAL_INFO(draw_hair_new)
+ADDITIONAL_INFO(draw_hair)
 GPU_SHADER_CREATE_END()
 
 GPU_SHADER_CREATE_INFO(workbench_pointcloud)
 VERTEX_SOURCE("workbench_prepass_pointcloud_vert.glsl")
-ADDITIONAL_INFO(draw_modelmat_new_with_custom_id)
+ADDITIONAL_INFO(draw_modelmat_with_custom_id)
 ADDITIONAL_INFO(draw_resource_handle_new)
-ADDITIONAL_INFO(draw_pointcloud_new)
+ADDITIONAL_INFO(draw_pointcloud)
 GPU_SHADER_CREATE_END()
 
 /** \} */
@@ -92,7 +117,6 @@ DEFINE("WORKBENCH_COLOR_VERTEX")
 GPU_SHADER_CREATE_END()
 
 GPU_SHADER_CREATE_INFO(workbench_prepass)
-DEFINE("WORKBENCH_NEXT")
 UNIFORM_BUF(WB_WORLD_SLOT, WorldData, world_data)
 VERTEX_OUT(workbench_material_iface)
 ADDITIONAL_INFO(draw_view)

@@ -8,14 +8,16 @@
  * The shadow module manages shadow update tagging & shadow rendering.
  */
 
-#include "BKE_global.hh"
 #include "BLI_math_matrix.hh"
+#include "GPU_batch_utils.hh"
 #include "GPU_compute.hh"
 
+#include "GPU_context.hh"
 #include "eevee_instance.hh"
 
+#include "GPU_debug.hh"
+#include "draw_cache.hh"
 #include "draw_debug.hh"
-#include <iostream>
 
 namespace blender::eevee {
 
@@ -304,10 +306,11 @@ void ShadowDirectional::cascade_tilemaps_distribution_near_far_points(const Came
       light.object_to_world, camera.position() - camera.forward() * cam_data.clip_near);
 }
 
-/* \note All tile-maps are meant to have the same LOD but we still return a range starting at the
- * unique LOD. */
 IndexRange ShadowDirectional::cascade_level_range(const Light &light, const Camera &camera)
 {
+  /* NOTE: All tile-maps are meant to have the same LOD
+   * but we still return a range starting at the unique LOD. */
+
   using namespace blender::math;
 
   /* 16 is arbitrary. To avoid too much tile-map per directional lights. */
@@ -342,10 +345,6 @@ IndexRange ShadowDirectional::cascade_level_range(const Light &light, const Came
   return IndexRange(lod_level, tilemap_len);
 }
 
-/**
- * Distribute tile-maps in a linear pattern along camera forward vector instead of a clipmap
- * centered on camera position.
- */
 void ShadowDirectional::cascade_tilemaps_distribution(Light &light, const Camera &camera)
 {
   using namespace blender::math;
@@ -679,6 +678,10 @@ void ShadowModule::begin_sync()
   jittered_transparent_casters_.clear();
   update_casters_ = true;
 
+  if (box_batch_ == nullptr) {
+    box_batch_ = GPU_batch_unit_cube();
+  }
+
   {
     Manager &manager = *inst_.manager;
 
@@ -740,7 +743,6 @@ void ShadowModule::begin_sync()
       sub.bind_resources(inst_.hiz_buffer.front);
       sub.bind_resources(inst_.lights);
 
-      box_batch_ = DRW_cache_cube_get();
       tilemap_usage_transparent_ps_ = &sub;
     }
   }
@@ -1142,7 +1144,6 @@ void ShadowModule::debug_end_sync()
   debug_draw_ps_.draw_procedural(GPU_PRIM_TRIS, 1, 3);
 }
 
-/* Compute approximate screen pixel density (as world space radius). */
 float ShadowModule::screen_pixel_radius(const float4x4 &wininv,
                                         bool is_perspective,
                                         const int2 &extent)
@@ -1230,7 +1231,6 @@ int ShadowModule::max_view_per_tilemap()
   return max_view_count;
 }
 
-/* Special culling pass to take shadow linking into consideration. */
 void ShadowModule::ShadowView::compute_visibility(ObjectBoundsBuf &bounds,
                                                   ObjectInfosBuf &infos,
                                                   uint resource_len,
@@ -1314,7 +1314,7 @@ void ShadowModule::set_view(View &view, int2 extent)
 
   int loop_count = 0;
   do {
-    DRW_stats_group_start("Shadow");
+    GPU_debug_group_begin("Shadow");
     {
       GPU_uniformbuf_clear_to_zero(shadow_multi_view_.matrices_ubo_get());
 
@@ -1381,7 +1381,7 @@ void ShadowModule::set_view(View &view, int2 extent)
 
       GPU_memory_barrier(GPU_BARRIER_SHADER_IMAGE_ACCESS | GPU_BARRIER_TEXTURE_FETCH);
     }
-    DRW_stats_group_end();
+    GPU_debug_group_end();
 
     loop_count++;
 

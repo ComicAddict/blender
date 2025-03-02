@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2009 Blender Authors
+/* SPDX-FileCopyrightText: 2009-2024 Blender Authors
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
@@ -14,26 +14,24 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 
 #include <ft2build.h>
 
 #include FT_FREETYPE_H
 #include FT_GLYPH_H
 
-#include "MEM_guardedalloc.h"
-
 #include "BLI_fileops.h"
 #include "BLI_math_rotation.h"
 #include "BLI_path_utils.hh"
 #include "BLI_string.h"
-#include "BLI_threads.h"
 
 #include "BLF_api.hh"
 
 #include "IMB_colormanagement.hh"
 
 #include "GPU_matrix.hh"
-#include "GPU_shader.hh"
+#include "GPU_state.hh"
 
 #include "blf_internal.hh"
 #include "blf_internal_types.hh"
@@ -50,6 +48,8 @@ FontBLF *global_font[BLF_MAX_FONT] = {nullptr};
 
 int blf_mono_font = -1;
 int blf_mono_font_render = -1;
+
+static std::mutex g_blf_load_mutex;
 
 static FontBLF *blf_get(int fontid)
 {
@@ -106,13 +106,9 @@ void BLF_cache_clear()
   }
 }
 
-bool blf_font_id_is_valid(int fontid)
-{
-  return blf_get(fontid) != nullptr;
-}
-
 static int blf_search_by_mem_name(const char *mem_name)
 {
+  std::lock_guard lock(g_blf_load_mutex);
   for (int i = 0; i < BLF_MAX_FONT; i++) {
     const FontBLF *font = global_font[i];
     if ((font == nullptr) || (font->mem_name == nullptr)) {
@@ -128,6 +124,7 @@ static int blf_search_by_mem_name(const char *mem_name)
 
 static int blf_search_by_filepath(const char *filepath)
 {
+  std::lock_guard lock(g_blf_load_mutex);
   for (int i = 0; i < BLF_MAX_FONT; i++) {
     const FontBLF *font = global_font[i];
     if ((font == nullptr) || (font->filepath == nullptr)) {
@@ -171,6 +168,11 @@ bool BLF_is_loaded_mem(const char *name)
   return blf_search_by_mem_name(name) >= 0;
 }
 
+bool BLF_is_loaded_id(int fontid)
+{
+  return blf_get(fontid) != nullptr;
+}
+
 int BLF_load(const char *filepath)
 {
   /* check if we already load this font. */
@@ -186,9 +188,7 @@ int BLF_load(const char *filepath)
 
 int BLF_load_unique(const char *filepath)
 {
-  /* Don't search in the cache!! make a new
-   * object font, this is for keep fonts threads safe.
-   */
+  std::lock_guard lock(g_blf_load_mutex);
   int i = blf_search_available();
   if (i == -1) {
     printf("Too many fonts!!!\n");
@@ -227,7 +227,6 @@ int BLF_load_mem(const char *name, const uchar *mem, int mem_size)
 {
   int i = blf_search_by_mem_name(name);
   if (i >= 0) {
-    // font = global_font[i]; /* UNUSED */
     return i;
   }
   return BLF_load_mem_unique(name, mem, mem_size);
@@ -235,10 +234,7 @@ int BLF_load_mem(const char *name, const uchar *mem, int mem_size)
 
 int BLF_load_mem_unique(const char *name, const uchar *mem, int mem_size)
 {
-  /*
-   * Don't search in the cache, make a new object font!
-   * this is to keep the font thread safe.
-   */
+  std::lock_guard lock(g_blf_load_mutex);
   int i = blf_search_available();
   if (i == -1) {
     printf("Too many fonts!!!\n");
@@ -263,6 +259,7 @@ int BLF_load_mem_unique(const char *name, const uchar *mem, int mem_size)
 
 void BLF_unload(const char *filepath)
 {
+  std::lock_guard lock(g_blf_load_mutex);
   for (int i = 0; i < BLF_MAX_FONT; i++) {
     FontBLF *font = global_font[i];
     if (font == nullptr || font->filepath == nullptr) {
@@ -281,8 +278,9 @@ void BLF_unload(const char *filepath)
   }
 }
 
-void BLF_unload_id(int fontid)
+bool BLF_unload_id(int fontid)
 {
+  std::lock_guard lock(g_blf_load_mutex);
   FontBLF *font = blf_get(fontid);
   if (font) {
     BLI_assert(font->reference_count > 0);
@@ -291,8 +289,10 @@ void BLF_unload_id(int fontid)
     if (font->reference_count == 0) {
       blf_font_free(font);
       global_font[fontid] = nullptr;
+      return true;
     }
   }
+  return false;
 }
 
 void BLF_unload_all()
@@ -307,6 +307,15 @@ void BLF_unload_all()
   blf_mono_font = -1;
   blf_mono_font_render = -1;
   BLF_default_set(-1);
+}
+
+void BLF_addref_id(int fontid)
+{
+  std::lock_guard lock(g_blf_load_mutex);
+  FontBLF *font = blf_get(fontid);
+  if (font) {
+    font->reference_count++;
+  }
 }
 
 void BLF_enable(int fontid, int option)
@@ -325,6 +334,12 @@ void BLF_disable(int fontid, int option)
   if (font) {
     font->flags &= ~option;
   }
+}
+
+bool BLF_is_builtin(int fontid)
+{
+  FontBLF *font = blf_get(fontid);
+  return font ? (font->flags & BLF_DEFAULT) : false;
 }
 
 void BLF_character_weight(int fontid, int weight)
@@ -820,7 +835,7 @@ int BLF_glyph_advance(int fontid, const char *str)
     return blf_font_glyph_advance(font, str);
   }
 
-  return 0.0f;
+  return 0;
 }
 
 float BLF_height(int fontid, const char *str, const size_t str_len, ResultBLF *r_info)
@@ -1050,8 +1065,8 @@ bool BLF_get_vfont_metrics(int fontid, float *ascend_ratio, float *em_ratio, flo
     *ascend_ratio = float(font->face->ascender) / (font->face->ascender - font->face->descender);
   }
   else {
-    *ascend_ratio = 0.8f;
-    *em_ratio = 1.0f;
+    *ascend_ratio = BLF_VFONT_METRICS_ASCEND_RATIO_DEFAULT;
+    *em_ratio = BLF_VFONT_METRICS_EM_RATIO_DEFAULT;
   }
 
   /* Adjust font size */
@@ -1064,19 +1079,20 @@ bool BLF_get_vfont_metrics(int fontid, float *ascend_ratio, float *em_ratio, flo
     }
   }
   else {
-    *scale = 1.0f / 1000.0f;
+    *scale = BLF_VFONT_METRICS_SCALE_DEFAULT;
   }
 
   return true;
 }
 
-float BLF_character_to_curves(int fontid, uint unicode, ListBase *nurbsbase, const float scale)
+float BLF_character_to_curves(
+    int fontid, uint unicode, ListBase *nurbsbase, const float scale, bool use_fallback)
 {
   FontBLF *font = blf_get(fontid);
   if (!font) {
     return 0.0f;
   }
-  return blf_character_to_curves(font, unicode, nurbsbase, scale);
+  return blf_character_to_curves(font, unicode, nurbsbase, scale, use_fallback);
 }
 
 #ifndef NDEBUG

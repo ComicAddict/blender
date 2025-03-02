@@ -6,10 +6,12 @@
  * \ingroup spfile
  */
 
-#include "BLI_utildefines.h"
-
-#include "BLI_blenlib.h"
+#include "BLI_fileops.h"
 #include "BLI_linklist.h"
+#include "BLI_listbase.h"
+#include "BLI_path_utils.hh"
+#include "BLI_string.h"
+#include "BLI_utildefines.h"
 
 #include "BKE_appdir.hh"
 #include "BKE_blendfile.hh"
@@ -46,6 +48,7 @@
 #include "filelist.hh"
 #include "fsmenu.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <cstdio>
@@ -671,6 +674,7 @@ void FILE_OT_select(wmOperatorType *ot)
   RNA_def_property_flag(prop, PROP_SKIP_SAVE);
   prop = RNA_def_boolean(
       ot->srna, "fill", false, "Fill", "Select everything beginning with the last selection");
+  RNA_def_property_translation_context(prop, BLT_I18NCONTEXT_EDITOR_FILEBROWSER);
   RNA_def_property_flag(prop, PROP_SKIP_SAVE);
   prop = RNA_def_boolean(ot->srna, "open", true, "Open", "Open a directory when selecting it");
   RNA_def_property_flag(prop, PROP_SKIP_SAVE);
@@ -952,6 +956,7 @@ void FILE_OT_select_walk(wmOperatorType *ot)
   RNA_def_property_flag(prop, PROP_SKIP_SAVE);
   prop = RNA_def_boolean(
       ot->srna, "fill", false, "Fill", "Select everything beginning with the last selection");
+  RNA_def_property_translation_context(prop, BLT_I18NCONTEXT_EDITOR_FILEBROWSER);
   RNA_def_property_flag(prop, PROP_SKIP_SAVE);
 }
 
@@ -1563,8 +1568,8 @@ static int file_cancel_exec(bContext *C, wmOperator * /*unused*/)
 void FILE_OT_cancel(wmOperatorType *ot)
 {
   /* identifiers */
-  ot->name = "Cancel File Load";
-  ot->description = "Cancel loading of selected file";
+  ot->name = "Cancel File Operation";
+  ot->description = "Cancel file operation";
   ot->idname = "FILE_OT_cancel";
 
   /* api callbacks */
@@ -1834,9 +1839,10 @@ static int file_external_operation_exec(bContext *C, wmOperator *op)
   PointerRNA op_props;
   WM_operator_properties_create_ptr(&op_props, ot);
   RNA_string_set(&op_props, "filepath", filepath);
-  if (WM_operator_name_call_ptr(C, ot, WM_OP_INVOKE_DEFAULT, &op_props, nullptr) ==
-      OPERATOR_FINISHED)
-  {
+  const int retval = WM_operator_name_call_ptr(C, ot, WM_OP_INVOKE_DEFAULT, &op_props, nullptr);
+  WM_operator_properties_free(&op_props);
+
+  if (retval == OPERATOR_FINISHED) {
     WM_cursor_set(CTX_wm_window(C), WM_CURSOR_DEFAULT);
     return OPERATOR_FINISHED;
   }
@@ -2122,12 +2128,26 @@ static int file_exec(bContext *C, wmOperator * /*op*/)
   return OPERATOR_FINISHED;
 }
 
+static std::string file_execute_get_description(bContext *C,
+                                                wmOperatorType * /*ot*/,
+                                                PointerRNA * /*ptr*/)
+{
+  SpaceFile *sfile = CTX_wm_space_file(C);
+  if (sfile->op && sfile->op->type) {
+    /* Return the description of the executed operator. Don't use get_description
+     * as that will return file details for WM_OT_open_mainfile. */
+    return TIP_(sfile->op->type->description);
+  }
+  return {};
+}
+
 void FILE_OT_execute(wmOperatorType *ot)
 {
   /* identifiers */
   ot->name = "Execute File Window";
   ot->description = "Execute selected file";
   ot->idname = "FILE_OT_execute";
+  ot->get_description = file_execute_get_description;
 
   /* api callbacks */
   ot->exec = file_exec;
@@ -3081,9 +3101,7 @@ static void filenum_newname(char *filename, size_t filename_maxncpy, int add)
   }
 
   pic += add;
-  if (pic < 0) {
-    pic = 0;
-  }
+  pic = std::max(pic, 0);
   BLI_path_sequence_encode(filename, filename_maxncpy, head, tail, digits, pic);
 }
 

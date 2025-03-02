@@ -24,9 +24,10 @@
 #include "BLI_math_vector.hh"
 #include "BLI_math_vector_types.hh"
 #include "BLI_span.hh"
-#include "BLI_task.h"
 #include "BLI_task.hh"
 #include "BLI_vector.hh"
+
+#include "BLT_translation.hh"
 
 #include "DNA_customdata_types.h"
 #include "DNA_object_types.h"
@@ -42,7 +43,7 @@
 #include "BKE_mesh_mapping.hh"
 #include "BKE_object.hh"
 #include "BKE_paint.hh"
-#include "BKE_pbvh_api.hh"
+#include "BKE_paint_bvh.hh"
 #include "BKE_subdiv_ccg.hh"
 
 #include "DEG_depsgraph.hh"
@@ -307,14 +308,14 @@ static void face_sets_update(const Depsgraph &depsgraph,
 
       tls.new_face_sets.resize(faces.size());
       MutableSpan<int> new_face_sets = tls.new_face_sets;
-      array_utils::gather(face_sets.span.as_span(), faces, new_face_sets);
+      gather_data_mesh(face_sets.span.as_span(), faces, new_face_sets);
       calc_face_sets(faces, new_face_sets);
       if (array_utils::indexed_data_equal<int>(face_sets.span, faces, new_face_sets)) {
         return;
       }
 
       undo::push_node(depsgraph, object, &nodes[i], undo::Type::FaceSet);
-      array_utils::scatter(new_face_sets.as_span(), faces, face_sets.span);
+      scatter_data_mesh(new_face_sets.as_span(), faces, face_sets.span);
       node_changed[i] = true;
     });
   }
@@ -327,14 +328,14 @@ static void face_sets_update(const Depsgraph &depsgraph,
 
       tls.new_face_sets.resize(faces.size());
       MutableSpan<int> new_face_sets = tls.new_face_sets;
-      array_utils::gather(face_sets.span.as_span(), faces, new_face_sets);
+      gather_data_mesh(face_sets.span.as_span(), faces, new_face_sets);
       calc_face_sets(faces, new_face_sets);
       if (array_utils::indexed_data_equal<int>(face_sets.span, faces, new_face_sets)) {
         return;
       }
 
       undo::push_node(depsgraph, object, &nodes[i], undo::Type::FaceSet);
-      array_utils::scatter(new_face_sets.as_span(), faces, face_sets.span);
+      scatter_data_mesh(new_face_sets.as_span(), faces, face_sets.span);
       node_changed[i] = true;
     });
   }
@@ -432,31 +433,64 @@ static int create_op_exec(bContext *C, wmOperator *op)
   const IndexMask node_mask = bke::pbvh::all_leaf_nodes(pbvh, memory);
   switch (mode) {
     case CreateMode::Masked: {
-      const OffsetIndices faces = mesh.faces();
-      const Span<int> corner_verts = mesh.corner_verts();
-      const VArraySpan<bool> hide_poly = *attributes.lookup<bool>(".hide_poly",
-                                                                  bke::AttrDomain::Face);
-      const VArraySpan<float> mask = *attributes.lookup<float>(".sculpt_mask",
-                                                               bke::AttrDomain::Point);
-      if (!mask.is_empty()) {
-        face_sets_update(depsgraph,
-                         object,
-                         node_mask,
-                         [&](const Span<int> indices, MutableSpan<int> face_sets) {
-                           for (const int i : indices.index_range()) {
-                             if (!hide_poly.is_empty() && hide_poly[indices[i]]) {
-                               continue;
+      if (pbvh.type() == bke::pbvh::Type::Mesh) {
+        const OffsetIndices faces = mesh.faces();
+        const Span<int> corner_verts = mesh.corner_verts();
+        const VArraySpan<bool> hide_poly = *attributes.lookup<bool>(".hide_poly",
+                                                                    bke::AttrDomain::Face);
+        const VArraySpan<float> mask = *attributes.lookup<float>(".sculpt_mask",
+                                                                 bke::AttrDomain::Point);
+        if (!mask.is_empty()) {
+          face_sets_update(depsgraph,
+                           object,
+                           node_mask,
+                           [&](const Span<int> indices, MutableSpan<int> face_sets) {
+                             for (const int i : indices.index_range()) {
+                               if (!hide_poly.is_empty() && hide_poly[indices[i]]) {
+                                 continue;
+                               }
+                               const Span<int> face_verts = corner_verts.slice(faces[indices[i]]);
+                               if (!std::any_of(face_verts.begin(),
+                                                face_verts.end(),
+                                                [&](const int vert) { return mask[vert] > 0.5f; }))
+                               {
+                                 continue;
+                               }
+                               face_sets[i] = next_face_set;
                              }
-                             const Span<int> face_verts = corner_verts.slice(faces[indices[i]]);
-                             if (!std::any_of(face_verts.begin(),
-                                              face_verts.end(),
-                                              [&](const int vert) { return mask[vert] > 0.5f; }))
-                             {
-                               continue;
+                           });
+        }
+      }
+      else if (pbvh.type() == bke::pbvh::Type::Grids) {
+        const OffsetIndices<int> faces = mesh.faces();
+        const SculptSession &ss = *object.sculpt;
+        const SubdivCCG &subdiv_ccg = *ss.subdiv_ccg;
+        const int grid_area = subdiv_ccg.grid_area;
+        const VArraySpan<bool> hide_poly = *attributes.lookup<bool>(".hide_poly",
+                                                                    bke::AttrDomain::Face);
+        const Span<float> masks = subdiv_ccg.masks;
+        if (!masks.is_empty()) {
+          face_sets_update(depsgraph,
+                           object,
+                           node_mask,
+                           [&](const Span<int> indices, MutableSpan<int> face_sets) {
+                             for (const int i : indices.index_range()) {
+                               if (!hide_poly.is_empty() && hide_poly[indices[i]]) {
+                                 continue;
+                               }
+
+                               const Span<float> face_masks = masks.slice(
+                                   bke::ccg::face_range(faces, grid_area, indices[i]));
+                               if (!std::any_of(face_masks.begin(),
+                                                face_masks.end(),
+                                                [&](const float mask) { return mask > 0.5f; }))
+                               {
+                                 continue;
+                               }
+                               face_sets[i] = next_face_set;
                              }
-                             face_sets[i] = next_face_set;
-                           }
-                         });
+                           });
+        }
       }
       break;
     }
@@ -736,7 +770,7 @@ static int init_op_exec(bContext *C, wmOperator *op)
     }
     case InitMode::UVSeams: {
       const VArraySpan<bool> uv_seams = *mesh->attributes().lookup_or_default<bool>(
-          ".uv_seam", bke::AttrDomain::Edge, false);
+          "uv_seam", bke::AttrDomain::Edge, false);
       init_flood_fill(ob,
                       [&](const int /*from_face*/, const int edge, const int /*to_face*/) -> bool {
                         return !uv_seams[edge];
@@ -889,14 +923,14 @@ static void face_hide_update(const Depsgraph &depsgraph,
 
       tls.new_hide.resize(faces.size());
       MutableSpan<bool> new_hide = tls.new_hide;
-      array_utils::gather(hide_poly.span.as_span(), faces, new_hide);
+      gather_data_mesh(hide_poly.span.as_span(), faces, new_hide);
       calc_hide(faces, new_hide);
       if (array_utils::indexed_data_equal<bool>(hide_poly.span, faces, new_hide)) {
         return;
       }
 
       undo::push_node(depsgraph, object, &nodes[i], undo::Type::HideFace);
-      array_utils::scatter(new_hide.as_span(), faces, hide_poly.span);
+      scatter_data_mesh(new_hide.as_span(), faces, hide_poly.span);
       node_changed[i] = true;
     });
   }
@@ -909,14 +943,14 @@ static void face_hide_update(const Depsgraph &depsgraph,
 
       tls.new_hide.resize(faces.size());
       MutableSpan<bool> new_hide = tls.new_hide;
-      array_utils::gather(hide_poly.span.as_span(), faces, new_hide);
+      gather_data_mesh(hide_poly.span.as_span(), faces, new_hide);
       calc_hide(faces, new_hide);
       if (array_utils::indexed_data_equal<bool>(hide_poly.span, faces, new_hide)) {
         return;
       }
 
       undo::push_node(depsgraph, object, &nodes[i], undo::Type::HideFace);
-      array_utils::scatter(new_hide.as_span(), faces, hide_poly.span);
+      scatter_data_mesh(new_hide.as_span(), faces, hide_poly.span);
       node_changed[i] = true;
     });
   }
@@ -1046,7 +1080,7 @@ static int change_visibility_exec(bContext *C, wmOperator *op)
 
   undo::push_end(object);
 
-  bke::pbvh::update_visibility(object, pbvh);
+  pbvh.update_visibility(object);
 
   islands::invalidate(*object.sculpt);
   hide::tag_update_visibility(*C);
@@ -1449,8 +1483,6 @@ static void edit_modify_coordinates(
   undo::push_begin(scene, ob, op);
   undo::push_nodes(depsgraph, ob, node_mask, undo::Type::Position);
 
-  pbvh.tag_positions_changed(node_mask);
-
   switch (mode) {
     case EditMode::FairPositions:
       edit_fairing(depsgraph, sd, ob, active_face_set, MESH_FAIRING_DEPTH_POSITION, strength);
@@ -1462,7 +1494,8 @@ static void edit_modify_coordinates(
       BLI_assert_unreachable();
   }
 
-  bke::pbvh::update_bounds(depsgraph, ob, pbvh);
+  pbvh.tag_positions_changed(node_mask);
+  pbvh.update_bounds(depsgraph, ob);
   flush_update_step(C, UpdateType::Position);
   flush_update_done(C, ob, UpdateType::Position);
   undo::push_end(ob);
@@ -1590,7 +1623,8 @@ void SCULPT_OT_face_sets_edit(wmOperatorType *ot)
       {0, nullptr, 0, nullptr, nullptr},
   };
   RNA_def_enum(ot->srna, "mode", modes, int(EditMode::Grow), "Mode", "");
-  RNA_def_float(ot->srna, "strength", 1.0f, 0.0f, 1.0f, "Strength", "", 0.0f, 1.0f);
+  prop = RNA_def_float(ot->srna, "strength", 1.0f, 0.0f, 1.0f, "Strength", "", 0.0f, 1.0f);
+  RNA_def_property_translation_context(prop, BLT_I18NCONTEXT_AMOUNT);
 
   ot->prop = RNA_def_boolean(ot->srna,
                              "modify_hidden",

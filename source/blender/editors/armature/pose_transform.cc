@@ -14,10 +14,12 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "BLI_blenlib.h"
+#include "BLI_listbase.h"
 #include "BLI_math_matrix.h"
 #include "BLI_math_rotation.h"
 #include "BLI_math_vector.h"
+#include "BLI_path_utils.hh"
+#include "BLI_string.h"
 #include "BLI_string_utils.hh"
 
 #include "BKE_action.hh"
@@ -474,9 +476,9 @@ static void apply_armature_pose2bones_ui(bContext *C, wmOperator *op)
   uiLayout *layout = op->layout;
   wmWindowManager *wm = CTX_wm_manager(C);
 
-  PointerRNA ptr = RNA_pointer_create(&wm->id, op->type->srna, op->properties);
+  PointerRNA ptr = RNA_pointer_create_discrete(&wm->id, op->type->srna, op->properties);
 
-  uiItemR(layout, &ptr, "selected", UI_ITEM_NONE, nullptr, ICON_NONE);
+  uiItemR(layout, &ptr, "selected", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 }
 
 void POSE_OT_armature_apply(wmOperatorType *ot)
@@ -791,17 +793,16 @@ static int pose_copy_exec(bContext *C, wmOperator *op)
   PartialWriteContext copybuffer{BKE_main_blendfile_path(bmain)};
   copybuffer.id_add(
       &ob->id,
-      PartialWriteContext::IDAddOptions{PartialWriteContext::IDAddOperations(
-          PartialWriteContext::IDAddOperations::MAKE_LOCAL |
-          PartialWriteContext::IDAddOperations::SET_FAKE_USER |
-          PartialWriteContext::IDAddOperations::SET_CLIPBOARD_MARK)},
+      PartialWriteContext::IDAddOptions{
+          (PartialWriteContext::IDAddOperations::MAKE_LOCAL |
+           PartialWriteContext::IDAddOperations::SET_FAKE_USER |
+           PartialWriteContext::IDAddOperations::SET_CLIPBOARD_MARK)},
       [ob](LibraryIDLinkCallbackData *cb_data,
            PartialWriteContext::IDAddOptions /*options*/) -> PartialWriteContext::IDAddOperations {
         /* Only include `ob->data` (i.e. the Armature) dependency. */
         if (*(cb_data->id_pointer) == ob->data) {
-          return PartialWriteContext::IDAddOperations(
-              PartialWriteContext::IDAddOperations::MAKE_LOCAL |
-              PartialWriteContext::IDAddOperations::ADD_DEPENDENCIES);
+          return (PartialWriteContext::IDAddOperations::MAKE_LOCAL |
+                  PartialWriteContext::IDAddOperations::ADD_DEPENDENCIES);
         }
         return PartialWriteContext::IDAddOperations::CLEAR_DEPENDENCIES;
       });
@@ -844,7 +845,8 @@ static int pose_paste_exec(bContext *C, wmOperator *op)
   bool selOnly = RNA_boolean_get(op->ptr, "selected_mask");
 
   /* Get KeyingSet to use. */
-  KeyingSet *ks = ANIM_get_keyingset_for_autokeying(scene, ANIM_KS_WHOLE_CHARACTER_ID);
+  KeyingSet *ks = blender::animrig::get_keyingset_for_autokeying(scene,
+                                                                 ANIM_KS_WHOLE_CHARACTER_ID);
 
   /* Sanity checks. */
   if (ELEM(nullptr, ob, ob->pose)) {
@@ -1197,7 +1199,8 @@ static int pose_clear_transform_generic_exec(bContext *C,
       /* do auto-keyframing as appropriate */
       if (blender::animrig::autokeyframe_cfra_can_key(scene, &ob_iter->id)) {
         /* tag for autokeying later */
-        ANIM_relative_keyingset_add_source(sources, &ob_iter->id, &RNA_PoseBone, pchan);
+        blender::animrig::relative_keyingset_add_source(
+            sources, &ob_iter->id, &RNA_PoseBone, pchan);
 
 #if 1 /* XXX: Ugly Hack - Run clearing function on evaluated copy of pchan */
         bPoseChannel *pchan_eval = BKE_pose_channel_find_name(ob_eval->pose, pchan->name);
@@ -1213,10 +1216,10 @@ static int pose_clear_transform_generic_exec(bContext *C,
       /* perform autokeying on the bones if needed */
       if (!sources.is_empty()) {
         /* get KeyingSet to use */
-        KeyingSet *ks = ANIM_get_keyingset_for_autokeying(scene, default_ksName);
+        KeyingSet *ks = blender::animrig::get_keyingset_for_autokeying(scene, default_ksName);
 
         /* insert keyframes */
-        ANIM_apply_keyingset(
+        blender::animrig::apply_keyingset(
             C, &sources, ks, blender::animrig::ModifyKeyMode::INSERT, float(scene->r.cfra));
 
         /* now recalculate paths */

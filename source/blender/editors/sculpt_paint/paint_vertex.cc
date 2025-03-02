@@ -15,17 +15,12 @@
 
 #include "CLG_log.h"
 
-#include "BLI_array_utils.h"
 #include "BLI_color.hh"
 #include "BLI_color_mix.hh"
 #include "BLI_enumerable_thread_specific.hh"
-#include "BLI_listbase.h"
 #include "BLI_math_geom.h"
 #include "BLI_math_matrix.hh"
 #include "BLI_math_rotation.h"
-#include "BLI_rect.h"
-#include "BLI_string.h"
-#include "BLI_task.h"
 #include "BLI_task.hh"
 #include "BLI_vector.hh"
 
@@ -45,12 +40,11 @@
 #include "BKE_deform.hh"
 #include "BKE_editmesh.hh"
 #include "BKE_lib_id.hh"
+#include "BKE_library.hh"
 #include "BKE_mesh.hh"
 #include "BKE_object.hh"
-#include "BKE_object_deform.h"
 #include "BKE_object_types.hh"
 #include "BKE_paint.hh"
-#include "BKE_report.hh"
 
 #include "DEG_depsgraph.hh"
 
@@ -71,7 +65,6 @@
 /* For IMB_BlendMode only. */
 #include "IMB_imbuf.hh"
 
-#include "BKE_ccg.hh"
 #include "bmesh.hh"
 
 #include "mesh_brush_common.hh"
@@ -222,7 +215,6 @@ void init_stroke(Depsgraph &depsgraph, Object &ob)
   }
 }
 
-/* Toggle operator for turning vertex paint mode on or off (copied from sculpt.cc) */
 void init_session(
     Main &bmain, Depsgraph &depsgraph, Scene &scene, Object &ob, eObjectMode object_mode)
 {
@@ -436,7 +428,6 @@ void smooth_brush_toggle_off(const bContext *C, Paint *paint, StrokeCache *cache
     cache->saved_active_brush = nullptr;
   }
 }
-/* Initialize the stroke cache invariants from operator properties */
 void update_cache_invariants(
     bContext *C, VPaint &vp, SculptSession &ss, wmOperator *op, const float mval[2])
 {
@@ -506,7 +497,6 @@ void update_cache_invariants(
   cache->accum = true;
 }
 
-/* Initialize the stroke cache variants from operator properties */
 void update_cache_variants(bContext *C, VPaint &vp, Object &ob, PointerRNA *ptr)
 {
   using namespace blender;
@@ -551,7 +541,7 @@ void update_cache_variants(bContext *C, VPaint &vp, Object &ob, PointerRNA *ptr)
   cache->radius_squared = cache->radius * cache->radius;
 
   if (bke::pbvh::Tree *pbvh = bke::object::pbvh_get(ob)) {
-    bke::pbvh::update_bounds(depsgraph, ob, *pbvh);
+    pbvh->update_bounds(depsgraph, ob);
   }
 }
 
@@ -577,6 +567,7 @@ void last_stroke_update(Scene &scene, const float location[3])
 }
 
 /* -------------------------------------------------------------------- */
+
 void smooth_brush_toggle_on(const bContext *C, Paint *paint, StrokeCache *cache)
 {
   Main *bmain = CTX_data_main(C);
@@ -584,10 +575,7 @@ void smooth_brush_toggle_on(const bContext *C, Paint *paint, StrokeCache *cache)
   Brush *cur_brush = BKE_paint_brush(paint);
 
   /* Switch to the blur (smooth) brush if possible. */
-  BKE_paint_brush_set_essentials(bmain,
-                                 paint,
-                                 paint->runtime.ob_mode == OB_MODE_WEIGHT_PAINT ? "Blur Weight" :
-                                                                                  "Blur Vertex");
+  BKE_paint_brush_set_essentials(bmain, paint, "Blur");
   Brush *smooth_brush = BKE_paint_brush(paint);
 
   if (!smooth_brush) {
@@ -656,8 +644,8 @@ static ColorPaint4f vpaint_get_current_col(Scene &scene, VPaint &vp, bool second
 {
   const Brush *brush = BKE_paint_brush_for_read(&vp.paint);
   float color[4];
-  const float *brush_color = secondary ? BKE_brush_secondary_color_get(&scene, brush) :
-                                         BKE_brush_color_get(&scene, brush);
+  const float *brush_color = secondary ? BKE_brush_secondary_color_get(&scene, &vp.paint, brush) :
+                                         BKE_brush_color_get(&scene, &vp.paint, brush);
   IMB_colormanagement_srgb_to_scene_linear_v3(color, brush_color);
 
   color[3] = 1.0f; /* alpha isn't used, could even be removed to speedup paint a little */
@@ -738,10 +726,8 @@ static void paint_and_tex_color_alpha_intern(const VPaint &vp,
   else {
     float co_ss[2]; /* screenspace */
     if (ED_view3d_project_float_object(
-            vc->region,
-            co,
-            co_ss,
-            (eV3DProjTest)(V3D_PROJ_TEST_CLIP_BB | V3D_PROJ_TEST_CLIP_NEAR)) == V3D_PROJ_RET_OK)
+            vc->region, co, co_ss, (V3D_PROJ_TEST_CLIP_BB | V3D_PROJ_TEST_CLIP_NEAR)) ==
+        V3D_PROJ_RET_OK)
     {
       const float co_ss_3d[3] = {co_ss[0], co_ss[1], 0.0f}; /* we need a 3rd empty value */
       BKE_brush_sample_tex_3d(vc->scene, brush, mtex, co_ss_3d, r_rgba, 0, nullptr);
@@ -923,7 +909,7 @@ struct VPaintData : public PaintModeData {
   /* For brushes that don't use accumulation, a temporary holding array */
   GArray<> prev_colors;
 
-  ~VPaintData()
+  ~VPaintData() override
   {
     if (vp_handle) {
       ED_vpaint_proj_handle_free(vp_handle);
@@ -1007,7 +993,7 @@ static bool vpaint_stroke_test_start(bContext *C, wmOperator *op, const float mo
 
   ED_mesh_color_ensure(mesh, nullptr);
 
-  const std::optional<bke::AttributeMetaData> meta_data = *mesh->attributes().lookup_meta_data(
+  const std::optional<bke::AttributeMetaData> meta_data = mesh->attributes().lookup_meta_data(
       mesh->active_color_attribute);
   if (!BKE_color_attribute_supported(*mesh, mesh->active_color_attribute)) {
     return false;
@@ -1095,6 +1081,7 @@ static void do_vpaint_brush_blur_loops(const bContext *C,
     tls.factors.resize(verts.size());
     const MutableSpan<float> factors = tls.factors;
     fill_factor_from_hide(hide_vert, verts, factors);
+    filter_region_clip_factors(ss, vert_positions, verts, factors);
     if (!select_vert.is_empty()) {
       filter_factors_with_selection(select_vert, verts, factors);
     }
@@ -1250,6 +1237,7 @@ static void do_vpaint_brush_blur_verts(const bContext *C,
     tls.factors.resize(verts.size());
     const MutableSpan<float> factors = tls.factors;
     fill_factor_from_hide(hide_vert, verts, factors);
+    filter_region_clip_factors(ss, vert_positions, verts, factors);
     if (!select_vert.is_empty()) {
       filter_factors_with_selection(select_vert, verts, factors);
     }
@@ -1408,6 +1396,7 @@ static void do_vpaint_brush_smear(const bContext *C,
     tls.factors.resize(verts.size());
     const MutableSpan<float> factors = tls.factors;
     fill_factor_from_hide(hide_vert, verts, factors);
+    filter_region_clip_factors(ss, vert_positions, verts, factors);
     if (!select_vert.is_empty()) {
       filter_factors_with_selection(select_vert, verts, factors);
     }
@@ -1579,17 +1568,16 @@ static void calculate_average_color(VPaintData &vpd,
     using Blend = typename Traits::BlendType;
     const Span<Color> colors = attribute.typed<T>().template cast<Color>();
 
-    Array<VPaintAverageAccum<Blend>> accum(nodes.size());
+    Array<VPaintAverageAccum<Blend>> accum(nodes.size(), {0, {0, 0, 0}});
     node_mask.foreach_index(GrainSize(1), [&](const int i) {
-      LocalData &tls = all_tls.local();
       VPaintAverageAccum<Blend> &accum2 = accum[i];
-      accum2.len = 0;
-      memset(accum2.value, 0, sizeof(accum2.value));
+      LocalData &tls = all_tls.local();
 
       const Span<int> verts = nodes[i].verts();
       tls.factors.resize(verts.size());
       const MutableSpan<float> factors = tls.factors;
       fill_factor_from_hide(hide_vert, verts, factors);
+      filter_region_clip_factors(ss, vert_positions, verts, factors);
       if (!select_vert.is_empty()) {
         filter_factors_with_selection(select_vert, verts, factors);
       }
@@ -1631,12 +1619,12 @@ static void calculate_average_color(VPaintData &vpd,
     Blend accum_value[3] = {0};
     Color blend(0, 0, 0, 0);
 
-    for (int i = 0; i < nodes.size(); i++) {
+    node_mask.foreach_index([&](const int i) {
       accum_len += accum[i].len;
       accum_value[0] += accum[i].value[0];
       accum_value[1] += accum[i].value[1];
       accum_value[2] += accum[i].value[2];
-    }
+    });
     if (accum_len != 0) {
       blend.r = Traits::round(sqrtf(Traits::divide_round(accum_value[0], accum_len)));
       blend.g = Traits::round(sqrtf(Traits::divide_round(accum_value[1], accum_len)));
@@ -1719,6 +1707,7 @@ static void vpaint_do_draw(const bContext *C,
     tls.factors.resize(verts.size());
     const MutableSpan<float> factors = tls.factors;
     fill_factor_from_hide(hide_vert, verts, factors);
+    filter_region_clip_factors(ss, vert_positions, verts, factors);
     if (!select_vert.is_empty()) {
       filter_factors_with_selection(select_vert, verts, factors);
     }
@@ -2121,6 +2110,14 @@ void PAINT_OT_vertex_paint(wmOperatorType *ot)
   ot->flag = OPTYPE_UNDO | OPTYPE_BLOCKING;
 
   paint_stroke_operator_properties(ot);
+  PropertyRNA *prop = RNA_def_boolean(
+      ot->srna,
+      "override_location",
+      false,
+      "Override Location",
+      "Override the given `location` array by recalculating object space positions from the "
+      "provided `mouse_event` positions");
+  RNA_def_property_flag(prop, PropertyFlag(PROP_HIDDEN | PROP_SKIP_SAVE));
 }
 
 /** \} */
@@ -2208,8 +2205,7 @@ static void fill_mesh_color(Mesh &mesh,
 {
   if (BMEditMesh *em = mesh.runtime->edit_mesh.get()) {
     BMesh *bm = em->bm;
-    const std::string name = attribute_name;
-    const CustomDataLayer *layer = BKE_id_attributes_color_find(&mesh.id, name.c_str());
+    const CustomDataLayer *layer = BKE_id_attributes_color_find(&mesh.id, attribute_name);
     AttributeOwner owner = AttributeOwner::from_id(&mesh.id);
     const AttrDomain domain = BKE_attribute_domain(owner, layer);
     if (layer->type == CD_PROP_COLOR) {
@@ -2320,7 +2316,7 @@ void PAINT_OT_vertex_color_set(wmOperatorType *ot)
   ot->description = "Fill the active vertex color layer with the current paint color";
 
   ot->exec = vertex_color_set_exec;
-  ot->poll = vertex_paint_poll;
+  ot->poll = vertex_paint_mode_poll;
 
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 

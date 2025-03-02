@@ -13,7 +13,7 @@
 
 #pragma once
 
-#if !defined(GLSL_CPP_STUBS)
+#if !defined(GPU_SHADER)
 #  include "BLI_hash.hh"
 #  include "BLI_string_ref.hh"
 #  include "BLI_utildefines_variadic.h"
@@ -38,23 +38,24 @@
 
 /* Used for primitive expansion. */
 #define GPU_SSBO_INDEX_BUF_SLOT 7
-
-namespace blender::gpu::shader {
+/* Used for polylines. */
+#define GPU_SSBO_POLYLINE_POS_BUF_SLOT 0
+#define GPU_SSBO_POLYLINE_COL_BUF_SLOT 1
 
 #if defined(GLSL_CPP_STUBS)
 #  define GPU_SHADER_NAMED_INTERFACE_INFO(_interface, _inst_name) \
-    namespace create_info::interface::_interface { \
+    namespace interface::_interface { \
     struct {
 #  define GPU_SHADER_NAMED_INTERFACE_END(_inst_name) \
     } \
     _inst_name; \
     }
 
-#  define GPU_SHADER_INTERFACE_INFO(_interface) namespace create_info::interface::_interface {
+#  define GPU_SHADER_INTERFACE_INFO(_interface) namespace interface::_interface {
 #  define GPU_SHADER_INTERFACE_END() }
 
 #  define GPU_SHADER_CREATE_INFO(_info) \
-    namespace create_info::_info { \
+    namespace _info { \
     namespace gl_VertexShader { \
     } \
     namespace gl_FragmentShader { \
@@ -63,35 +64,47 @@ namespace blender::gpu::shader {
     }
 #  define GPU_SHADER_CREATE_END() }
 
-#  define SHADER_LIBRARY_CREATE_INFO(_info) using namespace create_info::_info;
+#  define SHADER_LIBRARY_CREATE_INFO(_info) using namespace _info;
 #  define VERTEX_SHADER_CREATE_INFO(_info) \
     using namespace ::gl_VertexShader; \
-    using namespace create_info::_info::gl_VertexShader; \
-    using namespace create_info::_info;
+    using namespace _info::gl_VertexShader; \
+    using namespace _info;
 #  define FRAGMENT_SHADER_CREATE_INFO(_info) \
     using namespace ::gl_FragmentShader; \
-    using namespace create_info::_info::gl_FragmentShader; \
-    using namespace create_info::_info;
+    using namespace _info::gl_FragmentShader; \
+    using namespace _info;
 #  define COMPUTE_SHADER_CREATE_INFO(_info) \
     using namespace ::gl_ComputeShader; \
-    using namespace create_info::_info::gl_ComputeShader; \
-    using namespace create_info::_info;
+    using namespace _info::gl_ComputeShader; \
+    using namespace _info;
 
 #elif !defined(GPU_SHADER_CREATE_INFO)
 /* Helps intellisense / auto-completion inside info files. */
 #  define GPU_SHADER_NAMED_INTERFACE_INFO(_interface, _inst_name) \
-    StageInterfaceInfo _interface(#_interface, _inst_name); \
-    _interface
+    static inline void autocomplete_helper_interface_##_interface() \
+    { \
+      StageInterfaceInfo _interface(#_interface, _inst_name); \
+      _interface
 #  define GPU_SHADER_INTERFACE_INFO(_interface) \
-    StageInterfaceInfo _interface(#_interface); \
-    _interface
+    static inline void autocomplete_helper_interface_##_interface() \
+    { \
+      StageInterfaceInfo _interface(#_interface); \
+      _interface
 #  define GPU_SHADER_CREATE_INFO(_info) \
-    ShaderCreateInfo _info(#_info); \
-    _info
+    static inline void autocomplete_helper_info_##_info() \
+    { \
+      ShaderCreateInfo _info(#_info); \
+      _info
 
-#  define GPU_SHADER_NAMED_INTERFACE_END(_inst_name) ;
-#  define GPU_SHADER_INTERFACE_END() ;
-#  define GPU_SHADER_CREATE_END() ;
+#  define GPU_SHADER_NAMED_INTERFACE_END(_inst_name) \
+    ; \
+    }
+#  define GPU_SHADER_INTERFACE_END() \
+    ; \
+    }
+#  define GPU_SHADER_CREATE_END() \
+    ; \
+    }
 
 #endif
 
@@ -184,16 +197,22 @@ namespace blender::gpu::shader {
 #  define _INT_1D(T) i##T##1D
 #  define _INT_1D_ARRAY(T) i##T##1DArray
 #  define _INT_2D(T) i##T##2D
+#  define _INT_2D_ATOMIC(T) i##T##2D
 #  define _INT_2D_ARRAY(T) i##T##2DArray
+#  define _INT_2D_ARRAY_ATOMIC(T) i##T##2DArray
 #  define _INT_3D(T) i##T##3D
+#  define _INT_3D_ATOMIC(T) i##T##3D
 #  define _INT_CUBE(T) i##T##Cube
 #  define _INT_CUBE_ARRAY(T) i##T##CubeArray
 #  define _UINT_BUFFER(T) u##T##Buffer
 #  define _UINT_1D(T) u##T##1D
 #  define _UINT_1D_ARRAY(T) u##T##1DArray
 #  define _UINT_2D(T) u##T##2D
+#  define _UINT_2D_ATOMIC(T) u##T##2D
 #  define _UINT_2D_ARRAY(T) u##T##2DArray
+#  define _UINT_2D_ARRAY_ATOMIC(T) u##T##2DArray
 #  define _UINT_3D(T) u##T##3D
+#  define _UINT_3D_ATOMIC(T) u##T##3D
 #  define _UINT_CUBE(T) u##T##Cube
 #  define _UINT_CUBE_ARRAY(T) u##T##CubeArray
 #  define _SHADOW_2D(T) T##2DShadow
@@ -216,10 +235,10 @@ namespace blender::gpu::shader {
     namespace gl_VertexShader { \
     const type name = {}; \
     }
-#  define VERTEX_OUT(stage_interface) using namespace create_info::interface::stage_interface;
+#  define VERTEX_OUT(stage_interface) using namespace interface::stage_interface;
 /* TO REMOVE. */
 #  define GEOMETRY_LAYOUT(...)
-#  define GEOMETRY_OUT(stage_interface) using namespace create_info::interface::stage_interface;
+#  define GEOMETRY_OUT(stage_interface) using namespace interface::stage_interface;
 
 #  define SUBPASS_IN(slot, type, name, rog) const type name = {};
 
@@ -239,16 +258,18 @@ namespace blender::gpu::shader {
 #  define EARLY_FRAGMENT_TEST(enable)
 #  define DEPTH_WRITE(value)
 
-#  define SPECIALIZATION_CONSTANT(type, name, default_value) constexpr type name = {};
+#  define SPECIALIZATION_CONSTANT(type, name, default_value) \
+    constexpr type name = type(default_value);
 
-#  define PUSH_CONSTANT(type, name) const type name = {};
-#  define PUSH_CONSTANT_ARRAY(type, name, array_size) const type name[array_size] = {};
+#  define PUSH_CONSTANT(type, name) extern const type name;
+#  define PUSH_CONSTANT_ARRAY(type, name, array_size) extern const type name[array_size];
 
-#  define UNIFORM_BUF(slot, type_name, name) const type_name name = {};
-#  define UNIFORM_BUF_FREQ(slot, type_name, name, freq) const type_name name = {};
+#  define UNIFORM_BUF(slot, type_name, name) extern const type_name name;
+#  define UNIFORM_BUF_FREQ(slot, type_name, name, freq) extern const type_name name;
 
-#  define STORAGE_BUF(slot, qualifiers, type_name, name) qualifiers type_name name = {};
-#  define STORAGE_BUF_FREQ(slot, qualifiers, type_name, name, freq) qualifiers type_name name = {};
+#  define STORAGE_BUF(slot, qualifiers, type_name, name) extern qualifiers type_name name;
+#  define STORAGE_BUF_FREQ(slot, qualifiers, type_name, name, freq) \
+    extern qualifiers type_name name;
 
 #  define SAMPLER(slot, type, name) _##type(sampler) name;
 #  define SAMPLER_FREQ(slot, type, name, freq) _##type(sampler) name;
@@ -272,12 +293,33 @@ namespace blender::gpu::shader {
 /* TO REMOVE. */
 #  define METAL_BACKEND_ONLY()
 
-#  define ADDITIONAL_INFO(info_name) using namespace create_info::info_name;
+#  define ADDITIONAL_INFO(info_name) \
+    using namespace info_name; \
+    using namespace info_name::gl_FragmentShader; \
+    using namespace info_name::gl_VertexShader;
+
 #  define TYPEDEF_SOURCE(filename)
 
-#  define MTL_MAX_TOTAL_THREADS_PER_THREADGROUP(value) \
-    .mtl_max_total_threads_per_threadgroup(value)
+#  define MTL_MAX_TOTAL_THREADS_PER_THREADGROUP(value)
 #endif
+
+#define _INFO_EXPAND2(a, b) ADDITIONAL_INFO(a) ADDITIONAL_INFO(b)
+#define _INFO_EXPAND3(a, b, c) _INFO_EXPAND2(a, b) ADDITIONAL_INFO(c)
+#define _INFO_EXPAND4(a, b, c, d) _INFO_EXPAND3(a, b, c) ADDITIONAL_INFO(d)
+#define _INFO_EXPAND5(a, b, c, d, e) _INFO_EXPAND4(a, b, c, d) ADDITIONAL_INFO(e)
+#define _INFO_EXPAND6(a, b, c, d, e, f) _INFO_EXPAND5(a, b, c, d, e) ADDITIONAL_INFO(f)
+
+#define ADDITIONAL_INFO_EXPAND(...) VA_NARGS_CALL_OVERLOAD(_INFO_EXPAND, __VA_ARGS__)
+
+#define CREATE_INFO_VARIANT(name, ...) \
+  GPU_SHADER_CREATE_INFO(name) \
+  DO_STATIC_COMPILATION() \
+  ADDITIONAL_INFO_EXPAND(__VA_ARGS__) \
+  GPU_SHADER_CREATE_END()
+
+#if !defined(GLSL_CPP_STUBS)
+
+namespace blender::gpu::shader {
 
 /* All of these functions is a bit out of place */
 static inline Type to_type(const eGPUType type)
@@ -558,7 +600,7 @@ struct StageInterfaceInfo {
 
   StageInterfaceInfo(const char *name_, const char *instance_name_ = "")
       : name(name_), instance_name(instance_name_){};
-  ~StageInterfaceInfo(){};
+  ~StageInterfaceInfo() = default;
 
   using Self = StageInterfaceInfo;
 
@@ -615,24 +657,24 @@ struct ShaderCreateInfo {
   /** Manually set builtins. */
   BuiltinBits builtins_ = BuiltinBits::NONE;
   /** Manually set generated code. */
-  std::string vertex_source_generated = "";
-  std::string fragment_source_generated = "";
-  std::string compute_source_generated = "";
-  std::string geometry_source_generated = "";
-  std::string typedef_source_generated = "";
+  std::string vertex_source_generated;
+  std::string fragment_source_generated;
+  std::string compute_source_generated;
+  std::string geometry_source_generated;
+  std::string typedef_source_generated;
   /** Manually set generated dependencies. */
-  Vector<const char *, 0> dependencies_generated;
+  Vector<StringRefNull, 0> dependencies_generated;
 
-#define TEST_EQUAL(a, b, _member) \
-  if (!((a)._member == (b)._member)) { \
-    return false; \
-  }
+#  define TEST_EQUAL(a, b, _member) \
+    if (!((a)._member == (b)._member)) { \
+      return false; \
+    }
 
-#define TEST_VECTOR_EQUAL(a, b, _vector) \
-  TEST_EQUAL(a, b, _vector.size()); \
-  for (auto i : _vector.index_range()) { \
-    TEST_EQUAL(a, b, _vector[i]); \
-  }
+#  define TEST_VECTOR_EQUAL(a, b, _vector) \
+    TEST_EQUAL(a, b, _vector.size()); \
+    for (auto i : _vector.index_range()) { \
+      TEST_EQUAL(a, b, _vector[i]); \
+    }
 
   struct VertIn {
     int index;
@@ -843,18 +885,14 @@ struct ShaderCreateInfo {
    */
   Vector<StringRefNull> additional_infos_;
 
-  /* Transform feedback properties. */
-  eGPUShaderTFBType tf_type_ = GPU_SHADER_TFB_NONE;
-  Vector<const char *> tf_names_;
-
   /* Api-specific parameters. */
-#ifdef WITH_METAL_BACKEND
+#  ifdef WITH_METAL_BACKEND
   ushort mtl_max_threads_per_threadgroup_ = 0;
-#endif
+#  endif
 
  public:
   ShaderCreateInfo(const char *name) : name_(name){};
-  ~ShaderCreateInfo(){};
+  ~ShaderCreateInfo() = default;
 
   using Self = ShaderCreateInfo;
 
@@ -982,14 +1020,14 @@ struct ShaderCreateInfo {
     constant.name = name;
     switch (type) {
       case Type::INT:
-        constant.value.i = static_cast<int>(default_value);
+        constant.value.i = int(default_value);
         break;
       case Type::BOOL:
       case Type::UINT:
-        constant.value.u = static_cast<uint>(default_value);
+        constant.value.u = uint(default_value);
         break;
       case Type::FLOAT:
-        constant.value.f = static_cast<float>(default_value);
+        constant.value.f = float(default_value);
         break;
       default:
         BLI_assert_msg(0, "Only scalar types can be used as constants");
@@ -1217,27 +1255,6 @@ struct ShaderCreateInfo {
   /** \} */
 
   /* -------------------------------------------------------------------- */
-  /** \name Transform feedback properties
-   *
-   * Transform feedback enablement and output binding assignment.
-   * \{ */
-
-  Self &transform_feedback_mode(eGPUShaderTFBType tf_mode)
-  {
-    BLI_assert(tf_mode != GPU_SHADER_TFB_NONE);
-    tf_type_ = tf_mode;
-    return *(Self *)this;
-  }
-
-  Self &transform_feedback_output_name(const char *name)
-  {
-    BLI_assert(tf_type_ != GPU_SHADER_TFB_NONE);
-    tf_names_.append(name);
-    return *(Self *)this;
-  }
-  /** \} */
-
-  /* -------------------------------------------------------------------- */
   /** \name API-Specific Parameters
    *
    * Optional parameters exposed by specific back-ends to enable additional features and
@@ -1250,11 +1267,11 @@ struct ShaderCreateInfo {
    * front. Maximum value is 1024. */
   Self &mtl_max_total_threads_per_threadgroup(ushort max_total_threads_per_threadgroup)
   {
-#ifdef WITH_METAL_BACKEND
+#  ifdef WITH_METAL_BACKEND
     mtl_max_threads_per_threadgroup_ = max_total_threads_per_threadgroup;
-#else
+#  else
     UNUSED_VARS(max_total_threads_per_threadgroup);
-#endif
+#  endif
     return *(Self *)this;
   }
 
@@ -1341,13 +1358,13 @@ struct ShaderCreateInfo {
     };
 
     /* TODO(@fclem): Order the resources. */
-    for (auto &res : info.batch_resources_) {
+    for (const auto &res : info.batch_resources_) {
       print_resource(res);
     }
-    for (auto &res : info.pass_resources_) {
+    for (const auto &res : info.pass_resources_) {
       print_resource(res);
     }
-    for (auto &res : info.geometry_resources_) {
+    for (const auto &res : info.geometry_resources_) {
       print_resource(res);
     }
     return stream;
@@ -1355,17 +1372,17 @@ struct ShaderCreateInfo {
 
   bool has_resource_type(Resource::BindType bind_type) const
   {
-    for (auto &res : batch_resources_) {
+    for (const auto &res : batch_resources_) {
       if (res.bind_type == bind_type) {
         return true;
       }
     }
-    for (auto &res : pass_resources_) {
+    for (const auto &res : pass_resources_) {
       if (res.bind_type == bind_type) {
         return true;
       }
     }
-    for (auto &res : geometry_resources_) {
+    for (const auto &res : geometry_resources_) {
       if (res.bind_type == bind_type) {
         return true;
       }
@@ -1380,8 +1397,8 @@ struct ShaderCreateInfo {
 
   /** \} */
 
-#undef TEST_EQUAL
-#undef TEST_VECTOR_EQUAL
+#  undef TEST_EQUAL
+#  undef TEST_VECTOR_EQUAL
 };
 
 }  // namespace blender::gpu::shader
@@ -1399,16 +1416,4 @@ template<> struct DefaultHash<Vector<blender::gpu::shader::SpecializationConstan
 };
 }  // namespace blender
 
-#define _INFO_EXPAND2(a, b) ADDITIONAL_INFO(a) ADDITIONAL_INFO(b)
-#define _INFO_EXPAND3(a, b, c) _INFO_EXPAND2(a, b) ADDITIONAL_INFO(c)
-#define _INFO_EXPAND4(a, b, c, d) _INFO_EXPAND3(a, b, c) ADDITIONAL_INFO(d)
-#define _INFO_EXPAND5(a, b, c, d, e) _INFO_EXPAND4(a, b, c, d) ADDITIONAL_INFO(e)
-#define _INFO_EXPAND6(a, b, c, d, e, f) _INFO_EXPAND5(a, b, c, d, e) ADDITIONAL_INFO(f)
-
-#define ADDITIONAL_INFO_EXPAND(...) VA_NARGS_CALL_OVERLOAD(_INFO_EXPAND, __VA_ARGS__)
-
-#define CREATE_INFO_VARIANT(name, ...) \
-  GPU_SHADER_CREATE_INFO(name) \
-  DO_STATIC_COMPILATION() \
-  ADDITIONAL_INFO_EXPAND(__VA_ARGS__) \
-  GPU_SHADER_CREATE_END()
+#endif

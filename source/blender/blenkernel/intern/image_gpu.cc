@@ -11,6 +11,8 @@
 #include "BLI_boxpack_2d.h"
 #include "BLI_linklist.h"
 #include "BLI_listbase.h"
+#include "BLI_math_base.hh"
+#include "BLI_rect.h"
 #include "BLI_threads.h"
 #include "BLI_time.h"
 
@@ -22,7 +24,7 @@
 #include "IMB_imbuf_types.hh"
 
 #include "BKE_global.hh"
-#include "BKE_image.h"
+#include "BKE_image.hh"
 #include "BKE_image_partial_update.hh"
 #include "BKE_main.hh"
 
@@ -31,8 +33,6 @@
 #include "GPU_texture.hh"
 
 using namespace blender::bke::image::partial_update;
-
-extern "C" {
 
 /* Prototypes. */
 static void gpu_free_unused_buffers();
@@ -335,7 +335,7 @@ static void image_gpu_texture_try_partial_update(Image *image, ImageUser *iuser)
   }
 }
 
-void BKE_image_ensure_gpu_texture(Image *image, ImageUser *image_user)
+void BKE_image_ensure_gpu_texture(Image *image, ImageUser *iuser)
 {
   if (!image) {
     return;
@@ -343,8 +343,9 @@ void BKE_image_ensure_gpu_texture(Image *image, ImageUser *image_user)
 
   /* Note that the image can cache both stereo views, so we only invalidate the cache if the view
    * index is more than 2. */
-  if (image->gpu_pass != image_user->pass || image->gpu_layer != image_user->layer ||
-      (image->gpu_view != image_user->multi_index && image_user->multi_index >= 2))
+  if (!ELEM(image->gpu_pass, IMAGE_GPU_PASS_NONE, iuser->pass) ||
+      !ELEM(image->gpu_layer, IMAGE_GPU_LAYER_NONE, iuser->layer) ||
+      (!ELEM(image->gpu_view, IMAGE_GPU_VIEW_NONE, iuser->multi_index) && iuser->multi_index >= 2))
   {
     BKE_image_partial_update_mark_full_update(image);
   }
@@ -695,7 +696,7 @@ static void gpu_texture_update_scaled(GPUTexture *tex,
                                            (void *)(ibuf->byte_buffer.data);
   eGPUDataFormat data_format = (ibuf->float_buffer.data) ? GPU_DATA_FLOAT : GPU_DATA_UBYTE;
 
-  GPU_texture_update_sub(tex, data_format, data, x, y, layer, w, h, 1);
+  GPU_texture_update_sub(tex, data_format, data, x, y, blender::math::max(layer, 0), w, h, 1);
 
   IMB_freeImBuf(ibuf);
 }
@@ -725,7 +726,7 @@ static void gpu_texture_update_unscaled(GPUTexture *tex,
    * subset of a possible larger buffer than what we are updating. */
   GPU_unpack_row_length_set(tex_stride);
 
-  GPU_texture_update_sub(tex, data_format, data, x, y, layer, w, h, 1);
+  GPU_texture_update_sub(tex, data_format, data, x, y, blender::math::max(layer, 0), w, h, 1);
   /* Restore default. */
   GPU_unpack_row_length_set(0);
 }
@@ -932,4 +933,3 @@ void BKE_image_paint_set_mipmap(Main *bmain, bool mipmap)
 }
 
 /** \} */
-}

@@ -16,6 +16,7 @@
 
 #include "MEM_guardedalloc.h"
 
+#include "BLI_listbase.h"
 #include "BLI_utildefines.h"
 
 #include "BLT_translation.hh"
@@ -23,6 +24,7 @@
 #include "BKE_context.hh"
 #include "BKE_fcurve.hh"
 #include "BKE_lib_id.hh"
+#include "BKE_library.hh"
 #include "BKE_main.hh"
 #include "BKE_nla.hh"
 #include "BKE_report.hh"
@@ -66,6 +68,12 @@ void ED_nla_postop_refresh(bAnimContext *ac)
   ANIM_animdata_filter(ac, &anim_data, filter, ac->data, eAnimCont_Types(ac->datatype));
 
   LISTBASE_FOREACH (bAnimListElem *, ale, &anim_data) {
+    if (!ale->adt) {
+      continue;
+    }
+    if (ale->type != ANIMTYPE_ANIMDATA) {
+      continue;
+    }
     /* performing auto-blending, extend-mode validation, etc. */
     BKE_nla_validate_state(static_cast<AnimData *>(ale->data));
 
@@ -117,7 +125,11 @@ static int nlaedit_enable_tweakmode_exec(bContext *C, wmOperator *op)
 
   /* for each AnimData block with NLA-data, try setting it in tweak-mode */
   LISTBASE_FOREACH (bAnimListElem *, ale, &anim_data) {
+    if (ale->type != ANIMTYPE_ANIMDATA) {
+      continue;
+    }
     AnimData *adt = static_cast<AnimData *>(ale->data);
+    BLI_assert(adt);
 
     if (use_upper_stack_evaluation) {
       adt->flag |= ADT_NLA_EVAL_UPPER_TRACKS;
@@ -2297,7 +2309,7 @@ static int nlaedit_clear_scale_exec(bContext *C, wmOperator * /*op*/)
       /* strip must be selected, and must be action-clip only
        * (transitions don't have scale) */
       if ((strip->flag & NLASTRIP_FLAG_SELECT) && (strip->type == NLASTRIP_TYPE_CLIP)) {
-        PointerRNA strip_ptr = RNA_pointer_create(nullptr, &RNA_NlaStrip, strip);
+        PointerRNA strip_ptr = RNA_pointer_create_discrete(nullptr, &RNA_NlaStrip, strip);
         RNA_float_set(&strip_ptr, "scale", 1.0f);
       }
     }

@@ -4,6 +4,7 @@
 
 #include "BLI_kdtree.h"
 #include "BLI_math_geom.h"
+#include "BLI_math_quaternion.hh"
 #include "BLI_math_rotation.h"
 #include "BLI_noise.hh"
 #include "BLI_rand.hh"
@@ -88,7 +89,7 @@ static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 
 static void node_layout_ex(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "use_legacy_normal", UI_ITEM_NONE, nullptr, ICON_NONE);
+  uiItemR(layout, ptr, "use_legacy_normal", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 }
 
 /**
@@ -286,7 +287,7 @@ BLI_NOINLINE static void interpolate_attribute(const Mesh &mesh,
 
 BLI_NOINLINE static void propagate_existing_attributes(
     const Mesh &mesh,
-    const Map<StringRef, AttributeKind> &attributes,
+    const Map<StringRef, AttributeDomainAndType> &attributes,
     PointCloud &points,
     const Span<float3> bary_coords,
     const Span<int> tri_indices)
@@ -294,7 +295,7 @@ BLI_NOINLINE static void propagate_existing_attributes(
   const AttributeAccessor mesh_attributes = mesh.attributes();
   MutableAttributeAccessor point_attributes = points.attributes_for_write();
 
-  for (MapItem<StringRef, AttributeKind> entry : attributes.items()) {
+  for (MapItem<StringRef, AttributeDomainAndType> entry : attributes.items()) {
     const StringRef attribute_id = entry.key;
     const eCustomDataType output_data_type = entry.value.data_type;
 
@@ -555,7 +556,7 @@ static void point_distribution_calculate(GeometrySet &geometry_set,
 
   geometry_set.replace_pointcloud(pointcloud);
 
-  Map<StringRef, AttributeKind> attributes;
+  Map<StringRef, AttributeDomainAndType> attributes;
   geometry_set.gather_attributes_for_propagation({GeometryComponent::Type::Mesh},
                                                  GeometryComponent::Type::PointCloud,
                                                  false,
@@ -606,16 +607,18 @@ static void node_register()
 {
   static blender::bke::bNodeType ntype;
 
-  geo_node_type_base(&ntype,
-                     GEO_NODE_DISTRIBUTE_POINTS_ON_FACES,
-                     "Distribute Points on Faces",
-                     NODE_CLASS_GEOMETRY);
-  blender::bke::node_type_size(&ntype, 170, 100, 320);
+  geo_node_type_base(
+      &ntype, "GeometryNodeDistributePointsOnFaces", GEO_NODE_DISTRIBUTE_POINTS_ON_FACES);
+  ntype.ui_name = "Distribute Points on Faces";
+  ntype.ui_description = "Generate points spread out on the surface of a mesh";
+  ntype.enum_name_legacy = "DISTRIBUTE_POINTS_ON_FACES";
+  ntype.nclass = NODE_CLASS_GEOMETRY;
+  blender::bke::node_type_size(ntype, 170, 100, 320);
   ntype.declare = node_declare;
   ntype.geometry_node_execute = node_geo_exec;
   ntype.draw_buttons = node_layout;
   ntype.draw_buttons_ex = node_layout_ex;
-  blender::bke::node_register_type(&ntype);
+  blender::bke::node_register_type(ntype);
 }
 NOD_REGISTER_NODE(node_register)
 

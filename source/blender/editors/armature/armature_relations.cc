@@ -15,11 +15,12 @@
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 
-#include "BLI_blenlib.h"
 #include "BLI_ghash.h"
+#include "BLI_listbase.h"
 #include "BLI_map.hh"
 #include "BLI_math_matrix.h"
 #include "BLI_math_vector.h"
+#include "BLI_string.h"
 
 #include "BLT_translation.hh"
 
@@ -379,7 +380,7 @@ int ED_armature_join_objects_exec(bContext *C, wmOperator *op)
       /* Find the difference matrix */
       mul_m4_m4m4(mat, oimat, ob_iter->object_to_world().ptr());
 
-      /* Copy bones and posechannels from the object to the edit armature */
+      /* Copy bones and pose-channels from the object to the edit armature. */
       for (pchan = static_cast<bPoseChannel *>(opose->chanbase.first); pchan; pchan = pchann) {
         pchann = pchan->next;
         curbone = ED_armature_ebone_find_name(curarm->edbo, pchan->name);
@@ -890,7 +891,7 @@ static int armature_parent_set_exec(bContext *C, wmOperator *op)
   if (actbone->flag & BONE_SELECTED) {
     is_active_only_selected = true;
     LISTBASE_FOREACH (EditBone *, ebone, arm->edbo) {
-      if (EBONE_EDITABLE(ebone) && (ebone->flag & BONE_SELECTED)) {
+      if (EBONE_EDITABLE(ebone)) {
         if (ebone != actbone) {
           is_active_only_selected = false;
           break;
@@ -922,7 +923,7 @@ static int armature_parent_set_exec(bContext *C, wmOperator *op)
 
     /* Parent selected bones to the active one. */
     LISTBASE_FOREACH (EditBone *, ebone, arm->edbo) {
-      if (EBONE_EDITABLE(ebone) && (ebone->flag & BONE_SELECTED)) {
+      if (EBONE_EDITABLE(ebone)) {
         if (ebone != actbone) {
           bone_connect_to_new_parent(arm->edbo, ebone, actbone, val);
         }
@@ -981,11 +982,13 @@ static int armature_parent_set_invoke(bContext *C, wmOperator * /*op*/, const wm
 
   uiLayout *row_offset = uiLayoutRow(layout, false);
   uiLayoutSetEnabled(row_offset, enable_offset);
-  uiItemEnumO(row_offset, "ARMATURE_OT_parent_set", nullptr, ICON_NONE, "type", ARM_PAR_OFFSET);
+  uiItemEnumO(
+      row_offset, "ARMATURE_OT_parent_set", std::nullopt, ICON_NONE, "type", ARM_PAR_OFFSET);
 
   uiLayout *row_connect = uiLayoutRow(layout, false);
   uiLayoutSetEnabled(row_connect, enable_connect);
-  uiItemEnumO(row_connect, "ARMATURE_OT_parent_set", nullptr, ICON_NONE, "type", ARM_PAR_CONNECT);
+  uiItemEnumO(
+      row_connect, "ARMATURE_OT_parent_set", std::nullopt, ICON_NONE, "type", ARM_PAR_CONNECT);
 
   UI_popup_menu_end(C, pup);
 
@@ -1099,13 +1102,14 @@ static int armature_parent_clear_invoke(bContext *C,
 
   uiLayout *row_clear = uiLayoutRow(layout, false);
   uiLayoutSetEnabled(row_clear, enable_clear);
-  uiItemEnumO(row_clear, "ARMATURE_OT_parent_clear", nullptr, ICON_NONE, "type", ARM_PAR_CLEAR);
+  uiItemEnumO(
+      row_clear, "ARMATURE_OT_parent_clear", std::nullopt, ICON_NONE, "type", ARM_PAR_CLEAR);
 
   uiLayout *row_disconnect = uiLayoutRow(layout, false);
   uiLayoutSetEnabled(row_disconnect, enable_disconnect);
   uiItemEnumO(row_disconnect,
               "ARMATURE_OT_parent_clear",
-              nullptr,
+              std::nullopt,
               ICON_NONE,
               "type",
               ARM_PAR_CLEAR_DISCONNECT);

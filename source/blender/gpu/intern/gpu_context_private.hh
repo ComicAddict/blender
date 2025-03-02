@@ -10,9 +10,11 @@
 
 #pragma once
 
-#include "MEM_guardedalloc.h"
+#include "BKE_global.hh"
 
+#include "GPU_batch.hh"
 #include "GPU_context.hh"
+#include "GPU_texture_pool.hh"
 
 #include "gpu_debug_private.hh"
 #include "gpu_framebuffer_private.hh"
@@ -60,7 +62,19 @@ class Context {
   static int context_counter;
   int context_id = 0;
 
-  GPUStorageBuf *printf_buf = nullptr;
+  /* Used as a stack. Each render_begin/end pair will push pop from the stack. */
+  Vector<GPUStorageBuf *> printf_buf;
+
+  /** Dummy VBO to feed the procedural batches. */
+  VertBuf *dummy_vbo = nullptr;
+  /** Dummy batches for procedural geometry rendering. */
+  Batch *procedural_points_batch = nullptr;
+  Batch *procedural_lines_batch = nullptr;
+  Batch *procedural_triangles_batch = nullptr;
+  Batch *procedural_triangle_strips_batch = nullptr;
+
+  /** Texture pool used to recycle temporary texture (or render target) memory. */
+  TexturePool *texture_pool = nullptr;
 
  protected:
   /** Thread on which this context is active. */
@@ -87,7 +101,7 @@ class Context {
 
   virtual void memory_statistics_get(int *r_total_mem, int *r_free_mem) = 0;
 
-  virtual void debug_group_begin(const char *, int){};
+  virtual void debug_group_begin(const char * /*name*/, int /*index*/){};
   virtual void debug_group_end(){};
 
   /* Returns true if capture successfully started. */
@@ -103,6 +117,41 @@ class Context {
   virtual void debug_unbind_all_ssbo() = 0;
 
   bool is_active_on_thread();
+
+  VertBuf *dummy_vbo_get();
+  Batch *procedural_points_batch_get();
+  Batch *procedural_lines_batch_get();
+  Batch *procedural_triangles_batch_get();
+  Batch *procedural_triangle_strips_batch_get();
+
+  /* When using `--debug-gpu`, assert that the shader fragments write to all the writable
+   * attachments of the bound frame-buffer. */
+  void assert_framebuffer_shader_compatibility(Shader *sh)
+  {
+    if (!(G.debug & G_DEBUG_GPU)) {
+      return;
+    }
+
+    if (!(state_manager->state.write_mask & eGPUWriteMask::GPU_WRITE_COLOR)) {
+      return;
+    }
+
+    uint16_t fragment_output_bits = sh->fragment_output_bits;
+    uint16_t fb_attachments_bits = active_fb->get_color_attachments_bitset();
+
+    if ((fb_attachments_bits & ~fragment_output_bits) != 0) {
+      std::string msg;
+      msg = msg + "Shader (" + sh->name_get() + ") does not write to all frame-buffer (" +
+            active_fb->name_get() + ") color attachments";
+      BLI_assert_msg(false, msg.c_str());
+      std::cerr << msg << std::endl;
+    }
+  }
+
+ protected:
+  /* Derived classes should call this from the destructor, as freeing framebuffers may need the
+   * derived context to be valid. */
+  void free_framebuffers();
 };
 
 /* Syntactic sugar. */

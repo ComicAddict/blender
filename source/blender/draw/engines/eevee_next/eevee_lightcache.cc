@@ -10,6 +10,7 @@
 
 #include <mutex>
 
+#include "DRW_engine.hh"
 #include "DRW_render.hh"
 
 #include "BKE_global.hh"
@@ -31,7 +32,6 @@
 
 #include "wm_window.hh"
 
-#include "eevee_engine.h"
 #include "eevee_instance.hh"
 
 #include "eevee_lightcache.hh"
@@ -144,7 +144,7 @@ class LightBake {
   /**
    * Called from worker thread.
    */
-  void run(bool *stop = nullptr, bool *do_update = nullptr, float *progress = nullptr)
+  void run(const bool *stop = nullptr, bool *do_update = nullptr, float *progress = nullptr)
   {
     DEG_graph_relations_update(depsgraph_);
     DEG_evaluate_on_framechange(depsgraph_, frame_);

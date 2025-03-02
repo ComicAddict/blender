@@ -327,7 +327,7 @@ enum {
   SCE_VIEWS_FORMAT_MULTIVIEW = 1,
 };
 
-/** #ImageFormatData::views_format (also used for #Sequence::views_format). */
+/** #ImageFormatData::views_format (also used for #Strip::views_format). */
 enum {
   R_IMF_VIEWS_INDIVIDUAL = 0,
   R_IMF_VIEWS_STEREO_3D = 1,
@@ -830,10 +830,9 @@ typedef struct RenderData {
   /** Precision used by the GPU execution of the compositor tree. */
   int compositor_precision; /* eCompositorPrecision */
 
-  /* If false and the experimental enable_new_cpu_compositor is true, use the new experimental
-   * CPU compositor implementation, otherwise, use the old CPU compositor. */
-  char use_old_cpu_compositor;
-  char _pad10[7];
+  /** Global configuration for denoise compositor nodes. */
+  int compositor_denoise_preview_quality; /* eCompositorDenoiseQaulity */
+  int compositor_denoise_final_quality;   /* eCompositorDenoiseQaulity */
 } RenderData;
 
 /** #RenderData::quality_flag */
@@ -865,6 +864,14 @@ typedef enum eCompositorPrecision {
   SCE_COMPOSITOR_PRECISION_AUTO = 0,
   SCE_COMPOSITOR_PRECISION_FULL = 1,
 } eCompositorPrecision;
+
+/** #RenderData::compositor_denoise_preview_quality */
+/** #RenderData::compositor_denoise_final_quality */
+typedef enum eCompositorDenoiseQaulity {
+  SCE_COMPOSITOR_DENOISE_HIGH = 0,
+  SCE_COMPOSITOR_DENOISE_BALANCED = 1,
+  SCE_COMPOSITOR_DENOISE_FAST = 2,
+} eCompositorDenoiseQaulity;
 
 /** \} */
 
@@ -1034,6 +1041,11 @@ typedef struct ImagePaintSettings {
   /** Display texture interpolation method. */
   int interp;
   char _pad[4];
+  /** Offset of clone image from canvas in Image editor. */
+  float clone_offset[2];
+  /** Transparency for drawing of clone image in Image editor. */
+  float clone_alpha;
+  char _pad2[4];
 } ImagePaintSettings;
 
 /** \} */
@@ -1794,7 +1806,13 @@ typedef struct ToolSettings {
 /** Display/Editing unit options for each scene. */
 typedef struct UnitSettings {
 
-  /** Maybe have other unit conversions? */
+  /* Maybe have other unit conversions? */
+  /**
+   * Spatial scale.
+   * - This must not be used when `system == USER_UNIT_NONE`.
+   * - Typically the scale should be applied using #BKE_unit_value_scale
+   *   which supports different kinds of users and checks a none unit system.
+   */
   float scale_length;
   /** Imperial, metric etc. */
   char system;
@@ -1884,24 +1902,12 @@ typedef struct SceneEEVEE {
   int gi_diffuse_bounces;
   int gi_cubemap_resolution;
   int gi_visibility_resolution;
-  float gi_irradiance_smoothing;
   float gi_glossy_clamp;
-  float gi_filter_quality;
   int gi_irradiance_pool_size;
-
-  float gi_cubemap_draw_size;
-  float gi_irradiance_draw_size;
+  char _pad0[4];
 
   int taa_samples;
   int taa_render_samples;
-  int sss_samples;
-  float sss_jitter_threshold;
-
-  float ssr_quality;
-  float ssr_max_roughness;
-  float ssr_thickness;
-  float ssr_border_fade;
-  float ssr_firefly_fac;
 
   float volumetric_start;
   float volumetric_end;
@@ -1913,32 +1919,23 @@ typedef struct SceneEEVEE {
   int volumetric_ray_depth;
 
   float gtao_distance;
-  float gtao_factor;
-  float gtao_quality;
   float gtao_thickness;
   float gtao_focus;
   int gtao_resolution;
 
   int fast_gi_step_count;
   int fast_gi_ray_count;
+  float fast_gi_quality;
   float fast_gi_distance;
   float fast_gi_thickness_near;
   float fast_gi_thickness_far;
   char fast_gi_method;
-  char _pad0[3];
+  char _pad1[3];
 
   float bokeh_overblur;
   float bokeh_max_size;
   float bokeh_threshold;
   float bokeh_neighbor_max;
-  float bokeh_denoise_fac;
-
-  float bloom_color[3];
-  float bloom_threshold;
-  float bloom_knee;
-  float bloom_intensity;
-  float bloom_radius;
-  float bloom_clamp;
 
   int motion_blur_samples DNA_DEPRECATED;
   int motion_blur_max;
@@ -1947,9 +1944,8 @@ typedef struct SceneEEVEE {
   float motion_blur_shutter_deprecated DNA_DEPRECATED;
   float motion_blur_depth_scale;
 
-  int shadow_method DNA_DEPRECATED;
-  int shadow_cube_size;
-  int shadow_cascade_size;
+  /* Only keep for versioning. */
+  int shadow_cube_size_deprecated DNA_DEPRECATED;
   int shadow_pool_size;
   int shadow_ray_count;
   int shadow_step_count;
@@ -2448,10 +2444,6 @@ ENUM_OPERATORS(eSnapTargetOP, SCE_SNAP_TARGET_NOT_NONEDITED)
 typedef enum eSnapMode {
   SCE_SNAP_TO_NONE = 0,
 
-  /** #ToolSettings::snap_node_mode */
-  SCE_SNAP_TO_NODE_X = (1 << 0),
-  SCE_SNAP_TO_NODE_Y = (1 << 1),
-
   /** #ToolSettings::snap_anim_mode */
   SCE_SNAP_TO_FRAME = (1 << 0),
   SCE_SNAP_TO_SECOND = (1 << 1),
@@ -2496,6 +2488,8 @@ enum {
   SEQ_SNAP_TO_PREVIEW_BORDERS = 1 << 4,
   SEQ_SNAP_TO_PREVIEW_CENTER = 1 << 5,
   SEQ_SNAP_TO_STRIPS_PREVIEW = 1 << 6,
+
+  SEQ_SNAP_TO_RETIMING = 1 << 7,
 };
 
 /** #SequencerToolSettings::snap_flag */
@@ -2887,28 +2881,28 @@ enum {
 /** #SceneEEVEE::flag */
 enum {
   // SCE_EEVEE_VOLUMETRIC_ENABLED = (1 << 0), /* Unused */
-  SCE_EEVEE_VOLUMETRIC_LIGHTS = (1 << 1),
+  // SCE_EEVEE_VOLUMETRIC_LIGHTS = (1 << 1), /* Unused. */
   SCE_EEVEE_VOLUMETRIC_SHADOWS = (1 << 2),
   //  SCE_EEVEE_VOLUMETRIC_COLORED    = (1 << 3), /* Unused */
   SCE_EEVEE_GTAO_ENABLED = (1 << 4),
-  SCE_EEVEE_GTAO_BENT_NORMALS = (1 << 5),
-  SCE_EEVEE_GTAO_BOUNCE = (1 << 6),
+  // SCE_EEVEE_GTAO_BENT_NORMALS = (1 << 5), /* Unused. */
+  // SCE_EEVEE_GTAO_BOUNCE = (1 << 6), /* Unused. */
   // SCE_EEVEE_DOF_ENABLED = (1 << 7), /* Moved to camera->dof.flag */
   // SCE_EEVEE_BLOOM_ENABLED = (1 << 8), /* Unused */
   SCE_EEVEE_MOTION_BLUR_ENABLED_DEPRECATED = (1 << 9), /* Moved to scene->r.mode */
-  SCE_EEVEE_SHADOW_HIGH_BITDEPTH = (1 << 10),
+  // SCE_EEVEE_SHADOW_HIGH_BITDEPTH = (1 << 10), /* Unused. */
   SCE_EEVEE_TAA_REPROJECTION = (1 << 11),
   // SCE_EEVEE_SSS_ENABLED = (1 << 12), /* Unused */
   // SCE_EEVEE_SSS_SEPARATE_ALBEDO = (1 << 13), /* Unused */
   SCE_EEVEE_SSR_ENABLED = (1 << 14),
-  SCE_EEVEE_SSR_REFRACTION = (1 << 15),
-  SCE_EEVEE_SSR_HALF_RESOLUTION = (1 << 16),
-  SCE_EEVEE_SHOW_IRRADIANCE = (1 << 17),
-  SCE_EEVEE_SHOW_CUBEMAPS = (1 << 18),
+  // SCE_EEVEE_SSR_REFRACTION = (1 << 15), /* Unused. */
+  // SCE_EEVEE_SSR_HALF_RESOLUTION = (1 << 16), /* Unused. */
+  // SCE_EEVEE_SHOW_IRRADIANCE = (1 << 17), /* Unused. */
+  // SCE_EEVEE_SHOW_CUBEMAPS = (1 << 18), /* Unused. */
   SCE_EEVEE_GI_AUTOBAKE = (1 << 19),
-  SCE_EEVEE_SHADOW_SOFT = (1 << 20),
+  // SCE_EEVEE_SHADOW_SOFT = (1 << 20), /* Unused. */
   SCE_EEVEE_OVERSCAN = (1 << 21),
-  SCE_EEVEE_DOF_HQ_SLIGHT_FOCUS = (1 << 22),
+  // SCE_EEVEE_DOF_HQ_SLIGHT_FOCUS = (1 << 22), /* Unused. */
   SCE_EEVEE_DOF_JITTER = (1 << 23),
   SCE_EEVEE_SHADOW_ENABLED = (1 << 24),
   SCE_EEVEE_RAYTRACE_OPTIONS_SPLIT = (1 << 25),
@@ -2939,13 +2933,6 @@ typedef enum FastGI_Method {
   FAST_GI_FULL = 0,
   FAST_GI_AO_ONLY = 1,
 } FastGI_Method;
-
-/** #SceneEEVEE::shadow_method */
-enum {
-  SHADOW_ESM = 1,
-  /* SHADOW_VSM = 2, */        /* UNUSED */
-  /* SHADOW_METHOD_MAX = 3, */ /* UNUSED */
-};
 
 /** #SceneDisplay->render_aa and #SceneDisplay->viewport_aa */
 enum {

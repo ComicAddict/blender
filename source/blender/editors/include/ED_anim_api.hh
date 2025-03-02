@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "BKE_nla.hh"
+
 #include "BLI_sys_types.h"
 #include "BLI_utildefines.h"
 
@@ -50,6 +52,8 @@ struct uiBlock;
 
 struct PointerRNA;
 struct PropertyRNA;
+
+struct MPathTarget;
 
 /* ************************************************ */
 /* ANIMATION CHANNEL FILTERING */
@@ -654,6 +658,18 @@ struct bAnimChannelType {
    * - assume that setting has been checked to be valid for current context.
    */
   void *(*setting_ptr)(bAnimListElem *ale, eAnimChannel_Settings setting, short *r_type);
+
+  /**
+   * Called after a setting was changed via ANIM_channel_setting_set().
+   *
+   * \param ale is marked as 'const', as it could have been duplicated and taken out of context.
+   * This means that any hypothetical changes to `ale->update`, for example, will not be seen by
+   * any `ANIM_animdata_update()` call. So better to keep this `const` and avoid any manipulation.
+   * Also, because of the duplications, the ale's `prev` and `next` pointers will be dangling.
+   */
+  void (*setting_post_update)(Main &bmain,
+                              const bAnimListElem &ale,
+                              eAnimChannel_Settings setting);
 };
 
 /** \} */
@@ -679,7 +695,7 @@ float ANIM_UI_get_channel_button_width();
 /**
  * Get type info from given channel type.
  */
-const bAnimChannelType *ANIM_channel_get_typeinfo(bAnimListElem *ale);
+const bAnimChannelType *ANIM_channel_get_typeinfo(const bAnimListElem *ale);
 
 /**
  * Print debug info string for the given channel.
@@ -963,18 +979,40 @@ void nla_action_get_color(AnimData *adt, bAction *act, float color[4]);
 /* `anim_draw.cc` */
 
 /**
- * Obtain the AnimData block providing NLA-mapping for the given channel (if applicable).
+ * Check whether NLA time remapping should be done on this bAnimListElem.
  *
- * TODO: do not supply return this if the animdata tells us that there is no mapping to perform.
+ * \returns true by default, false only when this ale indicates an NLA control curve (like animated
+ * influence) or a driver.
  */
-AnimData *ANIM_nla_mapping_get(bAnimContext *ac, bAnimListElem *ale);
+bool ANIM_nla_mapping_allowed(const bAnimListElem *ale);
+
+/**
+ * Do NLA time remapping, but only if `ANIM_nla_mapping_allowed(ale)` returns `true`.
+ *
+ * \see #ANIM_nla_mapping_allowed
+ * \see #BKE_nla_tweakedit_remap
+ */
+float ANIM_nla_tweakedit_remap(bAnimListElem *ale, float cframe, eNlaTime_ConvertModes mode);
 
 /**
  * Apply/Unapply NLA mapping to all keyframes in the nominated F-Curve
  * \param restore: Whether to map points back to non-mapped time.
  * \param only_keys: Whether to only adjust the location of the center point of beztriples.
+ *
+ * TODO: this is only used by `fcurve_to_keylist()` at this point. Perhaps with
+ * some refactoring we can make `fcurve_to_keylist()` use
+ * `ANIM_nla_mapping_apply_if_needed_fcurve()` instead, and then we can get rid
+ * of this.
  */
 void ANIM_nla_mapping_apply_fcurve(AnimData *adt, FCurve *fcu, bool restore, bool only_keys);
+
+/**
+ * Same as above, but only if `ANIM_nla_mapping_allowed(ale)` returns `true`.
+ */
+void ANIM_nla_mapping_apply_if_needed_fcurve(bAnimListElem *ale,
+                                             FCurve *fcu,
+                                             bool restore,
+                                             bool only_keys);
 
 /* ..... */
 
@@ -1163,12 +1201,12 @@ enum eAnimvizCalcRange {
 Depsgraph *animviz_depsgraph_build(Main *bmain,
                                    Scene *scene,
                                    ViewLayer *view_layer,
-                                   ListBase *targets);
+                                   blender::Span<MPathTarget *> targets);
 
 void animviz_calc_motionpaths(Depsgraph *depsgraph,
                               Main *bmain,
                               Scene *scene,
-                              ListBase *targets,
+                              blender::MutableSpan<MPathTarget *> targets,
                               eAnimvizCalcRange range,
                               bool restore);
 
@@ -1182,9 +1220,16 @@ void animviz_calc_motionpaths(Depsgraph *depsgraph,
 void animviz_motionpath_compute_range(Object *ob, Scene *scene);
 
 /**
- * Get list of motion paths to be baked for the given object.
- * - assumes the given list is ready to be used.
+ * Populate the given vector with MPathTarget elements for the given object.
+ * Will look for pose bones as well. `animviz_free_motionpath_targets` needs to be called
+ * to free the memory allocated in this function.
  */
-void animviz_get_object_motionpaths(Object *ob, ListBase *targets);
+void animviz_build_motionpath_targets(Object *ob, blender::Vector<MPathTarget *> &r_targets);
+
+/**
+ * Free the elements of the vector populated with `animviz_build_motionpath_targets`.
+ * After this function the Vector will have a length of 0.
+ */
+void animviz_free_motionpath_targets(blender::Vector<MPathTarget *> &targets);
 
 /** \} */

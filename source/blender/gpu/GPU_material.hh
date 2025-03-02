@@ -14,8 +14,6 @@
 #include "DNA_image_types.h"
 #include "DNA_listBase.h"
 
-#include "BLI_sys_types.h" /* for bool */
-
 #include "GPU_shader.hh"  /* for GPUShaderCreateInfo */
 #include "GPU_texture.hh" /* for GPUSamplerState */
 
@@ -219,11 +217,6 @@ char *GPU_material_split_sub_function(GPUMaterial *material,
                                       eGPUType return_type,
                                       GPUNodeLink **link);
 
-bool GPU_material_sss_profile_create(GPUMaterial *material, float radii[3]);
-GPUUniformBuf *GPU_material_sss_profile_get(GPUMaterial *material,
-                                            int sample_len,
-                                            GPUTexture **tex_profile);
-
 /**
  * High level functions to create and use GPU materials.
  */
@@ -319,7 +312,6 @@ GPUUniformBuf *GPU_material_uniform_buffer_get(GPUMaterial *material);
  * \param inputs: Items are #LinkData, data is #GPUInput (`BLI_genericNodeN(GPUInput)`).
  */
 void GPU_material_uniform_buffer_create(GPUMaterial *material, ListBase *inputs);
-GPUUniformBuf *GPU_material_create_sss_profile_ubo();
 
 bool GPU_material_has_surface_output(GPUMaterial *mat);
 bool GPU_material_has_volume_output(GPUMaterial *mat);
@@ -405,7 +397,7 @@ struct GPULayerAttr {
   GPULayerAttr *next, *prev;
 
   /* Meaningful part of the attribute set key. */
-  char name[68]; /* MAX_CUSTOMDATA_LAYER_NAME */
+  char name[256]; /* Multiple MAX_CUSTOMDATA_LAYER_NAME */
   /** Hash of name[68]. */
   uint32_t hash_code;
 

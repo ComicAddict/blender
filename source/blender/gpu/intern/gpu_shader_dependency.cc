@@ -13,21 +13,22 @@
 #include <iomanip>
 #include <iostream>
 #include <regex>
-#include <sstream>
 #include <string>
 
 #include "BLI_ghash.h"
 #include "BLI_map.hh"
-#include "BLI_string.h"
 #include "BLI_string_ref.hh"
 
 #include "gpu_material_library.hh"
 #include "gpu_shader_create_info.hh"
 #include "gpu_shader_dependency_private.hh"
 
-#include "../glsl_preprocess/glsl_preprocess.hh"
+#ifdef WITH_OPENSUBDIV
+#  include "opensubdiv_capi_type.hh"
+#  include "opensubdiv_evaluator_capi.hh"
+#endif
 
-#include "GPU_context.hh"
+#include "../glsl_preprocess/glsl_preprocess.hh"
 
 extern "C" {
 #define SHADER_SOURCE(datatoc, filename, filepath) extern char datatoc[];
@@ -92,6 +93,7 @@ struct GPUSource {
 #else
         return BuiltinBits::NONE;
 #endif
+      case Builtin::assert:
       case Builtin::printf:
 #if GPU_SHADER_PRINTF_ENABLE
         return BuiltinBits::USE_PRINTF;
@@ -298,10 +300,10 @@ struct GPUSource {
     StringRef name = pop_token(line);
 
     GPUFunction *func = MEM_new<GPUFunction>(__func__);
-    name.copy(func->name, sizeof(func->name));
+    name.copy_utf8_truncated(func->name, sizeof(func->name));
     func->source = reinterpret_cast<void *>(this);
     func->totparam = 0;
-    while (1) {
+    while (true) {
       StringRef arg_qual = pop_token(line);
       StringRef arg_type = pop_token(line);
       if (arg_qual.is_empty()) {
@@ -399,12 +401,12 @@ struct GPUSource {
   }
 
   /* Returns the final string with all includes done. */
-  void build(Vector<const char *> &result) const
+  void build(Vector<StringRefNull> &result) const
   {
     for (auto *dep : dependencies) {
-      result.append(dep->source.c_str());
+      result.append(dep->source);
     }
-    result.append(source.c_str());
+    result.append(source);
   }
 
   shader::BuiltinBits builtins_get() const
@@ -449,6 +451,17 @@ void gpu_shader_dependency_init()
 #  include "glsl_ocio_source_list.h"
 #endif
 #undef SHADER_SOURCE
+#ifdef WITH_OPENSUBDIV
+  const blender::StringRefNull patch_basis_source = openSubdiv_getGLSLPatchBasisSource();
+  static std::string osd_patch_basis_glsl =
+      "//__blender_metadata_sta\n//__blender_metadata_end\n" + patch_basis_source;
+  g_sources->add_new("osd_patch_basis.glsl",
+                     new GPUSource("osd_patch_basis.glsl",
+                                   "osd_patch_basis.glsl",
+                                   osd_patch_basis_glsl.c_str(),
+                                   g_functions,
+                                   g_formats));
+#endif
 
   int errors = 0;
   for (auto *value : g_sources->values()) {
@@ -462,7 +475,7 @@ void gpu_shader_dependency_init()
     /* Detect if there is any printf in node lib files.
      * See gpu_shader_dependency_force_gpu_print_injection(). */
     for (auto *value : g_sources->values()) {
-      if ((value->builtins & shader::BuiltinBits::USE_PRINTF) != shader::BuiltinBits::USE_PRINTF) {
+      if (bool(value->builtins & shader::BuiltinBits::USE_PRINTF)) {
         if (value->filename.startswith("gpu_shader_material_")) {
           force_printf_injection = true;
           break;
@@ -532,10 +545,10 @@ BuiltinBits gpu_shader_dependency_get_builtins(const StringRefNull shader_source
   return source->builtins_get();
 }
 
-Vector<const char *> gpu_shader_dependency_get_resolved_source(
+Vector<StringRefNull> gpu_shader_dependency_get_resolved_source(
     const StringRefNull shader_source_name)
 {
-  Vector<const char *> result;
+  Vector<StringRefNull> result;
   GPUSource *src = g_sources->lookup_default(shader_source_name, nullptr);
   if (src == nullptr) {
     std::cerr << "Error source not found : " << shader_source_name << std::endl;
@@ -553,11 +566,10 @@ StringRefNull gpu_shader_dependency_get_source(const StringRefNull shader_source
   return src->source;
 }
 
-StringRefNull gpu_shader_dependency_get_filename_from_source_string(
-    const StringRefNull source_string)
+StringRefNull gpu_shader_dependency_get_filename_from_source_string(const StringRef source_string)
 {
   for (auto &source : g_sources->values()) {
-    if (source->source.c_str() == source_string.c_str()) {
+    if (source->source == source_string) {
       return source->filename;
     }
   }

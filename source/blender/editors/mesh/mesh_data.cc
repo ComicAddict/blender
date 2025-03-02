@@ -10,16 +10,15 @@
 
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
-#include "DNA_view3d_types.h"
 
 #include "BLI_array.hh"
-#include "BLI_utildefines.h"
 
 #include "BKE_attribute.hh"
 #include "BKE_context.hh"
 #include "BKE_customdata.hh"
 #include "BKE_editmesh.hh"
 #include "BKE_key.hh"
+#include "BKE_library.hh"
 #include "BKE_mesh.hh"
 #include "BKE_mesh_runtime.hh"
 #include "BKE_report.hh"
@@ -47,6 +46,7 @@ using blender::float2;
 using blender::float3;
 using blender::MutableSpan;
 using blender::Span;
+using blender::StringRef;
 
 static CustomData *mesh_customdata_get_type(Mesh *mesh, const char htype, int *r_tot)
 {
@@ -292,7 +292,8 @@ int ED_mesh_uv_add(
   return layernum_dst;
 }
 
-static const bool *mesh_loop_boolean_custom_data_get_by_name(const Mesh &mesh, const char *name)
+static const bool *mesh_loop_boolean_custom_data_get_by_name(const Mesh &mesh,
+                                                             const StringRef name)
 {
   return static_cast<const bool *>(
       CustomData_get_layer_named(&mesh.corner_data, CD_PROP_BOOL, name));
@@ -327,7 +328,7 @@ const bool *ED_mesh_uv_map_pin_layer_get(const Mesh *mesh, const int uv_index)
                                                    BKE_uv_map_pin_name_get(uv_name, buffer));
 }
 
-static bool *ensure_corner_boolean_attribute(Mesh &mesh, const blender::StringRefNull name)
+static bool *ensure_corner_boolean_attribute(Mesh &mesh, const StringRef name)
 {
   bool *data = static_cast<bool *>(CustomData_get_layer_named_for_write(
       &mesh.corner_data, CD_PROP_BOOL, name, mesh.corners_num));
@@ -438,8 +439,8 @@ bool ED_mesh_color_ensure(Mesh *mesh, const char *name)
     return false;
   }
 
-  BKE_id_attributes_active_color_set(&mesh->id, unique_name.c_str());
-  BKE_id_attributes_default_color_set(&mesh->id, unique_name.c_str());
+  BKE_id_attributes_active_color_set(&mesh->id, unique_name);
+  BKE_id_attributes_default_color_set(&mesh->id, unique_name);
   BKE_mesh_tessface_clear(mesh);
   DEG_id_tag_update(&mesh->id, 0);
 
@@ -555,8 +556,7 @@ static int mesh_customdata_clear_exec__internal(bContext *C,
 {
   Mesh *mesh = ED_mesh_context(C);
 
-  int tot;
-  CustomData *data = mesh_customdata_get_type(mesh, htype, &tot);
+  CustomData *data = mesh_customdata_get_type(mesh, htype, nullptr);
 
   BLI_assert(CustomData_layertype_is_singleton(type) == true);
 
@@ -565,7 +565,7 @@ static int mesh_customdata_clear_exec__internal(bContext *C,
       BM_data_layer_free(mesh->runtime->edit_mesh->bm, data, type);
     }
     else {
-      CustomData_free_layers(data, type, tot);
+      CustomData_free_layers(data, type);
     }
 
     DEG_id_tag_update(&mesh->id, ID_RECALC_GEOMETRY);
@@ -719,11 +719,14 @@ static int mesh_customdata_custom_splitnormals_add_exec(bContext *C, wmOperator 
 
   if (mesh->runtime->edit_mesh) {
     BMesh &bm = *mesh->runtime->edit_mesh->bm;
-    BM_data_layer_add(&bm, &bm.ldata, CD_CUSTOMLOOPNORMAL);
+    BM_data_layer_ensure_named(&bm, &bm.ldata, CD_PROP_INT16_2D, "custom_normal");
   }
   else {
-    CustomData_add_layer(
-        &mesh->corner_data, CD_CUSTOMLOOPNORMAL, CD_SET_DEFAULT, mesh->corners_num);
+    if (!mesh->attributes_for_write().add<short2>(
+            "custom_normal", bke::AttrDomain::Corner, bke::AttributeInitDefaultValue()))
+    {
+      return OPERATOR_CANCELLED;
+    }
   }
 
   DEG_id_tag_update(&mesh->id, 0);
@@ -753,19 +756,18 @@ static int mesh_customdata_custom_splitnormals_clear_exec(bContext *C, wmOperato
 
   if (BMEditMesh *em = mesh->runtime->edit_mesh.get()) {
     BMesh &bm = *em->bm;
-    if (!CustomData_has_layer(&bm.ldata, CD_CUSTOMLOOPNORMAL)) {
+    if (!CustomData_has_layer_named(&bm.ldata, CD_PROP_INT16_2D, "custom_normal")) {
       return OPERATOR_CANCELLED;
     }
-    BM_data_layer_free(&bm, &bm.ldata, CD_CUSTOMLOOPNORMAL);
+    BM_data_layer_free_named(&bm, &bm.ldata, "custom_normal");
     if (bm.lnor_spacearr) {
       BKE_lnor_spacearr_clear(bm.lnor_spacearr);
     }
   }
   else {
-    if (!CustomData_has_layer(&mesh->corner_data, CD_CUSTOMLOOPNORMAL)) {
+    if (!mesh->attributes_for_write().remove("custom_normal")) {
       return OPERATOR_CANCELLED;
     }
-    CustomData_free_layers(&mesh->corner_data, CD_CUSTOMLOOPNORMAL, mesh->corners_num);
   }
 
   mesh->tag_custom_normals_changed();
@@ -807,7 +809,7 @@ static void mesh_add_verts(Mesh *mesh, int len)
     CustomData_add_layer_named(&vert_data, CD_PROP_FLOAT3, CD_SET_DEFAULT, totvert, "position");
   }
 
-  CustomData_free(&mesh->vert_data, mesh->verts_num);
+  CustomData_free(&mesh->vert_data);
   mesh->vert_data = vert_data;
 
   BKE_mesh_runtime_clear_cache(mesh);
@@ -843,7 +845,7 @@ static void mesh_add_edges(Mesh *mesh, int len)
         &edge_data, CD_PROP_INT32_2D, CD_SET_DEFAULT, totedge, ".edge_verts");
   }
 
-  CustomData_free(&mesh->edge_data, mesh->edges_num);
+  CustomData_free(&mesh->edge_data);
   mesh->edge_data = edge_data;
 
   BKE_mesh_runtime_clear_cache(mesh);
@@ -882,7 +884,7 @@ static void mesh_add_loops(Mesh *mesh, int len)
 
   BKE_mesh_runtime_clear_cache(mesh);
 
-  CustomData_free(&mesh->corner_data, mesh->corners_num);
+  CustomData_free(&mesh->corner_data);
   mesh->corner_data = ldata;
 
   mesh->corners_num = totloop;
@@ -919,7 +921,7 @@ static void mesh_add_faces(Mesh *mesh, int len)
   mesh->face_offset_indices[0] = 0;
   mesh->face_offset_indices[faces_num] = mesh->corners_num;
 
-  CustomData_free(&mesh->face_data, mesh->faces_num);
+  CustomData_free(&mesh->face_data);
   mesh->face_data = face_data;
 
   BKE_mesh_runtime_clear_cache(mesh);

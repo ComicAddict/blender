@@ -4,7 +4,10 @@
 
 import bpy
 from bpy.types import Menu, UIList, Operator
-from bpy.app.translations import pgettext_iface as iface_
+from bpy.app.translations import (
+    contexts as i18n_contexts,
+    pgettext_iface as iface_,
+)
 
 
 # XXX: To be replaced with active tools
@@ -56,7 +59,7 @@ class GreasePencilSculptAdvancedPanel:
         if tool in {'SMOOTH', 'RANDOMIZE'}:
             col = layout.column(heading="Affect", align=True)
             col.prop(gp_settings, "use_edit_position", text="Position")
-            col.prop(gp_settings, "use_edit_strength", text="Strength")
+            col.prop(gp_settings, "use_edit_strength", text="Strength", text_ctxt=i18n_contexts.id_gpencil)
             col.prop(gp_settings, "use_edit_thickness", text="Thickness")
             col.prop(gp_settings, "use_edit_uv", text="UV")
 
@@ -77,7 +80,7 @@ class GreasePencilDisplayPanel:
         else:
             brush = context.tool_settings.gpencil_paint.brush
 
-        if ob and ob.type in {'GPENCIL', 'GREASEPENCIL'} and brush:
+        if ob and ob.type == 'GREASEPENCIL' and brush:
             return True
 
         return False
@@ -172,8 +175,11 @@ class GreasePencilBrushFalloff:
             brush = settings.brush
 
             col = layout.column(align=True)
-            row = col.row(align=True)
-            row.prop(brush, "curve_preset", text="")
+            if context.region.type == 'TOOL_HEADER':
+                col.prop(brush, "curve_preset", expand=True)
+            else:
+                row = col.row(align=True)
+                col.prop(brush, "curve_preset", text="")
 
             if brush.curve_preset == 'CUSTOM':
                 layout.template_curve_mapping(brush, "curve", brush=True)
@@ -455,7 +461,8 @@ class GreasePencilMaterialsPanel:
                 sub.operator(
                     "grease_pencil.material_isolate",
                     icon='RESTRICT_VIEW_ON',
-                    text="").affect_visibility = True
+                    text="",
+                ).affect_visibility = True
                 sub.operator("grease_pencil.material_isolate", icon='LOCKED', text="").affect_visibility = False
 
             if show_full_ui:
@@ -497,44 +504,6 @@ class GreasePencilMaterialsPanel:
         else:
             space = context.space_data
             row.template_ID(space, "pin_id")
-
-
-class GreasePencilVertexcolorPanel:
-
-    def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-
-        tool_settings = context.scene.tool_settings
-        is_vertex = context.mode == 'VERTEX_GPENCIL'
-        gpencil_paint = tool_settings.gpencil_vertex_paint if is_vertex else tool_settings.gpencil_paint
-        brush = gpencil_paint.brush
-        gp_settings = brush.gpencil_settings
-        tool = brush.gpencil_vertex_tool if is_vertex else brush.gpencil_tool
-
-        ob = context.object
-
-        if ob:
-            col = layout.column()
-            col.template_color_picker(brush, "color", value_slider=True)
-
-            sub_row = layout.row(align=True)
-            sub_row.prop(brush, "color", text="")
-            sub_row.prop(brush, "secondary_color", text="")
-
-            sub_row.operator("gpencil.tint_flip", icon='FILE_REFRESH', text="")
-
-            row = layout.row(align=True)
-            row.template_ID(gpencil_paint, "palette", new="palette.new")
-            if gpencil_paint.palette:
-                layout.template_palette(gpencil_paint, "palette", color=True)
-
-            if tool in {'DRAW', 'FILL'} and is_vertex is False:
-                row = layout.row(align=True)
-                row.prop(gp_settings, "vertex_mode", text="Mode")
-                row = layout.row(align=True)
-                row.prop(gp_settings, "vertex_color_factor", slider=True, text="Mix Factor")
 
 
 class GPENCIL_UL_layer(UIList):
@@ -820,6 +789,14 @@ class GREASE_PENCIL_MT_draw_delete(Menu):
         ).type = 'ALL_FRAMES'
 
 
+class GREASE_PENCIL_MT_stroke_simplify(Menu):
+    bl_label = "Simplify Stroke"
+
+    def draw(self, _context):
+        layout = self.layout
+        layout.operator_enum("grease_pencil.stroke_simplify", "mode")
+
+
 classes = (
     GPENCIL_UL_annotation_layer,
     GPENCIL_UL_layer,
@@ -832,6 +809,8 @@ classes = (
     GREASE_PENCIL_MT_snap_pie,
 
     GREASE_PENCIL_MT_draw_delete,
+
+    GREASE_PENCIL_MT_stroke_simplify,
 
     GreasePencilFlipTintColors,
 )

@@ -16,19 +16,15 @@ namespace blender::draw {
 
 static const GPUVertFormat &get_fdots_pos_format()
 {
-  static GPUVertFormat format = {0};
-  if (format.attr_len == 0) {
-    GPU_vertformat_attr_add(&format, "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
-  }
+  static const GPUVertFormat format = GPU_vertformat_from_attribute(
+      "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
   return format;
 }
 
 static const GPUVertFormat &get_fdots_nor_format_subdiv()
 {
-  static GPUVertFormat format = {0};
-  if (format.attr_len == 0) {
-    GPU_vertformat_attr_add(&format, "norAndFlag", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
-  }
+  static const GPUVertFormat format = GPU_vertformat_from_attribute(
+      "norAndFlag", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
   return format;
 }
 
@@ -85,7 +81,7 @@ void extract_face_dots_position(const MeshRenderData &mr, gpu::VertBuf &vbo)
   GPU_vertbuf_data_alloc(vbo, mr.corners_num + mr.loose_indices_num);
 
   MutableSpan vbo_data = vbo.data<float3>();
-  if (mr.extract_type == MR_EXTRACT_MESH) {
+  if (mr.extract_type == MeshExtractType::Mesh) {
     extract_face_dot_positions_mesh(mr, vbo_data);
   }
   else {

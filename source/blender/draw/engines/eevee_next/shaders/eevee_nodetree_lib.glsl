@@ -4,6 +4,11 @@
 
 #pragma once
 
+#include "infos/eevee_common_info.hh"
+
+SHADER_LIBRARY_CREATE_INFO(eevee_global_ubo)
+SHADER_LIBRARY_CREATE_INFO(eevee_utility_texture)
+
 #include "draw_model_lib.glsl"
 #include "draw_view_lib.glsl"
 #include "eevee_renderpass_lib.glsl"
@@ -12,13 +17,13 @@
 #include "gpu_shader_math_vector_lib.glsl"
 #include "gpu_shader_utildefines_lib.glsl"
 
-vec3 g_emission;
-vec3 g_transmittance;
+packed_float3 g_emission;
+packed_float3 g_transmittance;
 float g_holdout;
 
-vec3 g_volume_scattering;
+packed_float3 g_volume_scattering;
 float g_volume_anisotropy;
-vec3 g_volume_absorption;
+packed_float3 g_volume_absorption;
 
 /* The Closure type is never used. Use float as dummy type. */
 #define Closure float
@@ -33,7 +38,7 @@ ClosureUndetermined g_closure_bins[CLOSURE_BIN_COUNT];
 /* Random number per sampled closure type. */
 float g_closure_rand[CLOSURE_BIN_COUNT];
 
-ClosureUndetermined g_closure_get(int i)
+ClosureUndetermined g_closure_get(uchar i)
 {
   switch (i) {
     case 0:
@@ -52,7 +57,7 @@ ClosureUndetermined g_closure_get(int i)
   return cl_empty;
 }
 
-ClosureUndetermined g_closure_get_resolved(int i, float weight_fac)
+ClosureUndetermined g_closure_get_resolved(uchar i, float weight_fac)
 {
   ClosureUndetermined cl = g_closure_get(i);
   cl.color *= cl.weight * weight_fac;
@@ -632,7 +637,9 @@ vec3 displacement_bump()
   vec3 surfgrad = dHd.x * Rx + dHd.y * Ry;
 
   float facing = FrontFacing ? 1.0 : -1.0;
-  return normalize(abs(det) * g_data.N - facing * sign(det) * surfgrad);
+  /* NOTE: keep the same as defined `BUMP_DX`. */
+  const float bump_dx = 0.1;
+  return normalize(bump_dx * abs(det) * g_data.N - facing * sign(det) * surfgrad);
 #  else
   return g_data.N;
 #  endif
@@ -729,14 +736,14 @@ float texture_lod_bias_get()
 /* -------------------------------------------------------------------- */
 /** \name Volume Attribute post
  *
- * TODO(@fclem): These implementation details should concern the DRWManager and not be a fix on
+ * TODO(@fclem): These implementation details should concern the DRWContext and not be a fix on
  * the engine side. But as of now, the engines are responsible for loading the attributes.
  *
  * \{ */
 
 /* Point clouds and curves are not compatible with volume grids.
  * They will fallback to their own attributes loading. */
-#if defined(MAT_VOLUME) && !defined(MAT_GEOM_CURVES) && !defined(MAT_GEOM_POINT_CLOUD)
+#if defined(MAT_VOLUME) && !defined(MAT_GEOM_CURVES) && !defined(MAT_GEOM_POINTCLOUD)
 #  if defined(VOLUME_INFO_LIB) && !defined(MAT_GEOM_WORLD)
 /* We could just check for GRID_ATTRIBUTES but this avoids for header dependency. */
 #    define GRID_ATTRIBUTES_LOAD_POST
@@ -769,7 +776,7 @@ vec4 attr_load_color_post(vec4 attr)
 /* -------------------------------------------------------------------- */
 /** \name Uniform Attributes
  *
- * TODO(@fclem): These implementation details should concern the DRWManager and not be a fix on
+ * TODO(@fclem): These implementation details should concern the DRWContext and not be a fix on
  * the engine side. But as of now, the engines are responsible for loading the attributes.
  *
  * \{ */

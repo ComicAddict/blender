@@ -6,16 +6,13 @@
 
 #include <stdio.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /** \file
  * \ingroup bli
  */
 
 int BLI_cpu_support_sse2(void);
 int BLI_cpu_support_sse42(void);
+void BLI_system_backtrace_with_os_info(FILE *fp, const void *os_info);
 void BLI_system_backtrace(FILE *fp);
 
 /** Get CPU brand, result is to be MEM_freeN()-ed. */
@@ -50,8 +47,4 @@ void BLI_windows_handle_exception(void *exception);
 
 #else
 #  define BLI_SYSTEM_PID_H <unistd.h>
-#endif
-
-#ifdef __cplusplus
-}
 #endif

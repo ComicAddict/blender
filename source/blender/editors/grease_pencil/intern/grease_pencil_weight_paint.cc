@@ -17,10 +17,11 @@
 #include "BKE_paint.hh"
 #include "BKE_report.hh"
 
+#include "BLI_listbase.h"
 #include "BLI_math_geom.h"
 #include "BLI_math_matrix.h"
-#include "BLI_string.h"
 
+#include "DNA_brush_types.h"
 #include "DNA_meshdata_types.h"
 
 #include "RNA_access.hh"
@@ -300,7 +301,7 @@ static int lookup_or_add_deform_group_index(CurvesGeometry &curves, const String
   /* Lazily add the vertex group. */
   if (def_nr == -1) {
     bDeformGroup *defgroup = MEM_cnew<bDeformGroup>(__func__);
-    name.copy(defgroup->name);
+    name.copy_utf8_truncated(defgroup->name);
     BLI_addtail(&curves.vertex_group_names, defgroup);
     def_nr = BLI_listbase_count(&curves.vertex_group_names) - 1;
     BLI_assert(def_nr >= 0);
@@ -447,8 +448,8 @@ void add_armature_automatic_weights(Scene &scene, Object &object, const Object &
 
 struct ClosestGreasePencilDrawing {
   const bke::greasepencil::Drawing *drawing = nullptr;
-  int active_defgroup_index;
-  ed::curves::FindClosestData elem = {};
+  int active_defgroup_index = -1;
+  ed::curves::FindClosestData elem;
 };
 
 static int weight_sample_invoke(bContext *C, wmOperator * /*op*/, const wmEvent *event)
@@ -465,7 +466,7 @@ static int weight_sample_invoke(bContext *C, wmOperator * /*op*/, const wmEvent 
       BLI_findlink(BKE_object_defgroup_list(vc.obact), object_defgroup_nr));
 
   /* Collect visible drawings. */
-  const Object *ob_eval = DEG_get_evaluated_object(vc.depsgraph, const_cast<Object *>(vc.obact));
+  const Object *ob_eval = DEG_get_evaluated_object(vc.depsgraph, vc.obact);
   GreasePencil &grease_pencil = *static_cast<GreasePencil *>(vc.obact->data);
   const Vector<DrawingInfo> drawings = retrieve_visible_drawings(*vc.scene, grease_pencil, false);
 
@@ -520,7 +521,7 @@ static int weight_sample_invoke(bContext *C, wmOperator * /*op*/, const wmEvent 
         return new_closest;
       },
       [](const ClosestGreasePencilDrawing &a, const ClosestGreasePencilDrawing &b) {
-        return (a.elem.distance < b.elem.distance) ? a : b;
+        return (a.elem.distance_sq < b.elem.distance_sq) ? a : b;
       });
 
   if (!closest.drawing) {
@@ -534,7 +535,7 @@ static int weight_sample_invoke(bContext *C, wmOperator * /*op*/, const wmEvent 
 
   /* Set the new brush weight. */
   const ToolSettings *ts = vc.scene->toolsettings;
-  Brush *brush = BKE_paint_brush(&ts->wpaint->paint);
+  Brush *brush = BKE_paint_brush(&ts->gp_weightpaint->paint);
   BKE_brush_weight_set(vc.scene, brush, new_weight);
 
   /* Update brush settings in UI. */
@@ -911,7 +912,7 @@ static int vertex_group_normalize_all_exec(bContext *C, wmOperator *op)
       Vector<bool> vertex_group_is_included;
       LISTBASE_FOREACH (bDeformGroup *, dg, &curves.vertex_group_names) {
         vertex_group_is_locked.append(object_locked_defgroups.contains(dg->name));
-        /* Dummy, needed for the #normalize_vertex_weights() call.*/
+        /* Dummy, needed for the #normalize_vertex_weights() call. */
         vertex_group_is_included.append(true);
       }
 

@@ -5,21 +5,20 @@
 #include "editors/sculpt_paint/brushes/types.hh"
 
 #include "BLI_enumerable_thread_specific.hh"
+#include "BLI_math_geom.h"
 #include "BLI_math_matrix.h"
 #include "BLI_math_matrix.hh"
 #include "BLI_math_rotation.h"
 #include "BLI_math_vector_types.hh"
 #include "BLI_span.hh"
-#include "BLI_task.h"
 
 #include "DNA_brush_types.h"
 #include "DNA_object_types.h"
 
 #include "BKE_brush.hh"
-#include "BKE_ccg.hh"
 #include "BKE_mesh.hh"
 #include "BKE_paint.hh"
-#include "BKE_pbvh_api.hh"
+#include "BKE_paint_bvh.hh"
 #include "BKE_subdiv_ccg.hh"
 
 #include "GPU_immediate.hh"
@@ -40,6 +39,11 @@ struct ScrapeSampleData {
   std::array<float3, 2> area_cos;
   std::array<float3, 2> area_nos;
   std::array<int, 2> area_count;
+
+  bool has_samples() const
+  {
+    return area_count[0] != 0 && area_count[1] != 0;
+  }
 };
 
 struct LocalData {
@@ -262,22 +266,29 @@ static void sample_node_surface_bmesh(const Depsgraph &depsgraph,
   accumulate_samples(positions, local_positions, normals, factors, sample);
 }
 
-static ScrapeSampleData sample_surface(const Depsgraph &depsgraph,
-                                       const Object &object,
-                                       const Brush &brush,
-                                       const float4x4 &mat,
-                                       const IndexMask &node_mask)
+/**
+ * Samples and partitions the underlying mesh data to aggregate position and normal data based on
+ * positive and negative brush local x-axis positions.
+ *
+ * \returns an empty optional to indicate that no samples were taken.
+ */
+static std::optional<ScrapeSampleData> sample_surface(const Depsgraph &depsgraph,
+                                                      const Object &object,
+                                                      const Brush &brush,
+                                                      const float4x4 &mat,
+                                                      const IndexMask &node_mask)
 {
   const bke::pbvh::Tree &pbvh = *bke::object::pbvh_get(object);
   threading::EnumerableThreadSpecific<LocalData> all_tls;
+  ScrapeSampleData result = {};
   switch (pbvh.type()) {
     case bke::pbvh::Type::Mesh: {
       Mesh &mesh = *static_cast<Mesh *>(object.data);
-      const MeshAttributeData attribute_data(mesh.attributes());
+      const MeshAttributeData attribute_data(mesh);
       const Span<bke::pbvh::MeshNode> nodes = pbvh.nodes<bke::pbvh::MeshNode>();
       const Span<float3> positions_eval = bke::pbvh::vert_positions_eval(depsgraph, object);
       const Span<float3> vert_normals = bke::pbvh::vert_normals_eval(depsgraph, object);
-      return threading::parallel_reduce(
+      result = threading::parallel_reduce(
           node_mask.index_range(),
           1,
           ScrapeSampleData{},
@@ -302,7 +313,7 @@ static ScrapeSampleData sample_surface(const Depsgraph &depsgraph,
     }
     case bke::pbvh::Type::Grids: {
       const Span<bke::pbvh::GridsNode> nodes = pbvh.nodes<bke::pbvh::GridsNode>();
-      return threading::parallel_reduce(
+      result = threading::parallel_reduce(
           node_mask.index_range(),
           1,
           ScrapeSampleData{},
@@ -318,7 +329,7 @@ static ScrapeSampleData sample_surface(const Depsgraph &depsgraph,
     }
     case bke::pbvh::Type::BMesh: {
       const Span<bke::pbvh::BMeshNode> nodes = pbvh.nodes<bke::pbvh::BMeshNode>();
-      return threading::parallel_reduce(
+      result = threading::parallel_reduce(
           node_mask.index_range(),
           1,
           ScrapeSampleData{},
@@ -333,8 +344,8 @@ static ScrapeSampleData sample_surface(const Depsgraph &depsgraph,
       break;
     }
   }
-  BLI_assert_unreachable();
-  return {};
+
+  return result.has_samples() ? std::make_optional(result) : std::nullopt;
 }
 
 static void calc_faces(const Depsgraph &depsgraph,
@@ -551,7 +562,7 @@ void do_multiplane_scrape_brush(const Depsgraph &depsgraph,
     return;
   }
 
-  area_co = area_no_sp * ss.cache->scale * displace;
+  area_co += area_no_sp * ss.cache->scale * displace;
 
   /* Init brush local space matrix. */
   float4x4 mat = float4x4::identity();
@@ -572,18 +583,24 @@ void do_multiplane_scrape_brush(const Depsgraph &depsgraph,
 
   if (brush.flag2 & BRUSH_MULTIPLANE_SCRAPE_DYNAMIC) {
     /* Sample the individual normal and area center of the areas at both sides of the cursor. */
-    const ScrapeSampleData sample = sample_surface(depsgraph, object, brush, mat, node_mask);
+    const std::optional<ScrapeSampleData> sample = sample_surface(
+        depsgraph, object, brush, mat, node_mask);
+    if (!sample) {
+      return;
+    }
+
+    BLI_assert(sample->has_samples());
 
     /* Use the plane centers to check if we are sculpting along a concave or convex edge. */
     const std::array<float3, 2> sampled_plane_co{
-        sample.area_cos[0] * 1.0f / float(sample.area_count[0]),
-        sample.area_cos[1] * 1.0f / float(sample.area_count[1])};
+        sample->area_cos[0] * 1.0f / float(sample->area_count[0]),
+        sample->area_cos[1] * 1.0f / float(sample->area_count[1])};
     const float3 mid_co = math::midpoint(sampled_plane_co[0], sampled_plane_co[1]);
 
     /* Calculate the scrape planes angle based on the sampled normals. */
     const std::array<float3, 2> sampled_plane_normals{
-        math::normalize(sample.area_nos[0] * 1.0f / float(sample.area_count[0])),
-        math::normalize(sample.area_nos[1] * 1.0f / float(sample.area_count[1]))};
+        math::normalize(sample->area_nos[0] * 1.0f / float(sample->area_count[0])),
+        math::normalize(sample->area_nos[1] * 1.0f / float(sample->area_count[1]))};
 
     float sampled_angle = angle_v3v3(sampled_plane_normals[0], sampled_plane_normals[1]);
     const std::array<float3, 2> sampled_cv{area_no, ss.cache->location_symm - mid_co};
@@ -646,7 +663,7 @@ void do_multiplane_scrape_brush(const Depsgraph &depsgraph,
   switch (pbvh.type()) {
     case bke::pbvh::Type::Mesh: {
       Mesh &mesh = *static_cast<Mesh *>(object.data);
-      const MeshAttributeData attribute_data(mesh.attributes());
+      const MeshAttributeData attribute_data(mesh);
       MutableSpan<bke::pbvh::MeshNode> nodes = pbvh.nodes<bke::pbvh::MeshNode>();
       const PositionDeformData position_data(depsgraph, object);
       const Span<float3> vert_normals = bke::pbvh::vert_normals_eval(depsgraph, object);
@@ -709,7 +726,7 @@ void do_multiplane_scrape_brush(const Depsgraph &depsgraph,
     }
   }
   pbvh.tag_positions_changed(node_mask);
-  bke::pbvh::flush_bounds_to_parents(pbvh);
+  pbvh.flush_bounds_to_parents();
 }
 
 void multiplane_scrape_preview_draw(const uint gpuattr,

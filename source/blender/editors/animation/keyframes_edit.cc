@@ -13,10 +13,11 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "BLI_blenlib.h"
 #include "BLI_function_ref.hh"
 #include "BLI_lasso_2d.hh"
+#include "BLI_listbase.h"
 #include "BLI_math_vector.h"
+#include "BLI_rect.h"
 #include "BLI_utildefines.h"
 
 #include "DNA_anim_types.h"
@@ -167,9 +168,9 @@ static short agrp_keyframes_loop(KeyframeEditData *ked,
   }
 
   /* Layered actions. */
-  animrig::ChannelBag &channel_bag = agrp->channel_bag->wrap();
-  Span<FCurve *> fcurves = channel_bag.fcurves().slice(agrp->fcurve_range_start,
-                                                       agrp->fcurve_range_length);
+  animrig::Channelbag &channelbag = agrp->channelbag->wrap();
+  Span<FCurve *> fcurves = channelbag.fcurves().slice(agrp->fcurve_range_start,
+                                                      agrp->fcurve_range_length);
   for (FCurve *fcurve : fcurves) {
     if (ANIM_fcurve_keyframes_loop(ked, fcurve, key_ok, key_cb, fcu_cb)) {
       return 1;
@@ -361,15 +362,11 @@ static short summary_keyframes_loop(KeyframeEditData *ked,
           float f1 = ked->f1;
           float f2 = ked->f2;
 
-          if (ked->iterflags & (KED_F1_NLA_UNMAP | KED_F2_NLA_UNMAP)) {
-            AnimData *adt = ANIM_nla_mapping_get(ac, ale);
-
-            if (ked->iterflags & KED_F1_NLA_UNMAP) {
-              ked->f1 = BKE_nla_tweakedit_remap(adt, f1, NLATIME_CONVERT_UNMAP);
-            }
-            if (ked->iterflags & KED_F2_NLA_UNMAP) {
-              ked->f2 = BKE_nla_tweakedit_remap(adt, f2, NLATIME_CONVERT_UNMAP);
-            }
+          if (ked->iterflags & KED_F1_NLA_UNMAP) {
+            ked->f1 = ANIM_nla_tweakedit_remap(ale, f1, NLATIME_CONVERT_UNMAP);
+          }
+          if (ked->iterflags & KED_F2_NLA_UNMAP) {
+            ked->f2 = ANIM_nla_tweakedit_remap(ale, f2, NLATIME_CONVERT_UNMAP);
           }
 
           /* now operate on the channel as per normal */

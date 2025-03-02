@@ -14,9 +14,12 @@
 #include "DNA_ID.h"
 #include "DNA_object_types.h"
 
+#include "BLI_listbase.h"
+
 #include "BKE_action.hh"
 #include "BKE_context.hh"
 #include "BKE_lib_override.hh"
+#include "BKE_library.hh"
 #include "BKE_report.hh"
 
 #include "BLT_translation.hh"
@@ -268,7 +271,7 @@ static void bone_collection_assign_editbones(bContext *C,
   ED_armature_edit_sync_selection(arm->edbo);
 
   LISTBASE_FOREACH (EditBone *, ebone, arm->edbo) {
-    if (!EBONE_EDITABLE(ebone)) {
+    if (!EBONE_EDITABLE(ebone) || !EBONE_VISIBLE(arm, ebone)) {
       continue;
     }
     *made_any_changes |= assign_func(bcoll, ebone);
@@ -855,7 +858,11 @@ static BoneCollection *add_or_move_to_collection_bcoll(wmOperator *op, bArmature
   BoneCollection *target_bcoll;
 
   PropertyRNA *prop = RNA_struct_find_property(op->ptr, "new_collection_name");
-  if (RNA_property_is_set(op->ptr, prop)) {
+  if (RNA_property_is_set(op->ptr, prop) ||
+      /* Neither properties can be used, the operator may have been called with defaults.
+       * In this case add a root collection, the default name will be used. */
+      (collection_index < 0))
+  {
     /* TODO: check this with linked, non-overridden armatures. */
     char new_collection_name[MAX_NAME];
     RNA_string_get(op->ptr, "new_collection_name", new_collection_name);

@@ -21,6 +21,8 @@
 #  endif
 #endif
 
+#include "vulkan/vk_ghost_api.hh"
+
 #include <vector>
 
 #include <cassert>
@@ -33,19 +35,7 @@
 
 #include <sys/stat.h>
 
-/*
- * Should we only select surfaces that are known to be compatible. Or should we in case no
- * compatible surfaces have been found select the first one.
- *
- * Currently we also select incompatible surfaces as Vulkan is still experimental.  Assuming we get
- * reports of color differences between OpenGL and Vulkan to narrow down if there are other
- * configurations we need to support.
- */
-#define SELECT_COMPATIBLE_SURFACES_ONLY false
-
 using namespace std;
-
-uint32_t GHOST_ContextVK::s_currentImage = 0;
 
 static const char *vulkan_error_as_string(VkResult result)
 {
@@ -241,28 +231,38 @@ class GHOST_DeviceVK {
 
     void *device_create_info_p_next = nullptr;
 
+    /* Enable vulkan 11 features when supported on physical device. */
+    VkPhysicalDeviceVulkan11Features vulkan_11_features = {};
+    vulkan_11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+    vulkan_11_features.pNext = device_create_info_p_next;
+    vulkan_11_features.shaderDrawParameters = features_11.shaderDrawParameters;
+    device_create_info_p_next = &vulkan_11_features;
+
     /* Enable optional vulkan 12 features when supported on physical device. */
     VkPhysicalDeviceVulkan12Features vulkan_12_features = {};
     vulkan_12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     vulkan_12_features.shaderOutputLayer = features_12.shaderOutputLayer;
     vulkan_12_features.shaderOutputViewportIndex = features_12.shaderOutputViewportIndex;
+    vulkan_12_features.timelineSemaphore = VK_TRUE;
     vulkan_12_features.pNext = device_create_info_p_next;
     device_create_info_p_next = &vulkan_12_features;
 
-    /* Enable shader draw parameters on logical device when supported on physical device. */
-    VkPhysicalDeviceShaderDrawParametersFeatures shader_draw_parameters = {};
-    shader_draw_parameters.sType =
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
-    shader_draw_parameters.shaderDrawParameters = features_11.shaderDrawParameters;
-    shader_draw_parameters.pNext = device_create_info_p_next;
-    device_create_info_p_next = &shader_draw_parameters;
+    /* Enable provoking vertex. */
+    VkPhysicalDeviceProvokingVertexFeaturesEXT provoking_vertex_features = {};
+    provoking_vertex_features.sType =
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_FEATURES_EXT;
+    provoking_vertex_features.provokingVertexLast = VK_TRUE;
+    provoking_vertex_features.pNext = device_create_info_p_next;
+    device_create_info_p_next = &provoking_vertex_features;
 
     /* Enable dynamic rendering. */
     VkPhysicalDeviceDynamicRenderingFeatures dynamic_rendering = {};
     dynamic_rendering.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
-    dynamic_rendering.dynamicRendering = true;
-    dynamic_rendering.pNext = device_create_info_p_next;
-    device_create_info_p_next = &dynamic_rendering;
+    dynamic_rendering.dynamicRendering = VK_TRUE;
+    if (has_extensions({VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME})) {
+      dynamic_rendering.pNext = device_create_info_p_next;
+      device_create_info_p_next = &dynamic_rendering;
+    }
 
     VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT
         dynamic_rendering_unused_attachments = {};
@@ -272,6 +272,15 @@ class GHOST_DeviceVK {
     if (has_extensions({VK_EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_EXTENSION_NAME})) {
       dynamic_rendering_unused_attachments.pNext = device_create_info_p_next;
       device_create_info_p_next = &dynamic_rendering_unused_attachments;
+    }
+
+    VkPhysicalDeviceDynamicRenderingLocalReadFeaturesKHR dynamic_rendering_local_read = {};
+    dynamic_rendering_local_read.sType =
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_LOCAL_READ_FEATURES_KHR;
+    dynamic_rendering_local_read.dynamicRenderingLocalRead = VK_TRUE;
+    if (has_extensions({VK_KHR_DYNAMIC_RENDERING_LOCAL_READ_EXTENSION_NAME})) {
+      dynamic_rendering_local_read.pNext = device_create_info_p_next;
+      device_create_info_p_next = &dynamic_rendering_local_read;
     }
 
     /* Query for Mainenance4 (core in Vulkan 1.3). */
@@ -356,6 +365,9 @@ static GHOST_TSuccess ensure_vulkan_device(VkInstance vk_instance,
     device_index++;
 
     if (!device_vk.has_extensions(required_extensions)) {
+      continue;
+    }
+    if (!blender::gpu::GPU_vulkan_is_supported_driver(physical_device)) {
       continue;
     }
 
@@ -545,14 +557,25 @@ GHOST_TSuccess GHOST_ContextVK::swapBuffers()
 
   assert(vulkan_device.has_value() && vulkan_device->device != VK_NULL_HANDLE);
   VkDevice device = vulkan_device->device;
-  vkAcquireNextImageKHR(device, m_swapchain, UINT64_MAX, VK_NULL_HANDLE, m_fence, &s_currentImage);
+
+  /* Some platforms (NVIDIA/Wayland) can receive an out of date swapchain when acquiring the next
+   * swapchain image. Other do it when calling vkQueuePresent. */
+  VkResult result = VK_ERROR_OUT_OF_DATE_KHR;
+  uint32_t image_index = 0;
+  while (result == VK_ERROR_OUT_OF_DATE_KHR) {
+    result = vkAcquireNextImageKHR(
+        device, m_swapchain, UINT64_MAX, VK_NULL_HANDLE, m_fence, &image_index);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+      destroySwapchain();
+      createSwapchain();
+    }
+  }
   VK_CHECK(vkWaitForFences(device, 1, &m_fence, VK_TRUE, UINT64_MAX));
   VK_CHECK(vkResetFences(device, 1, &m_fence));
 
   GHOST_VulkanSwapChainData swap_chain_data;
-  swap_chain_data.swap_chain_index = s_currentImage;
-  swap_chain_data.image = m_swapchain_images[s_currentImage];
-  swap_chain_data.format = m_surface_format.format;
+  swap_chain_data.image = m_swapchain_images[image_index];
+  swap_chain_data.surface_format = m_surface_format;
   swap_chain_data.extent = m_render_extent;
 
   if (swap_buffers_pre_callback_) {
@@ -565,10 +588,10 @@ GHOST_TSuccess GHOST_ContextVK::swapBuffers()
   present_info.pWaitSemaphores = nullptr;
   present_info.swapchainCount = 1;
   present_info.pSwapchains = &m_swapchain;
-  present_info.pImageIndices = &s_currentImage;
+  present_info.pImageIndices = &image_index;
   present_info.pResults = nullptr;
 
-  VkResult result = VK_SUCCESS;
+  result = VK_SUCCESS;
   {
     std::scoped_lock lock(vulkan_device->queue_mutex);
     result = vkQueuePresentKHR(m_present_queue, &present_info);
@@ -582,7 +605,7 @@ GHOST_TSuccess GHOST_ContextVK::swapBuffers()
     }
     return GHOST_kSuccess;
   }
-  else if (result != VK_SUCCESS) {
+  if (result != VK_SUCCESS) {
     fprintf(stderr,
             "Error: Failed to present swap chain image : %s\n",
             vulkan_error_as_string(result));
@@ -591,8 +614,6 @@ GHOST_TSuccess GHOST_ContextVK::swapBuffers()
     }
     return GHOST_kFailure;
   }
-
-  s_currentImage = (s_currentImage + 1) % m_swapchain_images.size();
 
   if (swap_buffers_post_callback_) {
     swap_buffers_post_callback_();
@@ -604,9 +625,8 @@ GHOST_TSuccess GHOST_ContextVK::swapBuffers()
 GHOST_TSuccess GHOST_ContextVK::getVulkanSwapChainFormat(
     GHOST_VulkanSwapChainData *r_swap_chain_data)
 {
-  r_swap_chain_data->swap_chain_index = s_currentImage;
   r_swap_chain_data->image = VK_NULL_HANDLE;
-  r_swap_chain_data->format = m_surface_format.format;
+  r_swap_chain_data->surface_format = m_surface_format;
   r_swap_chain_data->extent = m_render_extent;
 
   return GHOST_kSuccess;
@@ -746,21 +766,6 @@ GHOST_TSuccess GHOST_ContextVK::createGraphicsCommandBuffer()
   return GHOST_kSuccess;
 }
 
-static bool surfaceFormatSupported(const VkSurfaceFormatKHR &surface_format)
-{
-  if (surface_format.colorSpace != VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-    return false;
-  }
-
-  if (surface_format.format == VK_FORMAT_R8G8B8A8_UNORM ||
-      surface_format.format == VK_FORMAT_B8G8R8A8_UNORM)
-  {
-    return true;
-  }
-
-  return false;
-}
-
 /**
  * Select the surface format that we will use.
  *
@@ -776,15 +781,22 @@ static bool selectSurfaceFormat(const VkPhysicalDevice physical_device,
   vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count, formats.data());
 
   for (const VkSurfaceFormatKHR &format : formats) {
-    if (surfaceFormatSupported(format)) {
+    if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR &&
+        format.format == VK_FORMAT_R8G8B8A8_UNORM)
+    {
       r_surfaceFormat = format;
       return true;
     }
   }
 
-#if !SELECT_COMPATIBLE_SURFACES_ONLY
-  r_surfaceFormat = formats[0];
-#endif
+  for (const VkSurfaceFormatKHR &format : formats) {
+    if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR &&
+        format.format == VK_FORMAT_B8G8R8A8_UNORM)
+    {
+      r_surfaceFormat = format;
+      return true;
+    }
+  }
 
   return false;
 }
@@ -796,13 +808,9 @@ GHOST_TSuccess GHOST_ContextVK::createSwapchain()
   VkPhysicalDevice physical_device = vulkan_device->physical_device;
 
   m_surface_format = {};
-#if SELECT_COMPATIBLE_SURFACES_ONLY
   if (!selectSurfaceFormat(physical_device, m_surface, m_surface_format)) {
     return GHOST_kFailure;
   }
-#else
-  selectSurfaceFormat(physical_device, m_surface, m_surface_format);
-#endif
 
   VkPresentModeKHR present_mode;
   if (!selectPresentMode(physical_device, m_surface, &present_mode)) {
@@ -947,6 +955,8 @@ const char *GHOST_ContextVK::getPlatformSpecificSurfaceExtension() const
       return VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
       break;
 #  endif
+    case GHOST_kVulkanPlatformHeadless:
+      break;
   }
 #endif
   return nullptr;
@@ -971,6 +981,9 @@ GHOST_TSuccess GHOST_ContextVK::initializeDrawingContext()
       use_window_surface = (m_wayland_display != nullptr) && (m_wayland_surface != nullptr);
       break;
 #  endif
+    case GHOST_kVulkanPlatformHeadless:
+      use_window_surface = false;
+      break;
   }
 #endif
 
@@ -990,10 +1003,13 @@ GHOST_TSuccess GHOST_ContextVK::initializeDrawingContext()
 
     required_device_extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
   }
-  required_device_extensions.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
-  /* NOTE: marking this as an optional extension, but is actually required. Renderdoc doesn't
-   * create a device with this extension, but seems to work when not requesting the extension.
-   */
+#ifdef __APPLE__
+  optional_device_extensions.push_back(VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME);
+#else
+  required_device_extensions.push_back(VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME);
+#endif
+  optional_device_extensions.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
+  optional_device_extensions.push_back(VK_KHR_DYNAMIC_RENDERING_LOCAL_READ_EXTENSION_NAME);
   optional_device_extensions.push_back(VK_EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_EXTENSION_NAME);
   optional_device_extensions.push_back(VK_EXT_SHADER_STENCIL_EXPORT_EXTENSION_NAME);
   optional_device_extensions.push_back(VK_KHR_MAINTENANCE_4_EXTENSION_NAME);
@@ -1080,6 +1096,10 @@ GHOST_TSuccess GHOST_ContextVK::initializeDrawingContext()
         break;
       }
 #  endif
+      case GHOST_kVulkanPlatformHeadless: {
+        m_surface = VK_NULL_HANDLE;
+        break;
+      }
     }
 
 #endif

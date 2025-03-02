@@ -6,10 +6,7 @@
  * \ingroup draw
  */
 
-#include "MEM_guardedalloc.h"
-
 #include "BLI_array_utils.hh"
-#include "BLI_math_vector_types.hh"
 #include "BLI_string.h"
 
 #include "BKE_attribute.hh"
@@ -193,7 +190,7 @@ static void extract_attribute(const MeshRenderData &mr,
                               const DRW_AttributeRequest &request,
                               gpu::VertBuf &vbo)
 {
-  if (mr.extract_type == MR_EXTRACT_BMESH) {
+  if (mr.extract_type == MeshExtractType::BMesh) {
     const CustomData &custom_data = *get_custom_data_for_domain(*mr.bm, request.domain);
     const char *name = request.attribute_name;
     const int cd_offset = CustomData_get_offset_named(&custom_data, request.cd_type, name);
@@ -306,10 +303,8 @@ void extract_attributes_subdiv(const MeshRenderData &mr,
 
 void extract_attr_viewer(const MeshRenderData &mr, gpu::VertBuf &vbo)
 {
-  static GPUVertFormat format = {0};
-  if (format.attr_len == 0) {
-    GPU_vertformat_attr_add(&format, "attribute_value", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
-  }
+  static const GPUVertFormat format = GPU_vertformat_from_attribute(
+      "attribute_value", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
 
   GPU_vertbuf_init_with_format(vbo, format);
   GPU_vertbuf_data_alloc(vbo, mr.corners_num);

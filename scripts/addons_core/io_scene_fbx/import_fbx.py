@@ -1097,11 +1097,17 @@ def blen_read_animations(fbx_tmpl_astack, fbx_tmpl_alayer, stacks, scene, anim_o
                         action_name = "|".join((id_data.name, stack_name, layer_name))
                     actions[key] = action = bpy.data.actions.new(action_name)
                     action.use_fake_user = True
+
+                    # Create an Action Slot. Curves created via action.fcurves will automatically be assigned to it.
+                    action.slots.new(id_data.id_type, action_name)
+
                 # If none yet assigned, assign this action to id_data.
                 if not id_data.animation_data:
                     id_data.animation_data_create()
                 if not id_data.animation_data.action:
                     id_data.animation_data.action = action
+                    id_data.animation_data.action_slot = action.slots[0]
+
                 # And actually populate the action!
                 blen_read_animations_action_item(action, item, cnodes, scene.render.fps, anim_offset, global_scale,
                                                  shape_key_values, fbx_ktime)
@@ -2233,8 +2239,8 @@ def blen_read_light(fbx_tmpl, fbx_obj, settings):
     lamp.use_shadow = elem_props_get_bool(fbx_props, b'CastShadow', True)
     if hasattr(lamp, "cycles"):
         lamp.cycles.cast_shadow = lamp.use_shadow
-    # Keeping this for now, but this is not used nor exposed anymore afaik...
-    lamp.shadow_color = elem_props_get_color_rgb(fbx_props, b'ShadowColor', (0.0, 0.0, 0.0))
+    # Removed but could be restored if the value can be applied.
+    # `lamp.shadow_color = elem_props_get_color_rgb(fbx_props, b'ShadowColor', (0.0, 0.0, 0.0))`
 
     if settings.use_custom_props:
         blen_read_custom_properties(fbx_obj, lamp, settings)

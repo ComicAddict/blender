@@ -339,7 +339,7 @@ bool AbcCurveReader::accepts_object_type(
 
 void AbcCurveReader::readObjectData(Main *bmain, const Alembic::Abc::ISampleSelector &sample_sel)
 {
-  Curves *curves = static_cast<Curves *>(BKE_curves_add(bmain, m_data_name.c_str()));
+  Curves *curves = BKE_curves_add(bmain, m_data_name.c_str());
 
   m_object = BKE_object_add_only_object(bmain, OB_CURVES, m_object_name.c_str());
   m_object->data = curves;
@@ -450,16 +450,12 @@ void AbcCurveReader::read_curves_sample(Curves *curves_id,
   }
 
   if (data.radii) {
-    bke::SpanAttributeWriter<float> radii =
-        curves.attributes_for_write().lookup_or_add_for_write_span<float>("radius",
-                                                                          bke::AttrDomain::Point);
+    MutableSpan<float> radii = curves.radius_for_write();
 
     Alembic::Abc::FloatArraySample alembic_widths = *data.radii;
     for (const int i_point : curves.points_range()) {
-      radii.span[i_point] = alembic_widths[i_point] / 2.0f;
+      radii[i_point] = alembic_widths[i_point] / 2.0f;
     }
-
-    radii.finish();
   }
 
   if (data.curve_type == CURVE_TYPE_NURBS) {

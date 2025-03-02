@@ -1045,9 +1045,9 @@ static IDProperty *idp_from_PyObject(IDProperty *prop_exist,
 /** \name Mapping Get/Set (Internal Access)
  * \{ */
 
-bool BPy_IDProperty_Map_ValidateAndCreate(PyObject *name_obj, IDProperty *group, PyObject *ob)
+bool BPy_IDProperty_Map_ValidateAndCreate(PyObject *key, IDProperty *group, PyObject *ob)
 {
-  const char *name = idp_try_read_name(name_obj);
+  const char *name = idp_try_read_name(key);
   if (!name) {
     return false;
   }
@@ -1617,7 +1617,7 @@ static PyObject *BPy_IDGroup_View_reversed(BPy_IDGroup_View *self, PyObject * /*
 
 static PyMethodDef BPy_IDGroup_View_methods[] = {
     {"__reversed__",
-     (PyCFunction)(void (*)(void))BPy_IDGroup_View_reversed,
+     (PyCFunction)(void (*)())BPy_IDGroup_View_reversed,
      METH_NOARGS,
      BPy_IDGroup_View_reversed_doc},
     {nullptr, nullptr},
@@ -1682,9 +1682,9 @@ PyDoc_STRVAR(
     "   :raises KeyError: When the item doesn't exist.\n"
     "\n"
     "   :arg key: Name of item to remove.\n"
-    "   :type key: string\n"
+    "   :type key: str\n"
     "   :arg default: Value to return when key isn't found, otherwise raise an exception.\n"
-    "   :type default: Undefined\n");
+    "   :type default: Any\n");
 static PyObject *BPy_IDGroup_pop(BPy_IDProperty *self, PyObject *args)
 {
   IDProperty *idprop;
@@ -1884,7 +1884,8 @@ PyDoc_STRVAR(
     "   Update key, values.\n"
     "\n"
     "   :arg other: Updates the values in the group with this.\n"
-    "   :type other: :class:`IDPropertyGroup` or dict\n");
+    /* TODO: replace `Any` with an alias for all types an ID property can use. */
+    "   :type other: :class:`IDPropertyGroup` | dict[str, Any]\n");
 static PyObject *BPy_IDGroup_update(BPy_IDProperty *self, PyObject *value)
 {
   PyObject *pkey, *pval;

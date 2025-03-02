@@ -38,7 +38,6 @@
 #include "DNA_screen_types.h"
 #include "DNA_sequence_types.h"
 #include "DNA_space_types.h"
-#include "DNA_userdef_types.h"
 #include "DNA_windowmanager_types.h"
 #include "DNA_workspace_types.h"
 #include "DNA_world_types.h"
@@ -55,8 +54,9 @@
 #include "BKE_lib_id.hh"
 #include "BKE_main.hh"
 #include "BKE_main_namemap.hh"
-#include "BKE_material.h"
+#include "BKE_material.hh"
 #include "BKE_mesh.hh"
+#include "BKE_node_legacy_types.hh"
 #include "BKE_node_runtime.hh"
 #include "BKE_node_tree_update.hh"
 #include "BKE_paint.hh"
@@ -365,19 +365,11 @@ static void blo_update_defaults_scene(Main *bmain, Scene *scene)
   }
 
   /* New EEVEE defaults. */
-  scene->eevee.bloom_intensity = 0.05f;
-  scene->eevee.bloom_clamp = 0.0f;
   scene->eevee.motion_blur_shutter_deprecated = 0.5f;
 
   copy_v3_v3(scene->display.light_direction, blender::float3(M_SQRT1_3));
   copy_v2_fl2(scene->safe_areas.title, 0.1f, 0.05f);
   copy_v2_fl2(scene->safe_areas.action, 0.035f, 0.035f);
-
-  /* Change default cube-map quality. */
-  scene->eevee.gi_filter_quality = 3.0f;
-
-  /* Enable Soft Shadows by default. */
-  scene->eevee.flag |= SCE_EEVEE_SHADOW_SOFT;
 
   /* Default Rotate Increment. */
   const float default_snap_angle_increment = DEG2RADF(5.0f);
@@ -409,7 +401,7 @@ static void blo_update_defaults_scene(Main *bmain, Scene *scene)
   }
 
   if (ts->sculpt) {
-    ts->sculpt->flags = static_cast<const Sculpt *>(DNA_struct_default_get(Sculpt))->flags;
+    ts->sculpt->flags = DNA_struct_default_get(Sculpt)->flags;
   }
 
   /* Correct default startup UVs. */
@@ -447,6 +439,11 @@ static void blo_update_defaults_scene(Main *bmain, Scene *scene)
   if (ts->unified_paint_settings.input_samples == 0) {
     ts->unified_paint_settings.input_samples = 1;
   }
+
+  const UnifiedPaintSettings &default_ups = *DNA_struct_default_get(UnifiedPaintSettings);
+  ts->unified_paint_settings.flag = default_ups.flag;
+  copy_v3_v3(ts->unified_paint_settings.rgb, default_ups.rgb);
+  copy_v3_v3(ts->unified_paint_settings.secondary_rgb, default_ups.secondary_rgb);
 }
 
 void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
@@ -505,6 +502,17 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
           BLI_findstring(&bmain->objects, "Stroke", offsetof(ID, name) + 2));
       if (ob && ob->type == OB_GPENCIL_LEGACY) {
         ob->dtx |= OB_USE_GPENCIL_LIGHTS;
+      }
+    }
+
+    /* Add library weak references to avoid duplicating materials from essentials. */
+    const std::optional<std::string> assets_path = BKE_appdir_folder_id(BLENDER_SYSTEM_DATAFILES,
+                                                                        "assets/brushes");
+    if (assets_path.has_value()) {
+      const std::string assets_blend_path = *assets_path + "/essentials_brushes-gp_draw.blend";
+      LISTBASE_FOREACH (Material *, material, &bmain->materials) {
+        BKE_main_library_weak_reference_add(
+            &material->id, assets_blend_path.c_str(), material->id.name);
       }
     }
 
@@ -620,8 +628,8 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
     }
     else {
       /* Remove sculpt-mask data in default mesh objects for all non-sculpt templates. */
-      CustomData_free_layers(&mesh->vert_data, CD_PAINT_MASK, mesh->verts_num);
-      CustomData_free_layers(&mesh->corner_data, CD_GRID_PAINT_MASK, mesh->corners_num);
+      CustomData_free_layers(&mesh->vert_data, CD_PAINT_MASK);
+      CustomData_free_layers(&mesh->corner_data, CD_GRID_PAINT_MASK);
     }
     mesh->attributes_for_write().remove(".sculpt_face_set");
   }
@@ -647,21 +655,21 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
 
     if (ma->nodetree) {
       for (bNode *node : ma->nodetree->all_nodes()) {
-        if (node->type == SH_NODE_BSDF_PRINCIPLED) {
+        if (node->type_legacy == SH_NODE_BSDF_PRINCIPLED) {
           bNodeSocket *roughness_socket = blender::bke::node_find_socket(
-              node, SOCK_IN, "Roughness");
+              *node, SOCK_IN, "Roughness");
           *version_cycles_node_socket_float_value(roughness_socket) = 0.5f;
-          bNodeSocket *emission = blender::bke::node_find_socket(node, SOCK_IN, "Emission Color");
+          bNodeSocket *emission = blender::bke::node_find_socket(*node, SOCK_IN, "Emission Color");
           copy_v4_fl(version_cycles_node_socket_rgba_value(emission), 1.0f);
           bNodeSocket *emission_strength = blender::bke::node_find_socket(
-              node, SOCK_IN, "Emission Strength");
+              *node, SOCK_IN, "Emission Strength");
           *version_cycles_node_socket_float_value(emission_strength) = 0.0f;
 
           node->custom1 = SHD_GLOSSY_MULTI_GGX;
           node->custom2 = SHD_SUBSURFACE_RANDOM_WALK;
           BKE_ntree_update_tag_node_property(ma->nodetree, node);
         }
-        else if (node->type == SH_NODE_SUBSURFACE_SCATTERING) {
+        else if (node->type_legacy == SH_NODE_SUBSURFACE_SCATTERING) {
           node->custom1 = SHD_SUBSURFACE_RANDOM_WALK;
           BKE_ntree_update_tag_node_property(ma->nodetree, node);
         }

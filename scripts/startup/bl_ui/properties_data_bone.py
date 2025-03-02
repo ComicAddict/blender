@@ -411,9 +411,9 @@ class BONE_PT_display_custom_shape(BoneButtonsPanel, Panel):
             sub.active = bool(pchan and pchan.custom_shape)
             sub.separator()
 
-            sub.prop(pchan, "custom_shape_scale_xyz", text="Scale")
             sub.prop(pchan, "custom_shape_translation", text="Translation")
             sub.prop(pchan, "custom_shape_rotation_euler", text="Rotation")
+            sub.prop(pchan, "custom_shape_scale_xyz", text="Scale")
 
             sub.prop_search(pchan, "custom_shape_transform", ob.pose, "bones", text="Override Transform")
             sub.prop(pchan, "use_custom_shape_bone_size")
@@ -562,12 +562,6 @@ class BONE_PT_deform(BoneButtonsPanel, Panel):
 
 
 class BONE_PT_custom_props(BoneButtonsPanel, rna_prop_ui.PropertyPanel, Panel):
-    COMPAT_ENGINES = {
-        'BLENDER_RENDER',
-        'BLENDER_EEVEE',
-        'BLENDER_EEVEE_NEXT',
-        'BLENDER_WORKBENCH',
-    }
     _property_type = bpy.types.Bone, bpy.types.EditBone, bpy.types.PoseBone
 
     @classmethod

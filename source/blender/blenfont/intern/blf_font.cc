@@ -10,7 +10,7 @@
  * Also low level functions for managing \a FontBLF.
  */
 
-#include <cmath>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -28,7 +28,6 @@
 
 #include "DNA_vec_types.h"
 
-#include "BLI_listbase.h"
 #include "BLI_math_bits.h"
 #include "BLI_math_color_blend.h"
 #include "BLI_math_matrix.h"
@@ -44,11 +43,12 @@
 
 #include "GPU_batch.hh"
 #include "GPU_matrix.hh"
+#include "GPU_state.hh"
 
 #include "blf_internal.hh"
 #include "blf_internal_types.hh"
 
-#include "BLI_strict_flags.h" /* Keep last. */
+#include "BLI_strict_flags.h" /* IWYU pragma: keep. Keep last. */
 
 #ifdef WIN32
 #  define FT_New_Face FT_New_Face__win32_compat
@@ -824,7 +824,7 @@ size_t blf_font_width_to_strlen(
   size_t i, i_prev;
 
   GlyphCacheBLF *gc = blf_glyph_cache_acquire(font);
-  const int width_i = int(width);
+  const int width_i = width;
 
   for (i_prev = i = 0, width_new = pen_x = 0, g_prev = nullptr; (i < str_len) && str[i];
        i_prev = i, width_new = pen_x, g_prev = g)
@@ -849,6 +849,7 @@ size_t blf_font_width_to_rstrlen(
   GlyphBLF *g, *g_prev;
   ft_pix pen_x, width_new;
   size_t i, i_prev, i_tmp;
+  std::optional<size_t> i_next = {};
   const char *s, *s_prev;
 
   GlyphCacheBLF *gc = blf_glyph_cache_acquire(font);
@@ -862,7 +863,7 @@ size_t blf_font_width_to_rstrlen(
   i_tmp = i;
   g = blf_glyph_from_utf8_and_step(font, gc, nullptr, str, str_len, &i_tmp, nullptr);
   for (width_new = pen_x = 0; (s != nullptr && i > 0);
-       i = i_prev, s = s_prev, g = g_prev, g_prev = nullptr, width_new = pen_x)
+       i_next = i, i = i_prev, s = s_prev, g = g_prev, g_prev = nullptr, width_new = pen_x)
   {
     s_prev = BLI_str_find_prev_char_utf8(s, str);
     i_prev = size_t(s_prev - str);
@@ -881,7 +882,7 @@ size_t blf_font_width_to_rstrlen(
   }
 
   blf_glyph_cache_release(font);
-  return i;
+  return i_next ? *i_next : i;
 }
 
 /** \} */
@@ -916,23 +917,18 @@ static void blf_font_boundbox_ex(FontBLF *font,
     const ft_pix pen_x_next = pen_x + g->advance_x;
 
     const ft_pix gbox_xmin = std::min(pen_x, pen_x + g->box_xmin);
-    const ft_pix gbox_xmax = std::max(pen_x_next, pen_x + g->box_xmax);
+    /* Mono-spaced characters should only use advance. See #130385. */
+    const ft_pix gbox_xmax = (font->flags & BLF_MONOSPACED) ?
+                                 pen_x_next :
+                                 std::max(pen_x_next, pen_x + g->box_xmax);
     const ft_pix gbox_ymin = g->box_ymin + pen_y;
     const ft_pix gbox_ymax = g->box_ymax + pen_y;
 
-    if (gbox_xmin < box_xmin) {
-      box_xmin = gbox_xmin;
-    }
-    if (gbox_ymin < box_ymin) {
-      box_ymin = gbox_ymin;
-    }
+    box_xmin = std::min(gbox_xmin, box_xmin);
+    box_ymin = std::min(gbox_ymin, box_ymin);
 
-    if (gbox_xmax > box_xmax) {
-      box_xmax = gbox_xmax;
-    }
-    if (gbox_ymax > box_ymax) {
-      box_ymax = gbox_ymax;
-    }
+    box_xmax = std::max(gbox_xmax, box_xmax);
+    box_ymax = std::max(gbox_ymax, box_ymax);
 
     pen_x = pen_x_next;
   }
@@ -1291,9 +1287,8 @@ static void blf_font_wrap_apply(FontBLF *font,
 
     g = blf_glyph_from_utf8_and_step(font, gc, g_prev, str, str_len, &i, &pen_x);
 
-    if (UNLIKELY(g == nullptr)) {
-      continue;
-    }
+    const ft_pix advance_x = g ? g->advance_x : 0;
+    const uint codepoint = g ? g->c : BLI_str_utf8_as_unicode_safe(&str[i_curr]);
 
     /**
      * Implementation Detail (utf8).
@@ -1303,22 +1298,22 @@ static void blf_font_wrap_apply(FontBLF *font,
      *
      * This is _only_ done when we know for sure the character is ascii (newline or a space).
      */
-    pen_x_next = pen_x + g->advance_x;
+    pen_x_next = pen_x + advance_x;
     if (UNLIKELY((pen_x_next >= wrap.wrap_width) && (wrap.start != wrap.last[0]))) {
       do_draw = true;
     }
     else if (UNLIKELY(((i < str_len) && str[i]) == 0)) {
       /* Need check here for trailing newline, else we draw it. */
-      wrap.last[0] = i + ((g->c != '\n') ? 1 : 0);
+      wrap.last[0] = i + ((codepoint != '\n') ? 1 : 0);
       wrap.last[1] = i;
       do_draw = true;
     }
-    else if (UNLIKELY(g->c == '\n')) {
+    else if (UNLIKELY(codepoint == '\n')) {
       wrap.last[0] = i_curr + 1;
       wrap.last[1] = i;
       do_draw = true;
     }
-    else if (UNLIKELY(g->c != ' ' && (g_prev ? g_prev->c == ' ' : false))) {
+    else if (UNLIKELY(codepoint != ' ' && (g_prev ? g_prev->c == ' ' : false))) {
       wrap.last[0] = i_curr;
       wrap.last[1] = i_curr;
     }

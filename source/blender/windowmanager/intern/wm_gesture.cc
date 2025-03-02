@@ -16,8 +16,10 @@
 #include "MEM_guardedalloc.h"
 
 #include "BLI_bitmap_draw_2d.h"
-#include "BLI_blenlib.h"
 #include "BLI_lasso_2d.hh"
+#include "BLI_listbase.h"
+#include "BLI_math_vector.h"
+#include "BLI_rect.h"
 #include "BLI_utildefines.h"
 
 #include "WM_api.hh"
@@ -136,7 +138,7 @@ static void wm_gesture_draw_line_active_side(const rcti *rect, const bool flip)
   GPU_blend(GPU_BLEND_ALPHA);
   immBindBuiltinProgram(GPU_SHADER_3D_SMOOTH_COLOR);
 
-  const float gradient_length = 150.0f * U.pixelsize;
+  const float gradient_length = 150.0f * UI_SCALE_FAC;
   float line_dir[2];
   float gradient_dir[2];
   float gradient_point[2][2];

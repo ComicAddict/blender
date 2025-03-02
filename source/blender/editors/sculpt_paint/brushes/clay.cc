@@ -7,19 +7,17 @@
 #include "DNA_brush_types.h"
 #include "DNA_mesh_types.h"
 
-#include "BKE_pbvh.hh"
+#include "BKE_paint_bvh.hh"
 #include "BKE_subdiv_ccg.hh"
 
 #include "BLI_enumerable_thread_specific.hh"
-#include "BLI_math_base.hh"
 #include "BLI_math_geom.h"
-#include "BLI_math_vector.hh"
-#include "BLI_task.h"
-#include "BLI_utildefines.h"
 
 #include "editors/sculpt_paint/mesh_brush_common.hh"
 #include "editors/sculpt_paint/sculpt_automask.hh"
 #include "editors/sculpt_paint/sculpt_intern.hh"
+
+#include "bmesh.hh"
 
 namespace blender::ed::sculpt_paint {
 inline namespace clay_cc {
@@ -186,7 +184,7 @@ void do_clay_brush(const Depsgraph &depsgraph,
   switch (pbvh.type()) {
     case bke::pbvh::Type::Mesh: {
       const Mesh &mesh = *static_cast<Mesh *>(object.data);
-      const MeshAttributeData attribute_data(mesh.attributes());
+      const MeshAttributeData attribute_data(mesh);
       const PositionDeformData position_data(depsgraph, object);
       const Span<float3> vert_normals = bke::pbvh::vert_normals_eval(depsgraph, object);
       MutableSpan<bke::pbvh::MeshNode> nodes = pbvh.nodes<bke::pbvh::MeshNode>();
@@ -229,7 +227,7 @@ void do_clay_brush(const Depsgraph &depsgraph,
     }
   }
   pbvh.tag_positions_changed(node_mask);
-  bke::pbvh::flush_bounds_to_parents(pbvh);
+  pbvh.flush_bounds_to_parents();
 }
 
 }  // namespace blender::ed::sculpt_paint

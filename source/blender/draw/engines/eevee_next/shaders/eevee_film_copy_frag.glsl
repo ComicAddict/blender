@@ -11,8 +11,13 @@
  *
  * Code is duplicated here to ensure that the compiler will pass read/write resource checks.
  */
-#include "common_math_lib.glsl"
+
+#include "infos/eevee_film_info.hh"
+
+FRAGMENT_SHADER_CREATE_INFO(eevee_film_copy_frag)
+
 #include "draw_view_lib.glsl"
+#include "gpu_shader_utildefines_lib.glsl"
 
 vec4 cryptomatte_false_color(float hash)
 {

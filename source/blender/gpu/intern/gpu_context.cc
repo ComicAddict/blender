@@ -13,16 +13,14 @@
  * - free can be called from any thread
  */
 
-#include "GHOST_C-api.h"
-
 #include "BKE_global.hh"
 
 #include "BLI_assert.h"
-#include "BLI_utildefines.h"
 #include "BLI_vector_set.hh"
 
+#include "GHOST_Types.h"
+
 #include "GPU_context.hh"
-#include "GPU_framebuffer.hh"
 
 #include "GPU_batch.hh"
 #include "gpu_backend.hh"
@@ -44,7 +42,6 @@
 #include "dummy_backend.hh"
 
 #include <mutex>
-#include <vector>
 
 using namespace blender::gpu;
 
@@ -68,6 +65,7 @@ Context::Context()
   thread_ = pthread_self();
   is_active_ = false;
   matrix_state = GPU_matrix_state_create();
+  texture_pool = new TexturePool();
 
   context_id = Context::context_counter;
   Context::context_counter++;
@@ -75,13 +73,34 @@ Context::Context()
 
 Context::~Context()
 {
+  /* Derived class should have called free_famebuffers already. */
+  BLI_assert(front_left == nullptr);
+  BLI_assert(back_left == nullptr);
+  BLI_assert(front_right == nullptr);
+  BLI_assert(back_right == nullptr);
+
   GPU_matrix_state_discard(matrix_state);
+  GPU_BATCH_DISCARD_SAFE(procedural_points_batch);
+  GPU_BATCH_DISCARD_SAFE(procedural_lines_batch);
+  GPU_BATCH_DISCARD_SAFE(procedural_triangles_batch);
+  GPU_BATCH_DISCARD_SAFE(procedural_triangle_strips_batch);
+  GPU_VERTBUF_DISCARD_SAFE(dummy_vbo);
+  delete texture_pool;
   delete state_manager;
+  delete imm;
+}
+
+void Context::free_framebuffers()
+{
   delete front_left;
   delete back_left;
   delete front_right;
   delete back_right;
-  delete imm;
+
+  front_left = nullptr;
+  back_left = nullptr;
+  front_right = nullptr;
+  back_right = nullptr;
 }
 
 bool Context::is_active_on_thread()
@@ -92,6 +111,61 @@ bool Context::is_active_on_thread()
 Context *Context::get()
 {
   return active_ctx;
+}
+
+VertBuf *Context::dummy_vbo_get()
+{
+  if (this->dummy_vbo) {
+    return this->dummy_vbo;
+  }
+
+  /* TODO(fclem): get rid of this dummy VBO. */
+  GPUVertFormat format = {0};
+  GPU_vertformat_attr_add(&format, "dummy", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
+  this->dummy_vbo = GPU_vertbuf_create_with_format(format);
+  GPU_vertbuf_data_alloc(*this->dummy_vbo, 1);
+  return this->dummy_vbo;
+}
+
+Batch *Context::procedural_points_batch_get()
+{
+  if (procedural_points_batch) {
+    return procedural_points_batch;
+  }
+
+  procedural_points_batch = GPU_batch_create(GPU_PRIM_POINTS, dummy_vbo_get(), nullptr);
+  return procedural_points_batch;
+}
+
+Batch *Context::procedural_lines_batch_get()
+{
+  if (procedural_lines_batch) {
+    return procedural_lines_batch;
+  }
+
+  procedural_lines_batch = GPU_batch_create(GPU_PRIM_LINES, dummy_vbo_get(), nullptr);
+  return procedural_lines_batch;
+}
+
+Batch *Context::procedural_triangles_batch_get()
+{
+  if (procedural_triangles_batch) {
+    return procedural_triangles_batch;
+  }
+
+  procedural_triangles_batch = GPU_batch_create(GPU_PRIM_TRIS, dummy_vbo_get(), nullptr);
+  return procedural_triangles_batch;
+}
+
+Batch *Context::procedural_triangle_strips_batch_get()
+{
+  if (procedural_triangle_strips_batch) {
+    return procedural_triangle_strips_batch;
+  }
+
+  procedural_triangle_strips_batch = GPU_batch_create(
+      GPU_PRIM_TRI_STRIP, dummy_vbo_get(), nullptr);
+  return procedural_triangle_strips_batch;
 }
 
 }  // namespace blender::gpu
@@ -120,7 +194,14 @@ GPUContext *GPU_context_create(void *ghost_window, void *ghost_context)
 void GPU_context_discard(GPUContext *ctx_)
 {
   Context *ctx = unwrap(ctx_);
+  BLI_assert(active_ctx == ctx);
+
+  GPUBackend *backend = GPUBackend::get();
+  /* Flush any remaining printf while making sure we are inside render boundaries. */
+  backend->render_begin();
   printf_end(ctx);
+  backend->render_end();
+
   delete ctx;
   active_ctx = nullptr;
 
@@ -140,7 +221,6 @@ void GPU_context_active_set(GPUContext *ctx_)
   Context *ctx = unwrap(ctx_);
 
   if (active_ctx) {
-    printf_end(active_ctx);
     active_ctx->deactivate();
   }
 
@@ -148,7 +228,6 @@ void GPU_context_active_set(GPUContext *ctx_)
 
   if (ctx) {
     ctx->activate();
-    printf_begin(ctx);
   }
 }
 
@@ -208,7 +287,6 @@ void GPU_render_begin()
    * but should be fixed for Metal. */
   if (backend) {
     backend->render_begin();
-    printf_end(active_ctx);
     printf_begin(active_ctx);
   }
 }
@@ -218,17 +296,16 @@ void GPU_render_end()
   BLI_assert(backend);
   if (backend) {
     printf_end(active_ctx);
-    printf_begin(active_ctx);
     backend->render_end();
   }
 }
-void GPU_render_step()
+void GPU_render_step(bool force_resource_release)
 {
   GPUBackend *backend = GPUBackend::get();
   BLI_assert(backend);
   if (backend) {
     printf_end(active_ctx);
-    backend->render_step();
+    backend->render_step(force_resource_release);
     printf_begin(active_ctx);
   }
 }
@@ -279,7 +356,7 @@ bool GPU_backend_type_selection_is_overridden()
 bool GPU_backend_type_selection_detect()
 {
   blender::VectorSet<eGPUBackendType> backends_to_check;
-  if (GPU_backend_type_selection_is_overridden()) {
+  if (g_backend_type_override.has_value()) {
     backends_to_check.add(*g_backend_type_override);
   }
 #if defined(WITH_OPENGL_BACKEND)

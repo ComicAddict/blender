@@ -6,11 +6,8 @@
  * \ingroup edsculpt
  */
 
-#include "MEM_guardedalloc.h"
-
 #include "BLI_enumerable_thread_specific.hh"
 #include "BLI_hash.h"
-#include "BLI_task.h"
 #include "BLI_time.h"
 
 #include "DNA_object_types.h"
@@ -21,7 +18,7 @@
 #include "BKE_mesh.hh"
 #include "BKE_multires.hh"
 #include "BKE_paint.hh"
-#include "BKE_pbvh_api.hh"
+#include "BKE_paint_bvh.hh"
 #include "BKE_subdiv_ccg.hh"
 
 #include "WM_api.hh"

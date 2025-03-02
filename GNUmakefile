@@ -41,7 +41,6 @@ Project Files
    Generate project files for development environments.
 
    * project_qtcreator:     QtCreator Project Files.
-   * project_netbeans:      NetBeans Project Files.
    * project_eclipse:       Eclipse CDT4 Project Files.
 
 Package Targets
@@ -57,7 +56,12 @@ Testing Targets
 Static Source Code Checking
    Not associated with building Blender.
 
-   * check_cppcheck:        Run blender source through cppcheck (C & C++).
+   * check_cppcheck:
+     Run blender source through cppcheck (C & C++).
+
+     To write log files into a user defined location append 'OUTPUT_DIR',
+     e.g. 'OUTPUT_DIR=/example/path'
+
    * check_clang_array:     Run blender source through clang array checking script (C & C++).
    * check_struct_comments: Check struct member comments are correct (C & C++).
    * check_deprecated:      Check if there is any deprecated code to remove.
@@ -122,6 +126,10 @@ Utilities
      Format source code using clang-format & autopep8 (uses PATHS if passed in). For example::
 
         make format PATHS="source/blender/blenlib source/blender/blenkernel"
+
+   * license:
+     Create a combined file with all the license information relative to the libraries and other
+     code depedencies.
 
 Environment Variables
 
@@ -459,10 +467,7 @@ test: .FORCE
 #
 
 project_qtcreator: .FORCE
-	$(PYTHON) build_files/cmake/cmake_qtcreator_project.py --build-dir "$(BUILD_DIR)"
-
-project_netbeans: .FORCE
-	$(PYTHON) build_files/cmake/cmake_netbeans_project.py "$(BUILD_DIR)"
+	$(PYTHON) tools/utils_ide/cmake_qtcreator_project.py --build-dir "$(BUILD_DIR)"
 
 project_eclipse: .FORCE
 	cmake -G"Eclipse CDT4 - Unix Makefiles" -H"$(BLENDER_DIR)" -B"$(BUILD_DIR)"
@@ -474,21 +479,22 @@ project_eclipse: .FORCE
 
 check_cppcheck: .FORCE
 	@$(CMAKE_CONFIG)
-	@cd "$(BUILD_DIR)" ; \
 	$(PYTHON) \
-	    "$(BLENDER_DIR)/build_files/cmake/cmake_static_check_cppcheck.py"
+	    "$(BLENDER_DIR)/tools/check_source/static_check_cppcheck.py" \
+	    --build-dir=$(BUILD_DIR) \
+	    --output-dir=$(OUTPUT_DIR)
 
 check_struct_comments: .FORCE
 	@$(CMAKE_CONFIG)
 	@cd "$(BUILD_DIR)" ; \
 	$(PYTHON) \
-	    "$(BLENDER_DIR)/build_files/cmake/cmake_static_check_clang.py" \
+	    "$(BLENDER_DIR)/tools/check_source/static_check_clang.py" \
 	    --checks=struct_comments --match=".*" --jobs=$(NPROCS)
 
 check_clang_array: .FORCE
 	@$(CMAKE_CONFIG)
 	@cd "$(BUILD_DIR)" ; \
-	$(PYTHON) "$(BLENDER_DIR)/build_files/cmake/cmake_static_check_clang_array.py"
+	$(PYTHON) "$(BLENDER_DIR)/tools/check_source/static_check_clang_array.py"
 
 check_mypy: .FORCE
 	@$(PYTHON) "$(BLENDER_DIR)/tools/check_source/check_mypy.py"
@@ -502,9 +508,12 @@ check_spelling_py: .FORCE
 	    "$(BLENDER_DIR)/tools/check_source/check_spelling.py" \
 	    --cache-file=$(CHECK_SPELLING_CACHE) \
 	    --match=".*\.(py)$$" \
+	    "$(BLENDER_DIR)/release" \
 	    "$(BLENDER_DIR)/scripts" \
 	    "$(BLENDER_DIR)/source" \
-	    "$(BLENDER_DIR)/tools"
+	    "$(BLENDER_DIR)/tools" \
+	    "$(BLENDER_DIR)/doc" \
+	    "$(BLENDER_DIR)/build_files"
 
 check_spelling_c: .FORCE
 	@PYTHONIOENCODING=utf_8 $(PYTHON) \
@@ -584,6 +593,8 @@ format: .FORCE
 	@PATH="${LIBDIR}/llvm/bin/:$(PATH)" $(PYTHON) tools/utils_maintenance/clang_format_paths.py $(PATHS)
 	@$(PYTHON) tools/utils_maintenance/autopep8_format_paths.py --autopep8-command="$(AUTOPEP8)" $(PATHS)
 
+license: .FORCE
+	@$(PYTHON) tools/utils_maintenance/make_license.py
 
 # -----------------------------------------------------------------------------
 # Documentation

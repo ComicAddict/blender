@@ -105,6 +105,20 @@ class AbstractView {
   virtual void scroll(ViewScrollDirection direction);
 
   /**
+   * From the current view state, return certain state that will be written to files (stored in
+   * #ARegion.view_states) to preserve it over UI changes and file loading. The state can be
+   * restored using #persistent_state_apply().
+   *
+   * Return an empty value if there's no state to preserve (default implementation).
+   */
+  virtual std::optional<uiViewState> persistent_state() const;
+  /**
+   * Restore a view state given in \a state, which was created by #persistent_state() for saving in
+   * files, and potentially loaded from a file.
+   */
+  virtual void persistent_state_apply(const uiViewState &state);
+
+  /**
    * Makes \a item valid for display in this view. Behavior is undefined for items not registered
    * with this.
    */
@@ -184,6 +198,13 @@ class AbstractViewItem {
 
   /** Cache filtered state here to avoid having to re-query. */
   bool is_filtered_visible_ = true;
+
+  /**
+   * Typically, only items with children can be collapsed. However, in some cases it's important
+   * to draw collapsible items differently from non-collapsible ones, even if they don't have
+   * children currently.
+   */
+  bool is_always_collapsible_ = false;
 
  public:
   virtual ~AbstractViewItem() = default;
@@ -365,7 +386,7 @@ class AbstractViewItemDragController {
 
 template<class ViewType> ViewType &AbstractViewItemDragController::get_view() const
 {
-  static_assert(std::is_base_of<AbstractView, ViewType>::value,
+  static_assert(std::is_base_of_v<AbstractView, ViewType>,
                 "Type must derive from and implement the ui::AbstractView interface");
   return dynamic_cast<ViewType &>(view_);
 }

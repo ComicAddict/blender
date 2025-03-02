@@ -29,6 +29,8 @@
 
 #include "transform_mode.hh"
 
+namespace blender::ed::transform {
+
 /* -------------------------------------------------------------------- */
 /** \name To Sphere Utilities
  * \{ */
@@ -193,7 +195,7 @@ static void applyToSphere(TransInfo *t)
   if (hasNumInput(&t->num)) {
     char c[NUM_STR_REP_LEN];
 
-    outputNumInput(&(t->num), c, &t->scene->unit);
+    outputNumInput(&(t->num), c, t->scene->unit);
 
     SNPRINTF(str, IFACE_("To Sphere: %s %s"), c, t->proptext);
   }
@@ -273,3 +275,5 @@ TransModeInfo TransMode_tosphere = {
     /*snap_apply_fn*/ nullptr,
     /*draw_fn*/ nullptr,
 };
+
+}  // namespace blender::ed::transform

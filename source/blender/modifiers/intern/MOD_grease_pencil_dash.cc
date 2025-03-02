@@ -6,6 +6,7 @@
  * \ingroup modifiers
  */
 
+#include "BLI_array_utils.hh"
 #include "BLI_index_range.hh"
 #include "BLI_span.hh"
 #include "BLI_string.h"
@@ -275,7 +276,11 @@ static bke::CurvesGeometry create_dashes(const PatternInfo &pattern_info,
       dst_material.span[dst_curve_i] = material >= 0 ? material : src_material[src_curve];
       for (const int i : dst_point_range) {
         dst_radius.span[i] = src_radius[src_point_indices[i]] * radius;
-        dst_opacity.span[i] = src_opacity[src_point_indices[i]] * opacity;
+      }
+      if (dst_opacity) {
+        for (const int i : dst_point_range) {
+          dst_opacity.span[i] = src_opacity[src_point_indices[i]] * opacity;
+        }
       }
 
       ++dst_curve_i;
@@ -328,6 +333,7 @@ static void modify_drawing(const GreasePencilDashModifierData &dmd,
                            const PatternInfo &pattern_info,
                            bke::greasepencil::Drawing &drawing)
 {
+  modifier::greasepencil::ensure_no_bezier_curves(drawing);
   const bke::CurvesGeometry &src_curves = drawing.strokes();
   if (src_curves.curve_num == 0) {
     return;
@@ -377,7 +383,7 @@ static void panel_draw(const bContext *C, Panel *panel)
 
   uiLayoutSetPropSep(layout, true);
 
-  uiItemR(layout, ptr, "dash_offset", UI_ITEM_NONE, nullptr, ICON_NONE);
+  uiItemR(layout, ptr, "dash_offset", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
   uiLayout *row = uiLayoutRow(layout, false);
   uiLayoutSetPropSep(row, false);
@@ -413,23 +419,23 @@ static void panel_draw(const bContext *C, Panel *panel)
                      "DOWN");
 
   if (dmd->segment_active_index >= 0 && dmd->segment_active_index < dmd->segments_num) {
-    PointerRNA ds_ptr = RNA_pointer_create(ptr->owner_id,
-                                           &RNA_GreasePencilDashModifierSegment,
-                                           &dmd->segments()[dmd->segment_active_index]);
+    PointerRNA ds_ptr = RNA_pointer_create_discrete(ptr->owner_id,
+                                                    &RNA_GreasePencilDashModifierSegment,
+                                                    &dmd->segments()[dmd->segment_active_index]);
 
     sub = uiLayoutColumn(layout, true);
-    uiItemR(sub, &ds_ptr, "dash", UI_ITEM_NONE, nullptr, ICON_NONE);
-    uiItemR(sub, &ds_ptr, "gap", UI_ITEM_NONE, nullptr, ICON_NONE);
+    uiItemR(sub, &ds_ptr, "dash", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    uiItemR(sub, &ds_ptr, "gap", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
     sub = uiLayoutColumn(layout, false);
-    uiItemR(sub, &ds_ptr, "radius", UI_ITEM_NONE, nullptr, ICON_NONE);
-    uiItemR(sub, &ds_ptr, "opacity", UI_ITEM_NONE, nullptr, ICON_NONE);
-    uiItemR(sub, &ds_ptr, "material_index", UI_ITEM_NONE, nullptr, ICON_NONE);
-    uiItemR(sub, &ds_ptr, "use_cyclic", UI_ITEM_NONE, nullptr, ICON_NONE);
+    uiItemR(sub, &ds_ptr, "radius", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    uiItemR(sub, &ds_ptr, "opacity", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    uiItemR(sub, &ds_ptr, "material_index", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    uiItemR(sub, &ds_ptr, "use_cyclic", UI_ITEM_NONE, std::nullopt, ICON_NONE);
   }
 
   if (uiLayout *influence_panel = uiLayoutPanelProp(
-          C, layout, ptr, "open_influence_panel", "Influence"))
+          C, layout, ptr, "open_influence_panel", IFACE_("Influence")))
   {
     modifier::greasepencil::draw_layer_filter_settings(C, influence_panel, ptr);
     modifier::greasepencil::draw_material_filter_settings(C, influence_panel, ptr);

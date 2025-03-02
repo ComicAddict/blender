@@ -7,10 +7,10 @@
  */
 
 #include <cfloat>
-#include <cmath>
 #include <cstdlib>
 #include <cstring>
 
+#include "BLI_listbase.h"
 #include "BLI_utildefines.h"
 
 #include "BLT_translation.hh"
@@ -54,7 +54,7 @@
 AnimData *ED_actedit_animdata_from_context(const bContext *C, ID **r_adt_id_owner)
 {
   { /* Support use from the layout.template_action() UI template. */
-    PointerRNA ptr = {nullptr};
+    PointerRNA ptr = {};
     PropertyRNA *prop = nullptr;
     UI_context_active_but_prop_get_templateID(C, &ptr, &prop);
     /* template_action() sets a RNA_AnimData pointer, whereas other code may set
@@ -111,7 +111,6 @@ AnimData *ED_actedit_animdata_from_context(const bContext *C, ID **r_adt_id_owne
 
 static bAction *action_create_new(bContext *C, bAction *oldact)
 {
-  ScrArea *area = CTX_wm_area(C);
   bAction *action;
 
   /* create action - the way to do this depends on whether we've got an
@@ -124,7 +123,7 @@ static bAction *action_create_new(bContext *C, bAction *oldact)
   }
   else {
     /* just make a new (empty) action */
-    action = BKE_action_add(CTX_data_main(C), "Action");
+    action = BKE_action_add(CTX_data_main(C), DATA_("Action"));
   }
 
   /* when creating new ID blocks, there is already 1 user (as for all new datablocks),
@@ -133,18 +132,6 @@ static bAction *action_create_new(bContext *C, bAction *oldact)
    */
   BLI_assert(action->id.us == 1);
   id_us_min(&action->id);
-
-  /* set ID-Root type */
-  if (area->spacetype == SPACE_ACTION) {
-    SpaceAction *saction = (SpaceAction *)area->spacedata.first;
-
-    if (saction->mode == SACTCONT_SHAPEKEY) {
-      action->idroot = ID_KE;
-    }
-    else {
-      action->idroot = ID_OB;
-    }
-  }
 
   return action;
 }
@@ -158,7 +145,7 @@ static void actedit_change_action(bContext *C, bAction *act)
   PropertyRNA *prop;
 
   /* create RNA pointers and get the property */
-  PointerRNA ptr = RNA_pointer_create(&screen->id, &RNA_SpaceDopeSheetEditor, saction);
+  PointerRNA ptr = RNA_pointer_create_discrete(&screen->id, &RNA_SpaceDopeSheetEditor, saction);
   prop = RNA_struct_find_property(&ptr, "action");
 
   /* NOTE: act may be nullptr here, so better to just use a cast here */
@@ -184,7 +171,7 @@ static void actedit_change_action(bContext *C, bAction *act)
 static bool action_new_poll(bContext *C)
 {
   { /* Support use from the layout.template_action() UI template. */
-    PointerRNA ptr = {nullptr};
+    PointerRNA ptr = {};
     PropertyRNA *prop = nullptr;
     UI_context_active_but_prop_get_templateID(C, &ptr, &prop);
     if (prop) {
@@ -438,7 +425,7 @@ static int action_stash_exec(bContext *C, wmOperator *op)
     }
     else {
       /* action has already been added - simply warn about this, and clear */
-      BKE_report(op->reports, RPT_ERROR, "Action has already been stashed");
+      BKE_report(op->reports, RPT_ERROR, "Action+Slot has already been stashed");
     }
 
     /* clear action refs from editor, and then also the backing data (not necessary) */
@@ -553,7 +540,7 @@ static int action_stash_create_exec(bContext *C, wmOperator *op)
     }
     else {
       /* action has already been added - simply warn about this, and clear */
-      BKE_report(op->reports, RPT_ERROR, "Action has already been stashed");
+      BKE_report(op->reports, RPT_ERROR, "Action+Slot has already been stashed");
       actedit_change_action(C, nullptr);
     }
   }
@@ -659,7 +646,7 @@ void ED_animedit_unlink_action(
   }
   else {
     /* Clear AnimData -> action via RNA, so that it triggers message bus updates. */
-    PointerRNA ptr = RNA_pointer_create(id, &RNA_AnimData, adt);
+    PointerRNA ptr = RNA_pointer_create_discrete(id, &RNA_AnimData, adt);
     PropertyRNA *prop = RNA_struct_find_property(&ptr, "action");
 
     RNA_property_pointer_set(&ptr, prop, PointerRNA_NULL, nullptr);

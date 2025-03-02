@@ -151,16 +151,16 @@ PyDoc_STRVAR(
     "   Convert a given input string into a float value.\n"
     "\n"
     "   :arg unit_system: The unit system, from :attr:`bpy.utils.units.systems`.\n"
-    "   :type unit_system: string\n"
+    "   :type unit_system: str\n"
     "   :arg unit_category: The category of data we are converting (length, area, rotation, "
     "etc.),\n"
     "      from :attr:`bpy.utils.units.categories`.\n"
-    "   :type unit_category: string\n"
+    "   :type unit_category: str\n"
     "   :arg str_input: The string to convert to a float value.\n"
-    "   :type str_input: string\n"
+    "   :type str_input: str\n"
     "   :arg str_ref_unit: A reference string from which to extract a default unit, if none is "
     "found in ``str_input``.\n"
-    "   :type str_ref_unit: string or None\n"
+    "   :type str_ref_unit: str | None\n"
     "   :return: The converted/interpreted value.\n"
     "   :rtype: float\n"
     "   :raises ValueError: if conversion fails to generate a valid Python float value.\n");
@@ -236,11 +236,11 @@ PyDoc_STRVAR(
     "   Convert a given input float value into a string with units.\n"
     "\n"
     "   :arg unit_system: The unit system, from :attr:`bpy.utils.units.systems`.\n"
-    "   :type unit_system: string\n"
+    "   :type unit_system: str\n"
     "   :arg unit_category: The category of data we are converting (length, area, "
     "rotation, etc.),\n"
     "      from :attr:`bpy.utils.units.categories`.\n"
-    "   :type unit_category: string\n"
+    "   :type unit_category: str\n"
     "   :arg value: The value to convert to a string.\n"
     "   :type value: float\n"
     "   :arg precision: Number of digits after the comma.\n"
@@ -318,7 +318,7 @@ static PyObject *bpyunits_to_string(PyObject * /*self*/, PyObject *args, PyObjec
     PyObject *result;
 
     BKE_unit_value_as_string_adaptive(
-        buf1, sizeof(buf1), value, precision, usys, ucat, bool(split_unit), false);
+        buf1, sizeof(buf1), value, precision, usys, ucat, split_unit, false);
 
     if (compatible_unit) {
       BKE_unit_name_to_alt(buf2, sizeof(buf2), buf1, usys, ucat);

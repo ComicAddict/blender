@@ -11,10 +11,6 @@
 #include "../BPy_Convert.h"
 #include "../Interface1D/BPy_ViewEdge.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 using namespace Freestyle;
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -38,7 +34,7 @@ PyDoc_STRVAR(
     "   orientation or the copy constructor.\n"
     "\n"
     "   :arg begin: The ViewEdge from where to start the iteration.\n"
-    "   :type begin: :class:`ViewEdge` or None\n"
+    "   :type begin: :class:`ViewEdge` | None\n"
     "   :arg orientation: If true, we'll look for the next ViewEdge among\n"
     "      the ViewEdges that surround the ending ViewVertex of begin. If\n"
     "      false, we'll search over the ViewEdges surrounding the ending\n"
@@ -279,7 +275,3 @@ PyTypeObject ViewEdgeIterator_Type = {
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////
-
-#ifdef __cplusplus
-}
-#endif

@@ -7,6 +7,8 @@
 #include "gpu_shader_create_info.hh"
 #include "gpu_shader_private.hh"
 
+#include "mtl_shader_interface.hh"
+
 /** -- Metal Shader Generator for GLSL -> MSL conversion --
  *
  * The Metal shader generator class is used as a conversion utility for generating
@@ -119,82 +121,9 @@
  * Uniform buffers                          <-- MTL_uniform_buffer_base_index+1
  * Storage buffers                          <-- MTL_storage_buffer_base_index
  * Samplers/argument buffer table           <-- last buffer + 1
- * Transform feedback buffer                <-- MTL_transform_feedback_buffer_index ~last_buffer+2
  *
  * Up to a maximum of 31 bindings.
- *
- * -- SSBO-vertex-fetchmode --
- *
- * SSBO-vertex-fetchmode is a special option wherein vertex buffers are bound directly
- * as buffers in the shader, rather than using the VertexDescriptor and [[stage_in]] vertex
- * assembly.
- *
- * The purpose of this mode is to enable random-access reading of all vertex data. This is
- * particularly useful for efficiently converting geometry shaders to Metal shading language,
- * as these techniques are not supported natively in Metal.
- *
- * Geometry shaders can be re-created by firing off a vertex shader with the desired number of
- * total output vertices. Each vertex can then read whichever input attributes it needs to
- * achieve the output result.
- * This manual reading is also used to provide support for GPU_provoking_vertex, wherein the
- * output vertex for flat shading needs to change. In these cases, the manual vertex assembly
- * can flip which vertices are read within the primitive.
- *
- * From an efficiency perspective, this is more GPU-friendly than geometry shading, due to improved
- * parallelism throughout the whole pipe, and for Apple hardware specifically, there is no
- * significant performance loss from manual vertex assembly vs under-the-hood assembly.
- *
- * This mode works by passing the required vertex descriptor information into the shader
- * as uniform data, describing the type, stride, offset, step-mode and buffer index of each
- * attribute, such that the shader SSBO-vertex-fetch utility functions know how to extract data.
- *
- * This also works with indexed rendering,
- * by similarly binding the index buffer as a manual buffer.
- *
- * When this mode is used, the code generation and shader interface generation varies to
- * accommodate the required features.
- *
- * This mode can be enabled in a shader with:
- *
- * `#pragma USE_SSBO_VERTEX_FETCH(TriangleList/LineList, output_vertex_count_per_input_primitive)`
- *
- * This mirrors the geometry shader interface `layout(triangle_strip, max_vertices = 3) out;`
  */
-
-/* SSBO vertex fetch attribute uniform parameter names.
- * These uniforms are used to pass the information
- * required to perform manual vertex assembly within
- * the vertex shader.
- * Each vertex attribute requires a number of properties
- * in order to correctly extract data from the bound vertex
- * buffers. */
-#ifndef NDEBUG
-/* Global. */
-#  define UNIFORM_SSBO_USES_INDEXED_RENDERING_STR "uniform_ssbo_uses_indexed_rendering"
-#  define UNIFORM_SSBO_INDEX_MODE_U16_STR "uniform_ssbo_index_mode_u16"
-#  define UNIFORM_SSBO_INPUT_PRIM_TYPE_STR "uniform_ssbo_input_prim_type"
-#  define UNIFORM_SSBO_INPUT_VERT_COUNT_STR "uniform_ssbo_input_vert_count"
-#  define UNIFORM_SSBO_INDEX_BASE_STR "uniform_ssbo_index_base_"
-/* Per-attribute. */
-#  define UNIFORM_SSBO_OFFSET_STR "uniform_ssbo_offset_"
-#  define UNIFORM_SSBO_STRIDE_STR "uniform_ssbo_stride_"
-#  define UNIFORM_SSBO_FETCHMODE_STR "uniform_ssbo_fetchmode_"
-#  define UNIFORM_SSBO_VBO_ID_STR "uniform_ssbo_vbo_id_"
-#  define UNIFORM_SSBO_TYPE_STR "uniform_ssbo_type_"
-#else
-/* Global. */
-#  define UNIFORM_SSBO_USES_INDEXED_RENDERING_STR "_ir"
-#  define UNIFORM_SSBO_INDEX_MODE_U16_STR "_mu"
-#  define UNIFORM_SSBO_INPUT_PRIM_TYPE_STR "_pt"
-#  define UNIFORM_SSBO_INPUT_VERT_COUNT_STR "_vc"
-#  define UNIFORM_SSBO_INDEX_BASE_STR "_ib"
-/* Per-attribute. */
-#  define UNIFORM_SSBO_OFFSET_STR "_so"
-#  define UNIFORM_SSBO_STRIDE_STR "_ss"
-#  define UNIFORM_SSBO_FETCHMODE_STR "_sf"
-#  define UNIFORM_SSBO_VBO_ID_STR "_sv"
-#  define UNIFORM_SSBO_TYPE_STR "_st"
-#endif
 
 namespace blender::gpu {
 
@@ -357,13 +286,13 @@ struct MSLVertexOutputAttribute {
   }
   std::string get_mtl_interpolation_qualifier() const
   {
-    if (interpolation_qualifier == "" || interpolation_qualifier == "smooth") {
+    if (interpolation_qualifier.empty() || interpolation_qualifier == "smooth") {
       return "";
     }
-    else if (interpolation_qualifier == "flat") {
+    if (interpolation_qualifier == "flat") {
       return " [[flat]]";
     }
-    else if (interpolation_qualifier == "noperspective") {
+    if (interpolation_qualifier == "noperspective") {
       return " [[center_no_perspective]]";
     }
     return "";
@@ -397,7 +326,7 @@ struct MSLSharedMemoryBlock {
   std::string type_name;
   std::string varname;
   bool is_array;
-  std::string array_decl; /* String containing array declaration. e.g. [cache_size][cache_size]*/
+  std::string array_decl; /* String containing array declaration. e.g. [cache_size][cache_size]. */
 };
 
 class MSLGeneratorInterface {
@@ -416,14 +345,11 @@ class MSLGeneratorInterface {
   blender::Vector<MSLConstant> constants;
   /* Fragment tile inputs. */
   blender::Vector<MSLFragmentTileInputAttribute> fragment_tile_inputs;
-  bool supports_native_tile_inputs;
   /* Should match vertex outputs, but defined separately as
    * some shader permutations will not utilize all inputs/outputs.
    * Final shader uses the intersection between the two sets. */
   blender::Vector<MSLVertexOutputAttribute> fragment_input_varyings;
   blender::Vector<MSLFragmentOutputAttribute> fragment_outputs;
-  /* Transform feedback interface. */
-  blender::Vector<MSLVertexOutputAttribute> vertex_output_varyings_tf;
   /* Clip Distances. */
   blender::Vector<char> clip_distances;
   /* Max bind IDs. */
@@ -449,7 +375,6 @@ class MSLGeneratorInterface {
   bool uses_gl_FragStencilRefARB;
   bool uses_gpu_layer;
   bool uses_gpu_viewport_index;
-  bool uses_transform_feedback;
   bool uses_barycentrics;
   /* Compute shader global variables. */
   bool uses_gl_GlobalInvocationID;
@@ -471,11 +396,6 @@ class MSLGeneratorInterface {
    * NOTE: Compute stage will re-use index 0. */
   int sampler_argument_buffer_bind_index[3] = {-1, -1, -1};
 
-  /*** SSBO Vertex fetch mode. ***/
-  /* Indicates whether to pass in Vertex Buffer's as a regular buffers instead of using vertex
-   * assembly in the PSO descriptor. Enabled with special pragma. */
-  bool uses_ssbo_vertex_fetch_mode;
-
  private:
   /* Parent shader instance. */
   MTLShader &parent_shader_;
@@ -488,22 +408,6 @@ class MSLGeneratorInterface {
 
   /** Prepare MSLGeneratorInterface from create-info. **/
   void prepare_from_createinfo(const shader::ShaderCreateInfo *info);
-
-  /* When SSBO Vertex Fetch mode is used, uniforms are used to pass on the required information
-   * about vertex attribute bindings, in order to perform manual vertex assembly and random-access
-   * vertex lookup throughout the bound VBOs.
-   *
-   * Some parameters are global for the shader, others change with the currently bound
-   * VertexBuffers, and their format, as they do with regular gpu::Batch's.
-   *
-   * (Where ##attr is the attributes name)
-   *  uniform_ssbo_stride_##attr  -- Representing the stride between elements of attribute(attr)
-   *  uniform_ssbo_offset_##attr  -- Representing the base offset within the vertex
-   *  uniform_ssbo_fetchmode_##attr -- Whether using per-vertex fetch or per-instance fetch
-   * (0=vert, 1=inst) uniform_ssbo_vbo_id_##attr -- index of the vertex buffer within which the
-   * data for this attribute is contained uniform_ssbo_type_##attr - The type of data in the
-   * currently bound buffer -- Could be a mismatch with the Officially reported type. */
-  void prepare_ssbo_vertex_fetch_uniforms();
 
   /* Samplers. */
   bool use_argument_buffer_for_samplers() const;
@@ -518,7 +422,6 @@ class MSLGeneratorInterface {
   std::string generate_msl_uniform_structs(ShaderStage shader_stage);
   std::string generate_msl_vertex_in_struct();
   std::string generate_msl_vertex_out_struct(ShaderStage shader_stage);
-  std::string generate_msl_vertex_transform_feedback_out_struct(ShaderStage shader_stage);
   std::string generate_msl_fragment_struct(bool is_input);
   std::string generate_msl_vertex_inputs_string();
   std::string generate_msl_fragment_inputs_string();
@@ -532,7 +435,6 @@ class MSLGeneratorInterface {
   std::string generate_msl_uniform_block_population(ShaderStage stage);
   std::string generate_msl_vertex_attribute_input_population();
   std::string generate_msl_vertex_output_population();
-  std::string generate_msl_vertex_output_tf_population();
   std::string generate_msl_fragment_input_population();
   std::string generate_msl_fragment_output_population();
   std::string generate_msl_uniform_undefs(ShaderStage stage);
@@ -627,6 +529,8 @@ inline bool is_builtin_type(std::string type)
       {"uchar4", MTL_DATATYPE_UCHAR4},
       {"vec3_1010102_Unorm", MTL_DATATYPE_UINT1010102_NORM},
       {"vec3_1010102_Inorm", MTL_DATATYPE_INT1010102_NORM},
+      {"packed_float2", MTL_DATATYPE_PACKED_FLOAT2},
+      {"packed_float3", MTL_DATATYPE_PACKED_FLOAT3},
   };
   return (glsl_builtin_types.find(type) != glsl_builtin_types.end());
 }
@@ -661,7 +565,7 @@ inline int get_matrix_location_count(const shader::Type &type)
   if (type == shader::Type::MAT4) {
     return 4;
   }
-  else if (type == shader::Type::MAT3) {
+  if (type == shader::Type::MAT3) {
     return 3;
   }
   return 1;
@@ -694,15 +598,15 @@ inline std::string get_attribute_conversion_function(bool *uses_conversion,
     *uses_conversion = true;
     return "internal_vertex_attribute_convert_read_float";
   }
-  else if (type == shader::Type::VEC2) {
+  if (type == shader::Type::VEC2) {
     *uses_conversion = true;
     return "internal_vertex_attribute_convert_read_float2";
   }
-  else if (type == shader::Type::VEC3) {
+  if (type == shader::Type::VEC3) {
     *uses_conversion = true;
     return "internal_vertex_attribute_convert_read_float3";
   }
-  else if (type == shader::Type::VEC4) {
+  if (type == shader::Type::VEC4) {
     *uses_conversion = true;
     return "internal_vertex_attribute_convert_read_float4";
   }
@@ -755,7 +659,7 @@ inline const char *to_string(const shader::Interpolation &interp)
       return "noperspective";
     default:
       BLI_assert(false);
-      return "unkown";
+      return "unknown";
   }
 }
 
@@ -842,11 +746,11 @@ inline const char *to_string(const shader::Type &type)
       return "short4";
     default:
       BLI_assert(false);
-      return "unkown";
+      return "unknown";
   }
 }
 
-inline char *next_symbol_in_range(char *begin, char *end, char symbol)
+inline char *next_symbol_in_range(char *begin, const char *end, char symbol)
 {
   for (char *a = begin; a < end; a++) {
     if (*a == symbol) {
@@ -856,7 +760,7 @@ inline char *next_symbol_in_range(char *begin, char *end, char symbol)
   return nullptr;
 }
 
-inline char *next_word_in_range(char *begin, char *end)
+inline char *next_word_in_range(char *begin, const char *end)
 {
   for (char *a = begin; a < end; a++) {
     char chr = *a;

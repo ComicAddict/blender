@@ -2,7 +2,11 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#include "common_gpencil_lib.glsl"
+#include "infos/overlay_edit_mode_info.hh"
+
+FRAGMENT_SHADER_CREATE_INFO(overlay_depth_gpencil)
+
+#include "draw_grease_pencil_lib.glsl"
 #include "select_lib.glsl"
 
 vec3 ray_plane_intersection(vec3 ray_ori, vec3 ray_dir, vec4 plane)
@@ -44,7 +48,7 @@ void main()
     vec3 ray_ori = pos;
     vec3 ray_dir = (is_persp) ? (drw_view.viewinv[3].xyz - pos) : drw_view.viewinv[2].xyz;
     vec3 isect = ray_plane_intersection(ray_ori, ray_dir, gpDepthPlane);
-    vec4 ndc = point_world_to_ndc(isect);
+    vec4 ndc = drw_point_world_to_homogenous(isect);
     gl_FragDepth = (ndc.z / ndc.w) * 0.5 + 0.5;
   }
   else {

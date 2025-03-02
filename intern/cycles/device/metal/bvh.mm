@@ -4,6 +4,11 @@
 
 #ifdef WITH_METAL
 
+#  include <algorithm>
+#  include <chrono>
+#  include <thread>
+#  include <vector>
+
 #  include "scene/hair.h"
 #  include "scene/mesh.h"
 #  include "scene/object.h"
@@ -50,7 +55,7 @@ struct BVHMetalBuildThrottler {
   }
 
   /* Block until we're safely able to wire the requested resources. */
-  void acquire(size_t bytes_to_be_wired)
+  void acquire(const size_t bytes_to_be_wired)
   {
     bool throttled = false;
     while (true) {
@@ -84,7 +89,7 @@ struct BVHMetalBuildThrottler {
   }
 
   /* Notify of resources that have stopped being wired. */
-  void release(size_t bytes_just_unwired)
+  void release(const size_t bytes_just_unwired)
   {
     thread_scoped_lock lock(mutex);
     wired_memory -= bytes_just_unwired;
@@ -108,6 +113,22 @@ struct BVHMetalBuildThrottler {
     }
   }
 } g_bvh_build_throttler;
+
+/* macOS 15.2 and 15.3 has a bug in the dynamic BVH refitting which leads to missing geometry
+ * during render. The issue is fixed in the macOS 15.4, until then disable refitting even for
+ * the viewport.
+ * Note that dynamic BVH is still used on the scene level to speed up updates of instances and
+ * such. #132782. */
+static bool support_refit_blas()
+{
+  if (@available(macos 15.4, *)) {
+    return true;
+  }
+  if (@available(macos 15.2, *)) {
+    return false;
+  }
+  return true;
+}
 
 BVHMetal::BVHMetal(const BVHParams &params_,
                    const vector<Geometry *> &geometry_,
@@ -162,7 +183,7 @@ bool BVHMetal::build_BLAS_mesh(Progress &progress,
         "Building mesh BLAS | %7d tris | %s", (int)mesh->num_triangles(), geom->name.c_str());
     /*------------------------------------------------*/
 
-    const bool use_fast_trace_bvh = (params.bvh_type == BVH_TYPE_STATIC);
+    const bool use_fast_trace_bvh = (params.bvh_type == BVH_TYPE_STATIC) || !support_refit_blas();
 
     const array<float3> &verts = mesh->get_verts();
     const array<int> &tris = mesh->get_triangles();
@@ -207,7 +228,7 @@ bool BVHMetal::build_BLAS_mesh(Progress &progress,
         if (step != center_step) {
           verts = motion_keys->data_float3() + (step > center_step ? step - 1 : step) * num_verts;
         }
-        memcpy(dest_data + num_verts * step, verts, num_verts * sizeof(float3));
+        std::copy_n(verts, num_verts, dest_data + num_verts * step);
       }
       if (storage_mode == MTLResourceStorageModeManaged) {
         [posBuf didModifyRange:NSMakeRange(0, posBuf.length)];
@@ -383,7 +404,7 @@ bool BVHMetal::build_BLAS_hair(Progress &progress,
         "Building hair BLAS | %7d curves | %s", (int)hair->num_curves(), geom->name.c_str());
     /*------------------------------------------------*/
 
-    const bool use_fast_trace_bvh = (params.bvh_type == BVH_TYPE_STATIC);
+    const bool use_fast_trace_bvh = (params.bvh_type == BVH_TYPE_STATIC) || !support_refit_blas();
 
     size_t num_motion_steps = 1;
     Attribute *motion_keys = hair->attributes.find(ATTR_STD_MOTION_VERTEX_POSITION);
@@ -727,7 +748,7 @@ bool BVHMetal::build_BLAS_pointcloud(Progress &progress,
     const float3 *points = pointcloud->get_points().data();
     const float *radius = pointcloud->get_radius().data();
 
-    const bool use_fast_trace_bvh = (params.bvh_type == BVH_TYPE_STATIC);
+    const bool use_fast_trace_bvh = (params.bvh_type == BVH_TYPE_STATIC) || !support_refit_blas();
 
     size_t num_motion_steps = 1;
     Attribute *motion_keys = pointcloud->attributes.find(ATTR_STD_MOTION_VERTEX_POSITION);
@@ -785,13 +806,6 @@ bool BVHMetal::build_BLAS_pointcloud(Progress &progress,
     if (storage_mode == MTLResourceStorageModeManaged) {
       [aabbBuf didModifyRange:NSMakeRange(0, aabbBuf.length)];
     }
-
-#  if 0
-    for (size_t i=0; i<num_aabbs && i < 400; i++) {
-      MTLAxisAlignedBoundingBox& bb = aabb_data[i];
-      printf("  %d:   %.1f,%.1f,%.1f -- %.1f,%.1f,%.1f\n", int(i), bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z);
-    }
-#  endif
 
     MTLAccelerationStructureGeometryDescriptor *geomDesc;
     if (motion_blur) {
@@ -1047,25 +1061,23 @@ bool BVHMetal::build_TLAS(Progress &progress,
     BVH_status("Building TLAS      | %7d instances", (int)num_instances);
     /*------------------------------------------------*/
 
-    const bool use_fast_trace_bvh = (params.bvh_type == BVH_TYPE_STATIC);
+    const bool use_fast_trace_bvh = (params.bvh_type == BVH_TYPE_STATIC) || !support_refit_blas();
 
     NSMutableArray *all_blas = [NSMutableArray array];
-    unordered_map<BVHMetal const *, int> instance_mapping;
+    unordered_map<const BVHMetal *, int> instance_mapping;
 
     /* Lambda function to build/retrieve the BLAS index mapping */
-    auto get_blas_index = [&](BVHMetal const *blas) {
+    auto get_blas_index = [&](const BVHMetal *blas) {
       auto it = instance_mapping.find(blas);
       if (it != instance_mapping.end()) {
         return it->second;
       }
-      else {
-        int blas_index = (int)[all_blas count];
-        instance_mapping[blas] = blas_index;
-        if (@available(macos 12.0, *)) {
-          [all_blas addObject:(blas ? blas->accel_struct : null_BLAS)];
-        }
-        return blas_index;
+      int blas_index = (int)[all_blas count];
+      instance_mapping[blas] = blas_index;
+      if (@available(macos 12.0, *)) {
+        [all_blas addObject:(blas ? blas->accel_struct : null_BLAS)];
       }
+      return blas_index;
     };
 
     MTLResourceOptions storage_mode;
@@ -1104,8 +1116,8 @@ bool BVHMetal::build_TLAS(Progress &progress,
 
     for (Object *ob : objects) {
       /* Skip non-traceable objects */
-      Geometry const *geom = ob->get_geometry();
-      BVHMetal const *blas = static_cast<BVHMetal const *>(geom->bvh);
+      const Geometry *geom = ob->get_geometry();
+      const BVHMetal *blas = static_cast<const BVHMetal *>(geom->bvh.get());
       if (!blas || !blas->accel_struct || !ob->is_traceable()) {
         /* Place a degenerate instance, to ensure [[instance_id]] equals ob->get_device_index()
          * in our intersection functions */
@@ -1139,17 +1151,17 @@ bool BVHMetal::build_TLAS(Progress &progress,
       uint32_t primitive_offset = 0;
       int currIndex = instance_index++;
 
-      if (geom->geometry_type == Geometry::HAIR) {
+      if (geom->is_hair()) {
         /* Build BLAS for curve primitives. */
         Hair *const hair = static_cast<Hair *const>(const_cast<Geometry *>(geom));
         primitive_offset = uint32_t(hair->curve_segment_offset);
       }
-      else if (geom->geometry_type == Geometry::MESH || geom->geometry_type == Geometry::VOLUME) {
+      else if (geom->is_mesh() || geom->is_volume()) {
         /* Build BLAS for triangle primitives. */
         Mesh *const mesh = static_cast<Mesh *const>(const_cast<Geometry *>(geom));
         primitive_offset = uint32_t(mesh->prim_offset);
       }
-      else if (geom->geometry_type == Geometry::POINTCLOUD) {
+      else if (geom->is_pointcloud()) {
         /* Build BLAS for points primitives. */
         PointCloud *const pointcloud = static_cast<PointCloud *const>(
             const_cast<Geometry *>(geom));
@@ -1180,7 +1192,7 @@ bool BVHMetal::build_TLAS(Progress &progress,
           for (int i = 0; i < key_count; i++) {
             float *t = (float *)&motion_transforms[motion_transform_index++];
             /* Transpose transform */
-            auto src = (float const *)&keys[i];
+            const auto *src = (const float *)&keys[i];
             for (int i = 0; i < 12; i++) {
               t[i] = src[(i / 3) + 4 * (i % 3)];
             }
@@ -1192,7 +1204,7 @@ bool BVHMetal::build_TLAS(Progress &progress,
           float *t = (float *)&motion_transforms[motion_transform_index++];
           if (ob->get_geometry()->is_instanced()) {
             /* Transpose transform */
-            auto src = (float const *)&ob->get_tfm();
+            const auto *src = (const float *)&ob->get_tfm();
             for (int i = 0; i < 12; i++) {
               t[i] = src[(i / 3) + 4 * (i % 3)];
             }
@@ -1217,7 +1229,7 @@ bool BVHMetal::build_TLAS(Progress &progress,
         float *t = (float *)&desc.transformationMatrix;
         if (ob->get_geometry()->is_instanced()) {
           /* Transpose transform */
-          auto src = (float const *)&ob->get_tfm();
+          const auto *src = (const float *)&ob->get_tfm();
           for (int i = 0; i < 12; i++) {
             t[i] = src[(i / 3) + 4 * (i % 3)];
           }
@@ -1313,8 +1325,12 @@ bool BVHMetal::build(Progress &progress,
     if (refit) {
       /* It isn't valid to refit a non-existent BVH, or one which wasn't constructed as dynamic.
        * In such cases, assert in development but try to recover in the wild. */
-      if (params.bvh_type != BVH_TYPE_DYNAMIC || !accel_struct) {
-        assert(false);
+      if (params.bvh_type != BVH_TYPE_DYNAMIC) {
+        assert(!"Can't refit static Metal BVH");
+        refit = false;
+      }
+      else if (!accel_struct) {
+        assert(!"Can't refit non-existing Metal BVH");
         refit = false;
       }
     }
@@ -1324,13 +1340,15 @@ bool BVHMetal::build(Progress &progress,
     }
   }
 
+  if (!support_refit_blas()) {
+    refit = false;
+  }
+
   @autoreleasepool {
     if (!params.top_level) {
       return build_BLAS(progress, mtl_device, queue, refit);
     }
-    else {
-      return build_TLAS(progress, mtl_device, queue, refit);
-    }
+    return build_TLAS(progress, mtl_device, queue, refit);
   }
 }
 

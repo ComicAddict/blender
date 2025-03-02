@@ -6,7 +6,6 @@
  * \ingroup spinfo
  */
 
-#include <cstdio>
 #include <cstring>
 #include <fmt/format.h>
 
@@ -15,16 +14,14 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "BLI_blenlib.h"
-#include "BLI_utildefines.h"
-
 #include "BLT_translation.hh"
 
 #include "BKE_bpath.hh"
 #include "BKE_context.hh"
 #include "BKE_global.hh"
-#include "BKE_image.h"
+#include "BKE_image.hh"
 #include "BKE_lib_id.hh"
+#include "BKE_library.hh"
 #include "BKE_main.hh"
 #include "BKE_packedFile.hh"
 #include "BKE_report.hh"
@@ -267,7 +264,7 @@ static int unpack_all_invoke(bContext *C, wmOperator *op, const wmEvent * /*even
   }
 
   const std::string title = fmt::format(
-      IFACE_("Unpack - Files: {}, Bakes: {}"), count.individual_files, count.bakes);
+      fmt::runtime(IFACE_("Unpack - Files: {}, Bakes: {}")), count.individual_files, count.bakes);
 
   pup = UI_popup_menu_begin(C, title.c_str(), ICON_NONE);
   layout = UI_popup_menu_layout(pup);
@@ -339,6 +336,11 @@ static int unpack_item_exec(bContext *C, wmOperator *op)
 
   if (id == nullptr) {
     BKE_report(op->reports, RPT_WARNING, "No packed file");
+    return OPERATOR_CANCELLED;
+  }
+
+  if (!ID_IS_EDITABLE(id)) {
+    BKE_report(op->reports, RPT_WARNING, "Data-block using this packed file is not editable");
     return OPERATOR_CANCELLED;
   }
 

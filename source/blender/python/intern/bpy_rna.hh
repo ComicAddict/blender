@@ -8,6 +8,10 @@
 
 #pragma once
 
+#include <Python.h>
+
+#include <optional>
+
 /* --- bpy build options --- */
 #include "intern/rna_internal_types.hh"
 #ifdef WITH_PYTHON_SAFETY
@@ -103,8 +107,8 @@ extern PyTypeObject pyrna_func_Type;
   } \
   (void)0
 
-#define PYRNA_STRUCT_IS_VALID(pysrna) (LIKELY(((BPy_StructRNA *)(pysrna))->ptr.type != NULL))
-#define PYRNA_PROP_IS_VALID(pysrna) (LIKELY(((BPy_PropertyRNA *)(pysrna))->ptr.type != NULL))
+#define PYRNA_STRUCT_IS_VALID(pysrna) (LIKELY(((BPy_StructRNA *)(pysrna))->ptr->type != NULL))
+#define PYRNA_PROP_IS_VALID(pysrna) (LIKELY(((BPy_PropertyRNA *)(pysrna))->ptr->type != NULL))
 
 /* 'in_weakreflist' MUST be aligned */
 
@@ -113,7 +117,8 @@ struct BPy_DummyPointerRNA {
 #ifdef USE_WEAKREFS
   PyObject *in_weakreflist;
 #endif
-  PointerRNA ptr;
+
+  std::optional<PointerRNA> ptr;
 };
 
 struct BPy_StructRNA {
@@ -121,7 +126,9 @@ struct BPy_StructRNA {
 #ifdef USE_WEAKREFS
   PyObject *in_weakreflist;
 #endif
-  PointerRNA ptr;
+
+  std::optional<PointerRNA> ptr;
+
 #ifdef USE_PYRNA_STRUCT_REFERENCE
   /* generic PyObject we hold a reference to, example use:
    * hold onto the collection iterator to prevent it from freeing allocated data we may use */
@@ -139,17 +146,24 @@ struct BPy_PropertyRNA {
 #ifdef USE_WEAKREFS
   PyObject *in_weakreflist;
 #endif
-  PointerRNA ptr;
+
+  std::optional<PointerRNA> ptr;
   PropertyRNA *prop;
 };
 
 struct BPy_PropertyArrayRNA {
   PyObject_HEAD /* Required Python macro. */
+
+  /* START Must match #BPy_PropertyRNA. */
+
 #ifdef USE_WEAKREFS
   PyObject *in_weakreflist;
 #endif
-  PointerRNA ptr;
+
+  std::optional<PointerRNA> ptr;
   PropertyRNA *prop;
+
+  /* END Must match #BPy_PropertyRNA. */
 
   /* Arystan: this is a hack to allow sub-item r/w access like: face.uv[n][m] */
   /** Array dimension, e.g: 0 for face.uv, 2 for face.uv[n][m], etc. */
@@ -165,7 +179,7 @@ struct BPy_PropertyCollectionIterRNA {
 #endif
 
   /* collection iterator specific parts */
-  CollectionPropertyIterator iter;
+  std::optional<CollectionPropertyIterator> iter;
 };
 
 struct BPy_FunctionRNA {
@@ -173,19 +187,20 @@ struct BPy_FunctionRNA {
 #ifdef USE_WEAKREFS
   PyObject *in_weakreflist;
 #endif
-  PointerRNA ptr;
+
+  std::optional<PointerRNA> ptr;
   FunctionRNA *func;
 };
 
 StructRNA *srna_from_self(PyObject *self, const char *error_prefix);
 StructRNA *pyrna_struct_as_srna(PyObject *self, bool parent, const char *error_prefix);
 
-void BPY_rna_init(void);
-void BPY_rna_exit(void);
-PyObject *BPY_rna_module(void);
-void BPY_update_rna_module(void);
-// PyObject *BPY_rna_doc(void);
-PyObject *BPY_rna_types(void);
+void BPY_rna_init();
+void BPY_rna_exit();
+PyObject *BPY_rna_module();
+void BPY_update_rna_module();
+// PyObject *BPY_rna_doc();
+PyObject *BPY_rna_types();
 void BPY_rna_types_finalize_external_types(PyObject *submodule);
 
 PyObject *pyrna_struct_CreatePyObject_with_primitive_support(PointerRNA *ptr);
@@ -232,10 +247,7 @@ int pyrna_struct_as_ptr_or_null_parse(PyObject *o, void *p);
 
 void pyrna_struct_type_extend_capi(StructRNA *srna, PyMethodDef *method, PyGetSetDef *getset);
 
-/* Called before stopping Python. */
-
-void pyrna_alloc_types(void);
-void pyrna_free_types(void);
+void pyrna_alloc_types();
 
 /* Primitive type conversion. */
 
@@ -258,7 +270,7 @@ PyObject *pyrna_py_from_array_index(BPy_PropertyArrayRNA *self,
 PyObject *pyrna_math_object_from_array(PointerRNA *ptr, PropertyRNA *prop);
 int pyrna_array_contains_py(PointerRNA *ptr, PropertyRNA *prop, PyObject *value);
 
-bool pyrna_write_check(void);
+bool pyrna_write_check();
 void pyrna_write_set(bool val);
 
 void pyrna_invalidate(BPy_DummyPointerRNA *self);

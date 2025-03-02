@@ -10,14 +10,12 @@
 
 #include <Python.h>
 
-#include "BLI_rect.h"
 #include "BLI_string.h"
 #include "BLI_utildefines.h"
 
 #include "py_capi_utils.hh"
 
 #include "python_compat.hh"
-#include "python_utildefines.hh"
 
 #include "imbuf_py_api.hh" /* own include */
 
@@ -29,7 +27,7 @@
 #include <cerrno>
 #include <fcntl.h>
 
-static PyObject *BPyInit_imbuf_types(void);
+static PyObject *BPyInit_imbuf_types();
 
 static PyObject *Py_ImBuf_CreatePyObject(ImBuf *ibuf);
 
@@ -79,7 +77,7 @@ PyDoc_STRVAR(
     "   Resize the image.\n"
     "\n"
     "   :arg size: New size.\n"
-    "   :type size: pair of ints\n"
+    "   :type size: tuple[int, int]\n"
     "   :arg method: Method of resizing ('FAST', 'BILINEAR')\n"
     "   :type method: str\n");
 static PyObject *py_imbuf_resize(Py_ImBuf *self, PyObject *args, PyObject *kw)
@@ -136,9 +134,9 @@ PyDoc_STRVAR(
     "   Crop the image.\n"
     "\n"
     "   :arg min: X, Y minimum.\n"
-    "   :type min: pair of ints\n"
+    "   :type min: tuple[int, int]\n"
     "   :arg max: X, Y maximum.\n"
-    "   :type max: pair of ints\n");
+    "   :type max: tuple[int, int]\n");
 static PyObject *py_imbuf_crop(Py_ImBuf *self, PyObject *args, PyObject *kw)
 {
   PY_IMBUF_CHECK_OBJ(self);
@@ -296,7 +294,7 @@ PyDoc_STRVAR(
     py_imbuf_filepath_doc,
     "filepath associated with this image.\n"
     "\n"
-    ":type: string");
+    ":type: str");
 static PyObject *py_imbuf_filepath_get(Py_ImBuf *self, void * /*closure*/)
 {
   PY_IMBUF_CHECK_OBJ(self);
@@ -472,7 +470,7 @@ PyDoc_STRVAR(
     "   Load a new image.\n"
     "\n"
     "   :arg size: The size of the image in pixels.\n"
-    "   :type size: pair of ints\n"
+    "   :type size: tuple[int, int]\n"
     "   :return: the newly loaded image.\n"
     "   :rtype: :class:`ImBuf`\n");
 static PyObject *M_imbuf_new(PyObject * /*self*/, PyObject *args, PyObject *kw)
@@ -537,7 +535,7 @@ PyDoc_STRVAR(
     "   Load an image from a file.\n"
     "\n"
     "   :arg filepath: the filepath of the image.\n"
-    "   :type filepath: string or bytes\n"
+    "   :type filepath: str | bytes\n"
     "   :return: the newly loaded image.\n"
     "   :rtype: :class:`ImBuf`\n");
 static PyObject *M_imbuf_load(PyObject * /*self*/, PyObject *args, PyObject *kw)
@@ -584,7 +582,7 @@ PyDoc_STRVAR(
     "   :arg image: the image to write.\n"
     "   :type image: :class:`ImBuf`\n"
     "   :arg filepath: Optional filepath of the image (fallback to the images file path).\n"
-    "   :type filepath: string, bytes or NoneType\n");
+    "   :type filepath: str | bytes | None\n");
 static PyObject *M_imbuf_write(PyObject * /*self*/, PyObject *args, PyObject *kw)
 {
   Py_ImBuf *py_imb;

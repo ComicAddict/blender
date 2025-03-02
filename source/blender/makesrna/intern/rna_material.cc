@@ -11,7 +11,6 @@
 
 #include "DNA_material_types.h"
 #include "DNA_mesh_types.h"
-#include "DNA_texture_types.h"
 
 #include "BLI_math_rotation.h"
 
@@ -60,6 +59,7 @@ const EnumPropertyItem rna_enum_ramp_blend_items[] = {
 #  include "MEM_guardedalloc.h"
 
 #  include "DNA_gpencil_legacy_types.h"
+#  include "DNA_meshdata_types.h"
 #  include "DNA_node_types.h"
 #  include "DNA_object_types.h"
 #  include "DNA_screen_types.h"
@@ -71,7 +71,7 @@ const EnumPropertyItem rna_enum_ramp_blend_items[] = {
 #  include "BKE_gpencil_legacy.h"
 #  include "BKE_grease_pencil.hh"
 #  include "BKE_main.hh"
-#  include "BKE_material.h"
+#  include "BKE_material.hh"
 #  include "BKE_node.hh"
 #  include "BKE_paint.hh"
 #  include "BKE_scene.hh"
@@ -110,10 +110,6 @@ static void rna_MaterialGpencil_update(Main *bmain, Scene *scene, PointerRNA *pt
   for (Object *ob = static_cast<Object *>(bmain->objects.first); ob;
        ob = static_cast<Object *>(ob->id.next))
   {
-    if (ob->type == OB_GPENCIL_LEGACY) {
-      bGPdata *gpd = (bGPdata *)ob->data;
-      DEG_id_tag_update(&gpd->id, ID_RECALC_GEOMETRY);
-    }
     if (ob->type == OB_GREASE_PENCIL) {
       GreasePencil &grease_pencil = *static_cast<GreasePencil *>(ob->data);
       DEG_id_tag_update(&grease_pencil.id, ID_RECALC_GEOMETRY);
@@ -148,7 +144,7 @@ static void rna_Material_texpaint_begin(CollectionPropertyIterator *iter, Pointe
 {
   Material *ma = (Material *)ptr->data;
   rna_iterator_array_begin(
-      iter, (void *)ma->texpaintslot, sizeof(TexPaintSlot), ma->tot_slots, 0, nullptr);
+      iter, ptr, (void *)ma->texpaintslot, sizeof(TexPaintSlot), ma->tot_slots, 0, nullptr);
 }
 
 static void rna_Material_active_paint_texture_index_update(bContext *C, PointerRNA *ptr)
@@ -160,7 +156,7 @@ static void rna_Material_active_paint_texture_index_update(bContext *C, PointerR
     bNode *node = BKE_texpaint_slot_material_find_node(ma, ma->paint_active_slot);
 
     if (node) {
-      blender::bke::node_set_active(ma->nodetree, node);
+      blender::bke::node_set_active(*ma->nodetree, *node);
     }
   }
 
@@ -784,8 +780,7 @@ static void rna_def_material_lineart(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "use_material_mask_bits", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_default(prop, false);
-  RNA_def_property_boolean_sdna(prop, nullptr, "material_mask_bits", 1);
-  RNA_def_property_array(prop, 8);
+  RNA_def_property_boolean_bitset_array_sdna(prop, nullptr, "material_mask_bits", 1 << 0, 8);
   RNA_def_property_ui_text(prop, "Mask", "");
   RNA_def_property_update(prop, NC_GPENCIL | ND_SHADING, "rna_MaterialLineArt_update");
 
@@ -884,22 +879,6 @@ void RNA_def_material(BlenderRNA *brna)
        "Render polygon transparent, depending on alpha channel of the texture"},
       {0, nullptr, 0, nullptr, nullptr},
   };
-
-  static EnumPropertyItem prop_eevee_blend_shadow_items[] = {
-      {MA_BS_NONE, "NONE", 0, "None", "Material will cast no shadow"},
-      {MA_BS_SOLID, "OPAQUE", 0, "Opaque", "Material will cast shadows without transparency"},
-      {MA_BS_CLIP,
-       "CLIP",
-       0,
-       "Alpha Clip",
-       "Use the alpha threshold to clip the visibility (binary visibility)"},
-      {MA_BS_HASHED,
-       "HASHED",
-       0,
-       "Alpha Hashed",
-       "Use noise to dither the binary visibility and use filtering to reduce the noise"},
-      {0, nullptr, 0, nullptr, nullptr},
-  };
 #  endif
 
   static EnumPropertyItem prop_eevee_surface_render_method_items[] = {
@@ -969,12 +948,6 @@ void RNA_def_material(BlenderRNA *brna)
   RNA_def_property_enum_funcs(
       prop, "rna_Material_blend_method_get", "rna_Material_blend_method_set", nullptr);
   RNA_def_property_translation_context(prop, BLT_I18NCONTEXT_ID_MATERIAL);
-  RNA_def_property_update(prop, 0, "rna_Material_draw_update");
-
-  prop = RNA_def_property(srna, "shadow_method", PROP_ENUM, PROP_NONE);
-  RNA_def_property_enum_sdna(prop, nullptr, "blend_shadow");
-  RNA_def_property_enum_items(prop, prop_eevee_blend_shadow_items);
-  RNA_def_property_ui_text(prop, "Shadow Mode", "Shadow mapping method");
   RNA_def_property_update(prop, 0, "rna_Material_draw_update");
 
   prop = RNA_def_property(srna, "alpha_threshold", PROP_FLOAT, PROP_FACTOR);

@@ -4,15 +4,8 @@
 
 set(INC
   ../include
-  ../../blenkernel
-  ../../blentranslation
-  ../../bmesh
-  ../../gpu
-  ../../imbuf
   ../../makesrna
-  ../../windowmanager
   ../../../../extern/curve_fit_nd
-  ../../geometry
   ../sculpt_paint
   ../../modifiers/intern/lineart
   # RNA_prototypes.hh
@@ -46,13 +39,20 @@ set(SRC
 )
 
 set(LIB
-  bf_blenkernel
+  PRIVATE bf::blenkernel
   PRIVATE bf::animrig
   PRIVATE bf::blenlib
+  PRIVATE bf::blentranslation
+  PRIVATE bf::bmesh
   PRIVATE bf::depsgraph
   PRIVATE bf::dna
+  PRIVATE bf::functions
+  PRIVATE bf::geometry
+  PRIVATE bf::gpu
+  PRIVATE bf::imbuf
   PRIVATE bf::intern::guardedalloc
   PRIVATE bf::intern::clog
+  PRIVATE bf::windowmanager
   extern_curve_fit_nd
   extern_fmtlib
 )

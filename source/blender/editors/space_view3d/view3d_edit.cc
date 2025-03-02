@@ -14,11 +14,13 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "BLI_blenlib.h"
+#include "BLI_listbase.h"
 #include "BLI_math_geom.h"
 #include "BLI_math_matrix.h"
 #include "BLI_math_rotation.h"
 #include "BLI_math_vector.h"
+#include "BLI_rect.h"
+#include "BLI_string.h"
 
 #include "BKE_action.hh"
 #include "BKE_armature.hh"
@@ -43,6 +45,7 @@
 #include "ED_undo.hh"
 
 #include "view3d_intern.hh" /* own include */
+#include "view3d_navigate.hh"
 
 /* test for unlocked camera view in quad view */
 static bool view3d_camera_user_poll(bContext *C)
@@ -444,6 +447,9 @@ static int view3d_zoom_1_to_1_camera_exec(bContext *C, wmOperator * /*op*/)
   /* no nullptr check is needed, poll checks */
   ED_view3d_context_user_region(C, &v3d, &region);
 
+  /* NOTE: don't call #ED_view3d_smooth_view_force_finish as the camera zoom
+   * isn't controlled by smooth-view, there is no need to "finish". */
+
   view3d_set_1_to_1_viewborder(scene, depsgraph, region, v3d);
 
   WM_event_add_notifier(C, NC_SPACE | ND_SPACE_VIEW3D, v3d);
@@ -474,12 +480,14 @@ void VIEW3D_OT_zoom_camera_1_to_1(wmOperatorType *ot)
 
 static int viewpersportho_exec(bContext *C, wmOperator * /*op*/)
 {
-  View3D *v3d_dummy;
+  View3D *v3d;
   ARegion *region;
   RegionView3D *rv3d;
 
   /* no nullptr check is needed, poll checks */
-  ED_view3d_context_user_region(C, &v3d_dummy, &region);
+  ED_view3d_context_user_region(C, &v3d, &region);
+  ED_view3d_smooth_view_force_finish(C, v3d, region);
+
   rv3d = static_cast<RegionView3D *>(region->regiondata);
 
   /* Could add a separate lock flag for locking persp. */
@@ -851,10 +859,10 @@ void ED_view3d_cursor3d_position(bContext *C,
   if (use_depth) { /* maybe this should be accessed some other way */
     Depsgraph *depsgraph = CTX_data_ensure_evaluated_depsgraph(C);
 
-    view3d_operator_needs_opengl(C);
+    view3d_operator_needs_gpu(C);
 
     /* Ensure the depth buffer is updated for #ED_view3d_autodist. */
-    ED_view3d_depth_override(depsgraph, region, v3d, nullptr, V3D_DEPTH_NO_OVERLAYS, nullptr);
+    ED_view3d_depth_override(depsgraph, region, v3d, nullptr, V3D_DEPTH_ALL, false, nullptr);
 
     if (ED_view3d_autodist(region, v3d, mval, r_cursor_co, nullptr)) {
       depth_used = true;
@@ -896,7 +904,7 @@ void ED_view3d_cursor3d_position_rotation(bContext *C,
   }
   else if (orientation == V3D_CURSOR_ORIENT_XFORM) {
     float mat[3][3];
-    ED_transform_calc_orientation_from_type(C, mat);
+    blender::ed::transform::calc_orientation_from_type(C, mat);
     mat3_to_quat(r_cursor_quat, mat);
   }
   else if (orientation == V3D_CURSOR_ORIENT_GEOM) {
@@ -907,31 +915,33 @@ void ED_view3d_cursor3d_position_rotation(bContext *C,
     float ray_no[3];
     float ray_co[3];
 
-    SnapObjectContext *snap_context = ED_transform_snap_object_context_create(scene, 0);
+    blender::ed::transform::SnapObjectContext *snap_context =
+        blender::ed::transform::snap_object_context_create(scene, 0);
 
     float obmat[4][4];
     const Object *ob_dummy = nullptr;
     float dist_px = 0;
-    SnapObjectParams params{};
+    blender::ed::transform::SnapObjectParams params{};
     params.snap_target_select = SCE_SNAP_TARGET_ALL;
-    params.edit_mode_type = SNAP_GEOM_FINAL;
-    params.use_occlusion_test = true;
-    if (ED_transform_snap_object_project_view3d_ex(snap_context,
-                                                   CTX_data_ensure_evaluated_depsgraph(C),
-                                                   region,
-                                                   v3d,
-                                                   SCE_SNAP_TO_FACE,
-                                                   &params,
-                                                   nullptr,
-                                                   mval_fl,
-                                                   nullptr,
-                                                   &dist_px,
-                                                   ray_co,
-                                                   ray_no,
-                                                   nullptr,
-                                                   &ob_dummy,
-                                                   obmat,
-                                                   nullptr) != 0)
+    params.edit_mode_type = blender::ed::transform::SNAP_GEOM_FINAL;
+    params.occlusion_test = blender::ed::transform::SNAP_OCCLUSION_AS_SEEM;
+    if (blender::ed::transform::snap_object_project_view3d_ex(
+            snap_context,
+            CTX_data_ensure_evaluated_depsgraph(C),
+            region,
+            v3d,
+            SCE_SNAP_TO_FACE,
+            &params,
+            nullptr,
+            mval_fl,
+            nullptr,
+            &dist_px,
+            ray_co,
+            ray_no,
+            nullptr,
+            &ob_dummy,
+            obmat,
+            nullptr) != 0)
     {
       if (use_depth) {
         copy_v3_v3(r_cursor_co, ray_co);
@@ -984,7 +994,7 @@ void ED_view3d_cursor3d_position_rotation(bContext *C,
         mul_qt_qtqt(r_cursor_quat, tquat_best, r_cursor_quat);
       }
     }
-    ED_transform_snap_object_context_destroy(snap_context);
+    blender::ed::transform::snap_object_context_destroy(snap_context);
   }
 }
 
@@ -1054,8 +1064,9 @@ void ED_view3d_cursor3d_update(bContext *C,
 
   {
     wmMsgBus *mbus = CTX_wm_message_bus(C);
-    wmMsgParams_RNA msg_key_params = {{nullptr}};
-    msg_key_params.ptr = RNA_pointer_create(&scene->id, &RNA_View3DCursor, &scene->cursor);
+    wmMsgParams_RNA msg_key_params = {{}};
+    msg_key_params.ptr = RNA_pointer_create_discrete(
+        &scene->id, &RNA_View3DCursor, &scene->cursor);
     WM_msg_publish_rna_params(mbus, &msg_key_params);
   }
 

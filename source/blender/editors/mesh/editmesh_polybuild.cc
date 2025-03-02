@@ -11,14 +11,13 @@
 
 #include <algorithm>
 
-#include "MEM_guardedalloc.h"
-
 #include "DNA_object_types.h"
 
 #include "BKE_context.hh"
 #include "BKE_editmesh.hh"
 #include "BKE_layer.hh"
 #include "BKE_object_types.hh"
+#include "BKE_screen.hh"
 
 #include "BLI_math_geom.h"
 #include "BLI_math_matrix.h"
@@ -81,7 +80,7 @@ static bool edbm_preselect_or_active(bContext *C, const View3D *v3d, Base **r_ba
   ARegion *region = CTX_wm_region(C);
   const bool show_gizmo = !(v3d->gizmo_flag & (V3D_GIZMO_HIDE | V3D_GIZMO_HIDE_TOOL));
 
-  wmGizmoMap *gzmap = show_gizmo ? region->gizmo_map : nullptr;
+  wmGizmoMap *gzmap = show_gizmo ? region->runtime->gizmo_map : nullptr;
   wmGizmoGroup *gzgroup = gzmap ? WM_gizmomap_group_find(gzmap, "VIEW3D_GGT_mesh_preselect_elem") :
                                   nullptr;
   if (gzgroup != nullptr) {
@@ -175,7 +174,7 @@ void MESH_OT_polybuild_transform_at_cursor(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 
   /* to give to transform */
-  Transform_Properties(ot, P_PROPORTIONAL | P_MIRROR_DUMMY);
+  blender::ed::transform::properties_register(ot, P_PROPORTIONAL | P_MIRROR_DUMMY);
 }
 
 static int edbm_polybuild_delete_at_cursor_invoke(bContext *C,
@@ -262,7 +261,7 @@ void MESH_OT_polybuild_delete_at_cursor(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 
   /* to give to transform */
-  Transform_Properties(ot, P_PROPORTIONAL | P_MIRROR_DUMMY);
+  blender::ed::transform::properties_register(ot, P_PROPORTIONAL | P_MIRROR_DUMMY);
 }
 
 /** \} */
@@ -437,7 +436,7 @@ void MESH_OT_polybuild_face_at_cursor(wmOperatorType *ot)
                   "Create Quads",
                   "Automatically split edges in triangles to maintain quad topology");
   /* to give to transform */
-  Transform_Properties(ot, P_PROPORTIONAL | P_MIRROR_DUMMY);
+  blender::ed::transform::properties_register(ot, P_PROPORTIONAL | P_MIRROR_DUMMY);
 }
 
 /** \} */
@@ -521,7 +520,7 @@ void MESH_OT_polybuild_split_at_cursor(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 
   /* to give to transform */
-  Transform_Properties(ot, P_PROPORTIONAL | P_MIRROR_DUMMY);
+  blender::ed::transform::properties_register(ot, P_PROPORTIONAL | P_MIRROR_DUMMY);
 }
 
 /** \} */

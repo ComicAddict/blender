@@ -9,10 +9,9 @@
  */
 
 #include "BKE_object.hh"
-#include "BLI_link_utils.h"
+#include "BLI_math_matrix.h"
 #include "BLI_math_matrix.hh"
 #include "GPU_batch.hh"
-#include "GPU_capabilities.hh"
 #include "GPU_debug.hh"
 
 #include "draw_debug.hh"
@@ -20,16 +19,6 @@
 #include "draw_manager_c.hh"
 #include "draw_shader.hh"
 #include "draw_shader_shared.hh"
-
-#include <iomanip>
-#include <sstream>
-
-#if defined(_DEBUG) || defined(WITH_DRAW_DEBUG)
-#  define DRAW_DEBUG
-#else
-/* Uncomment to forcibly enable debug draw in release mode. */
-// #define DRAW_DEBUG
-#endif
 
 namespace blender::draw {
 
@@ -210,9 +199,10 @@ void DebugDraw::draw_line(float3 v1, float3 v2, uint color)
   }
 }
 
-/* Keep in sync with drw_debug_color_pack(). */
 uint DebugDraw::color_pack(float4 color)
 {
+  /* NOTE: keep in sync with #drw_debug_color_pack(). */
+
   color = math::clamp(color, 0.0f, 1.0f);
   uint result = 0;
   result |= uint(color.x * 255.0f) << 0u;
@@ -246,13 +236,11 @@ void DebugDraw::display_lines()
   GPU_debug_group_begin("Lines");
   cpu_draw_buf_.push_update();
 
-  float4x4 persmat;
-  const DRWView *view = DRW_view_get_active();
-  DRW_view_persmat_get(view, persmat.ptr(), false);
+  float4x4 persmat = View::default_get().persmat();
 
-  drw_state_set(DRW_STATE_WRITE_COLOR | DRW_STATE_WRITE_DEPTH | DRW_STATE_DEPTH_LESS);
+  command::StateSet::set(DRW_STATE_WRITE_COLOR | DRW_STATE_WRITE_DEPTH | DRW_STATE_DEPTH_LESS);
 
-  gpu::Batch *batch = drw_cache_procedural_lines_get();
+  gpu::Batch *batch = GPU_batch_procedural_lines_get();
   GPUShader *shader = DRW_shader_debug_draw_display_get();
   GPU_batch_set_shader(batch, shader);
   GPU_shader_uniform_mat4(shader, "persmat", persmat.ptr());
@@ -295,7 +283,7 @@ void DebugDraw::display_to_view()
 
 blender::draw::DebugDraw *DRW_debug_get()
 {
-  return reinterpret_cast<blender::draw::DebugDraw *>(DST.debug);
+  return reinterpret_cast<blender::draw::DebugDraw *>(drw_get().debug);
 }
 
 /** \} */
@@ -306,28 +294,27 @@ blender::draw::DebugDraw *DRW_debug_get()
 
 void drw_debug_draw()
 {
-#ifdef DRAW_DEBUG
-  if (DST.debug == nullptr) {
+#ifdef WITH_DRAW_DEBUG
+  if (drw_get().debug == nullptr) {
     return;
   }
-  /* TODO(@fclem): Convenience for now. Will have to move to #DRWManager. */
-  reinterpret_cast<blender::draw::DebugDraw *>(DST.debug)->display_to_view();
+  /* TODO(@fclem): Convenience for now. Will have to move to #DRWContext. */
+  reinterpret_cast<blender::draw::DebugDraw *>(drw_get().debug)->display_to_view();
 #endif
 }
 
-/**
- * NOTE: Init is once per draw manager cycle.
- */
 void drw_debug_init()
 {
+  /* NOTE: Init is once per draw manager cycle. */
+
   /* Module should not be used in release builds. */
   /* TODO(@fclem): Hide the functions declarations without using `ifdefs` everywhere. */
-#ifdef DRAW_DEBUG
-  /* TODO(@fclem): Convenience for now. Will have to move to #DRWManager. */
-  if (DST.debug == nullptr) {
-    DST.debug = reinterpret_cast<DRWDebugModule *>(new blender::draw::DebugDraw());
+#ifdef WITH_DRAW_DEBUG
+  /* TODO(@fclem): Convenience for now. Will have to move to #DRWContext. */
+  if (drw_get().debug == nullptr) {
+    drw_get().debug = reinterpret_cast<DRWDebugModule *>(new blender::draw::DebugDraw());
   }
-  reinterpret_cast<blender::draw::DebugDraw *>(DST.debug)->init();
+  reinterpret_cast<blender::draw::DebugDraw *>(drw_get().debug)->init();
 #endif
 }
 
@@ -340,7 +327,7 @@ void drw_debug_module_free(DRWDebugModule *module)
 
 GPUStorageBuf *drw_debug_gpu_draw_buf_get()
 {
-  return reinterpret_cast<blender::draw::DebugDraw *>(DST.debug)->gpu_draw_buf_get();
+  return reinterpret_cast<blender::draw::DebugDraw *>(drw_get().debug)->gpu_draw_buf_get();
 }
 
 /** \} */
@@ -351,13 +338,13 @@ GPUStorageBuf *drw_debug_gpu_draw_buf_get()
 
 void DRW_debug_modelmat_reset()
 {
-  reinterpret_cast<blender::draw::DebugDraw *>(DST.debug)->modelmat_reset();
+  reinterpret_cast<blender::draw::DebugDraw *>(drw_get().debug)->modelmat_reset();
 }
 
 void DRW_debug_modelmat(const float modelmat[4][4])
 {
-#ifdef DRAW_DEBUG
-  reinterpret_cast<blender::draw::DebugDraw *>(DST.debug)->modelmat_set(modelmat);
+#ifdef WITH_DRAW_DEBUG
+  reinterpret_cast<blender::draw::DebugDraw *>(drw_get().debug)->modelmat_set(modelmat);
 #else
   UNUSED_VARS(modelmat);
 #endif
@@ -365,18 +352,18 @@ void DRW_debug_modelmat(const float modelmat[4][4])
 
 void DRW_debug_line_v3v3(const float v1[3], const float v2[3], const float color[4])
 {
-  reinterpret_cast<blender::draw::DebugDraw *>(DST.debug)->draw_line(v1, v2, color);
+  reinterpret_cast<blender::draw::DebugDraw *>(drw_get().debug)->draw_line(v1, v2, color);
 }
 
 void DRW_debug_polygon_v3(const float (*v)[3], int vert_len, const float color[4])
 {
-  reinterpret_cast<blender::draw::DebugDraw *>(DST.debug)->draw_polygon(
-      blender::Span<float3>((float3 *)v, vert_len), color);
+  reinterpret_cast<blender::draw::DebugDraw *>(drw_get().debug)
+      ->draw_polygon(blender::Span<float3>((float3 *)v, vert_len), color);
 }
 
 void DRW_debug_m4(const float m[4][4])
 {
-  reinterpret_cast<blender::draw::DebugDraw *>(DST.debug)->draw_matrix(float4x4(m));
+  reinterpret_cast<blender::draw::DebugDraw *>(drw_get().debug)->draw_matrix(float4x4(m));
 }
 
 void DRW_debug_m4_as_bbox(const float m[4][4], bool invert, const float color[4])
@@ -385,13 +372,13 @@ void DRW_debug_m4_as_bbox(const float m[4][4], bool invert, const float color[4]
   if (invert) {
     m4 = blender::math::invert(m4);
   }
-  reinterpret_cast<blender::draw::DebugDraw *>(DST.debug)->draw_matrix_as_bbox(m4, color);
+  reinterpret_cast<blender::draw::DebugDraw *>(drw_get().debug)->draw_matrix_as_bbox(m4, color);
 }
 
 void DRW_debug_bbox(const BoundBox *bbox, const float color[4])
 {
-#ifdef DRAW_DEBUG
-  reinterpret_cast<blender::draw::DebugDraw *>(DST.debug)->draw_bbox(*bbox, color);
+#ifdef WITH_DRAW_DEBUG
+  reinterpret_cast<blender::draw::DebugDraw *>(drw_get().debug)->draw_bbox(*bbox, color);
 #else
   UNUSED_VARS(bbox, color);
 #endif
@@ -399,7 +386,8 @@ void DRW_debug_bbox(const BoundBox *bbox, const float color[4])
 
 void DRW_debug_sphere(const float center[3], float radius, const float color[4])
 {
-  reinterpret_cast<blender::draw::DebugDraw *>(DST.debug)->draw_sphere(center, radius, color);
+  reinterpret_cast<blender::draw::DebugDraw *>(drw_get().debug)
+      ->draw_sphere(center, radius, color);
 }
 
 /** \} */

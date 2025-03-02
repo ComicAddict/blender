@@ -12,10 +12,13 @@
 
 #include "overlay_next_antialiasing.hh"
 #include "overlay_next_armature.hh"
+#include "overlay_next_attribute_text.hh"
 #include "overlay_next_attribute_viewer.hh"
+#include "overlay_next_axes.hh"
 #include "overlay_next_background.hh"
 #include "overlay_next_bounds.hh"
 #include "overlay_next_camera.hh"
+#include "overlay_next_cursor.hh"
 #include "overlay_next_curve.hh"
 #include "overlay_next_edit_text.hh"
 #include "overlay_next_empty.hh"
@@ -32,10 +35,12 @@
 #include "overlay_next_metaball.hh"
 #include "overlay_next_mode_transfer.hh"
 #include "overlay_next_motion_path.hh"
+#include "overlay_next_name.hh"
 #include "overlay_next_origin.hh"
 #include "overlay_next_outline.hh"
 #include "overlay_next_paint.hh"
 #include "overlay_next_particle.hh"
+#include "overlay_next_pointcloud.hh"
 #include "overlay_next_prepass.hh"
 #include "overlay_next_relation.hh"
 #include "overlay_next_sculpt.hh"
@@ -61,27 +66,31 @@ class Instance {
 
   /** Global types. */
   Resources resources = {selection_type_,
-                         overlay::ShaderModule::module_get(selection_type_, clipping_enabled_)};
+                         overlay::ShaderModule::module_get(selection_type_, clipping_enabled_),
+                         shapes};
   State state;
 
   /** Overlay types. */
   Background background;
-  Origins origins;
+  ImagePrepass image_prepass;
+  Origins origins = {selection_type_};
   Outline outline;
   MotionPath motion_paths;
+  Cursor cursor;
 
   struct OverlayLayer {
     const SelectionType selection_type_;
-
     Armatures armatures = {selection_type_};
     AttributeViewer attribute_viewer;
+    AttributeTexts attribute_texts;
+    Axes axes = {selection_type_};
     Bounds bounds = {selection_type_};
     Cameras cameras = {selection_type_};
     Curves curves;
     EditText edit_text = {selection_type_};
     Empties empties = {selection_type_};
-    Facing facing = {selection_type_};
-    Fade fade = {selection_type_};
+    Facing facing;
+    Fade fade;
     Fluids fluids = {selection_type_};
     ForceFields force_fields = {selection_type_};
     GreasePencil grease_pencil;
@@ -92,11 +101,13 @@ class Instance {
     MeshUVs mesh_uvs;
     Metaballs metaballs = {selection_type_};
     ModeTransfer mode_transfer;
+    Names names;
     Paints paints;
     Particles particles;
-    Prepass prepass = {selection_type_};
+    PointClouds pointclouds;
+    Prepass prepass;
     Relations relations = {selection_type_};
-    Sculpts sculpts = {selection_type_};
+    Sculpts sculpts;
     Speakers speakers = {selection_type_};
     Wireframe wireframe;
   } regular{selection_type_}, infront{selection_type_};
@@ -111,7 +122,7 @@ class Instance {
 
   ~Instance()
   {
-    DRW_UBO_FREE_SAFE(grid_ubo);
+    GPU_UBO_FREE_SAFE(grid_ubo);
   }
 
   void init();
@@ -145,6 +156,12 @@ class Instance {
   /* Returns true if the object is rendered transparent by the render engine.
    * Overlays should not rely on the correct depth being available (and do a depth pre-pass). */
   bool object_is_rendered_transparent(const Object *object, const State &state);
+
+  void draw_node(Manager &manager, View &view);
+  void draw_v2d(Manager &manager, View &view);
+  void draw_v3d(Manager &manager, View &view);
+
+  void ensure_weight_ramp_texture();
 };
 
 }  // namespace blender::draw::overlay

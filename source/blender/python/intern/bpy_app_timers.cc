@@ -10,6 +10,8 @@
 
 #include <Python.h>
 
+#include <algorithm>
+
 #include "bpy_app_timers.hh"
 
 #include "../generic/python_compat.hh"
@@ -35,19 +37,16 @@ static double handle_returned_value(PyObject *function, PyObject *ret)
     return -1;
   }
 
-  if (value < 0.0) {
-    value = 0.0;
-  }
+  value = std::max(value, 0.0);
 
   return value;
 }
 
 static double py_timer_execute(uintptr_t /*uuid*/, void *user_data)
 {
-  PyObject *function = static_cast<PyObject *>(user_data);
+  PyGILState_STATE gilstate = PyGILState_Ensure();
 
-  PyGILState_STATE gilstate;
-  gilstate = PyGILState_Ensure();
+  PyObject *function = static_cast<PyObject *>(user_data);
 
   PyObject *py_ret = PyObject_CallObject(function, nullptr);
   const double ret = handle_returned_value(function, py_ret);
@@ -59,11 +58,9 @@ static double py_timer_execute(uintptr_t /*uuid*/, void *user_data)
 
 static void py_timer_free(uintptr_t /*uuid*/, void *user_data)
 {
+  PyGILState_STATE gilstate = PyGILState_Ensure();
+
   PyObject *function = static_cast<PyObject *>(user_data);
-
-  PyGILState_STATE gilstate;
-  gilstate = PyGILState_Ensure();
-
   Py_DECREF(function);
 
   PyGILState_Release(gilstate);
@@ -81,7 +78,7 @@ PyDoc_STRVAR(
     "   ``functools.partial`` can be used to assign some parameters.\n"
     "\n"
     "   :arg function: The function that should called.\n"
-    "   :type function: Callable[[], Union[float, None]]\n"
+    "   :type function: Callable[[], float | None]\n"
     "   :arg first_interval: Seconds until the callback should be called the first time.\n"
     "   :type first_interval: float\n"
     "   :arg persistent: Don't remove timer when a new file is loaded.\n"
@@ -128,7 +125,7 @@ PyDoc_STRVAR(
     "   Unregister timer.\n"
     "\n"
     "   :arg function: Function to unregister.\n"
-    "   :type function: Callable[[], Union[float, None]]\n");
+    "   :type function: Callable[[], float | None]\n");
 static PyObject *bpy_app_timers_unregister(PyObject * /*self*/, PyObject *function)
 {
   if (!BLI_timer_unregister(intptr_t(function))) {
@@ -146,7 +143,7 @@ PyDoc_STRVAR(
     "   Check if this function is registered as a timer.\n"
     "\n"
     "   :arg function: Function to check.\n"
-    "   :type function: Callable[[], Union[float, None]]\n"
+    "   :type function: Callable[[], float | None]\n"
     "   :return: True when this function is registered, otherwise False.\n"
     "   :rtype: bool\n");
 static PyObject *bpy_app_timers_is_registered(PyObject * /*self*/, PyObject *function)

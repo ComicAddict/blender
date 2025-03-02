@@ -8,6 +8,8 @@
  * Main functions for beveling a BMesh (used by the tool and modifier)
  */
 
+#include <algorithm>
+
 #include "MEM_guardedalloc.h"
 
 #include "DNA_curveprofile_types.h"
@@ -15,6 +17,7 @@
 #include "DNA_modifier_types.h"
 
 #include "BLI_alloca.h"
+#include "BLI_math_base.h"
 #include "BLI_math_geom.h"
 #include "BLI_math_matrix.h"
 #include "BLI_math_rotation.h"
@@ -2464,7 +2467,8 @@ static void bevel_harden_normals(BevelParams *bp, BMesh *bm)
   /* I suspect this is not necessary. TODO: test that guess. */
   BM_mesh_normals_update(bm);
 
-  int cd_clnors_offset = CustomData_get_offset(&bm->ldata, CD_CUSTOMLOOPNORMAL);
+  int cd_clnors_offset = CustomData_get_offset_named(
+      &bm->ldata, CD_PROP_INT16_2D, "custom_normal");
 
   /* If there is not already a custom split normal layer then making one
    * (with #BM_lnorspace_update) will not respect the auto-smooth angle between smooth faces.
@@ -2479,7 +2483,7 @@ static void bevel_harden_normals(BevelParams *bp, BMesh *bm)
   BM_lnorspace_update(bm);
 
   if (cd_clnors_offset == -1) {
-    cd_clnors_offset = CustomData_get_offset(&bm->ldata, CD_CUSTOMLOOPNORMAL);
+    cd_clnors_offset = CustomData_get_offset_named(&bm->ldata, CD_PROP_INT16_2D, "custom_normal");
   }
 
   BMIter fiter;
@@ -5151,9 +5155,7 @@ static VMesh *square_out_adj_vmesh(BevelParams *bp, BevVert *bv)
          * This is used in interpolation along center-line in odd case.
          * To avoid too big a drop from bv, cap finalfrac a 0.8 arbitrarily */
         finalfrac = 0.5f / sinf(ang);
-        if (finalfrac > 0.8f) {
-          finalfrac = 0.8f;
-        }
+        finalfrac = std::min(finalfrac, 0.8f);
       }
       else {
         finalfrac = 0.8f;
@@ -7095,13 +7097,9 @@ static double find_superellipse_chord_endpoint(double x0, double dtarget, float 
 
   /* For gradient between -1 and 1, xnew can only be in [x0 + sqrt(2)/2*dtarget, x0 + dtarget]. */
   double xmin = x0 + M_SQRT2 / 2.0 * dtarget;
-  if (xmin > 1.0) {
-    xmin = 1.0;
-  }
+  xmin = std::min(xmin, 1.0);
   double xmax = x0 + dtarget;
-  if (xmax > 1.0) {
-    xmax = 1.0;
-  }
+  xmax = std::min(xmax, 1.0);
   double ymin = superellipse_co(xmin, r, rbig);
   double ymax = superellipse_co(xmax, r, rbig);
 
@@ -7192,12 +7190,8 @@ static void find_even_superellipse_chords_general(int seg, float r, double *xval
     for (int i = 0; i < imax; i++) {
       double d = sqrt(pow((xvals[i + 1] - xvals[i]), 2) + pow((yvals[i + 1] - yvals[i]), 2));
       sum += d;
-      if (d > dmax) {
-        dmax = d;
-      }
-      if (d < dmin) {
-        dmin = d;
-      }
+      dmax = std::max(d, dmax);
+      dmin = std::min(d, dmin);
     }
     /* For last distance, weight with 1/2 if seg_odd. */
     double davg;
@@ -7545,45 +7539,74 @@ static float geometry_collide_offset(BevelParams *bp, EdgeHalf *eb)
   if (ea->e == eb->e || (ec && ec->e == eb->e)) {
     return no_collide_offset;
   }
-  ka = ka / bp->offset;
-  kb = kb / bp->offset;
-  kc = kc / bp->offset;
   float th1 = angle_v3v3v3(va->co, vb->co, vc->co);
   float th2 = angle_v3v3v3(vb->co, vc->co, vd->co);
 
   /* First calculate offset at which edge B collapses, which happens
-   * when advancing clones of A, B, C all meet at a point.
-   * This only happens if at least two of those three edges have non-zero k's. */
+   * when advancing clones of A, B, C all meet at a point. */
   float sin1 = sinf(th1);
   float sin2 = sinf(th2);
-  if ((ka > 0.0f) + (kb > 0.0f) + (kc > 0.0f) >= 2) {
-    float tan1 = tanf(th1);
-    float tan2 = tanf(th2);
-    float g = tan1 * tan2;
-    float h = sin1 * sin2;
-    float den = g * (ka * sin2 + kc * sin1) + kb * h * (tan1 + tan2);
-    if (den != 0.0f) {
-      float t = BM_edge_calc_length(eb->e);
-      t *= g * h / den;
-      if (t >= 0.0f) {
-        limit = t;
-      }
+  float cos1 = cosf(th1);
+  float cos2 = cosf(th2);
+  /* The side offsets, overlap at the two corners, to create two corner vectors.
+   * The intersection of these two corner vectors is the collapse point.
+   * The length of edge B divided by the projection of these vectors onto edge B
+   * is the number of 'offsets' that can be accommodated. */
+  float offsets_projected_on_B = (ka + cos1 * kb) / sin1 + (kc + cos2 * kb) / sin2;
+  if (offsets_projected_on_B > BEVEL_EPSILON) {
+    offsets_projected_on_B = bp->offset * (len_v3v3(vb->co, vc->co) / offsets_projected_on_B);
+    if (offsets_projected_on_B > BEVEL_EPSILON) {
+      limit = offsets_projected_on_B;
     }
   }
 
-  /* Now check edge slide cases. */
-  if (kb > 0.0f && ka == 0.0f /* `&& bvb->selcount == 1 && bvb->edgecount > 2` */) {
-    float t = BM_edge_calc_length(ea->e);
-    t *= sin1 / kb;
-    if (t >= 0.0f && t < limit) {
-      limit = t;
+  /* Now check edge slide cases.
+   * where side edges are in line with edge B and are not beveled, we should continue
+   * iterating until we find a return edge (not in line with B) to provide a minimum offset
+   * to the far side of the N-gon. This is not perfect, but is simpler and will catch many
+   * more overlap issues. */
+  if (ka == 0.0f && kb > FLT_EPSILON) {
+    BMLoop *la = BM_face_edge_share_loop(eb->fnext, ea->e);
+    if (la) {
+      float A_side_slide = 0.0f;
+      float exterior_angle = 0.0f;
+      bool first = true;
+      while (exterior_angle < 0.0001f) {
+        if (first) {
+          exterior_angle = float(M_PI) - th1;
+          first = false;
+        }
+        else {
+          la = la->prev;
+          exterior_angle += float(M_PI) -
+                            angle_v3v3v3(la->v->co, la->next->v->co, la->next->next->v->co);
+        }
+        A_side_slide += BM_edge_calc_length(la->e) * sinf(exterior_angle);
+      }
+      limit = std::min(A_side_slide, limit);
     }
   }
-  if (kb > 0.0f && kc == 0.0f /* `&& bvc && ec && bvc->selcount == 1 && bvc->edgecount > 2` */) {
-    float t = BM_edge_calc_length(ec->e);
-    t *= sin2 / kb;
-    if (t >= 0.0f && t < limit) {
-      limit = t;
+
+  if (kb > FLT_EPSILON && kc == 0.0f) {
+    BMLoop *lc = BM_face_edge_share_loop(eb->fnext, eb->e);
+    if (lc) {
+      lc = lc->next;
+      float C_side_slide = 0.0f;
+      float exterior_angle = 0.0f;
+      bool first = true;
+      while (exterior_angle < 0.0001f) {
+        if (first) {
+          exterior_angle = float(M_PI) - th2;
+          first = false;
+        }
+        else {
+          lc = lc->next;
+          exterior_angle += float(M_PI) -
+                            angle_v3v3v3(lc->prev->v->co, lc->v->co, lc->next->v->co);
+        }
+        C_side_slide += BM_edge_calc_length(lc->e) * sinf(exterior_angle);
+      }
+      limit = std::min(C_side_slide, limit);
     }
   }
   return limit;
@@ -7633,15 +7656,11 @@ static void bevel_limit_offset(BevelParams *bp, BMesh *bm)
       EdgeHalf *eh = &bv->edges[i];
       if (bp->affect_type == BEVEL_AFFECT_VERTICES) {
         float collision_offset = vertex_collide_offset(bp, eh);
-        if (collision_offset < limited_offset) {
-          limited_offset = collision_offset;
-        }
+        limited_offset = std::min(collision_offset, limited_offset);
       }
       else {
         float collision_offset = geometry_collide_offset(bp, eh);
-        if (collision_offset < limited_offset) {
-          limited_offset = collision_offset;
-        }
+        limited_offset = std::min(collision_offset, limited_offset);
       }
     }
   }

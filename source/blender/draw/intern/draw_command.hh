@@ -15,8 +15,10 @@
 
 #include "BKE_global.hh"
 #include "BLI_map.hh"
+#include "BLI_math_base.h"
 #include "DRW_gpu_wrapper.hh"
 
+#include "GPU_index_buffer.hh"
 #include "draw_command_shared.hh"
 #include "draw_handle.hh"
 #include "draw_state.hh"
@@ -49,6 +51,8 @@ struct RecordingState {
   int clip_plane_count = 0;
   /** Used for gl_BaseInstance workaround. */
   GPUStorageBuf *resource_id_buf = nullptr;
+  /** Used for pass simple resource ID. Starts at 1 as 0 is the identity handle. */
+  int instance_offset = 1;
 
   void front_facing_set(bool facing)
   {
@@ -367,10 +371,10 @@ struct Draw {
        uint expanded_prim_len,
        ResourceHandle handle)
   {
+    BLI_assert(batch != nullptr);
     this->batch = batch;
     this->handle = handle;
-    BLI_assert(instance_len < SHRT_MAX);
-    this->instance_len = uint16_t(instance_len);
+    this->instance_len = uint16_t(min_uu(instance_len, USHRT_MAX));
     this->vertex_len = vertex_len;
     this->vertex_first = vertex_first;
     this->expand_prim_type = expanded_prim_type;
@@ -460,6 +464,9 @@ struct StateSet {
 
   void execute(RecordingState &state) const;
   std::string serialize() const;
+
+  /* Set state of the GPU module manually. */
+  static void set(DRWState state = DRW_STATE_DEFAULT);
 };
 
 struct StencilSet {
@@ -530,32 +537,36 @@ class DrawCommandBuf {
                    uint instance_len,
                    uint vertex_len,
                    uint vertex_first,
-                   ResourceHandle handle,
+                   ResourceHandleRange handle_range,
                    uint custom_id,
                    GPUPrimType expanded_prim_type,
                    uint16_t expanded_prim_len)
   {
+    BLI_assert(batch != nullptr);
     vertex_first = vertex_first != -1 ? vertex_first : 0;
     instance_len = instance_len != -1 ? instance_len : 1;
 
     BLI_assert_msg(custom_id == 0, "Custom ID is not supported in PassSimple");
     UNUSED_VARS_NDEBUG(custom_id);
 
-    int64_t index = commands.append_and_get_index({});
-    headers.append({Type::Draw, uint(index)});
-    commands[index].draw = {batch,
-                            instance_len,
-                            vertex_len,
-                            vertex_first,
-                            expanded_prim_type,
-                            expanded_prim_len,
-                            handle};
+    for (auto handle : handle_range.index_range()) {
+      int64_t index = commands.append_and_get_index({});
+      headers.append({Type::Draw, uint(index)});
+      commands[index].draw = {batch,
+                              instance_len,
+                              vertex_len,
+                              vertex_first,
+                              expanded_prim_type,
+                              expanded_prim_len,
+                              ResourceHandle(handle)};
+    }
   }
 
-  void bind(RecordingState &state,
-            Vector<Header, 0> &headers,
-            Vector<Undetermined, 0> &commands,
-            SubPassVector &sub_passes);
+  void generate_commands(Vector<Header, 0> &headers,
+                         Vector<Undetermined, 0> &commands,
+                         SubPassVector &sub_passes);
+
+  void bind(RecordingState &state);
 
  private:
   static void finalize_commands(Vector<Header, 0> &headers,
@@ -647,11 +658,12 @@ class DrawMultiBuf {
                    uint instance_len,
                    uint vertex_len,
                    uint vertex_first,
-                   ResourceHandle handle,
+                   ResourceHandleRange handle_range,
                    uint custom_id,
                    GPUPrimType expanded_prim_type,
                    uint16_t expanded_prim_len)
   {
+    BLI_assert(batch != nullptr);
     /* Custom draw-calls cannot be batched and will produce one group per draw. */
     const bool custom_group = ((vertex_first != 0 && vertex_first != -1) || vertex_len != -1);
 
@@ -670,63 +682,67 @@ class DrawMultiBuf {
 
     uint &group_id = group_ids_.lookup_or_add(DrawGroupKey(cmd.uuid, batch), uint(-1));
 
-    bool inverted = handle.has_inverted_handedness();
+    bool inverted = handle_range.handle_first.has_inverted_handedness();
 
-    DrawPrototype &draw = prototype_buf_.get_or_resize(prototype_count_++);
-    draw.resource_handle = handle.raw;
-    draw.custom_id = custom_id;
-    draw.instance_len = instance_len;
-    draw.group_id = group_id;
+    for (auto handle : handle_range.index_range()) {
+      DrawPrototype &draw = prototype_buf_.get_or_resize(prototype_count_++);
+      draw.res_handle = uint32_t(handle);
+      draw.custom_id = custom_id;
+      draw.instance_len = instance_len;
+      draw.group_id = group_id;
 
-    if (group_id == uint(-1) || custom_group) {
-      uint new_group_id = group_count_++;
-      draw.group_id = new_group_id;
+      if (group_id == uint(-1) || custom_group) {
+        uint new_group_id = group_count_++;
+        draw.group_id = new_group_id;
 
-      DrawGroup &group = group_buf_.get_or_resize(new_group_id);
-      group.next = cmd.group_first;
-      group.len = instance_len;
-      group.front_facing_len = inverted ? 0 : instance_len;
-      group.front_facing_counter = 0;
-      group.back_facing_counter = 0;
-      group.desc.vertex_len = vertex_len;
-      group.desc.vertex_first = vertex_first;
-      group.desc.gpu_batch = batch;
-      group.desc.expand_prim_type = expanded_prim_type;
-      group.desc.expand_prim_len = expanded_prim_len;
-      BLI_assert_msg(expanded_prim_len < (1 << 3), "Not enough bits to store primitive expansion");
-      /* Custom group are not to be registered in the group_ids_. */
-      if (!custom_group) {
-        group_id = new_group_id;
+        DrawGroup &group = group_buf_.get_or_resize(new_group_id);
+        group.next = cmd.group_first;
+        group.len = instance_len;
+        group.front_facing_len = inverted ? 0 : instance_len;
+        group.front_facing_counter = 0;
+        group.back_facing_counter = 0;
+        group.desc.vertex_len = vertex_len;
+        group.desc.vertex_first = vertex_first;
+        group.desc.gpu_batch = batch;
+        group.desc.expand_prim_type = expanded_prim_type;
+        group.desc.expand_prim_len = expanded_prim_len;
+        BLI_assert_msg(expanded_prim_len < (1 << 3),
+                       "Not enough bits to store primitive expansion");
+        /* Custom group are not to be registered in the group_ids_. */
+        if (!custom_group) {
+          group_id = new_group_id;
+        }
+        /* For serialization only. Reset before use on GPU. */
+        (inverted ? group.back_facing_counter : group.front_facing_counter)++;
+        /* Append to list. */
+        cmd.group_first = new_group_id;
       }
-      /* For serialization only. Reset before use on GPU. */
-      (inverted ? group.back_facing_counter : group.front_facing_counter)++;
-      /* Append to list. */
-      cmd.group_first = new_group_id;
-    }
-    else {
-      DrawGroup &group = group_buf_[group_id];
-      group.len += instance_len;
-      group.front_facing_len += inverted ? 0 : instance_len;
-      /* For serialization only. Reset before use on GPU. */
-      (inverted ? group.back_facing_counter : group.front_facing_counter)++;
-      /* NOTE: We assume that primitive expansion is coupled to the shader itself. Meaning we rely
-       * on shader bind to isolate the expanded draws into their own group (as there could be
-       * regular draws and extended draws using the same batch mixed inside the same pass). This
-       * will cause issues if this assumption is broken. Also it is very hard to detect this case
-       * for error checking. At least we can check that expansion settings don't change inside a
-       * group. */
-      BLI_assert(group.desc.expand_prim_type == expanded_prim_type);
-      BLI_assert(group.desc.expand_prim_len == expanded_prim_len);
+      else {
+        DrawGroup &group = group_buf_[group_id];
+        group.len += instance_len;
+        group.front_facing_len += inverted ? 0 : instance_len;
+        /* For serialization only. Reset before use on GPU. */
+        (inverted ? group.back_facing_counter : group.front_facing_counter)++;
+        /* NOTE: We assume that primitive expansion is coupled to the shader itself. Meaning we
+         * rely on shader bind to isolate the expanded draws into their own group (as there could
+         * be regular draws and extended draws using the same batch mixed inside the same pass).
+         * This will cause issues if this assumption is broken. Also it is very hard to detect this
+         * case for error checking. At least we can check that expansion settings don't change
+         * inside a group. */
+        BLI_assert(group.desc.expand_prim_type == expanded_prim_type);
+        BLI_assert(group.desc.expand_prim_len == expanded_prim_len);
+      }
     }
   }
 
-  void bind(RecordingState &state,
-            Vector<Header, 0> &headers,
-            Vector<Undetermined, 0> &commands,
-            VisibilityBuf &visibility_buf,
-            int visibility_word_per_draw,
-            int view_len,
-            bool use_custom_ids);
+  void generate_commands(Vector<Header, 0> &headers,
+                         Vector<Undetermined, 0> &commands,
+                         VisibilityBuf &visibility_buf,
+                         int visibility_word_per_draw,
+                         int view_len,
+                         bool use_custom_ids);
+
+  void bind(RecordingState &state);
 };
 
 /** \} */

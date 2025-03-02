@@ -24,6 +24,9 @@ enum class ConversionType {
   /** No conversion needed, result can be directly read back to host memory. */
   PASS_THROUGH,
 
+  /** Pass through (ignores the stencil component). */
+  PASS_THROUGH_D32F_S8,
+
   FLOAT_TO_UNORM8,
   UNORM8_TO_FLOAT,
 
@@ -51,6 +54,10 @@ enum class ConversionType {
   I32_TO_I8,
   I8_TO_I32,
 
+  /** Convert device 16F to UINT */
+  HALF_TO_UI8,
+  UI8_TO_HALF,
+
   /** Convert device 16F to floats. */
   HALF_TO_FLOAT,
   FLOAT_TO_HALF,
@@ -72,6 +79,12 @@ enum class ConversionType {
 
   UINT_TO_DEPTH_COMPONENT24,
   DEPTH_COMPONENT24_TO_UINT,
+
+  UINT_TO_DEPTH24_STENCIL8,
+  DEPTH24_STENCIL8_TO_UINT,
+
+  UINT_TO_DEPTH32F_STENCIL8,
+  DEPTH32F_STENCIL8_TO_UINT,
   /**
    * The requested conversion isn't supported.
    */
@@ -91,6 +104,9 @@ static ConversionType type_of_conversion_float(const eGPUTextureFormat host_form
     if (host_format == GPU_DEPTH_COMPONENT24 && device_format == GPU_DEPTH_COMPONENT32F) {
       return ConversionType::PASS_THROUGH;
     }
+    if (host_format == GPU_DEPTH24_STENCIL8 && device_format == GPU_DEPTH32F_STENCIL8) {
+      return ConversionType::PASS_THROUGH_D32F_S8;
+    }
 
     return ConversionType::UNSUPPORTED;
   }
@@ -101,6 +117,9 @@ static ConversionType type_of_conversion_float(const eGPUTextureFormat host_form
     case GPU_R32F:
     case GPU_DEPTH_COMPONENT32F:
       return ConversionType::PASS_THROUGH;
+
+    case GPU_DEPTH32F_STENCIL8:
+      return ConversionType::PASS_THROUGH_D32F_S8;
 
     case GPU_RGBA16F:
     case GPU_RG16F:
@@ -134,6 +153,7 @@ static ConversionType type_of_conversion_float(const eGPUTextureFormat host_form
       return ConversionType::FLOAT_TO_SRGBA8;
 
     case GPU_DEPTH_COMPONENT24:
+    case GPU_DEPTH24_STENCIL8:
       return ConversionType::FLOAT_TO_DEPTH_COMPONENT24;
 
     case GPU_R11F_G11F_B10F:
@@ -170,8 +190,6 @@ static ConversionType type_of_conversion_float(const eGPUTextureFormat host_form
     case GPU_R32I:
     case GPU_RGB10_A2:
     case GPU_RGB10_A2UI:
-    case GPU_DEPTH32F_STENCIL8:
-    case GPU_DEPTH24_STENCIL8:
     case GPU_RGB8UI:
     case GPU_RGB8I:
     case GPU_RGB8:
@@ -292,6 +310,7 @@ static ConversionType type_of_conversion_uint(eGPUTextureFormat device_format)
       return ConversionType::UNORM32_TO_FLOAT;
     case GPU_DEPTH24_STENCIL8:
       return ConversionType::UINT_TO_DEPTH_COMPONENT24;
+
     case GPU_RGBA8I:
     case GPU_RGBA8:
     case GPU_RGBA16I:
@@ -435,10 +454,14 @@ static ConversionType type_of_conversion_ubyte(eGPUTextureFormat device_format)
     case GPU_SRGB8_A8:
       return ConversionType::PASS_THROUGH;
 
+    case GPU_RGBA16F:
+    case GPU_RG16F:
+    case GPU_R16F:
+      return ConversionType::UI8_TO_HALF;
+
     case GPU_RGBA8I:
     case GPU_RGBA16UI:
     case GPU_RGBA16I:
-    case GPU_RGBA16F:
     case GPU_RGBA16:
     case GPU_RGBA32UI:
     case GPU_RGBA32I:
@@ -446,7 +469,6 @@ static ConversionType type_of_conversion_ubyte(eGPUTextureFormat device_format)
     case GPU_RG8I:
     case GPU_RG16UI:
     case GPU_RG16I:
-    case GPU_RG16F:
     case GPU_RG16:
     case GPU_RG32UI:
     case GPU_RG32I:
@@ -454,7 +476,6 @@ static ConversionType type_of_conversion_ubyte(eGPUTextureFormat device_format)
     case GPU_R8I:
     case GPU_R16UI:
     case GPU_R16I:
-    case GPU_R16F:
     case GPU_R16:
     case GPU_R32UI:
     case GPU_R32I:
@@ -498,6 +519,84 @@ static ConversionType type_of_conversion_ubyte(eGPUTextureFormat device_format)
   return ConversionType::UNSUPPORTED;
 }
 
+static ConversionType type_of_conversion_uint248(const eGPUTextureFormat device_format)
+{
+  switch (device_format) {
+    case GPU_DEPTH24_STENCIL8:
+      return ConversionType::UINT_TO_DEPTH24_STENCIL8;
+
+    case GPU_DEPTH32F_STENCIL8:
+      return ConversionType::UINT_TO_DEPTH32F_STENCIL8;
+
+    case GPU_RGBA32F:
+    case GPU_RG32F:
+    case GPU_R32F:
+    case GPU_RGBA16F:
+    case GPU_RG16F:
+    case GPU_R16F:
+    case GPU_RGB16F:
+    case GPU_RGBA8:
+    case GPU_RG8:
+    case GPU_R8:
+    case GPU_RGBA8_SNORM:
+    case GPU_RGB8_SNORM:
+    case GPU_RG8_SNORM:
+    case GPU_R8_SNORM:
+    case GPU_RGBA16:
+    case GPU_RG16:
+    case GPU_R16:
+    case GPU_RGBA16_SNORM:
+    case GPU_RGB16_SNORM:
+    case GPU_RG16_SNORM:
+    case GPU_R16_SNORM:
+    case GPU_SRGB8_A8:
+    case GPU_DEPTH_COMPONENT24:
+    case GPU_DEPTH_COMPONENT32F:
+    case GPU_R11F_G11F_B10F:
+    case GPU_SRGB8_A8_DXT1:
+    case GPU_SRGB8_A8_DXT3:
+    case GPU_SRGB8_A8_DXT5:
+    case GPU_RGBA8_DXT1:
+    case GPU_RGBA8_DXT3:
+    case GPU_RGBA8_DXT5:
+
+    case GPU_RGB32F: /* GPU_RGB32F Not supported by vendors. */
+    case GPU_RGBA8UI:
+    case GPU_RGBA8I:
+    case GPU_RGBA16UI:
+    case GPU_RGBA16I:
+    case GPU_RGBA32UI:
+    case GPU_RGBA32I:
+    case GPU_RG8UI:
+    case GPU_RG8I:
+    case GPU_RG16UI:
+    case GPU_RG16I:
+    case GPU_RG32UI:
+    case GPU_RG32I:
+    case GPU_R8UI:
+    case GPU_R8I:
+    case GPU_R16UI:
+    case GPU_R16I:
+    case GPU_R32UI:
+    case GPU_R32I:
+    case GPU_RGB10_A2:
+    case GPU_RGB10_A2UI:
+    case GPU_RGB8UI:
+    case GPU_RGB8I:
+    case GPU_RGB8:
+    case GPU_RGB16UI:
+    case GPU_RGB16I:
+    case GPU_RGB16:
+    case GPU_RGB32UI:
+    case GPU_RGB32I:
+    case GPU_SRGB8:
+    case GPU_RGB9_E5:
+    case GPU_DEPTH_COMPONENT16:
+      return ConversionType::UNSUPPORTED;
+  }
+  return ConversionType::UNSUPPORTED;
+}
+
 static ConversionType type_of_conversion_r11g11b10(eGPUTextureFormat device_format)
 {
   if (device_format == GPU_R11F_G11F_B10F) {
@@ -518,8 +617,6 @@ static ConversionType host_to_device(const eGPUDataFormat host_format,
                                      const eGPUTextureFormat host_texture_format,
                                      const eGPUTextureFormat device_format)
 {
-  BLI_assert(validate_data_format(device_format, host_format));
-
   switch (host_format) {
     case GPU_DATA_FLOAT:
       return type_of_conversion_float(host_texture_format, device_format);
@@ -535,9 +632,8 @@ static ConversionType host_to_device(const eGPUDataFormat host_format,
       return type_of_conversion_r11g11b10(device_format);
     case GPU_DATA_2_10_10_10_REV:
       return type_of_conversion_r10g10b10a2(device_format);
-
     case GPU_DATA_UINT_24_8:
-      return ConversionType::UNSUPPORTED;
+      return type_of_conversion_uint248(device_format);
   }
 
   return ConversionType::UNSUPPORTED;
@@ -556,6 +652,8 @@ static ConversionType reversed(ConversionType type)
   switch (type) {
     case ConversionType::PASS_THROUGH:
       return ConversionType::PASS_THROUGH;
+    case ConversionType::PASS_THROUGH_D32F_S8:
+      return ConversionType::PASS_THROUGH_D32F_S8;
 
       CASE_PAIR(FLOAT, UNORM8)
       CASE_PAIR(FLOAT, SNORM8)
@@ -573,6 +671,9 @@ static ConversionType reversed(ConversionType type)
       CASE_PAIR(FLOAT, B10F_G11F_R11F)
       CASE_PAIR(FLOAT3, HALF4)
       CASE_PAIR(FLOAT3, FLOAT4)
+      CASE_PAIR(UINT, DEPTH24_STENCIL8)
+      CASE_PAIR(UINT, DEPTH32F_STENCIL8)
+      CASE_PAIR(UI8, HALF)
 
     case ConversionType::UNSUPPORTED:
       return ConversionType::UNSUPPORTED;
@@ -623,6 +724,7 @@ using UI32 = ComponentValue<uint32_t>;
 using I8 = ComponentValue<int8_t>;
 using I16 = ComponentValue<int16_t>;
 using I32 = ComponentValue<int32_t>;
+using F16 = ComponentValue<uint16_t>;
 using F32 = ComponentValue<float>;
 using SRGBA8 = PixelValue<ColorSceneLinearByteEncoded4b<eAlpha::Premultiplied>>;
 using FLOAT3 = PixelValue<float3>;
@@ -685,6 +787,10 @@ class DepthComponent24 : public ComponentValue<uint32_t> {
     return 3;
   }
 };
+
+struct Depth24Stencil8 : ComponentValue<uint32_t> {};
+/* Use a float as we only have the depth aspect in the staging buffers. */
+struct Depth32fStencil8 : ComponentValue<float> {};
 
 template<typename InnerType> struct SignedNormalized {
   static_assert(std::is_same<InnerType, uint8_t>() || std::is_same<InnerType, uint16_t>());
@@ -840,6 +946,24 @@ static void convert(FLOAT4 &dst, const FLOAT3 &src)
   dst.value.a = 1.0f;
 }
 
+static void convert(F16 &dst, const UI8 &src)
+{
+  UnsignedNormalized<uint8_t> un8;
+  un8.value = src.value;
+  F32 f32;
+  convert(f32, un8);
+  dst.value = math::float_to_half(f32.value);
+}
+
+static void convert(UI8 &dst, const F16 &src)
+{
+  F32 f32;
+  f32.value = math::half_to_float(src.value);
+  UnsignedNormalized<uint8_t> un8;
+  convert(un8, f32);
+  dst.value = un8.value;
+}
+
 constexpr uint32_t MASK_10_BITS = 0b1111111111;
 constexpr uint32_t MASK_11_BITS = 0b11111111111;
 constexpr uint8_t SHIFT_B = 22;
@@ -865,6 +989,34 @@ static void convert(B10F_G11G_R11F &dst, const FLOAT3 &src)
 }
 
 /* \} */
+
+/* Convert vulkan depth stencil to OpenGL depth stencil */
+static void convert(UI32 &dst, const Depth24Stencil8 &src)
+{
+  uint32_t stencil = (src.value & 0xFF000000) >> 24;
+  uint32_t depth = (src.value & 0xFFFFFF);
+  dst.value = (depth << 8) + stencil;
+}
+
+/* Convert OpenGL depth stencil to Vulkan depth stencil */
+static void convert(Depth24Stencil8 &dst, const UI32 &src)
+{
+  uint32_t stencil = (src.value & 0xFF);
+  uint32_t depth = (src.value >> 8) & 0xFFFFFF;
+  dst.value = depth + (stencil << 24);
+}
+
+static void convert(UI32 &dst, const Depth32fStencil8 &src)
+{
+  uint32_t depth = uint32_t(src.value * 0xFFFFFF);
+  dst.value = (depth << 8);
+}
+
+static void convert(Depth32fStencil8 &dst, const UI32 &src)
+{
+  uint32_t depth = (src.value >> 8) & 0xFFFFFF;
+  dst.value = float(depth) * 0xFFFFFF;
+}
 
 template<typename DestinationType, typename SourceType>
 void convert(MutableSpan<DestinationType> dst, Span<SourceType> src)
@@ -912,6 +1064,10 @@ static void convert_buffer(void *dst_memory,
     case ConversionType::PASS_THROUGH:
     case ConversionType::UINT_TO_DEPTH_COMPONENT24:
       memcpy(dst_memory, src_memory, buffer_size * to_bytesize(device_format));
+      return;
+
+    case ConversionType::PASS_THROUGH_D32F_S8:
+      memcpy(dst_memory, src_memory, buffer_size * to_bytesize(GPU_DEPTH_COMPONENT32F));
       return;
 
     case ConversionType::UI32_TO_UI16:
@@ -991,6 +1147,13 @@ static void convert_buffer(void *dst_memory,
           dst_memory, src_memory, buffer_size, device_format);
       break;
 
+    case ConversionType::UI8_TO_HALF:
+      convert_per_component<F16, UI8>(dst_memory, src_memory, buffer_size, device_format);
+      break;
+    case ConversionType::HALF_TO_UI8:
+      convert_per_component<UI8, F16>(dst_memory, src_memory, buffer_size, device_format);
+      break;
+
     case ConversionType::FLOAT_TO_HALF:
       blender::math::float_to_half_array(static_cast<const float *>(src_memory),
                                          static_cast<uint16_t *>(dst_memory),
@@ -1023,6 +1186,19 @@ static void convert_buffer(void *dst_memory,
       break;
     case ConversionType::FLOAT_TO_B10F_G11F_R11F:
       convert_per_pixel<B10F_G11G_R11F, FLOAT3>(dst_memory, src_memory, buffer_size);
+      break;
+
+    case ConversionType::DEPTH24_STENCIL8_TO_UINT:
+      convert_per_pixel<UI32, Depth24Stencil8>(dst_memory, src_memory, buffer_size);
+      break;
+    case ConversionType::UINT_TO_DEPTH24_STENCIL8:
+      convert_per_pixel<Depth24Stencil8, UI32>(dst_memory, src_memory, buffer_size);
+      break;
+    case ConversionType::DEPTH32F_STENCIL8_TO_UINT:
+      convert_per_pixel<UI32, Depth32fStencil8>(dst_memory, src_memory, buffer_size);
+      break;
+    case ConversionType::UINT_TO_DEPTH32F_STENCIL8:
+      convert_per_pixel<Depth32fStencil8, UI32>(dst_memory, src_memory, buffer_size);
       break;
 
     case ConversionType::B10F_G11F_R11F_TO_FLOAT:

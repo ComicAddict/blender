@@ -2,10 +2,8 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#include "BKE_global.hh"
 #include "BLI_rect.h"
 
-#include "GPU_capabilities.hh"
 #include "GPU_framebuffer.hh"
 
 #include "ED_screen.hh"
@@ -17,16 +15,14 @@
 
 #include "eevee_engine.h" /* Own include. */
 
+#include "draw_view_data.hh"
+
 #include "eevee_instance.hh"
 
 using namespace blender;
 
 struct EEVEE_Data {
   DrawEngineType *engine_type;
-  DRWViewportEmptyList *fbl;
-  DRWViewportEmptyList *txl;
-  DRWViewportEmptyList *psl;
-  DRWViewportEmptyList *stl;
   eevee::Instance *instance;
 
   char info[GPU_INFO_SIZE];
@@ -49,7 +45,7 @@ static void eevee_engine_init(void *vedata)
   DefaultTextureList *dtxl = DRW_viewport_texture_list_get();
   int2 size = int2(GPU_texture_width(dtxl->color), GPU_texture_height(dtxl->color));
 
-  const DRWView *default_view = DRW_view_default_get();
+  draw::View &default_view = draw::View::default_get();
 
   Object *camera = nullptr;
   /* Get render borders. */
@@ -86,7 +82,7 @@ static void eevee_engine_init(void *vedata)
     }
 
     if (DRW_state_is_viewport_image_render()) {
-      const float *vp_size = DRW_viewport_size_get();
+      const float2 vp_size = DRW_viewport_size_get();
       visible_rect.xmax = vp_size[0];
       visible_rect.ymax = vp_size[1];
       visible_rect.xmin = visible_rect.ymin = 0;
@@ -97,7 +93,7 @@ static void eevee_engine_init(void *vedata)
   }
 
   ved->instance->init(
-      size, &rect, &visible_rect, nullptr, depsgraph, camera, nullptr, default_view, v3d, rv3d);
+      size, &rect, &visible_rect, nullptr, depsgraph, camera, nullptr, &default_view, v3d, rv3d);
 }
 
 static void eevee_draw_scene(void *vedata)
@@ -110,8 +106,6 @@ static void eevee_draw_scene(void *vedata)
     ved->instance->draw_viewport();
   }
   STRNCPY(ved->info, ved->instance->info_get());
-  /* Reset view for other following engines. */
-  DRW_view_set_active(nullptr);
   DefaultFramebufferList *dfbl = DRW_viewport_framebuffer_list_get();
   GPU_framebuffer_viewport_reset(dfbl->default_fb);
 }
@@ -123,7 +117,8 @@ static void eevee_cache_init(void *vedata)
 
 static void eevee_cache_populate(void *vedata, Object *object)
 {
-  reinterpret_cast<EEVEE_Data *>(vedata)->instance->object_sync(object);
+  draw::ObjectRef ob_ref = DRW_object_ref_get(object);
+  reinterpret_cast<EEVEE_Data *>(vedata)->instance->object_sync(ob_ref);
 }
 
 static void eevee_cache_finish(void *vedata)
@@ -188,15 +183,10 @@ static void eevee_render_update_passes(RenderEngine *engine, Scene *scene, ViewL
   eevee::Instance::update_passes(engine, scene, view_layer);
 }
 
-static const DrawEngineDataSize eevee_data_size = DRW_VIEWPORT_DATA_SIZE(EEVEE_Data);
-
-extern "C" {
-
 DrawEngineType draw_engine_eevee_next_type = {
     /*next*/ nullptr,
     /*prev*/ nullptr,
     /*idname*/ N_("EEVEE"),
-    /*vedata_size*/ &eevee_data_size,
     /*engine_init*/ &eevee_engine_init,
     /*engine_free*/ &eevee_engine_free,
     /*instance_free*/ &eevee_instance_free,
@@ -233,4 +223,3 @@ RenderEngineType DRW_engine_viewport_eevee_next_type = {
         /*call*/ nullptr,
     },
 };
-}

@@ -7,17 +7,11 @@
  */
 
 #include <cerrno>
-#include <cstdio>
 #include <cstdlib>
 
 #include "DNA_ID.h"
-#include "DNA_modifier_types.h"
-#include "DNA_object_types.h"
 #include "DNA_space_types.h"
 
-#include "BLI_utildefines.h"
-
-#include "RNA_access.hh"
 #include "RNA_define.hh"
 #include "RNA_enum_types.hh"
 
@@ -37,14 +31,15 @@
 #  include "BKE_grease_pencil.hh"
 #  include "BKE_icons.h"
 #  include "BKE_idtype.hh"
-#  include "BKE_image.h"
+#  include "BKE_image.hh"
 #  include "BKE_lattice.hh"
 #  include "BKE_lib_remap.hh"
 #  include "BKE_light.h"
 #  include "BKE_lightprobe.h"
 #  include "BKE_linestyle.h"
+#  include "BKE_main_invariants.hh"
 #  include "BKE_mask.h"
-#  include "BKE_material.h"
+#  include "BKE_material.hh"
 #  include "BKE_mball.hh"
 #  include "BKE_mesh.hh"
 #  include "BKE_movieclip.h"
@@ -129,7 +124,7 @@ static void rna_Main_ID_remove(Main *bmain,
   }
   if (do_unlink) {
     BKE_id_delete(bmain, id);
-    RNA_POINTER_INVALIDATE(id_ptr);
+    id_ptr->invalidate();
     /* Force full redraw, mandatory to avoid crashes when running this from UI... */
     WM_main_add_notifier(NC_WINDOW, nullptr);
   }
@@ -138,7 +133,7 @@ static void rna_Main_ID_remove(Main *bmain,
                      (do_ui_user ? 0 : LIB_ID_FREE_NO_UI_USER);
     /* Still using ID flags here, this is in-between commit anyway... */
     BKE_id_free_ex(bmain, id, flag, true);
-    RNA_POINTER_INVALIDATE(id_ptr);
+    id_ptr->invalidate();
   }
   else {
     BKE_reportf(
@@ -156,12 +151,12 @@ static Camera *rna_Main_cameras_new(Main *bmain, const char *name)
   char safe_name[MAX_ID_NAME - 2];
   rna_idname_validate(name, safe_name);
 
-  ID *id = static_cast<ID *>(BKE_camera_add(bmain, safe_name));
-  id_us_min(id);
+  Camera *camera = BKE_camera_add(bmain, safe_name);
+  id_us_min(&camera->id);
 
   WM_main_add_notifier(NC_ID | NA_ADDED, nullptr);
 
-  return (Camera *)id;
+  return camera;
 }
 
 static Scene *rna_Main_scenes_new(Main *bmain, const char *name)
@@ -242,7 +237,7 @@ static Object *rna_Main_objects_new(Main *bmain, ReportList *reports, const char
   ob = BKE_object_add_only_object(bmain, type, safe_name);
 
   ob->data = data;
-  BKE_object_materials_test(bmain, ob, static_cast<ID *>(ob->data));
+  BKE_object_materials_sync_length(bmain, ob, static_cast<ID *>(ob->data));
 
   WM_main_add_notifier(NC_ID | NA_ADDED, nullptr);
 
@@ -274,7 +269,8 @@ static void rna_Main_materials_gpencil_remove(Main * /*bmain*/, PointerRNA *id_p
   ID *id = static_cast<ID *>(id_ptr->data);
   Material *ma = (Material *)id;
   if (ma->gp_style) {
-    MEM_SAFE_FREE(ma->gp_style);
+    MEM_freeN(ma->gp_style);
+    ma->gp_style = nullptr;
   }
 }
 
@@ -293,7 +289,7 @@ static bNodeTree *rna_Main_nodetree_new(Main *bmain, const char *name, int type)
   blender::bke::bNodeTreeType *typeinfo = rna_node_tree_type_from_enum(type);
   if (typeinfo) {
     bNodeTree *ntree = blender::bke::node_tree_add_tree(bmain, safe_name, typeinfo->idname);
-    ED_node_tree_propagate_change(nullptr, bmain, ntree);
+    BKE_main_ensure_invariants(*bmain);
 
     id_us_min(&ntree->id);
     return ntree;
@@ -549,7 +545,7 @@ static Speaker *rna_Main_speakers_new(Main *bmain, const char *name)
   char safe_name[MAX_ID_NAME - 2];
   rna_idname_validate(name, safe_name);
 
-  Speaker *speaker = static_cast<Speaker *>(BKE_speaker_add(bmain, safe_name));
+  Speaker *speaker = BKE_speaker_add(bmain, safe_name);
   id_us_min(&speaker->id);
 
   WM_main_add_notifier(NC_ID | NA_ADDED, nullptr);
@@ -728,7 +724,7 @@ static LightProbe *rna_Main_lightprobe_new(Main *bmain, const char *name, int ty
   char safe_name[MAX_ID_NAME - 2];
   rna_idname_validate(name, safe_name);
 
-  LightProbe *probe = static_cast<LightProbe *>(BKE_lightprobe_add(bmain, safe_name));
+  LightProbe *probe = BKE_lightprobe_add(bmain, safe_name);
 
   BKE_lightprobe_type_set(probe, type);
 
@@ -757,8 +753,7 @@ static GreasePencil *rna_Main_grease_pencils_new(Main *bmain, const char *name)
   char safe_name[MAX_ID_NAME - 2];
   rna_idname_validate(name, safe_name);
 
-  GreasePencil *grease_pencil = static_cast<GreasePencil *>(
-      BKE_grease_pencil_add(bmain, safe_name));
+  GreasePencil *grease_pencil = BKE_grease_pencil_add(bmain, safe_name);
   id_us_min(&grease_pencil->id);
 
   WM_main_add_notifier(NC_ID | NA_ADDED, nullptr);
@@ -771,7 +766,7 @@ static Curves *rna_Main_hair_curves_new(Main *bmain, const char *name)
   char safe_name[MAX_ID_NAME - 2];
   rna_idname_validate(name, safe_name);
 
-  Curves *curves = static_cast<Curves *>(BKE_curves_add(bmain, safe_name));
+  Curves *curves = BKE_curves_add(bmain, safe_name);
   id_us_min(&curves->id);
 
   WM_main_add_notifier(NC_ID | NA_ADDED, nullptr);
@@ -784,7 +779,7 @@ static PointCloud *rna_Main_pointclouds_new(Main *bmain, const char *name)
   char safe_name[MAX_ID_NAME - 2];
   rna_idname_validate(name, safe_name);
 
-  PointCloud *pointcloud = static_cast<PointCloud *>(BKE_pointcloud_add(bmain, safe_name));
+  PointCloud *pointcloud = BKE_pointcloud_add(bmain, safe_name);
   id_us_min(&pointcloud->id);
 
   WM_main_add_notifier(NC_ID | NA_ADDED, nullptr);
@@ -797,7 +792,7 @@ static Volume *rna_Main_volumes_new(Main *bmain, const char *name)
   char safe_name[MAX_ID_NAME - 2];
   rna_idname_validate(name, safe_name);
 
-  Volume *volume = static_cast<Volume *>(BKE_volume_add(bmain, safe_name));
+  Volume *volume = BKE_volume_add(bmain, safe_name);
   id_us_min(&volume->id);
 
   WM_main_add_notifier(NC_ID | NA_ADDED, nullptr);

@@ -8,7 +8,6 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "DNA_listBase.h"
 #include "DNA_mesh_types.h"
 #include "DNA_object_types.h"
 
@@ -23,7 +22,6 @@
 #include "BKE_mesh_runtime.hh"
 #include "BKE_mesh_wrapper.hh"
 #include "BKE_object.hh"
-#include "BKE_object_types.hh"
 
 #include "DEG_depsgraph_query.hh"
 
@@ -64,6 +62,20 @@ BMEditMesh *BKE_editmesh_from_object(Object *ob)
 {
   BLI_assert(ob->type == OB_MESH);
   return ((Mesh *)ob->data)->runtime->edit_mesh.get();
+}
+
+bool BKE_editmesh_eval_orig_map_available(const Mesh &mesh_eval, const Mesh *mesh_orig)
+{
+  if (!mesh_orig) {
+    return false;
+  }
+  if (&mesh_eval == mesh_orig) {
+    return true;
+  }
+  if (mesh_eval.runtime->edit_mesh) {
+    return mesh_eval.runtime->edit_mesh == mesh_orig->runtime->edit_mesh;
+  }
+  return false;
 }
 
 void BKE_editmesh_looptris_calc_ex(BMEditMesh *em, const BMeshCalcTessellation_Params *params)

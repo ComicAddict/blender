@@ -297,7 +297,7 @@ static void fix_large_angle(const float v_fix[3],
                             double *r_a1,
                             double *r_a2)
 {
-  const double max_angle = DEG2RADF(179.0);
+  const double max_angle = DEG2RAD(179.0);
   const double fix_amount = *r_fix - max_angle;
   if (fix_amount < 0.0f) {
     return; /* angle is reasonable, i.e. less than 179 degrees. */
@@ -730,6 +730,10 @@ static PVert *p_vert_add(
   v->edge = e;
   v->flag = 0;
 
+  /* Unused, prevent uninitialized memory access on duplication. */
+  v->on_boundary_flag = false;
+  v->slim_id = 0;
+
   phash_insert(handle->hash_verts, (PHashLink *)v);
 
   return v;
@@ -756,6 +760,10 @@ static PVert *p_vert_copy(ParamHandle *handle, PVert *v)
   nv->u.key = v->u.key;
   nv->edge = v->edge;
   nv->flag = v->flag;
+
+  nv->weight = v->weight;
+  nv->on_boundary_flag = v->on_boundary_flag;
+  nv->slim_id = v->slim_id;
 
   return nv;
 }
@@ -1826,7 +1834,7 @@ static bool p_collapse_allowed_topologic(PEdge *edge, PEdge *pair)
     if (edge && !edge->next->pair && !edge->next->next->pair) {
       return false;
     }
-    else if (pair && !pair->next->pair && !pair->next->next->pair) {
+    if (pair && !pair->next->pair && !pair->next->next->pair) {
       return false;
     }
   }
@@ -5093,7 +5101,7 @@ static void slim_transfer_faces(const PChart *chart, slim::MatrixTransferChart *
 static void slim_convert_blender(ParamHandle *phandle, slim::MatrixTransfer *mt)
 {
   static const float SLIM_CORR_MIN_AREA = 1.0e-8;
-  static const float SLIM_CORR_MIN_ANGLE = DEG2RADF(1.0);
+  static const float SLIM_CORR_MIN_ANGLE = DEG2RADF(1.0f);
 
   mt->charts.resize(phandle->ncharts);
 

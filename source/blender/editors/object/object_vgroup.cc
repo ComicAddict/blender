@@ -6,36 +6,36 @@
  * \ingroup edobj
  */
 
+#include <algorithm>
 #include <cmath>
-#include <cstddef>
 #include <cstring>
 
 #include "MEM_guardedalloc.h"
 
 #include "DNA_curve_types.h"
-#include "DNA_gpencil_legacy_types.h"
 #include "DNA_lattice_types.h"
 #include "DNA_mesh_types.h"
 #include "DNA_meshdata_types.h"
-#include "DNA_modifier_types.h"
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 
 #include "BLI_array.hh"
 #include "BLI_bitmap.h"
-#include "BLI_blenlib.h"
 #include "BLI_listbase.h"
+#include "BLI_string.h"
 #include "BLI_utildefines.h"
 #include "BLI_utildefines_stack.h"
 #include "BLI_vector.hh"
 
 #include "BKE_attribute.hh"
 #include "BKE_context.hh"
+#include "BKE_curves.hh"
 #include "BKE_customdata.hh"
 #include "BKE_deform.hh"
 #include "BKE_editmesh.hh"
 #include "BKE_grease_pencil_vertex_groups.hh"
 #include "BKE_lattice.hh"
+#include "BKE_library.hh"
 #include "BKE_mesh.hh"
 #include "BKE_mesh_mapping.hh"
 #include "BKE_modifier.hh"
@@ -56,6 +56,7 @@
 #include "WM_api.hh"
 #include "WM_types.hh"
 
+#include "ED_curves.hh"
 #include "ED_grease_pencil.hh"
 #include "ED_mesh.hh"
 #include "ED_object.hh"
@@ -620,7 +621,20 @@ static bool vgroup_normalize_active_vertex(Object *ob, eVGroupSelect subset_type
 
   vgroup_validmap = BKE_object_defgroup_subset_from_select_type(
       ob, subset_type, &vgroup_tot, &subset_count);
-  BKE_defvert_normalize_subset(dvert_act, vgroup_validmap, vgroup_tot);
+
+  bool *lock_flags = BKE_object_defgroup_lock_flags_get(ob, vgroup_tot);
+
+  if (lock_flags) {
+    const ListBase *defbase = BKE_object_defgroup_list(ob);
+    const int defbase_tot = BLI_listbase_count(defbase);
+    BKE_defvert_normalize_lock_map(
+        dvert_act, vgroup_validmap, vgroup_tot, lock_flags, defbase_tot);
+    MEM_freeN(lock_flags);
+  }
+  else {
+    BKE_defvert_normalize_subset(dvert_act, vgroup_validmap, vgroup_tot);
+  }
+
   MEM_freeN((void *)vgroup_validmap);
 
   if (mesh->symmetry & ME_SYMMETRY_X) {
@@ -837,9 +851,7 @@ static void vgroup_nr_vert_add(
         break;
       case WEIGHT_ADD:
         dw->weight += weight;
-        if (dw->weight >= 1.0f) {
-          dw->weight = 1.0f;
-        }
+        dw->weight = std::min(dw->weight, 1.0f);
         break;
       case WEIGHT_SUBTRACT:
         dw->weight -= weight;
@@ -1005,8 +1017,80 @@ void vgroup_select_by_name(Object *ob, const char *name)
 /** \name Operator Function Implementations
  * \{ */
 
+static void vgroup_grease_pencil_select_verts(const Scene &scene,
+                                              const ToolSettings &tool_settings,
+                                              const bDeformGroup *def_group,
+                                              const bool select,
+                                              Object &object)
+{
+  using namespace bke;
+  using namespace ed::greasepencil;
+  const bke::AttrDomain selection_domain = ED_grease_pencil_edit_selection_domain_get(
+      &tool_settings);
+  GreasePencil *grease_pencil = static_cast<GreasePencil *>(object.data);
+
+  Vector<MutableDrawingInfo> drawings = retrieve_editable_drawings(scene, *grease_pencil);
+  for (MutableDrawingInfo &info : drawings) {
+    bke::CurvesGeometry &curves = info.drawing.strokes_for_write();
+    ListBase &vertex_group_names = curves.vertex_group_names;
+
+    const int def_nr = BKE_defgroup_name_index(&vertex_group_names, def_group->name);
+    if (def_nr < 0) {
+      /* No vertices assigned to the group in this drawing. */
+      continue;
+    }
+
+    const Span<MDeformVert> dverts = curves.deform_verts();
+    if (dverts.is_empty()) {
+      continue;
+    }
+
+    GSpanAttributeWriter selection = ed::curves::ensure_selection_attribute(
+        curves, selection_domain, CD_PROP_BOOL);
+    switch (selection_domain) {
+      case AttrDomain::Point:
+        threading::parallel_for(curves.points_range(), 4096, [&](const IndexRange range) {
+          for (const int point_i : range) {
+            if (BKE_defvert_find_index(&dverts[point_i], def_nr)) {
+              selection.span.typed<bool>()[point_i] = select;
+            }
+          }
+        });
+        break;
+      case AttrDomain::Curve: {
+        const OffsetIndices<int> points_by_curve = curves.points_by_curve();
+        threading::parallel_for(curves.curves_range(), 1024, [&](const IndexRange range) {
+          for (const int curve_i : range) {
+            const IndexRange points = points_by_curve[curve_i];
+            bool any_point_in_group = false;
+            for (const int point_i : points) {
+              if (BKE_defvert_find_index(&dverts[point_i], def_nr)) {
+                any_point_in_group = true;
+                break;
+              }
+            }
+            if (any_point_in_group) {
+              selection.span.typed<bool>()[curve_i] = select;
+            }
+          }
+        });
+        break;
+      }
+      default:
+        BLI_assert_unreachable();
+        break;
+    }
+    selection.finish();
+  }
+
+  DEG_id_tag_update(&grease_pencil->id, ID_RECALC_GEOMETRY);
+}
+
 /* only in editmode */
-static void vgroup_select_verts(const ToolSettings &tool_settings, Object *ob, int select)
+static void vgroup_select_verts(const ToolSettings &tool_settings,
+                                Object *ob,
+                                Scene &scene,
+                                int select)
 {
   const int def_nr = BKE_object_defgroup_active_index_get(ob) - 1;
 
@@ -1095,12 +1179,7 @@ static void vgroup_select_verts(const ToolSettings &tool_settings, Object *ob, i
     }
   }
   else if (ob->type == OB_GREASE_PENCIL) {
-    const bke::AttrDomain selection_domain = ED_grease_pencil_edit_selection_domain_get(
-        &tool_settings);
-    GreasePencil *grease_pencil = static_cast<GreasePencil *>(ob->data);
-    bke::greasepencil::select_from_group(
-        *grease_pencil, selection_domain, def_group->name, bool(select));
-    DEG_id_tag_update(&grease_pencil->id, ID_RECALC_GEOMETRY);
+    vgroup_grease_pencil_select_verts(scene, tool_settings, def_group, select, *ob);
   }
 }
 
@@ -2001,8 +2080,7 @@ void vgroup_mirror(Object *ob,
                    int *r_totmirr,
                    int *r_totfail)
 {
-  /* TODO: vgroup locking.
-   * TODO: face masking. */
+  /* TODO: vgroup locking. */
 
   const int def_nr = BKE_object_defgroup_active_index_get(ob) - 1;
   int totmirr = 0, totfail = 0;
@@ -2091,8 +2169,8 @@ void vgroup_mirror(Object *ob,
     }
     else {
       /* object mode / weight paint */
-      const bool use_vert_sel = (mesh->editflag & ME_EDIT_PAINT_VERT_SEL) != 0;
-
+      const bool use_sel = (mesh->editflag & (ME_EDIT_PAINT_FACE_SEL | ME_EDIT_PAINT_VERT_SEL)) !=
+                           0;
       if (mesh->deform_verts().is_empty()) {
         goto cleanup;
       }
@@ -2109,8 +2187,8 @@ void vgroup_mirror(Object *ob,
           if ((vidx_mirr = mesh_get_x_mirror_vert(ob, nullptr, vidx, use_topology)) != -1) {
             if (vidx != vidx_mirr) {
               if (!BLI_BITMAP_TEST(vert_tag, vidx_mirr)) {
-                const bool sel = use_vert_sel ? select_vert[vidx] : true;
-                const bool sel_mirr = use_vert_sel ? select_vert[vidx_mirr] : true;
+                const bool sel = use_sel ? select_vert[vidx] : true;
+                const bool sel_mirr = use_sel ? select_vert[vidx_mirr] : true;
 
                 if (sel || sel_mirr) {
                   dvert_mirror_op(&dverts[vidx],
@@ -2218,7 +2296,7 @@ static void vgroup_delete_active(Object *ob)
 }
 
 /* only in editmode */
-static void vgroup_assign_verts(Object *ob, const float weight)
+static void vgroup_assign_verts(Object *ob, Scene &scene, const float weight)
 {
   const int def_nr = BKE_object_defgroup_active_index_get(ob) - 1;
 
@@ -2303,7 +2381,14 @@ static void vgroup_assign_verts(Object *ob, const float weight)
     GreasePencil *grease_pencil = static_cast<GreasePencil *>(ob->data);
     const bDeformGroup *defgroup = static_cast<const bDeformGroup *>(
         BLI_findlink(BKE_object_defgroup_list(ob), def_nr));
-    bke::greasepencil::assign_to_vertex_group(*grease_pencil, defgroup->name, weight);
+
+    {
+      using namespace ed::greasepencil;
+      Vector<MutableDrawingInfo> drawings = retrieve_editable_drawings(scene, *grease_pencil);
+      for (MutableDrawingInfo info : drawings) {
+        bke::greasepencil::assign_to_vertex_group(info.drawing, defgroup->name, weight);
+      }
+    }
   }
 }
 
@@ -2509,18 +2594,82 @@ void OBJECT_OT_vertex_group_add(wmOperatorType *ot)
 /** \name Vertex Group Remove Operator
  * \{ */
 
+static void grease_pencil_clear_from_vgroup(Scene &scene,
+                                            Object &ob,
+                                            bDeformGroup *dg,
+                                            const bool use_selection,
+                                            const bool all_drawings = false)
+{
+  using namespace ed::greasepencil;
+  GreasePencil &grease_pencil = *static_cast<GreasePencil *>(ob.data);
+
+  if (all_drawings) {
+    /* When removing vgroup, iterate over all the drawing. */
+    for (GreasePencilDrawingBase *base : grease_pencil.drawings()) {
+      if (base->type != GP_DRAWING) {
+        continue;
+      }
+      bke::greasepencil::Drawing &drawing = reinterpret_cast<GreasePencilDrawing *>(base)->wrap();
+      bke::greasepencil::remove_from_vertex_group(drawing, dg->name, use_selection);
+    }
+    /* Remove vgroup from the list. */
+    BKE_object_defgroup_remove(&ob, dg);
+  }
+  else {
+    Vector<MutableDrawingInfo> drawings = retrieve_editable_drawings(scene, grease_pencil);
+    for (const MutableDrawingInfo &info : drawings) {
+      bke::greasepencil::remove_from_vertex_group(info.drawing, dg->name, use_selection);
+    }
+  }
+}
+
+static void grease_pencil_clear_from_all_vgroup(Scene &scene,
+                                                Object &ob,
+                                                const bool use_selection,
+                                                const bool all_drawings = false,
+                                                const bool only_unlocked = false)
+{
+  const ListBase *defbase = BKE_object_defgroup_list(&ob);
+
+  bDeformGroup *dg = static_cast<bDeformGroup *>(defbase->first);
+  while (dg) {
+    bDeformGroup *next_group = dg->next;
+    if (!only_unlocked || (dg->flag & DG_LOCK_WEIGHT) == 0) {
+      grease_pencil_clear_from_vgroup(scene, ob, dg, use_selection, all_drawings);
+    }
+    dg = next_group;
+  }
+}
+
 static int vertex_group_remove_exec(bContext *C, wmOperator *op)
 {
   Object *ob = context_object(C);
+  Scene &scene = *CTX_data_scene(C);
+  const bool all_vgroup = RNA_boolean_get(op->ptr, "all");
+  const bool only_unlocked = RNA_boolean_get(op->ptr, "all_unlocked");
 
-  if (RNA_boolean_get(op->ptr, "all")) {
-    BKE_object_defgroup_remove_all(ob);
-  }
-  else if (RNA_boolean_get(op->ptr, "all_unlocked")) {
-    BKE_object_defgroup_remove_all_ex(ob, true);
+  if (ob->type == OB_GREASE_PENCIL) {
+    if (all_vgroup || only_unlocked) {
+      grease_pencil_clear_from_all_vgroup(scene, *ob, false, true, only_unlocked);
+    }
+    else {
+      const ListBase *defbase = BKE_object_defgroup_list(ob);
+      bDeformGroup *dg = static_cast<bDeformGroup *>(
+          BLI_findlink(defbase, BKE_object_defgroup_active_index_get(ob) - 1));
+
+      if (!dg) {
+        return OPERATOR_CANCELLED;
+      }
+      grease_pencil_clear_from_vgroup(scene, *ob, dg, false, true);
+    }
   }
   else {
-    vgroup_delete_active(ob);
+    if (all_vgroup || only_unlocked) {
+      BKE_object_defgroup_remove_all_ex(ob, only_unlocked);
+    }
+    else {
+      vgroup_delete_active(ob);
+    }
   }
 
   DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);
@@ -2566,8 +2715,9 @@ static int vertex_group_assign_exec(bContext *C, wmOperator * /*op*/)
 {
   ToolSettings *ts = CTX_data_tool_settings(C);
   Object *ob = context_object(C);
+  Scene &scene = *CTX_data_scene(C);
 
-  vgroup_assign_verts(ob, ts->vgroup_weight);
+  vgroup_assign_verts(ob, scene, ts->vgroup_weight);
   DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);
   WM_event_add_notifier(C, NC_GEOM | ND_DATA, ob->data);
 
@@ -2637,11 +2787,15 @@ static int vertex_group_remove_from_exec(bContext *C, wmOperator *op)
 {
   const bool use_all_groups = RNA_boolean_get(op->ptr, "use_all_groups");
   const bool use_all_verts = RNA_boolean_get(op->ptr, "use_all_verts");
+  Scene &scene = *CTX_data_scene(C);
 
   Object *ob = context_object(C);
 
   if (use_all_groups) {
-    if (BKE_object_defgroup_clear_all(ob, true) == false) {
+    if (ob->type == OB_GREASE_PENCIL) {
+      grease_pencil_clear_from_all_vgroup(scene, *ob, true);
+    }
+    else if (BKE_object_defgroup_clear_all(ob, true) == false) {
       return OPERATOR_CANCELLED;
     }
   }
@@ -2649,7 +2803,14 @@ static int vertex_group_remove_from_exec(bContext *C, wmOperator *op)
     const ListBase *defbase = BKE_object_defgroup_list(ob);
     bDeformGroup *dg = static_cast<bDeformGroup *>(
         BLI_findlink(defbase, BKE_object_defgroup_active_index_get(ob) - 1));
-    if ((dg == nullptr) || (BKE_object_defgroup_clear(ob, dg, !use_all_verts) == false)) {
+    if (dg == nullptr) {
+      return OPERATOR_CANCELLED;
+    }
+
+    if (ob->type == OB_GREASE_PENCIL) {
+      grease_pencil_clear_from_vgroup(scene, *ob, dg, !use_all_verts);
+    }
+    else if (BKE_object_defgroup_clear(ob, dg, !use_all_verts) == false) {
       return OPERATOR_CANCELLED;
     }
   }
@@ -2697,12 +2858,13 @@ static int vertex_group_select_exec(bContext *C, wmOperator * /*op*/)
 {
   const ToolSettings &tool_settings = *CTX_data_scene(C)->toolsettings;
   Object *ob = context_object(C);
+  Scene &scene = *CTX_data_scene(C);
 
   if (!ob || !ID_IS_EDITABLE(ob) || ID_IS_OVERRIDE_LIBRARY(ob)) {
     return OPERATOR_CANCELLED;
   }
 
-  vgroup_select_verts(tool_settings, ob, 1);
+  vgroup_select_verts(tool_settings, ob, scene, 1);
   DEG_id_tag_update(static_cast<ID *>(ob->data), ID_RECALC_SYNC_TO_EVAL | ID_RECALC_SELECT);
   WM_event_add_notifier(C, NC_GEOM | ND_SELECT, ob->data);
 
@@ -2734,8 +2896,9 @@ static int vertex_group_deselect_exec(bContext *C, wmOperator * /*op*/)
 {
   const ToolSettings &tool_settings = *CTX_data_scene(C)->toolsettings;
   Object *ob = context_object(C);
+  Scene &scene = *CTX_data_scene(C);
 
-  vgroup_select_verts(tool_settings, ob, 0);
+  vgroup_select_verts(tool_settings, ob, scene, 0);
   DEG_id_tag_update(static_cast<ID *>(ob->data), ID_RECALC_SYNC_TO_EVAL | ID_RECALC_SELECT);
   WM_event_add_notifier(C, NC_GEOM | ND_SELECT, ob->data);
 
@@ -3643,38 +3806,15 @@ static int vgroup_do_remap(Object *ob, const char *name_array, wmOperator *op)
   }
   else {
     int dvert_tot = 0;
-    /* Grease pencil stores vertex groups separately for each stroke,
-     * so remap each stroke's weights separately. */
-    if (ob->type == OB_GPENCIL_LEGACY) {
-      bGPdata *gpd = static_cast<bGPdata *>(ob->data);
-      LISTBASE_FOREACH (bGPDlayer *, gpl, &gpd->layers) {
-        LISTBASE_FOREACH (bGPDframe *, gpf, &gpl->frames) {
-          LISTBASE_FOREACH (bGPDstroke *, gps, &gpf->strokes) {
-            dvert = gps->dvert;
-            dvert_tot = gps->totpoints;
-            if (dvert) {
-              while (dvert_tot--) {
-                if (dvert->totweight) {
-                  BKE_defvert_remap(dvert, sort_map, defbase_tot);
-                }
-                dvert++;
-              }
-            }
-          }
-        }
-      }
-    }
-    else {
-      BKE_object_defgroup_array_get(static_cast<ID *>(ob->data), &dvert, &dvert_tot);
+    BKE_object_defgroup_array_get(static_cast<ID *>(ob->data), &dvert, &dvert_tot);
 
-      /* Create as necessary. */
-      if (dvert) {
-        while (dvert_tot--) {
-          if (dvert->totweight) {
-            BKE_defvert_remap(dvert, sort_map, defbase_tot);
-          }
-          dvert++;
+    /* Create as necessary. */
+    if (dvert) {
+      while (dvert_tot--) {
+        if (dvert->totweight) {
+          BKE_defvert_remap(dvert, sort_map, defbase_tot);
         }
+        dvert++;
       }
     }
   }
@@ -3993,7 +4133,7 @@ void OBJECT_OT_vertex_weight_paste(wmOperatorType *ot)
                      "Index of source weight in active vertex group",
                      -1,
                      INT_MAX);
-  RNA_def_property_flag(prop, (PropertyFlag)(PROP_SKIP_SAVE | PROP_HIDDEN));
+  RNA_def_property_flag(prop, PROP_SKIP_SAVE | PROP_HIDDEN);
 }
 
 /** \} */
@@ -4043,7 +4183,7 @@ void OBJECT_OT_vertex_weight_delete(wmOperatorType *ot)
                      "Index of source weight in active vertex group",
                      -1,
                      INT_MAX);
-  RNA_def_property_flag(prop, (PropertyFlag)(PROP_SKIP_SAVE | PROP_HIDDEN));
+  RNA_def_property_flag(prop, PROP_SKIP_SAVE | PROP_HIDDEN);
 }
 
 /** \} */
@@ -4090,7 +4230,7 @@ void OBJECT_OT_vertex_weight_set_active(wmOperatorType *ot)
                      "Index of source weight in active vertex group",
                      -1,
                      INT_MAX);
-  RNA_def_property_flag(prop, (PropertyFlag)(PROP_SKIP_SAVE | PROP_HIDDEN));
+  RNA_def_property_flag(prop, PROP_SKIP_SAVE | PROP_HIDDEN);
 }
 
 /** \} */

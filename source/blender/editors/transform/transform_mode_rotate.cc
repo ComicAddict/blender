@@ -13,8 +13,11 @@
 #include "BLI_math_vector.h"
 #include "BLI_task.h"
 
+#include "BKE_context.hh"
 #include "BKE_report.hh"
 #include "BKE_unit.hh"
+
+#include "BLT_translation.hh"
 
 #include "ED_screen.hh"
 
@@ -25,6 +28,8 @@
 #include "transform_snap.hh"
 
 #include "transform_mode.hh"
+
+namespace blender::ed::transform {
 
 /* -------------------------------------------------------------------- */
 /** \name Transform (Rotation) Matrix Cache
@@ -408,7 +413,14 @@ static void initRotation(TransInfo *t, wmOperator * /*op*/)
 
   t->mode = TFM_ROTATION;
 
-  initMouseInputMode(t, &t->mouse, INPUT_ANGLE);
+  if (transform_mode_affect_only_locations(t)) {
+    WorkspaceStatus status(t->context);
+    status.item(TIP_("Transform is set to only affect location"), ICON_ERROR);
+    initMouseInputMode(t, &t->mouse, INPUT_ERROR_DASH);
+  }
+  else {
+    initMouseInputMode(t, &t->mouse, INPUT_ANGLE);
+  }
 
   t->idx_max = 0;
   t->num.idx_max = 0;
@@ -438,3 +450,5 @@ TransModeInfo TransMode_rotate = {
     /*snap_apply_fn*/ ApplySnapRotation,
     /*draw_fn*/ nullptr,
 };
+
+}  // namespace blender::ed::transform

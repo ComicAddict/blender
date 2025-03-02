@@ -22,7 +22,7 @@
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 
-#include "BLI_bitmap.h"
+#include "BLI_listbase.h"
 #include "BLI_memarena.h"
 #include "BLI_ordered_edge.hh"
 #include "BLI_set.hh"
@@ -935,25 +935,6 @@ static void ccgDM_release(DerivedMesh *dm)
   CCGDerivedMesh *ccgdm = (CCGDerivedMesh *)dm;
 
   DM_release(dm);
-  /* Before freeing, need to update the displacement map */
-  if (ccgdm->multires.modified_flags) {
-    /* Check that mmd still exists */
-    if (!ccgdm->multires.local_mmd &&
-        BLI_findindex(&ccgdm->multires.ob->modifiers, ccgdm->multires.mmd) == -1)
-    {
-      ccgdm->multires.mmd = nullptr;
-    }
-
-    if (ccgdm->multires.mmd) {
-      if (ccgdm->multires.modified_flags & MULTIRES_COORDS_MODIFIED) {
-        multires_modifier_update_mdisps(dm, nullptr);
-      }
-      if (ccgdm->multires.modified_flags & MULTIRES_HIDDEN_MODIFIED) {
-        multires_modifier_update_hidden(dm);
-      }
-    }
-  }
-
   delete ccgdm->ehash;
 
   if (ccgdm->gridFaces) {
@@ -1559,12 +1540,10 @@ static CCGDerivedMesh *getCCGDerivedMesh(CCGSubSurf *ss,
                    0,
                    ccgSubSurf_getNumFinalFaces(ss) * 4,
                    ccgSubSurf_getNumFinalFaces(ss));
-  CustomData_free_layer_named(&ccgdm->dm.vertData, "position", ccgSubSurf_getNumFinalVerts(ss));
-  CustomData_free_layer_named(&ccgdm->dm.edgeData, ".edge_verts", ccgSubSurf_getNumFinalEdges(ss));
-  CustomData_free_layer_named(
-      &ccgdm->dm.loopData, ".corner_vert", ccgSubSurf_getNumFinalFaces(ss) * 4);
-  CustomData_free_layer_named(
-      &ccgdm->dm.loopData, ".corner_edge", ccgSubSurf_getNumFinalFaces(ss) * 4);
+  CustomData_free_layer_named(&ccgdm->dm.vertData, "position");
+  CustomData_free_layer_named(&ccgdm->dm.edgeData, ".edge_verts");
+  CustomData_free_layer_named(&ccgdm->dm.loopData, ".corner_vert");
+  CustomData_free_layer_named(&ccgdm->dm.loopData, ".corner_edge");
   MEM_SAFE_FREE(ccgdm->dm.face_offsets);
 
   create_ccgdm_maps(ccgdm, ss);
@@ -1657,11 +1636,11 @@ DerivedMesh *subsurf_make_derived_from_derived(DerivedMesh *dm,
 
     /* It is quite possible there is a much better place to do this. It
      * depends a bit on how rigorously we expect this function to never
-     * be called in editmode. In semi-theory we could share a single
-     * cache, but the handles used inside and outside editmode are not
+     * be called in edit-mode. In semi-theory we could share a single
+     * cache, but the handles used inside and outside edit-mode are not
      * the same so we would need some way of converting them. Its probably
      * not worth the effort. But then why am I even writing this long
-     * comment that no one will read? Hmmm. - zr
+     * comment that no one will read? Hmm. - zr
      *
      * Addendum: we can't really ensure that this is never called in edit
      * mode, so now we have a parameter to verify it. - brecht

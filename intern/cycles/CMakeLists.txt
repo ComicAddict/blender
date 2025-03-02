@@ -163,7 +163,8 @@ elseif(CMAKE_COMPILER_IS_GNUCC OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
   # Let the compiler replace x/y with x*(1/y)
   list(APPEND CYCLES_MATH_FLAGS "-freciprocal-math")
   # Let the compiler reorder terms to save operations
-  list(APPEND CYCLES_MATH_FLAGS "-fassociative-math")
+  # NOTE: Disabled for now due to problems with bsdf_D for GGX on Linux (#130389)
+  # list(APPEND CYCLES_MATH_FLAGS "-fassociative-math")
   # Don't enable `-ffinite-math-only` since the BVH code relies on NaNs.
   # Otherwise, we could just use `-ffast-math`.
 
@@ -385,8 +386,11 @@ if(WITH_CYCLES_DEBUG_NAN)
   add_definitions(-DWITH_CYCLES_DEBUG_NAN)
 endif()
 
-if((NOT OPENIMAGEIO_PUGIXML_FOUND) OR WIN32)
-  add_definitions(-DWITH_SYSTEM_PUGIXML)
+if(WITH_PUGIXML OR OPENIMAGEIO_PUGIXML_FOUND)
+  add_definitions(-DWITH_PUGIXML)
+  if((NOT OPENIMAGEIO_PUGIXML_FOUND) OR WIN32)
+    add_definitions(-DWITH_SYSTEM_PUGIXML)
+  endif()
 endif()
 
 if(CYCLES_STANDALONE_REPOSITORY)

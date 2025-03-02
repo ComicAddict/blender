@@ -107,8 +107,13 @@ def main():
 
         # dissolve edges
         SpecMeshTest(
-            "CylinderDissolveEdges", "testCylinderDissolveEdges", "expectedCylinderDissolveEdges",
-            [OperatorSpecEditMode("dissolve_edges", {}, "EDGE", {0, 5, 6, 9})],
+            "CylinderDissolveEdges.UseVertsFalse", "testCylinderDissolveEdges", "expectedCylinderDissolveEdges.DissolveNoVerts",
+            [OperatorSpecEditMode("dissolve_edges", {"use_verts": False}, "EDGE", {0, 5, 6, 9})],
+        ),
+
+        SpecMeshTest(
+            "CylinderDissolveEdges.UseVertsTrue", "testCylinderDissolveEdges", "expectedCylinderDissolveEdges.DissolveAllVerts",
+            [OperatorSpecEditMode("dissolve_edges", {"use_verts": True}, "EDGE", {0, 5, 6, 9})],
         ),
 
         # dissolve faces
@@ -262,6 +267,16 @@ def main():
             "expectedPlaneFillGridSimpleBlending",
             [OperatorSpecEditMode("fill_grid", {"use_interp_simple": True}, "EDGE",
                                   {1, 2, 3, 4, 5, 7, 9, 10, 11, 12, 13, 15})],
+        ),
+        SpecMeshTest(
+            "PlaneFillGridReplaceExistingTris", "testPlaneFillGridReplaceExisting",
+            "expectedPlaneFillGridReplaceExistingTris",
+            [OperatorSpecEditMode("fill_grid", {}, "EDGE", {44, 60, 45, 68, 43, 75, 76, 73, 74, 70, 33, 59, 35, 67})],
+        ),
+        SpecMeshTest(
+            "PlaneFillGridReplaceExistingQuads", "testPlaneFillGridReplaceExisting",
+            "expectedPlaneFillGridReplaceExistingQuads",
+            [OperatorSpecEditMode("fill_grid", {}, "FACE", {3, 4, 5, 9, 10, 11, 14, 15, 16})],
         ),
 
         # fill holes
@@ -505,6 +520,17 @@ def main():
                  "uvs": True, "vcols": True, "seam": True, "sharp": True, "materials": True},
                 "VERT", {i for i in range(42)})],
         ),
+
+        SpecMeshTest(
+            "TrisToQuads 10 deg negligible topo", "testPlanesTrisToQuad", "expectedPlanesTrisToQuad.10.notopo",
+            [OperatorSpecEditMode(
+                "tris_convert_to_quads",
+                {"face_threshold": 0.174533, "shape_threshold": 0.174533,
+                 "topology_influence": 0.01, "deselect_joined": False,
+                 "uvs": True, "vcols": True, "seam": True, "sharp": True, "materials": True},
+                "VERT", {i for i in range(42)})],
+        ),
+
 
         SpecMeshTest(
             "TrisToQuads 180 deg no topo", "testPlanesTrisToQuad", "expectedPlanesTrisToQuad.180.notopo",

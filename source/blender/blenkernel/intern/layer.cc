@@ -28,10 +28,12 @@
 #include "BKE_idprop.hh"
 #include "BKE_layer.hh"
 #include "BKE_lib_id.hh"
+#include "BKE_library.hh"
 #include "BKE_main.hh"
 #include "BKE_node.hh"
+#include "BKE_node_legacy_types.hh"
+#include "BKE_node_runtime.hh"
 #include "BKE_object.hh"
-#include "BKE_object_types.hh"
 
 #include "DNA_ID.h"
 #include "DNA_collection_types.h"
@@ -42,7 +44,6 @@
 #include "DNA_space_types.h"
 #include "DNA_view3d_types.h"
 #include "DNA_windowmanager_types.h"
-#include "DNA_workspace_types.h"
 #include "DNA_world_types.h"
 
 #include "DEG_depsgraph.hh"
@@ -266,7 +267,12 @@ void BKE_view_layer_free_ex(ViewLayer *view_layer, const bool do_id_user)
   BLI_freelistN(&view_layer->lightgroups);
   view_layer->active_lightgroup = nullptr;
 
-  MEM_SAFE_FREE(view_layer->stats);
+  /* Cannot use MEM_SAFE_FREE, as #SceneStats type is only forward-declared in `DNA_layer_types.h`
+   */
+  if (view_layer->stats) {
+    MEM_freeN(static_cast<void *>(view_layer->stats));
+    view_layer->stats = nullptr;
+  }
 
   BKE_freestyle_config_free(&view_layer->freestyle_config, do_id_user);
 
@@ -571,8 +577,8 @@ void BKE_view_layer_rename(Main *bmain, Scene *scene, ViewLayer *view_layer, con
   if (scene->nodetree) {
     int index = BLI_findindex(&scene->view_layers, view_layer);
 
-    LISTBASE_FOREACH (bNode *, node, &scene->nodetree->nodes) {
-      if (node->type == CMP_NODE_R_LAYERS && node->id == nullptr) {
+    for (bNode *node : scene->nodetree->all_nodes()) {
+      if (node->type_legacy == CMP_NODE_R_LAYERS && node->id == nullptr) {
         if (node->custom1 == index) {
           STRNCPY(node->name, view_layer->name);
         }

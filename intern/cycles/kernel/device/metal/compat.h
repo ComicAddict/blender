@@ -44,6 +44,7 @@ using namespace metal::raytracing;
 #define ccl_device_extern extern "C"
 #define ccl_device_noinline_cpu ccl_device
 #define ccl_device_inline_method ccl_device
+#define ccl_device_template_spec template<> ccl_device_inline
 #define ccl_global device
 #define ccl_inline_constant static constant constexpr
 #define ccl_device_constant constant
@@ -58,7 +59,6 @@ using namespace metal::raytracing;
 #endif
 #define ccl_may_alias
 #define ccl_restrict __restrict
-#define ccl_loop_no_unroll
 #define ccl_align(n) alignas(n)
 #define ccl_optional_struct_init
 
@@ -312,8 +312,6 @@ ccl_device_forceinline uchar4 make_uchar4(const uchar x,
 #define sqrtf(x) trigmode::sqrt(float(x))
 #define logf(x) trigmode::log(float(x))
 
-#define NULL 0
-
 #define __device__
 
 #ifdef __METALRT__
@@ -403,7 +401,7 @@ enum SamplerType {
   SamplerCount
 };
 
-constant constexpr array<sampler, SamplerCount> metal_samplers = {
+constexpr constant array<sampler, SamplerCount> metal_samplers = {
     sampler(address::repeat, filter::nearest),
     sampler(address::clamp_to_edge, filter::nearest),
     sampler(address::clamp_to_zero, filter::nearest),

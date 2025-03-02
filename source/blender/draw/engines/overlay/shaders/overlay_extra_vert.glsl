@@ -2,8 +2,13 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#include "common_view_clipping_lib.glsl"
-#include "common_view_lib.glsl"
+#include "infos/overlay_extra_info.hh"
+
+VERTEX_SHADER_CREATE_INFO(overlay_extra_spot_cone)
+
+#include "draw_view_clipping_lib.glsl"
+#include "draw_view_lib.glsl"
+#include "overlay_common_lib.glsl"
 #include "select_lib.glsl"
 
 #define lamp_area_size inst_data.xy
@@ -47,10 +52,16 @@ void main()
 {
   select_id_set(in_select_buf[gl_InstanceID]);
 
+  /* Loading the matrix first before doing the manipulation fixes an issue
+   * with the Metal compiler on older Intel macs (see #130867). */
+  mat4 inst_obmat = data_buf[gl_InstanceID].object_to_world;
+  mat4x4 input_mat = inst_obmat;
+
   /* Extract data packed inside the unused mat4 members. */
-  vec4 inst_data = vec4(inst_obmat[0][3], inst_obmat[1][3], inst_obmat[2][3], inst_obmat[3][3]);
+  vec4 inst_data = vec4(input_mat[0][3], input_mat[1][3], input_mat[2][3], input_mat[3][3]);
+  float4 color = data_buf[gl_InstanceID].color_;
   float inst_color_data = color.a;
-  mat4 obmat = inst_obmat;
+  mat4 obmat = input_mat;
   obmat[0][3] = obmat[1][3] = obmat[2][3] = 0.0;
   obmat[3][3] = 1.0;
 
@@ -66,9 +77,9 @@ void main()
   if ((vclass & VCLASS_LIGHT_AREA_SHAPE) != 0) {
     /* HACK: use alpha color for spots to pass the area_size. */
     if (inst_color_data < 0.0) {
-      lamp_area_size.xy = vec2(-inst_color_data);
+      lamp_area_size = vec2(-inst_color_data);
     }
-    vpos.xy *= lamp_area_size.xy;
+    vpos.xy *= lamp_area_size;
   }
   else if ((vclass & VCLASS_LIGHT_SPOT_SHAPE) != 0) {
     lamp_spot_sine = sqrt(1.0 - lamp_spot_cosine * lamp_spot_cosine);
@@ -179,7 +190,7 @@ void main()
     /* Relative to DPI scaling. Have constant screen size. */
     vec3 screen_pos = ViewMatrixInverse[0].xyz * vpos.x + ViewMatrixInverse[1].xyz * vpos.y;
     vec3 p = (obmat * vec4(vofs, 1.0)).xyz;
-    float screen_size = mul_project_m4_v3_zfac(p) * sizePixel;
+    float screen_size = mul_project_m4_v3_zfac(globalsBlock.pixel_fac, p) * sizePixel;
     world_pos = p + screen_pos * screen_size;
   }
   else if ((vclass & VCLASS_SCREENALIGNED) != 0) {
@@ -215,12 +226,12 @@ void main()
     }
   }
 
-  gl_Position = point_world_to_ndc(world_pos);
+  gl_Position = drw_point_world_to_homogenous(world_pos);
 
   /* Convert to screen position [0..sizeVp]. */
-  edgePos = edgeStart = ((gl_Position.xy / gl_Position.w) * 0.5 + 0.5) * sizeViewport.xy;
+  edgePos = edgeStart = ((gl_Position.xy / gl_Position.w) * 0.5 + 0.5) * sizeViewport;
 
-#ifdef SELECT_EDGES
+#if defined(SELECT_ENABLE)
   /* HACK: to avoid losing sub-pixel object in selections, we add a bit of randomness to the
    * wire to at least create one fragment that will pass the occlusion query. */
   /* TODO(fclem): Limit this workaround to selection. It's not very noticeable but still... */

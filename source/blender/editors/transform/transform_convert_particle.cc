@@ -27,6 +27,8 @@
 /* Own include. */
 #include "transform_convert.hh"
 
+namespace blender::ed::transform {
+
 /* -------------------------------------------------------------------- */
 /** \name Particle Edit Transform Creation
  * \{ */
@@ -142,7 +144,6 @@ static void createTransParticleVerts(bContext * /*C*/, TransInfo *t)
           td->protectflag |= OB_LOCK_LOC;
         }
 
-        td->ob = ob;
         td->ext = tx;
         if (t->mode == TFM_BAKE_TIME) {
           td->val = key->time;
@@ -257,3 +258,5 @@ TransConvertTypeInfo TransConvertType_Particle = {
     /*recalc_data*/ recalcData_particles,
     /*special_aftertrans_update*/ nullptr,
 };
+
+}  // namespace blender::ed::transform

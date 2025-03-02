@@ -2,11 +2,16 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#include "common_gpencil_lib.glsl"
-#include "common_view_clipping_lib.glsl"
-#include "common_view_lib.glsl"
+#include "infos/overlay_outline_info.hh"
 
-uint outline_colorid_get(void)
+VERTEX_SHADER_CREATE_INFO(overlay_outline_prepass_gpencil)
+
+#include "draw_grease_pencil_lib.glsl"
+#include "draw_model_lib.glsl"
+#include "draw_view_clipping_lib.glsl"
+#include "draw_view_lib.glsl"
+
+uint outline_colorid_get()
 {
 #ifdef OBINFO_NEW
   eObjectInfoFlag ob_flag = eObjectInfoFlag(floatBitsToUint(drw_infos[resource_id].infos.w));

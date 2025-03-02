@@ -41,7 +41,7 @@ class GHOST_ISystemPaths {
    * Destructor.
    * Protected default constructor to force use of static dispose member.
    */
-  virtual ~GHOST_ISystemPaths() {}
+  virtual ~GHOST_ISystemPaths() = default;
 
  public:
   /**
@@ -79,7 +79,5 @@ class GHOST_ISystemPaths {
   /** The one and only system paths. */
   static GHOST_ISystemPaths *m_systemPaths;
 
-#ifdef WITH_CXX_GUARDEDALLOC
   MEM_CXX_CLASS_ALLOC_FUNCS("GHOST:GHOST_ISystemPaths")
-#endif
 };

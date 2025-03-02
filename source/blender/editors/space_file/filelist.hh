@@ -8,6 +8,11 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
+#include "DNA_space_types.h"
+
 struct AssetLibraryReference;
 struct bContext;
 struct BlendHandle;
@@ -25,7 +30,7 @@ class AssetRepresentation;
 
 struct FileDirEntry;
 
-typedef uint32_t FileUID;
+using FileUID = uint32_t;
 
 enum FileSelType {
   FILE_SEL_REMOVE = 0,
@@ -78,11 +83,19 @@ void filelist_file_get_full_path(const FileList *filelist,
                                  const FileDirEntry *file,
                                  char r_filepath[/*FILE_MAX_LIBEXTRA*/]);
 bool filelist_file_is_preview_pending(const FileList *filelist, const FileDirEntry *file);
-ImBuf *filelist_getimage(FileList *filelist, int index);
-ImBuf *filelist_file_getimage(const FileDirEntry *file);
-ImBuf *filelist_geticon_image_ex(const FileDirEntry *file);
-ImBuf *filelist_geticon_image(FileList *filelist, int index);
-int filelist_geticon(FileList *filelist, int index, bool is_main);
+/**
+ * \return True if a new preview request was pushed, false otherwise (e.g. because the preview is
+ * already loaded, invalid or not supported).
+ */
+ImBuf *filelist_get_preview_image(FileList *filelist, int index);
+ImBuf *filelist_file_get_preview_image(const FileDirEntry *file);
+ImBuf *filelist_geticon_special_file_image_ex(const FileDirEntry *file);
+/**
+ * Get one of the larger document icons as image. E.g. a folder or file icon. A file type icon can
+ * be overlaid on top then.
+ */
+ImBuf *filelist_geticon_special_file_image(FileList *filelist, int index);
+int filelist_geticon_file_type(FileList *filelist, int index, bool is_main);
 
 FileList *filelist_new(short type);
 void filelist_settype(FileList *filelist, short type);

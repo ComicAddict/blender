@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "DNA_material_types.h"
+
 #include "DRW_render.hh"
 
 #include "BLI_map.hh"
@@ -15,6 +17,9 @@
 #include "GPU_material.hh"
 
 #include "eevee_sync.hh"
+
+struct bNodeSocketValueFloat;
+struct bNodeSocketValueRGBA;
 
 namespace blender::eevee {
 
@@ -45,7 +50,7 @@ enum eMaterialPipeline {
 enum eMaterialGeometry {
   /* These maps directly to object types. */
   MAT_GEOM_MESH = 0,
-  MAT_GEOM_POINT_CLOUD,
+  MAT_GEOM_POINTCLOUD,
   MAT_GEOM_CURVES,
   MAT_GEOM_GPENCIL,
   MAT_GEOM_VOLUME,
@@ -187,10 +192,10 @@ static inline eMaterialGeometry to_material_geometry(const Object *ob)
       return MAT_GEOM_CURVES;
     case OB_VOLUME:
       return MAT_GEOM_VOLUME;
-    case OB_GPENCIL_LEGACY:
+    case OB_GREASE_PENCIL:
       return MAT_GEOM_GPENCIL;
     case OB_POINTCLOUD:
-      return MAT_GEOM_POINT_CLOUD;
+      return MAT_GEOM_POINTCLOUD;
     default:
       return MAT_GEOM_MESH;
   }

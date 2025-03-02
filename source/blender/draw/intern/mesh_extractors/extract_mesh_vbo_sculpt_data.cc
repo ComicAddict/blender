@@ -6,10 +6,8 @@
  * \ingroup draw
  */
 
-#include "MEM_guardedalloc.h"
-
 #include "BLI_array_utils.hh"
-#include "BLI_string.h"
+#include "BLI_math_vector.h"
 
 #include "BKE_attribute.hh"
 #include "BKE_mesh.hh"
@@ -22,11 +20,12 @@ namespace blender::draw {
 
 static const GPUVertFormat &get_sculpt_data_format()
 {
-  static GPUVertFormat format = {0};
-  if (format.attr_len == 0) {
+  static const GPUVertFormat format = []() {
+    GPUVertFormat format{};
     GPU_vertformat_attr_add(&format, "fset", GPU_COMP_U8, 4, GPU_FETCH_INT_TO_FLOAT_UNIT);
     GPU_vertformat_attr_add(&format, "msk", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
-  }
+    return format;
+  }();
   return format;
 }
 
@@ -44,7 +43,7 @@ void extract_sculpt_data(const MeshRenderData &mr, gpu::VertBuf &vbo)
 
   const int default_face_set = mr.mesh->face_sets_color_default;
   const int face_set_seed = mr.mesh->face_sets_color_seed;
-  if (mr.extract_type == MR_EXTRACT_BMESH) {
+  if (mr.extract_type == MeshExtractType::BMesh) {
     const BMesh &bm = *mr.bm;
     const int mask_offset = CustomData_get_offset_named(
         &mr.bm->vdata, CD_PROP_FLOAT, ".sculpt_mask");

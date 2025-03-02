@@ -79,7 +79,7 @@ static void node_init(bNodeTree * /*tree*/, bNode *node)
   data->align_y = GEO_NODE_STRING_TO_CURVES_ALIGN_Y_TOP_BASELINE;
   data->pivot_mode = GEO_NODE_STRING_TO_CURVES_PIVOT_MODE_BOTTOM_LEFT;
   node->storage = data;
-  node->id = reinterpret_cast<ID *>(BKE_vfont_builtin_get());
+  node->id = reinterpret_cast<ID *>(BKE_vfont_builtin_ensure());
 }
 
 static float3 get_pivot_point(GeoNodeExecParams &params, bke::CurvesGeometry &curves)
@@ -270,7 +270,7 @@ static Map<int, int> create_curve_instances(GeoNodeExecParams &params,
     CharInfo charinfo = {0};
     charinfo.mat_nr = 1;
 
-    BKE_vfont_build_char(&cu, &cu.nurb, layout.char_codes[i], &charinfo, 0, 0, 0, i, 1);
+    BKE_vfont_char_build(&cu, &cu.nurb, layout.char_codes[i], &charinfo, 0, 0, 0, i, 1);
     Curves *curves_id = bke::curve_legacy_to_curves(cu);
     if (curves_id == nullptr) {
       if (pivot_required) {
@@ -378,17 +378,21 @@ static void node_register()
 {
   static blender::bke::bNodeType ntype;
 
-  geo_node_type_base(&ntype, GEO_NODE_STRING_TO_CURVES, "String to Curves", NODE_CLASS_GEOMETRY);
+  geo_node_type_base(&ntype, "GeometryNodeStringToCurves", GEO_NODE_STRING_TO_CURVES);
+  ntype.ui_name = "String to Curves";
+  ntype.ui_description =
+      "Generate a paragraph of text with a specific font, using a curve instance to store each "
+      "character";
+  ntype.enum_name_legacy = "STRING_TO_CURVES";
+  ntype.nclass = NODE_CLASS_GEOMETRY;
   ntype.declare = node_declare;
   ntype.geometry_node_execute = node_geo_exec;
   ntype.initfunc = node_init;
-  blender::bke::node_type_size(&ntype, 190, 120, 700);
-  blender::bke::node_type_storage(&ntype,
-                                  "NodeGeometryStringToCurves",
-                                  node_free_standard_storage,
-                                  node_copy_standard_storage);
+  blender::bke::node_type_size(ntype, 190, 120, 700);
+  blender::bke::node_type_storage(
+      ntype, "NodeGeometryStringToCurves", node_free_standard_storage, node_copy_standard_storage);
   ntype.draw_buttons = node_layout;
-  blender::bke::node_register_type(&ntype);
+  blender::bke::node_register_type(ntype);
 }
 NOD_REGISTER_NODE(node_register)
 

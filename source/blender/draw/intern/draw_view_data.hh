@@ -17,40 +17,18 @@ namespace blender::draw {
 class TextureFromPool;
 }  // namespace blender::draw
 
-struct DRWPass;
-struct DRWTextStore;
 struct DRWRegisteredDrawEngine;
+struct DRWTextStore;
 struct DrawEngineType;
+struct GPUFrameBuffer;
+struct GPUTexture;
 struct GPUViewport;
-
-/* NOTE: these structs are only here for reading the actual lists from the engine.
- * The actual length of them is stored in a ViewportEngineData_Info.
- * The length of 1 is just here to avoid compiler warning. */
-struct FramebufferList {
-  GPUFrameBuffer *framebuffers[1];
-};
-
-struct TextureList {
-  GPUTexture *textures[1];
-};
-
-struct PassList {
-  DRWPass *passes[1];
-};
-
-/* Stores custom structs from the engine that have been MEM_(m/c)allocN'ed. */
-struct StorageList {
-  void *storage[1];
-};
+struct ListBase;
 
 struct ViewportEngineData {
   /* Not owning pointer to the draw engine. */
   DRWRegisteredDrawEngine *engine_type;
 
-  FramebufferList *fbl;
-  TextureList *txl;
-  PassList *psl;
-  StorageList *stl;
   /**
    * \brief Memory block that can be freely used by the draw engine.
    * When used the draw engine must implement #DrawEngineType.instance_free callback.
@@ -61,11 +39,6 @@ struct ViewportEngineData {
 
   /* we may want to put this elsewhere */
   DRWTextStore *text_draw_cache;
-
-  /* Profiling data */
-  double init_time;
-  double render_time;
-  double background_time;
 };
 
 struct ViewportEngineData_Info {
@@ -103,7 +76,7 @@ DRWViewData *DRW_view_data_create(ListBase *engine_types);
 void DRW_view_data_free(DRWViewData *view_data);
 
 /* Returns a TextureFromPool stored in the given view data for the pass identified by the given
- * pass name. Engines should call call this function for each of the passes needed by the viewport
+ * pass name. Engines should call this function for each of the passes needed by the viewport
  * compositor in every redraw, then it should allocate the texture and write the pass data to it.
  * The texture should cover the entire viewport. */
 blender::draw::TextureFromPool &DRW_view_data_pass_texture_get(DRWViewData *view_data,

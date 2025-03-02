@@ -8,9 +8,10 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "BLI_blenlib.h"
+#include "BLI_listbase.h"
 #include "BLI_math_rotation.h"
 #include "BLI_math_vector.h"
+#include "BLI_string.h"
 
 #include "DNA_anim_types.h"
 #include "DNA_armature_types.h"
@@ -58,7 +59,7 @@
  * Types of transforms applied to the given item:
  * - these are the return flags for get_item_transform_flags()
  */
-typedef enum eAction_TransformFlags {
+enum eAction_TransformFlags {
   ACT_TRANS_LOC = (1 << 0),
   ACT_TRANS_ROT = (1 << 1),
   ACT_TRANS_SCALE = (1 << 2),
@@ -69,7 +70,7 @@ typedef enum eAction_TransformFlags {
 
   ACT_TRANS_ONLY = (ACT_TRANS_LOC | ACT_TRANS_ROT | ACT_TRANS_SCALE),
   ACT_TRANS_ALL = (ACT_TRANS_ONLY | ACT_TRANS_PROP),
-} eAction_TransformFlags;
+};
 
 static eAction_TransformFlags get_item_transform_flags_and_fcurves(Object &ob,
                                                                    bPoseChannel &pchan,
@@ -83,7 +84,7 @@ static eAction_TransformFlags get_item_transform_flags_and_fcurves(Object &ob,
   short flags = 0;
 
   /* Build PointerRNA from provided data to obtain the paths to use. */
-  PointerRNA ptr = RNA_pointer_create((ID *)&ob, &RNA_PoseBone, &pchan);
+  PointerRNA ptr = RNA_pointer_create_discrete((ID *)&ob, &RNA_PoseBone, &pchan);
 
   /* Get the basic path to the properties of interest. */
   const std::optional<std::string> basePath = RNA_path_from_ID_to_struct(&ptr);
@@ -184,7 +185,7 @@ static void fcurves_to_pchan_links_get(ListBase &pfLinks, Object &ob, bPoseChann
   pfl->pchan = &pchan;
 
   /* Get the RNA path to this pchan - this needs to be freed! */
-  PointerRNA ptr = RNA_pointer_create((ID *)&ob, &RNA_PoseBone, &pchan);
+  PointerRNA ptr = RNA_pointer_create_discrete((ID *)&ob, &RNA_PoseBone, &pchan);
   pfl->pchan_path = BLI_strdup(RNA_path_from_ID_to_struct(&ptr).value_or("").c_str());
 
   BLI_addtail(&pfLinks, pfl);
@@ -392,7 +393,8 @@ void poseAnim_mapping_autoKeyframe(bContext *C, Scene *scene, ListBase *pfLinks,
   }
 
   /* Insert keyframes as necessary if auto-key-framing. */
-  KeyingSet *ks = ANIM_get_keyingset_for_autokeying(scene, ANIM_KS_WHOLE_CHARACTER_ID);
+  KeyingSet *ks = blender::animrig::get_keyingset_for_autokeying(scene,
+                                                                 ANIM_KS_WHOLE_CHARACTER_ID);
   blender::Vector<PointerRNA> sources;
 
   /* iterate over each pose-channel affected, tagging bones to be keyed */
@@ -407,11 +409,12 @@ void poseAnim_mapping_autoKeyframe(bContext *C, Scene *scene, ListBase *pfLinks,
     }
 
     /* Add data-source override for the PoseChannel, to be used later. */
-    ANIM_relative_keyingset_add_source(sources, &pfl->ob->id, &RNA_PoseBone, pchan);
+    blender::animrig::relative_keyingset_add_source(sources, &pfl->ob->id, &RNA_PoseBone, pchan);
   }
 
   /* insert keyframes for all relevant bones in one go */
-  ANIM_apply_keyingset(C, &sources, ks, blender::animrig::ModifyKeyMode::INSERT, cframe);
+  blender::animrig::apply_keyingset(
+      C, &sources, ks, blender::animrig::ModifyKeyMode::INSERT, cframe);
 
   /* do the bone paths
    * - only do this if keyframes should have been added

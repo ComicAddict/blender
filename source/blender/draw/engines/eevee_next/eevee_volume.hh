@@ -36,7 +36,12 @@
 #pragma once
 
 #include "BLI_set.hh"
+
+#include "DRW_gpu_wrapper.hh"
+#include "GPU_batch_utils.hh"
+
 #include "eevee_shader_shared.hh"
+#include "eevee_sync.hh"
 
 namespace blender::eevee {
 
@@ -112,6 +117,8 @@ class VolumeModule {
   /* Must be set to false on every event that makes the history invalid to sample. */
   bool valid_history_ = false;
 
+  gpu::Batch *cube_batch_ = GPU_batch_unit_cube();
+
  public:
   VolumeModule(Instance &inst, VolumesInfoData &data) : inst_(inst), data_(data)
   {
@@ -119,7 +126,10 @@ class VolumeModule {
     dummy_transmit_tx_.ensure_3d(GPU_RGBA8, int3(1), GPU_TEXTURE_USAGE_SHADER_READ, float4(1.0f));
   };
 
-  ~VolumeModule(){};
+  ~VolumeModule()
+  {
+    GPU_BATCH_DISCARD_SAFE(cube_batch_);
+  }
 
   bool needs_shadow_tagging() const
   {
@@ -134,6 +144,11 @@ class VolumeModule {
   int3 grid_size()
   {
     return data_.tex_size;
+  }
+
+  gpu::Batch *unit_cube_batch_get()
+  {
+    return cube_batch_;
   }
 
   void init();

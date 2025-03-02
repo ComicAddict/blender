@@ -9,9 +9,11 @@
 
 #pragma once
 
-#include <functional>
-
 #include "GHOST_Types.h"
+
+#ifdef WITH_VULKAN_BACKEND
+#  include <functional>
+#endif
 
 /**
  * Interface for GHOST context.
@@ -25,7 +27,7 @@ class GHOST_IContext {
   /**
    * Destructor.
    */
-  virtual ~GHOST_IContext() {}
+  virtual ~GHOST_IContext() = default;
 
   /**
    * Activates the drawing context.
@@ -110,7 +112,5 @@ class GHOST_IContext {
       std::function<void(void)> swap_buffers_post_callback) = 0;
 #endif
 
-#ifdef WITH_CXX_GUARDEDALLOC
   MEM_CXX_CLASS_ALLOC_FUNCS("GHOST:GHOST_IContext")
-#endif
 };

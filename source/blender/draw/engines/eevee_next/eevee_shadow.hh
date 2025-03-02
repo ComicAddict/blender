@@ -294,6 +294,7 @@ class ShadowModule {
     }
 
    protected:
+    /** Special culling pass to take shadow linking into consideration. */
     virtual void compute_visibility(ObjectBoundsBuf &bounds,
                                     ObjectInfosBuf &infos,
                                     uint resource_len,
@@ -338,7 +339,11 @@ class ShadowModule {
 
  public:
   ShadowModule(Instance &inst, ShadowSceneData &data);
-  ~ShadowModule(){};
+
+  ~ShadowModule()
+  {
+    GPU_BATCH_DISCARD_SAFE(box_batch_);
+  }
 
   void init();
 
@@ -385,14 +390,13 @@ class ShadowModule {
     do_full_update_ = true;
   }
 
-  /** Compute approximate screen pixel space radius. */
+  /** Compute approximate screen pixel space radius (as world space radius). */
   static float screen_pixel_radius(const float4x4 &wininv,
                                    bool is_perspective,
                                    const int2 &extent);
 
  private:
   void remove_unused();
-  void debug_page_map_call(DRWPass *pass);
   bool shadow_update_finished(int loop_count);
 
   /** Compute approximate punctual shadow pixel world space radius, 1 unit away of the light. */
@@ -483,6 +487,10 @@ class ShadowDirectional : public NonCopyable, NonMovable {
   IndexRange clipmap_level_range(const Camera &camera);
   IndexRange cascade_level_range(const Light &light, const Camera &camera);
 
+  /**
+   * Distribute tile-maps in a linear pattern along camera forward vector instead of a clipmap
+   * centered on camera position.
+   */
   void cascade_tilemaps_distribution(Light &light, const Camera &camera);
   void clipmap_tilemaps_distribution(Light &light, const Camera &camera);
 

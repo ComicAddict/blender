@@ -6,7 +6,6 @@
  * \ingroup RNA
  */
 
-#include <cstdio>
 #include <cstdlib>
 
 #include "RNA_define.hh"
@@ -14,8 +13,6 @@
 #include "DNA_customdata_types.h"
 
 #include "BLI_math_base.h"
-#include "BLI_sys_types.h"
-#include "BLI_utildefines.h"
 
 #include "rna_internal.hh" /* own include */
 
@@ -25,9 +22,9 @@
 
 #  include "BKE_anim_data.hh"
 #  include "BKE_attribute.hh"
+#  include "BKE_geometry_compare.hh"
 #  include "BKE_mesh.h"
 #  include "BKE_mesh.hh"
-#  include "BKE_mesh_compare.hh"
 #  include "BKE_mesh_mapping.hh"
 #  include "BKE_mesh_runtime.hh"
 #  include "BKE_mesh_tangent.hh"
@@ -41,8 +38,8 @@
 
 static const char *rna_Mesh_unit_test_compare(Mesh *mesh, Mesh *mesh2, float threshold)
 {
-  using namespace blender::bke::compare_meshes;
-  const std::optional<MeshMismatch> mismatch = compare_meshes(*mesh, *mesh2, threshold);
+  using namespace blender::bke::compare_geometry;
+  const std::optional<GeoMismatch> mismatch = compare_meshes(*mesh, *mesh2, threshold);
 
   if (!mismatch) {
     return "Same";
@@ -79,7 +76,7 @@ static void rna_Mesh_calc_tangents(Mesh *mesh, ReportList *reports, const char *
 
 static void rna_Mesh_free_tangents(Mesh *mesh)
 {
-  CustomData_free_layers(&mesh->corner_data, CD_MLOOPTANGENT, mesh->corners_num);
+  CustomData_free_layers(&mesh->corner_data, CD_MLOOPTANGENT);
 }
 
 static void rna_Mesh_calc_corner_tri(Mesh *mesh)
@@ -109,7 +106,8 @@ static void rna_Mesh_normals_split_custom_set(Mesh *mesh,
                                               const float *normals,
                                               int normals_num)
 {
-  float(*corner_normals)[3] = (float(*)[3])normals;
+  using namespace blender;
+  float3 *corner_normals = (float3 *)normals;
   const int numloops = mesh->corners_num;
   if (normals_num != numloops * 3) {
     BKE_reportf(reports,
@@ -120,7 +118,7 @@ static void rna_Mesh_normals_split_custom_set(Mesh *mesh,
     return;
   }
 
-  BKE_mesh_set_custom_normals(mesh, corner_normals);
+  bke::mesh_set_custom_normals(*mesh, {corner_normals, numloops});
 
   DEG_id_tag_update(&mesh->id, 0);
 }
@@ -130,7 +128,8 @@ static void rna_Mesh_normals_split_custom_set_from_vertices(Mesh *mesh,
                                                             const float *normals,
                                                             int normals_num)
 {
-  float(*vert_normals)[3] = (float(*)[3])normals;
+  using namespace blender;
+  float3 *vert_normals = (float3 *)normals;
   const int numverts = mesh->verts_num;
   if (normals_num != numverts * 3) {
     BKE_reportf(reports,
@@ -141,7 +140,7 @@ static void rna_Mesh_normals_split_custom_set_from_vertices(Mesh *mesh,
     return;
   }
 
-  BKE_mesh_set_custom_normals_from_verts(mesh, vert_normals);
+  bke::mesh_set_custom_normals_from_verts(*mesh, {vert_normals, numverts});
 
   DEG_id_tag_update(&mesh->id, 0);
 }

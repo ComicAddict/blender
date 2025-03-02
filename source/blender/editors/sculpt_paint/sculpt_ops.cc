@@ -9,13 +9,9 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "BLI_array_utils.hh"
 #include "BLI_enumerable_thread_specific.hh"
-#include "BLI_ghash.h"
 #include "BLI_math_matrix.hh"
 #include "BLI_math_vector.hh"
-#include "BLI_task.h"
-#include "BLI_utildefines.h"
 
 #include "BLT_translation.hh"
 
@@ -36,7 +32,7 @@
 #include "BKE_multires.hh"
 #include "BKE_object.hh"
 #include "BKE_paint.hh"
-#include "BKE_pbvh_api.hh"
+#include "BKE_paint_bvh.hh"
 #include "BKE_report.hh"
 #include "BKE_scene.hh"
 #include "BKE_subdiv_ccg.hh"
@@ -73,7 +69,6 @@
 #include "UI_interface.hh"
 #include "UI_resources.hh"
 
-#include "CLG_log.h"
 #include "bmesh.hh"
 
 #include <cmath>
@@ -102,36 +97,49 @@ static int set_persistent_base_exec(bContext *C, wmOperator * /*op*/)
     return OPERATOR_CANCELLED;
   }
 
-  /* Only mesh geometry supports attributes properly. */
-  if (bke::object::pbvh_get(ob)->type() != bke::pbvh::Type::Mesh) {
-    return OPERATOR_CANCELLED;
-  }
-
   BKE_sculpt_update_object_for_edit(depsgraph, &ob, false);
 
-  Mesh &mesh = *static_cast<Mesh *>(ob.data);
-  bke::MutableAttributeAccessor attributes = mesh.attributes_for_write();
-  attributes.remove(".sculpt_persistent_co");
-  attributes.remove(".sculpt_persistent_no");
-  attributes.remove(".sculpt_persistent_disp");
+  switch (bke::object::pbvh_get(ob)->type()) {
+    case bke::pbvh::Type::Mesh: {
+      Mesh &mesh = *static_cast<Mesh *>(ob.data);
+      bke::MutableAttributeAccessor attributes = mesh.attributes_for_write();
+      attributes.remove(".sculpt_persistent_co");
+      attributes.remove(".sculpt_persistent_no");
+      attributes.remove(".sculpt_persistent_disp");
 
-  const bke::AttributeReader positions = attributes.lookup<float3>("position");
-  if (positions.sharing_info && positions.varray.is_span()) {
-    attributes.add<float3>(".sculpt_persistent_co",
-                           bke::AttrDomain::Point,
-                           bke::AttributeInitShared(positions.varray.get_internal_span().data(),
-                                                    *positions.sharing_info));
-  }
-  else {
-    attributes.add<float3>(".sculpt_persistent_co",
-                           bke::AttrDomain::Point,
-                           bke::AttributeInitVArray(positions.varray));
-  }
+      const bke::AttributeReader positions = attributes.lookup<float3>("position");
+      if (positions.sharing_info && positions.varray.is_span()) {
+        attributes.add<float3>(
+            ".sculpt_persistent_co",
+            bke::AttrDomain::Point,
+            bke::AttributeInitShared(positions.varray.get_internal_span().data(),
+                                     *positions.sharing_info));
+      }
+      else {
+        attributes.add<float3>(".sculpt_persistent_co",
+                               bke::AttrDomain::Point,
+                               bke::AttributeInitVArray(positions.varray));
+      }
 
-  const Span<float3> vert_normals = bke::pbvh::vert_normals_eval(*depsgraph, ob);
-  attributes.add<float3>(".sculpt_persistent_no",
-                         bke::AttrDomain::Point,
-                         bke::AttributeInitVArray(VArray<float3>::ForSpan(vert_normals)));
+      const Span<float3> vert_normals = bke::pbvh::vert_normals_eval(*depsgraph, ob);
+      attributes.add<float3>(".sculpt_persistent_no",
+                             bke::AttrDomain::Point,
+                             bke::AttributeInitVArray(VArray<float3>::ForSpan(vert_normals)));
+      break;
+    }
+    case bke::pbvh::Type::Grids: {
+      const SubdivCCG &subdiv_ccg = *ss->subdiv_ccg;
+      ss->persistent.sculpt_persistent_co = subdiv_ccg.positions;
+      ss->persistent.sculpt_persistent_no = subdiv_ccg.normals;
+      ss->persistent.sculpt_persistent_disp = Array<float>(subdiv_ccg.positions.size(), 0.0f);
+      ss->persistent.grid_size = subdiv_ccg.grid_size;
+      ss->persistent.grids_num = subdiv_ccg.grids_num;
+      break;
+    }
+    case bke::pbvh::Type::BMesh: {
+      return OPERATOR_CANCELLED;
+    }
+  }
 
   return OPERATOR_FINISHED;
 }
@@ -179,7 +187,7 @@ static void SCULPT_OT_optimize(wmOperatorType *ot)
   ot->exec = optimize_exec;
   ot->poll = SCULPT_mode_poll;
 
-  ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
+  ot->flag = OPTYPE_REGISTER;
 }
 
 /** \} */
@@ -274,8 +282,6 @@ static int symmetrize_exec(bContext *C, wmOperator *op)
     case bke::pbvh::Type::Grids:
       return OPERATOR_CANCELLED;
   }
-
-  islands::invalidate(ss);
 
   BKE_sculptsession_free_pbvh(ob);
   DEG_id_tag_update(&ob.id, ID_RECALC_GEOMETRY);
@@ -551,6 +557,16 @@ static int sculpt_mode_toggle_exec(bContext *C, wmOperator *op)
     if (!object::mode_compat_set(C, &ob, eObjectMode(mode_flag), op->reports)) {
       return OPERATOR_CANCELLED;
     }
+
+    /* Being in sculpt mode on an invisible object is a confusing state; while switching the
+     * visibility of the current object shouldn't inherently change the mode, we prevent entering
+     * sculpt mode on an object that is already invisible to better align with how the mode toggle
+     * works currently. */
+    const View3D *v3d = CTX_wm_view3d(C);
+    const Base *base = CTX_data_active_base(C);
+    if (!BKE_base_is_visible(v3d, base)) {
+      return OPERATOR_CANCELLED;
+    }
   }
 
   if (is_mode_set) {
@@ -571,7 +587,7 @@ static int sculpt_mode_toggle_exec(bContext *C, wmOperator *op)
          * while it works it causes lag when undoing the first undo step, see #71564. */
         wmWindowManager *wm = CTX_wm_manager(C);
         if (wm->op_undo_depth <= 1) {
-          undo::push_begin(scene, ob, op);
+          undo::push_enter_sculpt_mode(scene, ob, op);
           undo::push_end(ob);
         }
       }
@@ -613,7 +629,7 @@ static int sample_color_invoke(bContext *C, wmOperator *op, const wmEvent * /*ev
   Brush &brush = *BKE_paint_brush(&sd.paint);
   SculptSession &ss = *ob.sculpt;
 
-  if (!SCULPT_handles_colors_report(ob, op->reports)) {
+  if (!color_supported_check(scene, ob, op->reports)) {
     return OPERATOR_CANCELLED;
   }
 
@@ -647,7 +663,7 @@ static int sample_color_invoke(bContext *C, wmOperator *op, const wmEvent * /*ev
 
   float color_srgb[3];
   IMB_colormanagement_scene_linear_to_srgb_v3(color_srgb, active_vertex_color);
-  BKE_brush_color_set(&scene, &brush, color_srgb);
+  BKE_brush_color_set(&scene, &sd.paint, &brush, color_srgb);
 
   WM_event_add_notifier(C, NC_BRUSH | NA_EDITED, &brush);
 
@@ -796,7 +812,7 @@ static void mask_by_color_full_mesh(const Depsgraph &depsgraph,
       });
 }
 
-static int mask_by_color_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static int mask_by_color(bContext *C, wmOperator *op, const float2 region_location)
 {
   const Scene &scene = *CTX_data_scene(C);
   Depsgraph *depsgraph = CTX_data_depsgraph_pointer(C);
@@ -816,7 +832,7 @@ static int mask_by_color_invoke(bContext *C, wmOperator *op, const wmEvent *even
   }
 
   /* Color data is not available in multi-resolution or dynamic topology. */
-  if (!SCULPT_handles_colors_report(ob, op->reports)) {
+  if (!color_supported_check(scene, ob, op->reports)) {
     return OPERATOR_CANCELLED;
   }
 
@@ -825,8 +841,11 @@ static int mask_by_color_invoke(bContext *C, wmOperator *op, const wmEvent *even
   /* Tools that are not brushes do not have the brush gizmo to update the vertex as the mouse move,
    * so it needs to be updated here. */
   SculptCursorGeometryInfo sgi;
-  const float mval_fl[2] = {float(event->mval[0]), float(event->mval[1])};
-  SCULPT_cursor_geometry_info_update(C, &sgi, mval_fl, false);
+  SCULPT_cursor_geometry_info_update(C, &sgi, region_location, false);
+
+  if (std::holds_alternative<std::monostate>(ss.active_vert())) {
+    return OPERATOR_CANCELLED;
+  }
 
   undo::push_begin(scene, ob, op);
   BKE_sculpt_color_layer_create_if_needed(&ob);
@@ -851,6 +870,18 @@ static int mask_by_color_invoke(bContext *C, wmOperator *op, const wmEvent *even
   return OPERATOR_FINISHED;
 }
 
+static int mask_by_color_exec(bContext *C, wmOperator *op)
+{
+  int2 mval;
+  RNA_int_get_array(op->ptr, "location", mval);
+  return mask_by_color(C, op, float2(mval[0], mval[1]));
+}
+
+static int mask_by_color_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+{
+  return mask_by_color(C, op, float2(event->mval[0], event->mval[1]));
+}
+
 static void SCULPT_OT_mask_by_color(wmOperatorType *ot)
 {
   ot->name = "Mask by Color";
@@ -858,6 +889,7 @@ static void SCULPT_OT_mask_by_color(wmOperatorType *ot)
   ot->description = "Creates a mask based on the active color attribute";
 
   ot->invoke = mask_by_color_invoke;
+  ot->exec = mask_by_color_exec;
   ot->poll = SCULPT_mode_poll;
 
   ot->flag = OPTYPE_REGISTER;
@@ -882,6 +914,18 @@ static void SCULPT_OT_mask_by_color(wmOperatorType *ot)
                 "How much changes in color affect the mask generation",
                 0.0f,
                 1.0f);
+
+  ot->prop = RNA_def_int_array(ot->srna,
+                               "location",
+                               2,
+                               nullptr,
+                               0,
+                               SHRT_MAX,
+                               "Location",
+                               "Region coordinates of sampling",
+                               0,
+                               SHRT_MAX);
+  RNA_def_property_flag(ot->prop, PROP_HIDDEN | PROP_SKIP_SAVE);
 }
 
 /** \} */
@@ -1231,6 +1275,7 @@ static int mask_from_cavity_exec(bContext *C, wmOperator *op)
   undo::push_begin(scene, ob, op);
   undo::push_nodes(*depsgraph, ob, node_mask, undo::Type::Mask);
 
+  automasking->calc_cavity_factor(*depsgraph, ob, node_mask);
   apply_mask_from_settings(*depsgraph, ob, pbvh, node_mask, *automasking, mode, factor, false);
 
   undo::push_end(ob);
@@ -1258,15 +1303,15 @@ static void mask_from_cavity_ui(bContext *C, wmOperator *op)
 
   switch (source) {
     case MaskSettingsSource::Operator: {
-      uiItemR(layout, op->ptr, "mix_mode", UI_ITEM_NONE, nullptr, ICON_NONE);
-      uiItemR(layout, op->ptr, "mix_factor", UI_ITEM_NONE, nullptr, ICON_NONE);
-      uiItemR(layout, op->ptr, "factor", UI_ITEM_NONE, nullptr, ICON_NONE);
-      uiItemR(layout, op->ptr, "blur_steps", UI_ITEM_NONE, nullptr, ICON_NONE);
-      uiItemR(layout, op->ptr, "invert", UI_ITEM_NONE, nullptr, ICON_NONE);
-      uiItemR(layout, op->ptr, "use_curve", UI_ITEM_NONE, nullptr, ICON_NONE);
+      uiItemR(layout, op->ptr, "mix_mode", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      uiItemR(layout, op->ptr, "mix_factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      uiItemR(layout, op->ptr, "factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      uiItemR(layout, op->ptr, "blur_steps", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      uiItemR(layout, op->ptr, "invert", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      uiItemR(layout, op->ptr, "use_curve", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
       if (sd && RNA_boolean_get(op->ptr, "use_curve")) {
-        PointerRNA sculpt_ptr = RNA_pointer_create(&scene->id, &RNA_Sculpt, sd);
+        PointerRNA sculpt_ptr = RNA_pointer_create_discrete(&scene->id, &RNA_Sculpt, sd);
         uiTemplateCurveMapping(
             layout, &sculpt_ptr, "automasking_cavity_curve_op", 'v', false, false, false, false);
       }
@@ -1274,8 +1319,8 @@ static void mask_from_cavity_ui(bContext *C, wmOperator *op)
     }
     case MaskSettingsSource::Brush:
     case MaskSettingsSource::Scene:
-      uiItemR(layout, op->ptr, "mix_mode", UI_ITEM_NONE, nullptr, ICON_NONE);
-      uiItemR(layout, op->ptr, "mix_factor", UI_ITEM_NONE, nullptr, ICON_NONE);
+      uiItemR(layout, op->ptr, "mix_mode", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      uiItemR(layout, op->ptr, "mix_factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
       break;
   }
@@ -1440,16 +1485,16 @@ static void mask_from_boundary_ui(bContext *C, wmOperator *op)
 
   switch (source) {
     case MaskSettingsSource::Operator: {
-      uiItemR(layout, op->ptr, "mix_mode", UI_ITEM_NONE, nullptr, ICON_NONE);
-      uiItemR(layout, op->ptr, "mix_factor", UI_ITEM_NONE, nullptr, ICON_NONE);
-      uiItemR(layout, op->ptr, "boundary_mode", UI_ITEM_NONE, nullptr, ICON_NONE);
-      uiItemR(layout, op->ptr, "propagation_steps", UI_ITEM_NONE, nullptr, ICON_NONE);
+      uiItemR(layout, op->ptr, "mix_mode", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      uiItemR(layout, op->ptr, "mix_factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      uiItemR(layout, op->ptr, "boundary_mode", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      uiItemR(layout, op->ptr, "propagation_steps", UI_ITEM_NONE, std::nullopt, ICON_NONE);
       break;
     }
     case MaskSettingsSource::Brush:
     case MaskSettingsSource::Scene:
-      uiItemR(layout, op->ptr, "mix_mode", UI_ITEM_NONE, nullptr, ICON_NONE);
-      uiItemR(layout, op->ptr, "mix_factor", UI_ITEM_NONE, nullptr, ICON_NONE);
+      uiItemR(layout, op->ptr, "mix_mode", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      uiItemR(layout, op->ptr, "mix_factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
       break;
   }
 }

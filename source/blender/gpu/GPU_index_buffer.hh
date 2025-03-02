@@ -134,6 +134,14 @@ inline int indices_per_primitive(GPUPrimType prim_type)
       return 4;
     case GPU_PRIM_TRIS_ADJ:
       return 6;
+    /** IMPORTANT: These last two expects no restart primitive.
+     * Asserting for this would be too slow. Just don't be stupid.
+     * This is needed for polylines but should be deprecated.
+     * See GPU_batch_draw_expanded_parameter_get */
+    case GPU_PRIM_LINE_STRIP:
+      return 1; /* Minus one for the whole length. */
+    case GPU_PRIM_LINE_LOOP:
+      return 1;
     default:
       return -1;
   }
@@ -214,6 +222,9 @@ void GPU_indexbuf_build_in_place_from_memory(blender::gpu::IndexBuf *ibo,
                                              int32_t index_max,
                                              bool uses_restart_indices);
 
+/**
+ * \note Sub-ranges are not taken into account, the whole buffer will be bound without any offset.
+ */
 void GPU_indexbuf_bind_as_ssbo(blender::gpu::IndexBuf *elem, int binding);
 
 blender::gpu::IndexBuf *GPU_indexbuf_build_curves_on_device(GPUPrimType prim_type,

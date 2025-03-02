@@ -4,7 +4,6 @@
 
 #include "BLI_math_matrix.hh"
 #include "BLI_math_rotation.hh"
-#include "BLI_task.hh"
 
 #include "NOD_rna_define.hh"
 
@@ -19,11 +18,18 @@ namespace blender::nodes::node_geo_transform_geometry_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
+  auto enable_components = [](bNode &node) { node.custom1 = GEO_NODE_TRANSFORM_MODE_COMPONENTS; };
+  auto enable_matrix = [](bNode &node) { node.custom1 = GEO_NODE_TRANSFORM_MODE_MATRIX; };
+
   b.add_input<decl::Geometry>("Geometry");
-  auto &translation = b.add_input<decl::Vector>("Translation").subtype(PROP_TRANSLATION);
-  auto &rotation = b.add_input<decl::Rotation>("Rotation");
-  auto &scale = b.add_input<decl::Vector>("Scale").default_value({1, 1, 1}).subtype(PROP_XYZ);
-  auto &transform = b.add_input<decl::Matrix>("Transform");
+  auto &translation = b.add_input<decl::Vector>("Translation")
+                          .subtype(PROP_TRANSLATION)
+                          .make_available(enable_components);
+  auto &rotation = b.add_input<decl::Rotation>("Rotation").make_available(enable_components);
+  auto &scale =
+      b.add_input<decl::Vector>("Scale").default_value({1, 1, 1}).subtype(PROP_XYZ).make_available(
+          enable_components);
+  auto &transform = b.add_input<decl::Matrix>("Transform").make_available(enable_matrix);
   b.add_output<decl::Geometry>("Geometry").propagate_all();
 
   const bNode *node = b.node_or_null();
@@ -121,13 +127,15 @@ static void node_rna(StructRNA *srna)
 static void register_node()
 {
   static blender::bke::bNodeType ntype;
-
-  geo_node_type_base(
-      &ntype, GEO_NODE_TRANSFORM_GEOMETRY, "Transform Geometry", NODE_CLASS_GEOMETRY);
+  geo_node_type_base(&ntype, "GeometryNodeTransform", GEO_NODE_TRANSFORM_GEOMETRY);
+  ntype.ui_name = "Transform Geometry";
+  ntype.ui_description = "Translate, rotate or scale the geometry";
+  ntype.enum_name_legacy = "TRANSFORM_GEOMETRY";
+  ntype.nclass = NODE_CLASS_GEOMETRY;
   ntype.declare = node_declare;
   ntype.geometry_node_execute = node_geo_exec;
   ntype.draw_buttons = node_layout;
-  blender::bke::node_register_type(&ntype);
+  blender::bke::node_register_type(ntype);
 
   node_rna(ntype.rna_ext.srna);
 }

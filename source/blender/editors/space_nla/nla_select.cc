@@ -6,7 +6,6 @@
  * \ingroup spnla
  */
 
-#include <cstdio>
 #include <cstring>
 
 #include "DNA_anim_types.h"
@@ -14,7 +13,7 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "BLI_math_base.h"
+#include "BLI_listbase.h"
 
 #include "BKE_nla.hh"
 

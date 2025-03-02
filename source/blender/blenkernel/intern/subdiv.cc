@@ -11,8 +11,6 @@
 #include "DNA_mesh_types.h"
 #include "DNA_modifier_types.h"
 
-#include "BLI_utildefines.h"
-
 #include "BKE_subdiv_modifier.hh"
 
 #include "MEM_guardedalloc.h"
@@ -21,9 +19,9 @@
 
 #include "opensubdiv_capi.hh"
 #include "opensubdiv_converter_capi.hh"
-#include "opensubdiv_evaluator_capi.hh"
 #ifdef WITH_OPENSUBDIV
-#  include "opensubdiv_topology_refiner_capi.hh"
+#  include "opensubdiv_evaluator.hh"
+#  include "opensubdiv_topology_refiner.hh"
 #endif
 
 namespace blender::bke::subdiv {
@@ -199,7 +197,7 @@ void free(Subdiv *subdiv)
       BKE_subsurf_modifier_free_gpu_cache_cb(subdiv);
       return;
     }
-    openSubdiv_deleteEvaluator(subdiv->evaluator);
+    delete subdiv->evaluator;
   }
   delete subdiv->topology_refiner;
   displacement_detach(subdiv);

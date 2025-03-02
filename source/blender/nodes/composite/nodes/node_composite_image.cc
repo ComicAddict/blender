@@ -8,15 +8,17 @@
 
 #include "node_composite_util.hh"
 
+#include "BLI_assert.h"
 #include "BLI_linklist.h"
+#include "BLI_listbase.h"
 #include "BLI_math_vector_types.hh"
-#include "BLI_rect.h"
 #include "BLI_string.h"
+#include "BLI_string_ref.hh"
 #include "BLI_utildefines.h"
 
 #include "BKE_context.hh"
 #include "BKE_global.hh"
-#include "BKE_image.h"
+#include "BKE_image.hh"
 #include "BKE_lib_id.hh"
 #include "BKE_main.hh"
 #include "BKE_scene.hh"
@@ -36,7 +38,6 @@
 #include "UI_resources.hh"
 
 #include "GPU_shader.hh"
-#include "GPU_texture.hh"
 
 #include "COM_algorithm_extract_alpha.hh"
 #include "COM_node_operation.hh"
@@ -95,7 +96,7 @@ static void cmp_node_image_add_pass_output(bNodeTree *ntree,
 
   /* Replace if types don't match. */
   if (sock && sock->type != type) {
-    blender::bke::node_remove_socket(ntree, node, sock);
+    blender::bke::node_remove_socket(*ntree, *node, *sock);
     sock = nullptr;
   }
 
@@ -107,7 +108,7 @@ static void cmp_node_image_add_pass_output(bNodeTree *ntree,
     }
     else {
       sock = blender::bke::node_add_static_socket(
-          ntree, node, SOCK_OUT, type, PROP_NONE, name, name);
+          *ntree, *node, SOCK_OUT, type, PROP_NONE, name, name);
     }
     /* extra socket info */
     NodeImageLayer *sockdata = MEM_cnew<NodeImageLayer>(__func__);
@@ -126,6 +127,34 @@ static void cmp_node_image_add_pass_output(bNodeTree *ntree,
   BLI_insertlinkafter(&node->outputs, after_sock, sock);
 
   BLI_linklist_append(available_sockets, sock);
+}
+
+static eNodeSocketDatatype socket_type_from_pass(const RenderPass *pass)
+{
+  switch (pass->channels) {
+    case 1:
+      return SOCK_FLOAT;
+    case 2:
+    case 3:
+      if (STR_ELEM(pass->chan_id, "RGB", "rgb")) {
+        return SOCK_RGBA;
+      }
+      else {
+        return SOCK_VECTOR;
+      }
+    case 4:
+      if (STR_ELEM(pass->chan_id, "RGBA", "rgba")) {
+        return SOCK_RGBA;
+      }
+      else {
+        return SOCK_VECTOR;
+      }
+    default:
+      break;
+  }
+
+  BLI_assert_unreachable();
+  return SOCK_FLOAT;
 }
 
 static void cmp_node_image_create_outputs(bNodeTree *ntree,
@@ -157,14 +186,7 @@ static void cmp_node_image_create_outputs(bNodeTree *ntree,
 
       if (rl) {
         LISTBASE_FOREACH (RenderPass *, rpass, &rl->passes) {
-          eNodeSocketDatatype type;
-          if (rpass->channels == 1) {
-            type = SOCK_FLOAT;
-          }
-          else {
-            type = SOCK_RGBA;
-          }
-
+          const eNodeSocketDatatype type = socket_type_from_pass(rpass);
           cmp_node_image_add_pass_output(ntree,
                                          node,
                                          rpass->name,
@@ -367,7 +389,7 @@ static void cmp_node_image_verify_outputs(bNodeTree *ntree, bNode *node, bool rl
     sock_next = sock->next;
     if (BLI_linklist_index(available_sockets.list, sock) >= 0) {
       sock->flag &= ~SOCK_HIDDEN;
-      blender::bke::node_set_socket_availability(ntree, sock, true);
+      blender::bke::node_set_socket_availability(*ntree, *sock, true);
     }
     else {
       bNodeLink *link;
@@ -378,10 +400,10 @@ static void cmp_node_image_verify_outputs(bNodeTree *ntree, bNode *node, bool rl
       }
       if (!link && (!rlayer || sock_index >= NUM_LEGACY_SOCKETS)) {
         MEM_freeN(sock->storage);
-        blender::bke::node_remove_socket(ntree, node, sock);
+        blender::bke::node_remove_socket(*ntree, *node, *sock);
       }
       else {
-        blender::bke::node_set_socket_availability(ntree, sock, false);
+        blender::bke::node_set_socket_availability(*ntree, *sock, false);
       }
     }
   }
@@ -439,7 +461,7 @@ static void node_composit_copy_image(bNodeTree * /*dst_ntree*/,
   }
 }
 
-using namespace blender::realtime_compositor;
+using namespace blender::compositor;
 
 class ImageOperation : public NodeOperation {
  public:
@@ -458,21 +480,23 @@ class ImageOperation : public NodeOperation {
       return;
     }
 
-    Result *cached_image = context().cache_manager().cached_images.get(
+    Result cached_image = context().cache_manager().cached_images.get(
         context(), get_image(), get_image_user(), get_pass_name(identifier));
 
     Result &result = get_result(identifier);
-    if (!cached_image || !cached_image->is_allocated()) {
+    if (!cached_image.is_allocated()) {
       result.allocate_invalid();
       return;
     }
 
     /* Alpha is not an actual pass, but one that is extracted from the combined pass. */
     if (identifier == "Alpha") {
-      extract_alpha(context(), *cached_image, result);
+      extract_alpha(context(), cached_image, result);
     }
     else {
-      cached_image->pass_through(result);
+      result.set_type(cached_image.type());
+      result.set_precision(cached_image.precision());
+      result.wrap_external(cached_image);
     }
   }
 
@@ -507,16 +531,20 @@ void register_node_type_cmp_image()
 
   static blender::bke::bNodeType ntype;
 
-  cmp_node_type_base(&ntype, CMP_NODE_IMAGE, "Image", NODE_CLASS_INPUT);
+  cmp_node_type_base(&ntype, "CompositorNodeImage", CMP_NODE_IMAGE);
+  ntype.ui_name = "Image";
+  ntype.ui_description = "Input image or movie file";
+  ntype.enum_name_legacy = "IMAGE";
+  ntype.nclass = NODE_CLASS_INPUT;
   ntype.initfunc = file_ns::node_composit_init_image;
   blender::bke::node_type_storage(
-      &ntype, "ImageUser", file_ns::node_composit_free_image, file_ns::node_composit_copy_image);
+      ntype, "ImageUser", file_ns::node_composit_free_image, file_ns::node_composit_copy_image);
   ntype.updatefunc = file_ns::cmp_node_image_update;
   ntype.get_compositor_operation = file_ns::get_compositor_operation;
   ntype.labelfunc = node_image_label;
   ntype.flag |= NODE_PREVIEW;
 
-  blender::bke::node_register_type(&ntype);
+  blender::bke::node_register_type(ntype);
 }
 
 /* **************** RENDER RESULT ******************** */
@@ -657,7 +685,7 @@ static void node_composit_buts_viewlayers(uiLayout *layout, bContext *C, Pointer
   RNA_string_set(&op_ptr, "scene", scene_name);
 }
 
-using namespace blender::realtime_compositor;
+using namespace blender::compositor;
 
 class RenderLayerOperation : public NodeOperation {
  public:
@@ -665,103 +693,146 @@ class RenderLayerOperation : public NodeOperation {
 
   void execute() override
   {
-    /* Not yet supported on CPU. */
-    if (!context().use_gpu()) {
-      for (const bNodeSocket *output : this->node()->output_sockets()) {
-        Result &output_result = get_result(output->identifier);
-        if (output_result.should_compute()) {
-          output_result.allocate_invalid();
-        }
-      }
-      return;
-    }
+    const Scene *scene = reinterpret_cast<const Scene *>(this->bnode().id);
+    const int view_layer = this->bnode().custom1;
 
-    const Scene *scene = reinterpret_cast<const Scene *>(bnode().id);
-    const int view_layer = bnode().custom1;
-
-    Result &image_result = get_result("Image");
-    Result &alpha_result = get_result("Alpha");
+    Result &image_result = this->get_result("Image");
+    Result &alpha_result = this->get_result("Alpha");
 
     if (image_result.should_compute() || alpha_result.should_compute()) {
-      GPUTexture *combined_texture = context().get_input_texture(
+      const Result combined_pass = this->context().get_pass(
           scene, view_layer, RE_PASSNAME_COMBINED);
       if (image_result.should_compute()) {
-        execute_pass(image_result, combined_texture, "compositor_read_input_color");
+        this->execute_pass(combined_pass, image_result);
       }
       if (alpha_result.should_compute()) {
-        execute_pass(alpha_result, combined_texture, "compositor_read_input_alpha");
+        this->execute_pass(combined_pass, alpha_result);
       }
     }
 
-    /* Other output passes are not supported for now, so allocate them as invalid. */
     for (const bNodeSocket *output : this->node()->output_sockets()) {
       if (STR_ELEM(output->identifier, "Image", "Alpha")) {
         continue;
       }
 
-      Result &result = get_result(output->identifier);
+      Result &result = this->get_result(output->identifier);
       if (!result.should_compute()) {
         continue;
       }
 
-      context().populate_meta_data_for_pass(
-          scene, view_layer, output->identifier, result.meta_data);
+      const char *pass_name = this->get_pass_name(output->identifier);
+      this->context().populate_meta_data_for_pass(scene, view_layer, pass_name, result.meta_data);
 
-      GPUTexture *pass_texture = context().get_input_texture(
-          scene, view_layer, output->identifier);
-      if (output->type == SOCK_FLOAT) {
-        execute_pass(result, pass_texture, "compositor_read_input_float");
-      }
-      else if (output->type == SOCK_VECTOR) {
-        execute_pass(result, pass_texture, "compositor_read_input_vector");
-      }
-      else if (output->type == SOCK_RGBA) {
-        execute_pass(result, pass_texture, "compositor_read_input_color");
-      }
-      else {
-        BLI_assert_unreachable();
-      }
+      const Result pass = this->context().get_pass(scene, view_layer, pass_name);
+      this->execute_pass(pass, result);
     }
   }
 
-  void execute_pass(Result &result, GPUTexture *pass_texture, const char *shader_name)
+  void execute_pass(const Result &pass, Result &result)
   {
-    if (pass_texture == nullptr) {
+    if (!pass.is_allocated()) {
       /* Pass not rendered yet, or not supported by viewport. */
       result.allocate_invalid();
-      context().set_info_message("Viewport compositor setup not fully supported");
+      this->context().set_info_message("Viewport compositor setup not fully supported");
       return;
     }
 
-    if (!context().is_valid_compositing_region()) {
+    if (!this->context().is_valid_compositing_region()) {
       result.allocate_invalid();
       return;
     }
 
-    const ResultPrecision precision = Result::precision(GPU_texture_format(pass_texture));
-    GPUShader *shader = context().get_shader(shader_name, precision);
+    /* Vector sockets are 3D by default, so we need to overwrite the type if the pass turned out to
+     * be 4D. */
+    if (result.type() == ResultType::Float3 && pass.type() == ResultType::Float4) {
+      result.set_type(pass.type());
+    }
+    result.set_precision(pass.precision());
+
+    if (this->context().use_gpu()) {
+      this->execute_pass_gpu(pass, result);
+    }
+    else {
+      this->execute_pass_cpu(pass, result);
+    }
+  }
+
+  void execute_pass_gpu(const Result &pass, Result &result)
+  {
+    GPUShader *shader = this->context().get_shader(this->get_shader_name(pass, result),
+                                                   result.precision());
     GPU_shader_bind(shader);
 
     /* The compositing space might be limited to a subset of the pass texture, so only read that
-     * compositing region into an appropriately sized texture. */
-    const rcti compositing_region = context().get_compositing_region();
+     * compositing region into an appropriately sized result. */
+    const rcti compositing_region = this->context().get_compositing_region();
     const int2 lower_bound = int2(compositing_region.xmin, compositing_region.ymin);
     GPU_shader_uniform_2iv(shader, "lower_bound", lower_bound);
 
-    const int input_unit = GPU_shader_get_sampler_binding(shader, "input_tx");
-    GPU_texture_bind(pass_texture, input_unit);
+    pass.bind_as_texture(shader, "input_tx");
 
-    result.set_precision(precision);
-
-    const int2 compositing_region_size = context().get_compositing_region_size();
-    result.allocate_texture(Domain(compositing_region_size));
+    result.allocate_texture(Domain(this->context().get_compositing_region_size()));
     result.bind_as_image(shader, "output_img");
 
-    compute_dispatch_threads_at_least(shader, compositing_region_size);
+    compute_dispatch_threads_at_least(shader, result.domain().size);
 
     GPU_shader_unbind();
-    GPU_texture_unbind(pass_texture);
+    pass.unbind_as_texture();
     result.unbind_as_image();
+  }
+
+  const char *get_shader_name(const Result &pass, const Result &result)
+  {
+    /* Special case for alpha output. */
+    if (pass.type() == ResultType::Color && result.type() == ResultType::Float) {
+      return "compositor_read_input_alpha";
+    }
+
+    switch (pass.type()) {
+      case ResultType::Float:
+        return "compositor_read_input_float";
+      case ResultType::Float3:
+      case ResultType::Color:
+      case ResultType::Float4:
+        return "compositor_read_input_float4";
+      case ResultType::Int:
+      case ResultType::Int2:
+      case ResultType::Float2:
+        /* Not supported. */
+        break;
+    }
+
+    BLI_assert_unreachable();
+    return nullptr;
+  }
+
+  void execute_pass_cpu(const Result &pass, Result &result)
+  {
+    /* The compositing space might be limited to a subset of the pass texture, so only read that
+     * compositing region into an appropriately sized result. */
+    const rcti compositing_region = this->context().get_compositing_region();
+    const int2 lower_bound = int2(compositing_region.xmin, compositing_region.ymin);
+
+    result.allocate_texture(Domain(this->context().get_compositing_region_size()));
+
+    /* Special case for alpha output. */
+    if (pass.type() == ResultType::Color && result.type() == ResultType::Float) {
+      parallel_for(result.domain().size, [&](const int2 texel) {
+        result.store_pixel(texel, pass.load_pixel<float4>(texel + lower_bound).w);
+      });
+    }
+    else {
+      parallel_for(result.domain().size, [&](const int2 texel) {
+        result.store_pixel_generic_type(texel, pass.load_pixel_generic_type(texel + lower_bound));
+      });
+    }
+  }
+
+  /* Get the name of the pass corresponding to the output with the given identifier. */
+  const char *get_pass_name(StringRef identifier)
+  {
+    DOutputSocket output = this->node().output_by_identifier(identifier);
+    return static_cast<NodeImageLayer *>(output->storage)->pass_name;
   }
 };
 
@@ -778,20 +849,26 @@ void register_node_type_cmp_rlayers()
 
   static blender::bke::bNodeType ntype;
 
-  cmp_node_type_base(&ntype, CMP_NODE_R_LAYERS, "Render Layers", NODE_CLASS_INPUT);
+  cmp_node_type_base(&ntype, "CompositorNodeRLayers", CMP_NODE_R_LAYERS);
+  ntype.ui_name = "Render Layers";
+  ntype.ui_description = "Input render passes from a scene render";
+  ntype.enum_name_legacy = "R_LAYERS";
+  ntype.nclass = NODE_CLASS_INPUT;
   blender::bke::node_type_socket_templates(&ntype, nullptr, cmp_node_rlayers_out);
   ntype.draw_buttons = file_ns::node_composit_buts_viewlayers;
   ntype.initfunc_api = file_ns::node_composit_init_rlayers;
   ntype.poll = file_ns::node_composit_poll_rlayers;
   ntype.get_compositor_operation = file_ns::get_compositor_operation;
-  ntype.realtime_compositor_unsupported_message = N_(
-      "Render passes not supported in the Viewport compositor");
+  ntype.compositor_unsupported_message = N_(
+      "Render passes in the Viewport compositor are only supported in EEVEE");
   ntype.flag |= NODE_PREVIEW;
-  blender::bke::node_type_storage(
-      &ntype, nullptr, file_ns::node_composit_free_rlayers, file_ns::node_composit_copy_rlayers);
+  blender::bke::node_type_storage(ntype,
+                                  std::nullopt,
+                                  file_ns::node_composit_free_rlayers,
+                                  file_ns::node_composit_copy_rlayers);
   ntype.updatefunc = file_ns::cmp_node_rlayers_update;
   ntype.initfunc = node_cmp_rlayers_outputs;
-  blender::bke::node_type_size_preset(&ntype, blender::bke::eNodeSizePreset::Large);
+  blender::bke::node_type_size_preset(ntype, blender::bke::eNodeSizePreset::Large);
 
-  blender::bke::node_register_type(&ntype);
+  blender::bke::node_register_type(ntype);
 }

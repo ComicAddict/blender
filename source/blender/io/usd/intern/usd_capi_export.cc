@@ -2,12 +2,13 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#include <iostream>
+#include <fmt/core.h>
 
 #include "IO_subdiv_disabler.hh"
 #include "usd.hh"
 #include "usd_hierarchy_iterator.hh"
 #include "usd_hook.hh"
+#include "usd_instancing_utils.hh"
 #include "usd_light_convert.hh"
 #include "usd_private.hh"
 
@@ -16,6 +17,7 @@
 #include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usdGeom/metrics.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/xform.h>
 #include <pxr/usd/usdGeom/xformCommonAPI.h>
@@ -34,8 +36,8 @@
 #include "BKE_blender_version.h"
 #include "BKE_context.hh"
 #include "BKE_global.hh"
-#include "BKE_image.h"
-#include "BKE_image_save.h"
+#include "BKE_image.hh"
+#include "BKE_image_save.hh"
 #include "BKE_lib_id.hh"
 #include "BKE_report.hh"
 #include "BKE_scene.hh"
@@ -60,18 +62,18 @@ static CLG_LogRef LOG = {"io.usd"};
 namespace blender::io::usd {
 
 struct ExportJobData {
-  Main *bmain;
-  Depsgraph *depsgraph;
-  wmWindowManager *wm;
-  Scene *scene;
+  Main *bmain = nullptr;
+  Depsgraph *depsgraph = nullptr;
+  wmWindowManager *wm = nullptr;
+  Scene *scene = nullptr;
 
   /** Unarchived_filepath is used for USDA/USDC/USD export. */
-  char unarchived_filepath[FILE_MAX];
-  char usdz_filepath[FILE_MAX];
-  USDExportParams params;
+  char unarchived_filepath[FILE_MAX] = {};
+  char usdz_filepath[FILE_MAX] = {};
+  USDExportParams params = {};
 
-  bool export_ok;
-  timeit::TimePoint start_time;
+  bool export_ok = false;
+  timeit::TimePoint start_time = {};
 
   bool targets_usdz() const
   {
@@ -167,6 +169,10 @@ static void ensure_root_prim(pxr::UsdStageRefPtr stage, const USDExportParams &p
     return;
   }
 
+  if (params.convert_scene_units) {
+    xf_api.SetScale(pxr::GfVec3f(float(1.0 / get_meters_per_unit(params))));
+  }
+
   if (params.convert_orientation) {
     float mrot[3][3];
     mat3_from_axis_conversion(IO_AXIS_Y, IO_AXIS_Z, params.forward_axis, params.up_axis, mrot);
@@ -183,7 +189,7 @@ static void ensure_root_prim(pxr::UsdStageRefPtr stage, const USDExportParams &p
 
   for (const auto &path : pxr::SdfPath(params.root_prim_path).GetPrefixes()) {
     auto xform = pxr::UsdGeomXform::Define(stage, path);
-    /* Tag generated prims to allow filtering on import */
+    /* Tag generated primitives to allow filtering on import. */
     xform.GetPrim().SetCustomDataByKey(pxr::TfToken("Blender:generated"), pxr::VtValue(true));
   }
 }
@@ -192,9 +198,9 @@ static void report_job_duration(const ExportJobData *data)
 {
   timeit::Nanoseconds duration = timeit::Clock::now() - data->start_time;
   const char *export_filepath = data->export_filepath();
-  std::cout << "USD export of '" << export_filepath << "' took ";
+  fmt::print("USD export of '{}' took ", export_filepath);
   timeit::print_duration(duration);
-  std::cout << '\n';
+  fmt::print("\n");
 }
 
 static void process_usdz_textures(const ExportJobData *data, const char *path)
@@ -426,13 +432,18 @@ pxr::UsdStageRefPtr export_to_stage(const USDExportParams &params,
 
   pxr::VtValue upAxis = pxr::VtValue(pxr::UsdGeomTokens->z);
   if (params.convert_orientation) {
-    if (params.up_axis == IO_AXIS_X)
+    if (params.up_axis == IO_AXIS_X) {
       upAxis = pxr::VtValue(pxr::UsdGeomTokens->x);
-    else if (params.up_axis == IO_AXIS_Y)
+    }
+    else if (params.up_axis == IO_AXIS_Y) {
       upAxis = pxr::VtValue(pxr::UsdGeomTokens->y);
+    }
   }
 
   usd_stage->SetMetadata(pxr::UsdGeomTokens->upAxis, upAxis);
+
+  const double meters_per_unit = get_meters_per_unit(params);
+  pxr::UsdGeomSetStageMetersPerUnit(usd_stage, meters_per_unit);
 
   ensure_root_prim(usd_stage, params);
 
@@ -491,6 +502,10 @@ pxr::UsdStageRefPtr export_to_stage(const USDExportParams &params,
       usd_stage->SetDefaultPrim(prim);
       break;
     }
+  }
+
+  if (params.use_instancing) {
+    process_scene_graph_instances(params, usd_stage);
   }
 
   call_export_hooks(usd_stage, depsgraph, params.worker_status->reports);
@@ -653,8 +668,7 @@ bool USD_export(const bContext *C,
   ViewLayer *view_layer = CTX_data_view_layer(C);
   Scene *scene = CTX_data_scene(C);
 
-  blender::io::usd::ExportJobData *job = static_cast<blender::io::usd::ExportJobData *>(
-      MEM_mallocN(sizeof(blender::io::usd::ExportJobData), "ExportJobData"));
+  blender::io::usd::ExportJobData *job = MEM_new<blender::io::usd::ExportJobData>("ExportJobData");
 
   job->bmain = CTX_data_main(C);
   job->wm = CTX_wm_manager(C);
@@ -695,7 +709,9 @@ bool USD_export(const bContext *C,
         job->wm, CTX_wm_window(C), scene, "USD Export", WM_JOB_PROGRESS, WM_JOB_TYPE_USD_EXPORT);
 
     /* setup job */
-    WM_jobs_customdata_set(wm_job, job, MEM_freeN);
+    WM_jobs_customdata_set(wm_job, job, [](void *j) {
+      MEM_delete(static_cast<blender::io::usd::ExportJobData *>(j));
+    });
     WM_jobs_timer(wm_job, 0.1, NC_SCENE | ND_FRAME, NC_SCENE | ND_FRAME);
     WM_jobs_callbacks(wm_job,
                       blender::io::usd::export_startjob,
@@ -714,7 +730,7 @@ bool USD_export(const bContext *C,
     blender::io::usd::export_endjob(job);
     export_ok = job->export_ok;
 
-    MEM_freeN(job);
+    MEM_delete(job);
   }
 
   return export_ok;
@@ -732,6 +748,39 @@ int USD_get_version()
    * So the major version is implicit/invisible in the public version number.
    */
   return PXR_VERSION;
+}
+
+double get_meters_per_unit(const USDExportParams &params)
+{
+  double result;
+  switch (params.convert_scene_units) {
+    case USD_SCENE_UNITS_CENTIMETERS:
+      result = 0.01;
+      break;
+    case USD_SCENE_UNITS_MILLIMETERS:
+      result = 0.001;
+      break;
+    case USD_SCENE_UNITS_KILOMETERS:
+      result = 1000.0;
+      break;
+    case USD_SCENE_UNITS_INCHES:
+      result = 0.0254;
+      break;
+    case USD_SCENE_UNITS_FEET:
+      result = 0.3048;
+      break;
+    case USD_SCENE_UNITS_YARDS:
+      result = 0.9144;
+      break;
+    case USD_SCENE_UNITS_CUSTOM:
+      result = double(params.custom_meters_per_unit);
+      break;
+    default:
+      result = 1.0;
+      break;
+  }
+
+  return result;
 }
 
 }  // namespace blender::io::usd

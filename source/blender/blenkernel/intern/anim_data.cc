@@ -10,8 +10,6 @@
 #include <cstring>
 #include <optional>
 
-#include "ANIM_action.hh"
-
 #include "BKE_action.hh"
 #include "BKE_anim_data.hh"
 #include "BKE_animsys.h"
@@ -32,7 +30,6 @@
 #include "DNA_light_types.h"
 #include "DNA_material_types.h"
 #include "DNA_node_types.h"
-#include "DNA_space_types.h"
 #include "DNA_windowmanager_types.h"
 #include "DNA_world_types.h"
 
@@ -49,7 +46,6 @@
 #include "RNA_access.hh"
 #include "RNA_path.hh"
 
-#include "ANIM_action.hh"
 #include "ANIM_action_iterators.hh"
 #include "ANIM_action_legacy.hh"
 
@@ -381,14 +377,14 @@ AnimData *BKE_animdata_copy_in_lib(Main *bmain,
         BKE_id_copy_in_lib(bmain,
                            owner_library,
                            reinterpret_cast<ID *>(dadt->action),
-                           nullptr,
+                           std::nullopt,
                            nullptr,
                            id_copy_flag));
     dadt->tmpact = reinterpret_cast<bAction *>(
         BKE_id_copy_in_lib(bmain,
                            owner_library,
                            reinterpret_cast<ID *>(dadt->tmpact),
-                           nullptr,
+                           std::nullopt,
                            nullptr,
                            id_copy_flag));
   }
@@ -545,8 +541,8 @@ void BKE_animdata_merge_copy(
   }
   dst->slot_handle = src->slot_handle;
   dst->tmp_slot_handle = src->tmp_slot_handle;
-  STRNCPY(dst->slot_name, src->slot_name);
-  STRNCPY(dst->tmp_slot_name, src->tmp_slot_name);
+  STRNCPY(dst->last_slot_identifier, src->last_slot_identifier);
+  STRNCPY(dst->tmp_last_slot_identifier, src->tmp_last_slot_identifier);
 
   /* duplicate NLA data */
   if (src->nla_tracks.first) {
@@ -1220,6 +1216,29 @@ bool BKE_animdata_fix_paths_remove(ID *id, const char *prefix)
   return any_removed;
 }
 
+bool BKE_animdata_driver_path_remove(ID *id, const char *prefix)
+{
+  AnimData *adt = BKE_animdata_from_id(id);
+  if (!adt) {
+    return false;
+  }
+
+  const bool any_removed = fcurves_path_remove_from_listbase(prefix, &adt->drivers);
+  return any_removed;
+}
+
+bool BKE_animdata_drivers_remove_for_rna_struct(ID &owner_id, StructRNA &type, void *data)
+{
+  PointerRNA constraint_ptr = RNA_pointer_create_discrete(&owner_id, &type, data);
+  const std::optional<std::string> base_path = RNA_path_from_ID_to_struct(&constraint_ptr);
+  if (!base_path.has_value()) {
+    /* The data should exist, so the path should always resolve. */
+    BLI_assert_unreachable();
+  }
+
+  return BKE_animdata_driver_path_remove(&owner_id, base_path.value().c_str());
+}
+
 /* Apply Op to All FCurves in Database --------------------------- */
 
 /* Helper for adt_apply_all_fcurves_cb() - Apply wrapped operator to list of F-Curves */
@@ -1246,10 +1265,16 @@ static void nlastrips_apply_all_curves_cb(ID *id,
                                           ListBase *strips,
                                           const FunctionRef<void(ID *, FCurve *)> func)
 {
+  /* This function is used (via `BKE_fcurves_id_cb()`) by the versioning system.
+   * As such, legacy Actions should always be expected here. */
+
   LISTBASE_FOREACH (NlaStrip *, strip, strips) {
     /* fix strip's action */
     if (strip->act) {
-      fcurves_apply_cb(id, blender::animrig::legacy::fcurves_all(strip->act), func);
+      fcurves_apply_cb(
+          id,
+          blender::animrig::legacy::fcurves_for_action_slot(strip->act, strip->action_slot_handle),
+          func);
     }
 
     /* Check sub-strips (if meta-strips). */
@@ -1257,17 +1282,27 @@ static void nlastrips_apply_all_curves_cb(ID *id,
   }
 }
 
-/* Helper for BKE_fcurves_main_cb() - Dispatch wrapped operator to all F-Curves */
+/* Helper for BKE_fcurves_main_cb() - Dispatch wrapped operator to all F-Curves. Muted NLA Tracks
+ * are ignored. */
 static void adt_apply_all_fcurves_cb(ID *id,
                                      AnimData *adt,
                                      const FunctionRef<void(ID *, FCurve *)> func)
 {
+  /* This function is used (via `BKE_fcurves_id_cb()`) by the versioning system.
+   * As such, legacy Actions should always be expected here. */
+
   if (adt->action) {
-    fcurves_apply_cb(id, blender::animrig::legacy::fcurves_all(adt->action), func);
+    fcurves_apply_cb(
+        id,
+        blender::animrig::legacy::fcurves_for_action_slot(adt->action, adt->slot_handle),
+        func);
   }
 
   if (adt->tmpact) {
-    fcurves_apply_cb(id, blender::animrig::legacy::fcurves_all(adt->tmpact), func);
+    fcurves_apply_cb(
+        id,
+        blender::animrig::legacy::fcurves_for_action_slot(adt->tmpact, adt->tmp_slot_handle),
+        func);
   }
 
   /* free drivers - stored as a list of F-Curves */
@@ -1275,6 +1310,9 @@ static void adt_apply_all_fcurves_cb(ID *id,
 
   /* NLA Data - Animation Data for Strips */
   LISTBASE_FOREACH (NlaTrack *, nlt, &adt->nla_tracks) {
+    if (!BKE_nlatrack_is_enabled(*adt, *nlt)) {
+      continue;
+    }
     nlastrips_apply_all_curves_cb(id, &nlt->strips, func);
   }
 }
@@ -1318,7 +1356,7 @@ void BKE_animdata_main_cb(Main *bmain, const FunctionRef<void(ID *, AnimData *)>
     if (ntp->nodetree) { \
       AnimData *adt2 = BKE_animdata_from_id((ID *)ntp->nodetree); \
       if (adt2) { \
-        func(id, adt2); \
+        func((ID *)ntp->nodetree, adt2); \
       } \
     } \
     if (adt) { \
@@ -1507,3 +1545,12 @@ void BKE_animdata_liboverride_post_process(ID *id)
 
   BKE_nla_liboverride_post_process(id, adt);
 }
+
+namespace blender::bke::animdata {
+
+void action_slots_user_cache_invalidate(Main &bmain)
+{
+  blender::animrig::Slot::users_invalidate(bmain);
+}
+
+}  // namespace blender::bke::animdata

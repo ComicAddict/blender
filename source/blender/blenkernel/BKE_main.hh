@@ -20,10 +20,14 @@
  * - `BKE_main_` should be used for functions in that file.
  */
 
+#include <array>
+
 #include "DNA_listBase.h"
 
 #include "BLI_compiler_attrs.h"
 #include "BLI_sys_types.h"
+
+#include "BKE_lib_query.hh" /* For LibraryForeachIDCallbackFlag. */
 
 struct BLI_mempool;
 struct BlendThumbnail;
@@ -59,7 +63,7 @@ struct MainIDRelationsEntryItem {
   /* Session uid of the `id_pointer`. */
   uint session_uid;
 
-  int usage_flag; /* Using IDWALK_ enums, defined in BKE_lib_query.hh */
+  LibraryForeachIDCallbackFlag usage_flag; /* Using IDWALK_ enums, defined in BKE_lib_query.hh */
 };
 
 struct MainIDRelationsEntry {
@@ -204,9 +208,23 @@ struct Main {
    */
   bool is_action_slot_to_id_map_dirty;
 
+  /**
+   * The blend-file thumbnail. If set, it will show as image preview of the blend-file in the
+   * system's file-browser.
+   */
   BlendThumbnail *blen_thumb;
 
+  /**
+   * The library matching the current Main.
+   *
+   * Typically `nullptr` (for the `G_MAIN` representing the currently opened blend-file).
+   *
+   * Mainly set and used during the blend-file read/write process when 'split' Mains are used to
+   * isolate and process all linked IDs from a single library.
+   */
   Library *curlib;
+
+  /** Listbase for all ID types, containing all IDs for the current Main. */
   ListBase scenes;
   ListBase libraries;
   ListBase objects;
@@ -265,8 +283,10 @@ struct Main {
   /** Used for efficient calculations of unique names. */
   UniqueName_Map *name_map;
 
-  /* Used for efficient calculations of unique names. Covers all names in current Main, including
-   * linked data ones. */
+  /**
+   * Used for efficient calculations of unique names. Covers all names in current Main, including
+   * linked data ones.
+   */
   UniqueName_Map *name_map_global;
 
   MainLock *lock;
@@ -278,7 +298,7 @@ struct Main {
  * \note Always generate a non-global Main, use #BKE_blender_globals_main_replace to put a newly
  * created one in `G_MAIN`.
  */
-Main *BKE_main_new(void);
+Main *BKE_main_new();
 /**
  * Initialize a Main data-base.
  *
@@ -458,6 +478,21 @@ void BKE_main_library_weak_reference_remove_item(
     const char *library_id_name,
     ID *old_id) ATTR_NONNULL();
 
+/**
+ * Find local ID with weak library reference matching library and ID name.
+ * For cases where creating a full MainLibraryWeakReferenceMap is unnecessary.
+ */
+ID *BKE_main_library_weak_reference_find(Main *bmain,
+                                         const char *library_filepath,
+                                         const char *library_id_name);
+
+/**
+ * Add library weak reference to ID, referencing the specified library and ID name.
+ * For cases where creating a full MainLibraryWeakReferenceMap is unnecessary.*/
+void BKE_main_library_weak_reference_add(ID *id,
+                                         const char *library_filepath,
+                                         const char *library_id_name);
+
 /* *** Generic utils to loop over whole Main database. *** */
 
 #define FOREACH_MAIN_LISTBASE_ID_BEGIN(_lb, _id) \
@@ -473,8 +508,8 @@ void BKE_main_library_weak_reference_remove_item(
 
 #define FOREACH_MAIN_LISTBASE_BEGIN(_bmain, _lb) \
   { \
-    ListBase *_lbarray[INDEX_ID_MAX]; \
-    int _i = set_listbasepointers((_bmain), _lbarray); \
+    MainListsArray _lbarray = BKE_main_lists_get(*(_bmain)); \
+    size_t _i = _lbarray.size(); \
     while (_i--) { \
       (_lb) = _lbarray[_i];
 
@@ -554,20 +589,19 @@ const char *BKE_main_blendfile_path_from_global();
  */
 ListBase *which_libbase(Main *bmain, short type);
 
-// #define INDEX_ID_MAX 41
+/** Subtracting 1, because #INDEX_ID_NULL is ignored here. */
+using MainListsArray = std::array<ListBase *, INDEX_ID_MAX - 1>;
+
 /**
- * Put the pointers to all the #ListBase structs in given `bmain` into the `*lb[INDEX_ID_MAX]`
- * array, and return the number of those for convenience.
+ * Returns the pointers to all the #ListBase structs in given `bmain`.
  *
  * This is useful for generic traversal of all the blocks in a #Main (by traversing all the lists
  * in turn), without worrying about block types.
  *
- * \param lb: Array of lists #INDEX_ID_MAX in length.
- *
  * \note The order of each ID type #ListBase in the array is determined by the `INDEX_ID_<IDTYPE>`
  * enum definitions in `DNA_ID.h`. See also the #FOREACH_MAIN_ID_BEGIN macro in `BKE_main.hh`
  */
-int set_listbasepointers(Main *bmain, ListBase *lb[]);
+MainListsArray BKE_main_lists_get(Main &bmain);
 
 #define MAIN_VERSION_FILE_ATLEAST(main, ver, subver) \
   ((main)->versionfile > (ver) || \
@@ -582,8 +616,8 @@ int set_listbasepointers(Main *bmain, ListBase *lb[]);
    ((main)->versionfile == (ver) && (main)->subversionfile <= (subver)))
 
 #define LIBRARY_VERSION_FILE_ATLEAST(lib, ver, subver) \
-  ((lib)->runtime.versionfile > (ver) || \
-   ((lib)->runtime.versionfile == (ver) && (lib)->runtime.subversionfile >= (subver)))
+  ((lib)->runtime->versionfile > (ver) || \
+   ((lib)->runtime->versionfile == (ver) && (lib)->runtime->subversionfile >= (subver)))
 
 /**
  * The size of thumbnails (optionally) stored in the `.blend` files header.

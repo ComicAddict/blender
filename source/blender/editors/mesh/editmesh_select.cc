@@ -6,13 +6,12 @@
  * \ingroup edmesh
  */
 
+#include <algorithm>
 #include <optional>
 
 #include "MEM_guardedalloc.h"
 
-#include "BLI_bitmap.h"
 #include "BLI_heap.h"
-#include "BLI_linklist.h"
 #include "BLI_listbase.h"
 #include "BLI_math_bits.h"
 #include "BLI_math_geom.h"
@@ -20,7 +19,6 @@
 #include "BLI_math_rotation.h"
 #include "BLI_math_vector.h"
 #include "BLI_rand.h"
-#include "BLI_string.h"
 #include "BLI_utildefines_stack.h"
 #include "BLI_vector.hh"
 
@@ -54,8 +52,6 @@
 #include "DNA_mesh_types.h"
 #include "DNA_meshdata_types.h"
 #include "DNA_object_types.h"
-
-#include "UI_resources.hh"
 
 #include "bmesh_tools.hh"
 
@@ -253,14 +249,14 @@ void EDBM_select_mirrored(BMEditMesh *em,
 
 static BMElem *edbm_select_id_bm_elem_get(const Span<Base *> bases,
                                           const uint sel_id,
-                                          uint *r_base_index)
+                                          uint &r_base_index)
 {
   uint elem_id;
   char elem_type = 0;
-  bool success = DRW_select_buffer_elem_get(sel_id, &elem_id, r_base_index, &elem_type);
+  bool success = DRW_select_buffer_elem_get(sel_id, elem_id, r_base_index, elem_type);
 
   if (success) {
-    Object *obedit = bases[*r_base_index]->object;
+    Object *obedit = bases[r_base_index]->object;
     BMEditMesh *em = BKE_editmesh_from_object(obedit);
 
     switch (elem_type) {
@@ -368,7 +364,7 @@ BMVert *EDBM_vert_find_nearest_ex(ViewContext *vc,
           vc->depsgraph, vc->region, vc->v3d, vc->mval, 1, UINT_MAX, &dist_px_manhattan_test);
 
       if (index) {
-        eve = (BMVert *)edbm_select_id_bm_elem_get(bases, index, &base_index);
+        eve = (BMVert *)edbm_select_id_bm_elem_get(bases, index, base_index);
       }
       else {
         eve = nullptr;
@@ -476,9 +472,7 @@ static void find_nearest_edge_center__doZBuf(void *user_data,
     mid_v2_v2v2(screen_co_mid, screen_co_a, screen_co_b);
     dist_test = len_manhattan_v2v2(data->mval_fl, screen_co_mid);
 
-    if (dist_test < data->dist) {
-      data->dist = dist_test;
-    }
+    data->dist = std::min(dist_test, data->dist);
   }
 }
 
@@ -600,7 +594,7 @@ BMEdge *EDBM_edge_find_nearest_ex(ViewContext *vc,
           vc->depsgraph, vc->region, vc->v3d, vc->mval, 1, UINT_MAX, &dist_px_manhattan_test);
 
       if (index) {
-        eed = (BMEdge *)edbm_select_id_bm_elem_get(bases, index, &base_index);
+        eed = (BMEdge *)edbm_select_id_bm_elem_get(bases, index, base_index);
       }
       else {
         eed = nullptr;
@@ -733,9 +727,7 @@ static void find_nearest_face_center__doZBuf(void *user_data,
   if (efa == data->face_test) {
     const float dist_test = len_manhattan_v2v2(data->mval_fl, screen_co);
 
-    if (dist_test < data->dist_px_manhattan) {
-      data->dist_px_manhattan = dist_test;
-    }
+    data->dist_px_manhattan = std::min(dist_test, data->dist_px_manhattan);
   }
 }
 
@@ -826,7 +818,7 @@ BMFace *EDBM_face_find_nearest_ex(ViewContext *vc,
       }
 
       if (index) {
-        efa = (BMFace *)edbm_select_id_bm_elem_get(bases, index, &base_index);
+        efa = (BMFace *)edbm_select_id_bm_elem_get(bases, index, base_index);
       }
       else {
         efa = nullptr;
@@ -1683,7 +1675,7 @@ static int edbm_loop_multiselect_exec(bContext *C, wmOperator *op)
           changed |= walker_select(em, BMW_EDGELOOP_NONMANIFOLD, eed, true);
         }
         else {
-          walker_select(em, BMW_EDGELOOP, eed, true);
+          changed |= walker_select(em, BMW_EDGELOOP, eed, true);
         }
       }
       if (changed) {
@@ -1951,7 +1943,7 @@ static bool mouse_mesh_loop(
 static int edbm_select_loop_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
 
-  view3d_operator_needs_opengl(C);
+  view3d_operator_needs_gpu(C);
 
   if (mouse_mesh_loop(C,
                       event->mval,
@@ -3719,7 +3711,7 @@ static int edbm_select_linked_pick_invoke(bContext *C, wmOperator *op, const wmE
   }
 
   /* #unified_findnearest needs OpenGL. */
-  view3d_operator_needs_opengl(C);
+  view3d_operator_needs_gpu(C);
 
   /* Setup view context for argument to callbacks. */
   ViewContext vc = em_setup_viewcontext(C);
@@ -5131,15 +5123,15 @@ static int edbm_select_axis_exec(bContext *C, wmOperator *op)
   float axis_mat[3][3];
 
   /* 3D view variables may be nullptr, (no need to check in poll function). */
-  ED_transform_calc_orientation_from_type_ex(scene,
-                                             view_layer,
-                                             CTX_wm_view3d(C),
-                                             CTX_wm_region_view3d(C),
-                                             obedit,
-                                             obedit,
-                                             orientation,
-                                             V3D_AROUND_ACTIVE,
-                                             axis_mat);
+  blender::ed::transform::calc_orientation_from_type_ex(scene,
+                                                        view_layer,
+                                                        CTX_wm_view3d(C),
+                                                        CTX_wm_region_view3d(C),
+                                                        obedit,
+                                                        obedit,
+                                                        orientation,
+                                                        V3D_AROUND_ACTIVE,
+                                                        axis_mat);
 
   const float *axis_vector = axis_mat[axis];
 

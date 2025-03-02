@@ -46,7 +46,7 @@ typedef struct GPUVertBufHandle GPUVertBufHandle;
 struct ActionLayer;
 struct ActionSlot;
 struct ActionStrip;
-struct ActionChannelBag;
+struct ActionChannelbag;
 
 /* Declarations of the C++ wrappers. */
 #ifdef __cplusplus
@@ -54,7 +54,7 @@ namespace blender::animrig {
 class Action;
 class Slot;
 class SlotRuntime;
-class ChannelBag;
+class Channelbag;
 class ChannelGroup;
 class Layer;
 class Strip;
@@ -687,7 +687,7 @@ typedef struct bActionGroup {
   /**
    * Span of channels in this group for layered actions.
    *
-   * This specifies that span as a range of items in a ChannelBag's fcurve
+   * This specifies that span as a range of items in a Channelbag's fcurve
    * array.
    *
    * Note that empty groups (`fcurve_range_length == 0`) are allowed, and they
@@ -700,12 +700,12 @@ typedef struct bActionGroup {
   int fcurve_range_length;
 
   /**
-   * For layered actions: the ChannelBag this group belongs to.
+   * For layered actions: the Channelbag this group belongs to.
    *
    * This is needed in the keyframe drawing code, etc., to give direct access to
    * the fcurves in this group.
    */
-  struct ActionChannelBag *channel_bag;
+  struct ActionChannelbag *channelbag;
 
   /** Settings for this action-group. */
   int flag;
@@ -753,15 +753,9 @@ typedef enum eActionGroup_Flag {
 /* Actions -------------------------------------- */
 
 /**
- * Action - reusable F-Curve 'bag'  (act)
+ * Container of animation data.
  *
- * This contains F-Curves that may affect settings from more than one ID block-type and/or
- * data-block (i.e. sub-data linked/used directly to the ID block that the animation data is linked
- * to), but with the restriction that the other unrelated data (i.e. data that is not directly used
- * or linked to by the source ID block).
- *
- * It serves as a 'unit' of reusable animation information (i.e. keyframes/motion data),
- * that affects a group of related settings (as defined by the user).
+ * \see blender::animrig::Action for more detailed documentation.
  */
 typedef struct bAction {
   /** ID-serialization for relinking. */
@@ -1143,8 +1137,8 @@ typedef struct ActionLayer {
   uint8_t _pad0[2];
 
   /**
-   * There is always at least one strip.
-   * If there is only one, it can be infinite. This is the default for new layers.
+   * The layer's array of strips. See the documentation of
+   * #blender::animrig::Layer for the invariants of this array.
    */
   struct ActionStrip **strip_array; /* Array of 'strip_array_num' strips. */
   int strip_array_num;
@@ -1162,27 +1156,41 @@ typedef struct ActionLayer {
  */
 typedef struct ActionSlot {
   /**
-   * Typically the ID name this slot was created for, including the two
-   * letters indicating the ID type.
+   * The string identifier of this Slot within the Action.
+   *
+   * The first two characters are the two-letter code corresponding to `idtype`
+   * below (e.g. 'OB', 'ME', 'LA'), and the remaining characters store slot's
+   * display name. Since the combination of the `idtype` and display name are
+   * always unique within an action, this string identifier is as well.
+   *
+   * Typically this matches the ID name this slot was created for, including the
+   * two letters indicating the ID type.
    *
    * \see #AnimData::slot_name
    */
-  char name[66]; /* MAX_ID_NAME */
+  char identifier[66]; /* MAX_ID_NAME */
 
   /**
-   * Type of ID-blocks that this slot can be assigned to.
+   * Type of ID-block that this slot is intended for.
+   *
    * If 0, will be set to whatever ID is first assigned.
    */
   int16_t idtype;
 
   /**
-   * Identifier of this Slot within the Action.
+   * Numeric identifier of this Slot within the Action.
    *
    * This number allows reorganization of the #bAction::slot_array without
    * invalidating references. Also these remain valid when copy-on-evaluate
    * copies are made.
    *
+   * Unlike `identifier` above, this cannot be set by the user and never changes
+   * after initial assignment, and thus serves as a "forever" identifier of the
+   * slot.
+   *
    * Only valid within the Action that owns this Slot.
+   *
+   * NOTE: keep this type in sync with `slot_handle_t` in BKE_action.hh.
    *
    * \see #blender::animrig::Action::slot_for_handle()
    */
@@ -1248,7 +1256,7 @@ typedef struct ActionStrip {
  * \see #blender::animrig::StripKeyframeData
  */
 typedef struct ActionStripKeyframeData {
-  struct ActionChannelBag **channelbag_array;
+  struct ActionChannelbag **channelbag_array;
   int channelbag_array_num;
 
   uint8_t _pad[4];
@@ -1260,9 +1268,9 @@ typedef struct ActionStripKeyframeData {
 } ActionStripKeyframeData;
 
 /**
- * \see #blender::animrig::ChannelBag
+ * \see #blender::animrig::Channelbag
  */
-typedef struct ActionChannelBag {
+typedef struct ActionChannelbag {
   int32_t slot_handle;
 
   /* Channel groups. These index into the `fcurve_array` below to specify group
@@ -1290,16 +1298,16 @@ typedef struct ActionChannelBag {
   /* TODO: Design & implement a way to integrate other channel types as well,
    * and still have them map to a certain slot */
 #ifdef __cplusplus
-  blender::animrig::ChannelBag &wrap();
-  const blender::animrig::ChannelBag &wrap() const;
+  blender::animrig::Channelbag &wrap();
+  const blender::animrig::Channelbag &wrap() const;
 #endif
-} ActionChannelBag;
+} ActionChannelbag;
 
 #ifdef __cplusplus
 /* Some static assertions that things that should have the same type actually do. */
 static_assert(std::is_same_v<decltype(ActionSlot::handle), decltype(bAction::last_slot_handle)>);
 static_assert(
-    std::is_same_v<decltype(ActionSlot::handle), decltype(ActionChannelBag::slot_handle)>);
+    std::is_same_v<decltype(ActionSlot::handle), decltype(ActionChannelbag::slot_handle)>);
 static_assert(
     std::is_same_v<decltype(ActionSlot::handle), decltype(SpaceAction::action_slot_handle)>);
 #endif

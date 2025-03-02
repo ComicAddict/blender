@@ -23,13 +23,14 @@
 #include "transform.hh"
 #include "transform_convert.hh"
 
+namespace blender::ed::transform {
+
 /* -------------------------------------------------------------------- */
 /** \name Sculpt Transform Creation
  * \{ */
 
 static void createTransSculpt(bContext *C, TransInfo *t)
 {
-  using namespace blender::ed;
   TransData *td;
 
   Scene *scene = t->scene;
@@ -59,7 +60,6 @@ static void createTransSculpt(bContext *C, TransInfo *t)
   td->flag = TD_SELECTED;
   copy_v3_v3(td->center, ss.pivot_pos);
   mul_m4_v3(ob.object_to_world().ptr(), td->center);
-  td->ob = &ob;
 
   td->loc = ss.pivot_pos;
   copy_v3_v3(td->iloc, ss.pivot_pos);
@@ -108,15 +108,19 @@ static void createTransSculpt(bContext *C, TransInfo *t)
 
 static void recalcData_sculpt(TransInfo *t)
 {
-  using namespace blender::ed;
   BKE_view_layer_synced_ensure(t->scene, t->view_layer);
   Object *ob = BKE_view_layer_active_object_get(t->view_layer);
-  sculpt_paint::update_modal_transform(t->context, *ob);
+
+  if (t->state == TRANS_CANCEL) {
+    sculpt_paint::cancel_modal_transform(t->context, *ob);
+  }
+  else {
+    sculpt_paint::update_modal_transform(t->context, *ob);
+  }
 }
 
 static void special_aftertrans_update__sculpt(bContext *C, TransInfo *t)
 {
-  using namespace blender::ed;
   Scene *scene = t->scene;
   if (!BKE_id_is_editable(CTX_data_main(C), &scene->id)) {
     /* `sculpt_paint::init_transform` was not called in this case. */
@@ -137,3 +141,5 @@ TransConvertTypeInfo TransConvertType_Sculpt = {
     /*recalc_data*/ recalcData_sculpt,
     /*special_aftertrans_update*/ special_aftertrans_update__sculpt,
 };
+
+}  // namespace blender::ed::transform

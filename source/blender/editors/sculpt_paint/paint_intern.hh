@@ -8,14 +8,9 @@
 
 #pragma once
 
-#include "BLI_array.hh"
-#include "BLI_compiler_compat.h"
-#include "BLI_function_ref.hh"
 #include "BLI_index_mask_fwd.hh"
 #include "BLI_math_vector_types.hh"
-#include "BLI_set.hh"
 #include "BLI_span.hh"
-#include "BLI_vector.hh"
 
 #include "DNA_object_enums.h"
 #include "DNA_scene_enums.h"
@@ -52,11 +47,11 @@ struct wmKeyMap;
 struct wmOperator;
 struct wmOperatorType;
 namespace blender {
-namespace bke {
-namespace pbvh {
+
+namespace bke::pbvh {
 class Node;
 }
-}  // namespace bke
+
 namespace ed::sculpt_paint {
 struct PaintStroke;
 struct StrokeCache;
@@ -67,16 +62,38 @@ struct StrokeCache;
 
 namespace blender::ed::sculpt_paint {
 
+/**
+ * Callback function to retrieve the object space coordinates based on screen space coordinates.
+ * \param location: resulting object space coordinates
+ * \returns whether or not a value was actually found & the value in location is usable
+ */
 using StrokeGetLocation = bool (*)(bContext *C,
                                    float location[3],
                                    const float mouse[2],
                                    bool force_original);
+/**
+ * Callback function to determine whether a stroke has started, and performing initialization.
+ *
+ * In many cases, this is a check to whether the stroke is over the active mesh.
+ */
 using StrokeTestStart = bool (*)(bContext *C, wmOperator *op, const float mouse[2]);
+
+/**
+ * Callback function for performing a paint stroke for a new step.
+ */
 using StrokeUpdateStep = void (*)(bContext *C,
                                   wmOperator *op,
                                   PaintStroke *stroke,
                                   PointerRNA *itemptr);
+
+/**
+ * Callback function for performing necessary redraw functions based on the stroke.
+ */
 using StrokeRedraw = void (*)(const bContext *C, PaintStroke *stroke, bool final);
+
+/**
+ * Callback function for cleaning up and finalizing data after a stroke has finished.
+ */
 using StrokeDone = void (*)(const bContext *C, PaintStroke *stroke);
 
 PaintStroke *paint_stroke_new(bContext *C,
@@ -108,6 +125,20 @@ bool paint_supports_texture(PaintMode mode);
  * Called in paint_ops.cc, on each regeneration of key-maps.
  */
 wmKeyMap *paint_stroke_modal_keymap(wmKeyConfig *keyconf);
+/**
+ * The main modal callback shared by any custom operator that implements a form of painting.
+ *
+ * At a high level, this function performs the following steps for interactive stroke types:
+ * 1. Initialization of necessary common `PaintStroke` values.
+ * 2. Custom paint initialization via `StrokeTestStart`>
+ * 3. Create an `OperatorStrokeElement` for a given mouse position by calling `StrokeGetLocation`
+ *    to potentially turn screen space coordinates into object space coordinates.
+ * 4. Call `StrokeUpdateStep` to perform custom paint operation on the most recent
+ *    `OperatorStrokeElement` data.
+ * 5. Tag extra redraws if necessary via `StrokeRedraw`.
+ * 6. Return to step 3 while stroke is ongoing.
+ * 7. Call `StrokeDone` when finished to perform any cleanup or finalization.
+ */
 int paint_stroke_modal(bContext *C, wmOperator *op, const wmEvent *event, PaintStroke **stroke_p);
 int paint_stroke_exec(bContext *C, wmOperator *op, PaintStroke *stroke);
 void paint_stroke_cancel(bContext *C, wmOperator *op, PaintStroke *stroke);
@@ -136,6 +167,7 @@ void paint_stroke_jitter_pos(Scene &scene,
 bool paint_brush_tool_poll(bContext *C);
 /** Returns true if the brush cursor should be activated. */
 bool paint_brush_cursor_poll(bContext *C);
+/** Initialize the stroke cache variants from operator properties. */
 bool paint_brush_update(bContext *C,
                         const Brush &brush,
                         PaintMode mode,
@@ -151,7 +183,7 @@ void BRUSH_OT_asset_save_as(wmOperatorType *ot);
 void BRUSH_OT_asset_edit_metadata(wmOperatorType *ot);
 void BRUSH_OT_asset_load_preview(wmOperatorType *ot);
 void BRUSH_OT_asset_delete(wmOperatorType *ot);
-void BRUSH_OT_asset_update(wmOperatorType *ot);
+void BRUSH_OT_asset_save(wmOperatorType *ot);
 void BRUSH_OT_asset_revert(wmOperatorType *ot);
 
 }  // namespace blender::ed::sculpt_paint
@@ -303,6 +335,7 @@ void paint_proj_redraw(const bContext *C, void *ps_handle_p, bool final);
 void paint_proj_stroke_done(void *ps_handle_p);
 
 void paint_brush_color_get(Scene *scene,
+                           const Paint *paint,
                            Brush *br,
                            bool color_correction,
                            bool invert,
@@ -545,6 +578,7 @@ void get_brush_alpha_data(const Scene &scene,
 
 void init_stroke(Depsgraph &depsgraph, Object &ob);
 void init_session_data(const ToolSettings &ts, Object &ob);
+/** Toggle operator for turning vertex paint mode on or off (copied from `sculpt.cc`) */
 void init_session(
     Main &bmain, Depsgraph &depsgraph, Scene &scene, Object &ob, eObjectMode object_mode);
 
@@ -562,7 +596,9 @@ bool mode_toggle_poll_test(bContext *C);
 void smooth_brush_toggle_off(const bContext *C, Paint *paint, StrokeCache *cache);
 void smooth_brush_toggle_on(const bContext *C, Paint *paint, StrokeCache *cache);
 
+/** Initialize the stroke cache variants from operator properties. */
 void update_cache_variants(bContext *C, VPaint &vp, Object &ob, PointerRNA *ptr);
+/** Initialize the stroke cache invariants from operator properties. */
 void update_cache_invariants(
     bContext *C, VPaint &vp, SculptSession &ss, wmOperator *op, const float mval[2]);
 void last_stroke_update(Scene &scene, const float location[3]);
