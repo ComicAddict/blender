@@ -479,23 +479,27 @@ static void node_rna(StructRNA *srna)
                     "Mode",
                     "Defining voronoi bounds",
                     mode_items,
-                    NOD_storage_enum_accessors(mode));
+                    NOD_storage_enum_accessors(mode),
+                    GEO_NODE_VORONOI_BOUNDS,
+                    nullptr,
+                    true);
 }
 
 static void node_register()
 {
   static blender::bke::bNodeType ntype;
 
-  geo_node_type_base(&ntype, "NodeGeometryVoronoi", GEO_NODE_VORONOI);
+  geo_node_type_base(&ntype, "GeometryNodeVoronoi", GEO_NODE_VORONOI);
   ntype.ui_name = "Voronoi";
   ntype.ui_description = "Voronoi operator that takes mesh, curve and points";
+  ntype.enum_name_legacy = "VORONOI";
   ntype.nclass = NODE_CLASS_GEOMETRY;
   ntype.geometry_node_execute = node_geo_exec;
   ntype.declare = node_declare;
-  ntype.draw_buttons = node_layout;
+  ntype.initfunc = node_init;
   blender::bke::node_type_storage(
       ntype, "NodeGeometryVoronoi", node_free_standard_storage, node_copy_standard_storage);
-  ntype.initfunc = node_init;
+      ntype.draw_buttons = node_layout;
   blender::bke::node_register_type(ntype);
 
   node_rna(ntype.rna_ext.srna);
