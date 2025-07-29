@@ -50,7 +50,6 @@ static void node_declare(NodeDeclarationBuilder &b)
   b.add_input<decl::Bool>("Group By Edge");
   b.add_input<decl::Int>("Group ID").implicit_field(NODE_DEFAULT_INPUT_INDEX_FIELD);
   b.add_output<decl::Geometry>("Voronoi");
-  b.add_output<decl::Geometry>("Delaunay");
   b.add_output<decl::Int>("Cell ID").field_on_all();
   b.add_output<decl::Vector>("Cell Centers").field_on_all();
 
@@ -120,6 +119,38 @@ Mesh *generate_mesh(Container &con,
     };
   }
 
+  std::function<void(Vector<int> &, Vector<float3> &, int &, double &, double &, double &)>
+      gather_attributes = [&](Vector<int> & /*ids*/,
+                              Vector<float3> & /*centers*/,
+                              int & /*id*/,
+                              double & /*x*/,
+                              double & /*y*/,
+                              double & /*z*/) {};
+
+  if (attribute_outputs.cell_id && attribute_outputs.cell_centers) {
+    gather_attributes =
+        [&](Vector<int> &ids, Vector<float3> &centers, int &id, double &x, double &y, double &z) {
+          ids.append(id);
+          centers.append(float3(x, y, z));
+        };
+  }
+  else if (attribute_outputs.cell_id) {
+    gather_attributes = [&](Vector<int> &ids,
+                            Vector<float3> & /*centers*/,
+                            int &id,
+                            double & /*x*/,
+                            double & /*y*/,
+                            double & /*z*/) { ids.append(id); };
+  }
+  else if (attribute_outputs.cell_centers) {
+    gather_attributes = [&](Vector<int> & /*ids*/,
+                            Vector<float3> &centers,
+                            int & /*id*/,
+                            double &x,
+                            double &y,
+                            double &z) { centers.append(float3(x, y, z)); };
+  }
+
   if (vl.start()) {
     do {
       if (con.compute_cell(c, vl)) {
@@ -139,9 +170,8 @@ Mesh *generate_mesh(Container &con,
               l = 3 * f_vert[j + k + 1];
               verts.append(float3(v[l], v[l + 1], v[l + 2]));
               corner_verts.append(offset);
-              ids.append(id);
               offset++;
-              centers.append(float3(x, y, z));
+              gather_attributes(ids, centers, id, x, y, z);
             }
           }
           j += f_vert[j] + 1;
