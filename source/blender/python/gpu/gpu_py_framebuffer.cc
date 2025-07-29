@@ -19,7 +19,7 @@
 #include "GPU_init_exit.hh"
 
 #include "../generic/py_capi_utils.hh"
-#include "../generic/python_compat.hh"
+#include "../generic/python_compat.hh" /* IWYU pragma: keep. */
 #include "../generic/python_utildefines.hh"
 
 #include "../mathutils/mathutils.hh"
@@ -169,9 +169,14 @@ static PyObject *pygpu_framebuffer_stack_context_exit(PyFrameBufferStackContext 
   Py_RETURN_NONE;
 }
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic push
-#  pragma GCC diagnostic ignored "-Wcast-function-type"
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wcast-function-type"
+#  else
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wcast-function-type"
+#  endif
 #endif
 
 static PyMethodDef pygpu_framebuffer_stack_context__tp_methods[] = {
@@ -180,8 +185,12 @@ static PyMethodDef pygpu_framebuffer_stack_context__tp_methods[] = {
     {nullptr},
 };
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic pop
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic pop
+#  else
+#    pragma GCC diagnostic pop
+#  endif
 #endif
 
 static PyTypeObject FramebufferStackContext_Type = {
@@ -541,6 +550,7 @@ PyDoc_STRVAR(
     "   :type slot: int\n"
     "   :arg format: The format that describes the content of a single channel.\n"
     "      Possible values are `FLOAT`, `INT`, `UINT`, `UBYTE`, `UINT_24_8` and `10_11_11_REV`.\n"
+    "      `UINT_24_8` is deprecated, use `FLOAT` instead.\n"
     "   :type format: str\n"
     "   :arg data: Optional Buffer object to fill with the pixels values.\n"
     "   :type data: :class:`gpu.types.Buffer`\n"
@@ -553,7 +563,8 @@ static PyObject *pygpu_framebuffer_read_color(BPyGPUFrameBuffer *self,
   PYGPU_FRAMEBUFFER_CHECK_OBJ(self);
   int x, y, w, h, channels;
   uint slot;
-  PyC_StringEnum pygpu_dataformat = {bpygpu_dataformat_items, GPU_RGBA8};
+  PyC_StringEnum pygpu_dataformat = {bpygpu_dataformat_items,
+                                     int(blender::gpu::TextureFormat::UNORM_8_8_8_8)};
   BPyGPUBuffer *py_buffer = nullptr;
 
   static const char *_keywords[] = {
@@ -588,6 +599,10 @@ static PyObject *pygpu_framebuffer_read_color(BPyGPUFrameBuffer *self,
                                         &py_buffer))
   {
     return nullptr;
+  }
+
+  if (pygpu_dataformat.value_found == GPU_DATA_UINT_24_8_DEPRECATED) {
+    PyErr_WarnEx(PyExc_DeprecationWarning, "`UINT_24_8` is deprecated, use `FLOAT` instead", 1);
   }
 
   if (!IN_RANGE_INCL(channels, 1, 4)) {
@@ -737,9 +752,14 @@ static PyGetSetDef pygpu_framebuffer__tp_getseters[] = {
     {nullptr, nullptr, nullptr, nullptr, nullptr} /* Sentinel */
 };
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic push
-#  pragma GCC diagnostic ignored "-Wcast-function-type"
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wcast-function-type"
+#  else
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wcast-function-type"
+#  endif
 #endif
 
 static PyMethodDef pygpu_framebuffer__tp_methods[] = {
@@ -770,12 +790,16 @@ static PyMethodDef pygpu_framebuffer__tp_methods[] = {
     {nullptr, nullptr, 0, nullptr},
 };
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic pop
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic pop
+#  else
+#    pragma GCC diagnostic pop
+#  endif
 #endif
 
-/* Ideally type aliases would de-duplicate: `GPUTexture | dict[str, int | GPUTexture]`
- * in this doc-string. */
+/* Ideally type aliases would de-duplicate:
+ * `GPUTexture | dict[str, int | GPUTexture]` in this doc-string. */
 PyDoc_STRVAR(
     /* Wrap. */
     pygpu_framebuffer__tp_doc,
@@ -793,7 +817,8 @@ PyDoc_STRVAR(
     "containing keywords: 'texture', 'layer' and 'mip'.\n"
     "   :type color_slots: :class:`gpu.types.GPUTexture` | "
     "dict[str, int | :class:`gpu.types.GPUTexture`] | "
-    "Sequence[:class:`gpu.types.GPUTexture` | dict[str, int | :class:`gpu.types.GPUTexture`]] | "
+    "Sequence[:class:`gpu.types.GPUTexture` | dict[str, int | "
+    ":class:`gpu.types.GPUTexture`]] | "
     "None\n");
 PyTypeObject BPyGPUFrameBuffer_Type = {
     /*ob_base*/ PyVarObject_HEAD_INIT(nullptr, 0)

@@ -468,7 +468,7 @@ class edit_generators:
         """
 
         # Not default because there are times when the literal sizes don't represent extra dimensions on an array,
-        # where making this edit would be misleading as it would indicate a matrix (for e.g.) when a vector is intended.
+        # where making this edit would be misleading as it would indicate a matrix e.g. when a vector is intended.
         is_default = False
 
         @staticmethod
@@ -1140,6 +1140,29 @@ class edit_generators:
                 for match in re.finditer(
                         (r"\b" + src + (
                             r"\(([^,]+,\s+[^,]+),\s+" r"("
+                            r"sizeof\([^\(\)]+\)"  # Trailing `sizeof(..)`.
+                            r"|"
+                            r"[a-zA-Z0-9_]+"  # Trailing identifier (typically a define).
+                            r")" r"\)"
+                        )),
+                        data,
+                        flags=re.MULTILINE,
+                ):
+                    edits.append(Edit(
+                        span=match.span(),
+                        content='{:s}({:s})'.format(dst, match.group(1)),
+                        content_fail='__ALWAYS_FAIL__',
+                    ))
+
+            # `BLI_strnlen(a, sizeof(a))` -> `STRNLEN(a)`
+            # `BLI_strnlen(a, SOME_ID)` -> `STRNLEN(a)`
+            for src, dst in (
+                    ("BLI_strnlen", "STRNLEN"),
+                    ("BLI_strnlen_utf8", "STRNLEN_UTF8"),
+            ):
+                for match in re.finditer(
+                        (r"\b" + src + (
+                            r"\(([^,]+),\s+" r"("
                             r"sizeof\([^\(\)]+\)"  # Trailing `sizeof(..)`.
                             r"|"
                             r"[a-zA-Z0-9_]+"  # Trailing identifier (typically a define).
@@ -1951,7 +1974,7 @@ def run_edits_on_directory(
     # needed for when arguments are referenced relatively
     os.chdir(build_dir)
 
-    # Weak, but we probably don't want to handle extern.
+    # Weak, but we probably don't want to handle `./extern/`.
     # this limit could be removed.
     source_paths = (
         os.path.join("intern", "ghost"),

@@ -28,7 +28,7 @@ static void node_declare(NodeDeclarationBuilder &b)
           "Choose instances from the \"Instance\" input at each point instead of instancing the "
           "entire geometry");
   b.add_input<decl::Int>("Instance Index")
-      .implicit_field_on(implicit_field_inputs::id_or_index, {0})
+      .implicit_field_on(NODE_DEFAULT_INPUT_ID_INDEX_FIELD, {0})
       .description(
           "Index of the instance used for each point. This is only used when Pick Instances "
           "is on. By default the point index is used");
@@ -155,7 +155,7 @@ static void add_instances_from_component(
   bke::MutableAttributeAccessor dst_attributes = dst_component.attributes_for_write();
   for (const auto item : attributes_to_propagate.items()) {
     const StringRef id = item.key;
-    const eCustomDataType data_type = item.value.data_type;
+    const bke::AttrType data_type = item.value.data_type;
     const bke::GAttributeReader src = src_attributes.lookup(id, AttrDomain::Point, data_type);
     if (!src) {
       /* Domain interpolation can fail if the source domain is empty. */

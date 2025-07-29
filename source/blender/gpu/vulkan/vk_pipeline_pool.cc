@@ -53,6 +53,7 @@ VKPipelinePool::VKPipelinePool()
       &vk_pipeline_vertex_input_state_create_info_;
   vk_graphics_pipeline_create_info_.pRasterizationState =
       &vk_pipeline_rasterization_state_create_info_;
+  vk_graphics_pipeline_create_info_.pDynamicState = &vk_pipeline_dynamic_state_create_info_;
   vk_graphics_pipeline_create_info_.pViewportState = &vk_pipeline_viewport_state_create_info_;
   vk_graphics_pipeline_create_info_.pMultisampleState =
       &vk_pipeline_multisample_state_create_info_;
@@ -100,6 +101,11 @@ VKPipelinePool::VKPipelinePool()
   vk_pipeline_rasterization_provoking_vertex_state_info_.provokingVertexMode =
       VK_PROVOKING_VERTEX_MODE_LAST_VERTEX_EXT;
 
+  vk_dynamic_states_ = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+  vk_pipeline_dynamic_state_create_info_ = {};
+  vk_pipeline_dynamic_state_create_info_.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+
   vk_pipeline_viewport_state_create_info_ = {};
   vk_pipeline_viewport_state_create_info_.sType =
       VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -140,7 +146,9 @@ void VKPipelinePool::init()
   VkPipelineCacheCreateInfo create_info = {};
   create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
   vkCreatePipelineCache(device.vk_handle(), &create_info, nullptr, &vk_pipeline_cache_static_);
+  debug::object_label(vk_pipeline_cache_static_, "VkPipelineCache.Static");
   vkCreatePipelineCache(device.vk_handle(), &create_info, nullptr, &vk_pipeline_cache_non_static_);
+  debug::object_label(vk_pipeline_cache_non_static_, "VkPipelineCache.Dynamic");
 }
 
 VkSpecializationInfo *VKPipelinePool::specialization_info_update(
@@ -194,6 +202,9 @@ VkPipeline VKPipelinePool::get_or_create_compute_pipeline(VKComputeInfo &compute
   /* Build pipeline. */
   VKBackend &backend = VKBackend::get();
   VKDevice &device = backend.device;
+  if (device.extensions_get().descriptor_buffer) {
+    vk_compute_pipeline_create_info_.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+  }
 
   VkPipeline pipeline = VK_NULL_HANDLE;
   vkCreateComputePipelines(device.vk_handle(),
@@ -206,6 +217,7 @@ VkPipeline VKPipelinePool::get_or_create_compute_pipeline(VKComputeInfo &compute
   compute_pipelines_.add(compute_info, pipeline);
 
   /* Reset values to initial value. */
+  vk_compute_pipeline_create_info_.flags = 0;
   vk_compute_pipeline_create_info_.layout = VK_NULL_HANDLE;
   vk_compute_pipeline_create_info_.stage.module = VK_NULL_HANDLE;
   vk_compute_pipeline_create_info_.stage.pSpecializationInfo = nullptr;
@@ -287,18 +299,20 @@ VkPipeline VKPipelinePool::get_or_create_graphics_pipeline(VKGraphicsInfo &graph
           VK_PROVOKING_VERTEX_MODE_LAST_VERTEX_EXT :
           VK_PROVOKING_VERTEX_MODE_FIRST_VERTEX_EXT;
 
+  /* Dynamic state */
+  vk_pipeline_dynamic_state_create_info_.dynamicStateCount = vk_dynamic_states_.size();
+  vk_pipeline_dynamic_state_create_info_.pDynamicStates = vk_dynamic_states_.data();
+
   /* Viewport state */
-  vk_pipeline_viewport_state_create_info_.pViewports =
-      graphics_info.fragment_shader.viewports.data();
+  vk_pipeline_viewport_state_create_info_.pViewports = nullptr;
   vk_pipeline_viewport_state_create_info_.viewportCount =
       graphics_info.fragment_shader.viewports.size();
-  vk_pipeline_viewport_state_create_info_.pScissors =
-      graphics_info.fragment_shader.scissors.data();
+  vk_pipeline_viewport_state_create_info_.pScissors = nullptr;
   vk_pipeline_viewport_state_create_info_.scissorCount =
       graphics_info.fragment_shader.scissors.size();
 
   /* Color blending */
-  const VKWorkarounds &workarounds = VKBackend::get().device.workarounds_get();
+  const VKExtensions &extensions = VKBackend::get().device.extensions_get();
   {
     VkPipelineColorBlendStateCreateInfo &cb = vk_pipeline_color_blend_state_create_info_;
     VkPipelineColorBlendAttachmentState &att_state =
@@ -373,7 +387,7 @@ VkPipeline VKPipelinePool::get_or_create_graphics_pipeline(VKGraphicsInfo &graph
         att_state.srcColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
         att_state.dstColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
         att_state.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-        att_state.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        att_state.dstAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
         break;
 
       case GPU_BLEND_ALPHA_UNDER_PREMUL:
@@ -388,6 +402,13 @@ VkPipeline VKPipelinePool::get_or_create_graphics_pipeline(VKGraphicsInfo &graph
         att_state.dstColorBlendFactor = VK_BLEND_FACTOR_SRC1_COLOR;
         att_state.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
         att_state.dstAlphaBlendFactor = VK_BLEND_FACTOR_SRC1_ALPHA;
+        break;
+
+      case GPU_BLEND_OVERLAY_MASK_FROM_ALPHA:
+        att_state.srcColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+        att_state.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        att_state.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        att_state.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
         break;
     }
 
@@ -422,7 +443,7 @@ VkPipeline VKPipelinePool::get_or_create_graphics_pipeline(VKGraphicsInfo &graph
     }
 
     /* Logic ops. */
-    if (graphics_info.state.logic_op_xor && !workarounds.logic_ops) {
+    if (graphics_info.state.logic_op_xor && extensions.logic_ops) {
       cb.logicOpEnable = VK_TRUE;
       cb.logicOp = VK_LOGIC_OP_XOR;
     }
@@ -544,13 +565,7 @@ VkPipeline VKPipelinePool::get_or_create_graphics_pipeline(VKGraphicsInfo &graph
   }
 
   /* VK_KHR_dynamic_rendering */
-  if (workarounds.dynamic_rendering) {
-    BLI_assert(ELEM(
-        vk_graphics_pipeline_create_info_.pNext, &vk_pipeline_rendering_create_info_, nullptr));
-    vk_graphics_pipeline_create_info_.pNext = nullptr;
-    vk_graphics_pipeline_create_info_.renderPass = graphics_info.fragment_out.vk_render_pass;
-  }
-  else {
+  if (extensions.dynamic_rendering) {
     vk_pipeline_rendering_create_info_.depthAttachmentFormat =
         graphics_info.fragment_out.depth_attachment_format;
     vk_pipeline_rendering_create_info_.stencilAttachmentFormat =
@@ -559,6 +574,12 @@ VkPipeline VKPipelinePool::get_or_create_graphics_pipeline(VKGraphicsInfo &graph
         graphics_info.fragment_out.color_attachment_formats.size();
     vk_pipeline_rendering_create_info_.pColorAttachmentFormats =
         graphics_info.fragment_out.color_attachment_formats.data();
+  }
+  else {
+    BLI_assert(ELEM(
+        vk_graphics_pipeline_create_info_.pNext, &vk_pipeline_rendering_create_info_, nullptr));
+    vk_graphics_pipeline_create_info_.pNext = nullptr;
+    vk_graphics_pipeline_create_info_.renderPass = graphics_info.fragment_out.vk_render_pass;
   }
 
   /* Common values */
@@ -569,6 +590,9 @@ VkPipeline VKPipelinePool::get_or_create_graphics_pipeline(VKGraphicsInfo &graph
   /* Build pipeline. */
   VKBackend &backend = VKBackend::get();
   VKDevice &device = backend.device;
+  if (device.extensions_get().descriptor_buffer) {
+    vk_graphics_pipeline_create_info_.flags = VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+  }
 
   VkPipeline pipeline = VK_NULL_HANDLE;
   vkCreateGraphicsPipelines(device.vk_handle(),
@@ -582,6 +606,7 @@ VkPipeline VKPipelinePool::get_or_create_graphics_pipeline(VKGraphicsInfo &graph
 
   /* Reset values to initial value. */
   specialization_info_reset();
+  vk_graphics_pipeline_create_info_.flags = 0;
   vk_graphics_pipeline_create_info_.stageCount = 0;
   vk_graphics_pipeline_create_info_.layout = VK_NULL_HANDLE;
   vk_graphics_pipeline_create_info_.basePipelineHandle = VK_NULL_HANDLE;
@@ -629,32 +654,23 @@ VkPipeline VKPipelinePool::get_or_create_graphics_pipeline(VKGraphicsInfo &graph
   return pipeline;
 }
 
-void VKPipelinePool::remove(Span<VkShaderModule> vk_shader_modules)
+void VKPipelinePool::discard(VKDiscardPool &discard_pool, VkPipelineLayout vk_pipeline_layout)
 {
   std::scoped_lock lock(mutex_);
-  Vector<VkPipeline> pipelines_to_destroy;
   compute_pipelines_.remove_if([&](auto item) {
-    if (vk_shader_modules.contains(item.key.vk_shader_module)) {
-      pipelines_to_destroy.append(item.value);
+    if (item.key.vk_pipeline_layout == vk_pipeline_layout) {
+      discard_pool.discard_pipeline(item.value);
       return true;
     }
     return false;
   });
   graphic_pipelines_.remove_if([&](auto item) {
-    if (vk_shader_modules.contains(item.key.pre_rasterization.vk_vertex_module) ||
-        vk_shader_modules.contains(item.key.pre_rasterization.vk_geometry_module) ||
-        vk_shader_modules.contains(item.key.fragment_shader.vk_fragment_module))
-    {
-      pipelines_to_destroy.append(item.value);
+    if (item.key.vk_pipeline_layout == vk_pipeline_layout) {
+      discard_pool.discard_pipeline(item.value);
       return true;
     }
     return false;
   });
-
-  VKDevice &device = VKBackend::get().device;
-  for (VkPipeline vk_pipeline : pipelines_to_destroy) {
-    vkDestroyPipeline(device.vk_handle(), vk_pipeline, nullptr);
-  }
 }
 
 void VKPipelinePool::free_data()
@@ -680,7 +696,7 @@ void VKPipelinePool::free_data()
 
 #ifdef WITH_BUILDINFO
 struct VKPipelineCachePrefixHeader {
-  /* 'B'lender 'C'ache + 2 bytes for file versioning. */
+  /* `BC` stands for "Blender Cache" + 2 bytes for file versioning. */
   uint32_t magic = 0xBC00;
   uint32_t blender_version = BLENDER_VERSION;
   uint32_t blender_version_patch = BLENDER_VERSION_PATCH;
@@ -752,14 +768,13 @@ void VKPipelinePool::read_from_disk()
      */
     MEM_freeN(buffer);
     CLOG_INFO(&LOG,
-              1,
               "Pipeline cache on disk [%s] is ignored as it was written by a different driver or "
               "Blender version. Cache will be overwritten when exiting.",
               cache_file.c_str());
     return;
   }
 
-  CLOG_INFO(&LOG, 1, "Initialize static pipeline cache from disk [%s].", cache_file.c_str());
+  CLOG_INFO(&LOG, "Initialize static pipeline cache from disk [%s].", cache_file.c_str());
   VKDevice &device = VKBackend::get().device;
   VkPipelineCacheCreateInfo create_info = {};
   create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
@@ -790,7 +805,7 @@ void VKPipelinePool::write_to_disk()
   vkGetPipelineCacheData(device.vk_handle(), vk_pipeline_cache_static_, &data_size, buffer);
 
   std::string cache_file = pipeline_cache_filepath_get();
-  CLOG_INFO(&LOG, 1, "Writing static pipeline cache to disk [%s].", cache_file.c_str());
+  CLOG_INFO(&LOG, "Writing static pipeline cache to disk [%s].", cache_file.c_str());
 
   fstream file(cache_file, std::ios::binary | std::ios::out);
 

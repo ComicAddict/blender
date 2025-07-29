@@ -70,8 +70,8 @@ extern ListBase R_engines;
 struct RenderEngineType {
   struct RenderEngineType *next, *prev;
 
-  /* type info */
-  char idname[64]; /* best keep the same size as BKE_ST_MAXNAME. */
+  /* Type info. */
+  char idname[/*BKE_ST_MAXNAME*/ 64];
   char name[64];
   int flag;
 
@@ -111,6 +111,7 @@ struct RenderEngineType {
   void (*update_render_passes)(struct RenderEngine *engine,
                                struct Scene *scene,
                                struct ViewLayer *view_layer);
+  void (*update_custom_camera)(struct RenderEngine *engine, struct Camera *cam);
 
   struct DrawEngineType *draw_engine;
 
@@ -136,7 +137,7 @@ struct RenderEngine {
 
   struct Render *re;
   ListBase fullresult;
-  char text[512]; /* IMA_MAX_RENDER_TEXT_SIZE */
+  char text[/*IMA_MAX_RENDER_TEXT_SIZE*/ 512];
 
   int resolution_x, resolution_y;
 

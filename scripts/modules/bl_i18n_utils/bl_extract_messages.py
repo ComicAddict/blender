@@ -298,8 +298,10 @@ def dump_rna_messages(msgs, reports, settings, verbose=False):
                     if item.name and prop_name_validate(cls, item.name, item.identifier):
                         process_msg(msgs, msgctxt, item.name, msgsrc, reports, check_ctxt_rna, settings)
                     if item.description:
-                        process_msg(msgs, default_context, item.description, msgsrc, reports, check_ctxt_rna_tip,
-                                    settings)
+                        process_msg(
+                            msgs, default_context, item.description, msgsrc, reports, check_ctxt_rna_tip,
+                            settings,
+                        )
                 for item in prop.enum_items_static:
                     if item.identifier in done_items:
                         continue
@@ -308,8 +310,10 @@ def dump_rna_messages(msgs, reports, settings, verbose=False):
                     if item.name and prop_name_validate(cls, item.name, item.identifier):
                         process_msg(msgs, msgctxt, item.name, msgsrc, reports, check_ctxt_rna, settings)
                     if item.description:
-                        process_msg(msgs, default_context, item.description, msgsrc, reports, check_ctxt_rna_tip,
-                                    settings)
+                        process_msg(
+                            msgs, default_context, item.description, msgsrc, reports, check_ctxt_rna_tip,
+                            settings,
+                        )
 
     def walk_tools_definitions(cls):
         from bl_ui.space_toolsystem_common import ToolDef
@@ -615,6 +619,7 @@ def dump_py_messages_from_files(msgs, reports, files, settings):
         "msgid": ((("msgctxt",), _ctxt_to_ctxt),
                   ),
         "message": (),
+        "label": (),
         "heading": ((("heading_ctxt",), _ctxt_to_ctxt),),
         "placeholder": ((("text_ctxt",), _ctxt_to_ctxt),),
     }
@@ -664,6 +669,16 @@ def dump_py_messages_from_files(msgs, reports, files, settings):
         func_translate_args[func_id] = pgettext_variants_args
         for sub_func_id in func_ids:
             func_translate_args[sub_func_id] = pgettext_variants_args
+    # Manually add functions from node_add_menu.py.
+    for func_id, arg_pos in (
+            ("add_node_type", 3),
+            ("add_node_type_with_outputs", 5),
+            ("add_simulation_zone", 1),
+            ("add_repeat_zone", 1),
+            ("add_foreach_geometry_element_zone", 1),
+            ("add_closure_zone", 1),
+    ):
+        func_translate_args[func_id] = {"label": (arg_pos, {})}
     # print(func_translate_args)
 
     # Break recursive nodes look up on some kind of nodes.
@@ -710,7 +725,7 @@ def dump_py_messages_from_files(msgs, reports, files, settings):
                 # Skip function if it's marked as not translatable.
                 do_translate = True
                 for kw in node.keywords:
-                    if kw.arg == "translate" and not kw.value.value:
+                    if kw.arg == "translate" and not getattr(kw.value, "value", False):
                         do_translate = False
                         break
                 if not do_translate:
@@ -943,8 +958,10 @@ def dump_template_messages(msgs, reports, settings):
     for workspace_name in sorted(workspace_names):
         for msgsrc in sorted(workspace_names[workspace_name]):
             msgsrc = "Workspace from template " + msgsrc
-            process_msg(msgs, msgctxt, workspace_name, msgsrc,
-                        reports, None, settings)
+            process_msg(
+                msgs, msgctxt, workspace_name, msgsrc,
+                reports, None, settings,
+            )
 
 
 def dump_asset_messages(msgs, reports, settings):
@@ -966,8 +983,10 @@ def dump_asset_messages(msgs, reports, settings):
 
     msgsrc = "Asset catalog from " + settings.ASSET_CATALOG_FILE
     for catalog in sorted(catalogs):
-        process_msg(msgs, settings.DEFAULT_CONTEXT, catalog, msgsrc,
-                    reports, None, settings)
+        process_msg(
+            msgs, settings.DEFAULT_CONTEXT, catalog, msgsrc,
+            reports, None, settings,
+        )
 
     # Parse the asset blend files
     asset_files = {}
@@ -1004,20 +1023,28 @@ def dump_asset_messages(msgs, reports, settings):
         for asset in sorted(asset_files[asset_file], key=lambda a: a["name"]):
             name, description = asset["name"], asset["description"]
             msgsrc = "Asset name from file " + asset_file
-            process_msg(msgs, settings.DEFAULT_CONTEXT, name, msgsrc,
-                        reports, None, settings)
+            process_msg(
+                msgs, settings.DEFAULT_CONTEXT, name, msgsrc,
+                reports, None, settings,
+            )
             msgsrc = "Asset description from file " + asset_file
-            process_msg(msgs, settings.DEFAULT_CONTEXT, description, msgsrc,
-                        reports, None, settings)
+            process_msg(
+                msgs, settings.DEFAULT_CONTEXT, description, msgsrc,
+                reports, None, settings,
+            )
 
             if "sockets" in asset:
                 for socket_name, socket_description in asset["sockets"]:
                     msgsrc = f"Socket name from node group {name}, file {asset_file}"
-                    process_msg(msgs, settings.DEFAULT_CONTEXT, socket_name, msgsrc,
-                                reports, None, settings)
+                    process_msg(
+                        msgs, settings.DEFAULT_CONTEXT, socket_name, msgsrc,
+                        reports, None, settings,
+                    )
                     msgsrc = f"Socket description from node group {name}, file {asset_file}"
-                    process_msg(msgs, settings.DEFAULT_CONTEXT, socket_description, msgsrc,
-                                reports, None, settings)
+                    process_msg(
+                        msgs, settings.DEFAULT_CONTEXT, socket_description, msgsrc,
+                        reports, None, settings,
+                    )
 
 
 def dump_addon_bl_info(msgs, reports, module, settings):
@@ -1126,11 +1153,10 @@ def dump_messages(do_messages, do_checks, settings):
 
     # Get strings specific to translations' menu.
     for lng in settings.LANGUAGES:
-        process_msg(msgs, settings.DEFAULT_CONTEXT, lng[1], "Languages’ labels from bl_i18n_utils/settings.py",
-                    reports, None, settings)
-    for cat in settings.LANGUAGES_CATEGORIES:
-        process_msg(msgs, settings.DEFAULT_CONTEXT, cat[1],
-                    "Language categories’ labels from bl_i18n_utils/settings.py", reports, None, settings)
+        process_msg(
+            msgs, settings.DEFAULT_CONTEXT, lng[1], "Languages’ labels from bl_i18n_utils/settings.py",
+            reports, None, settings,
+        )
 
     # Get strings from asset catalogs and blend files.
     # This loads each asset blend file in turn.
@@ -1240,7 +1266,7 @@ def main():
     parser.add_argument('-m', '--no_messages', default=True, action="store_false", help="No export of UI messages.")
     parser.add_argument('-o', '--output', default=None, help="Output POT file path.")
     parser.add_argument('-s', '--settings', default=None,
-                        help="Override (some) default settings. Either a JSon file name, or a JSon string.")
+                        help="Override (some) default settings. Either a JSON file name, or a JSON string.")
     args = parser.parse_args(argv)
 
     settings = settings_i18n.I18nSettings()

@@ -6,16 +6,19 @@
  * \ingroup cmpnodes
  */
 
-#include "BLI_math_base.hh"
+#include "BLI_assert.h"
 #include "BLI_math_vector.hh"
 #include "BLI_math_vector_types.hh"
+
+#include "DNA_node_types.h"
 
 #include "GPU_shader.hh"
 #include "GPU_texture.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
+#include "COM_domain.hh"
 #include "COM_node_operation.hh"
 #include "COM_utilities.hh"
 
@@ -29,24 +32,29 @@ static void cmp_node_map_uv_declare(NodeDeclarationBuilder &b)
 {
   b.add_input<decl::Color>("Image")
       .default_value({1.0f, 1.0f, 1.0f, 1.0f})
-      .compositor_realization_mode(CompositorInputRealizationMode::Transforms);
+      .compositor_realization_mode(CompositorInputRealizationMode::Transforms)
+      .structure_type(StructureType::Dynamic);
   b.add_input<decl::Vector>("UV")
       .default_value({1.0f, 0.0f, 0.0f})
       .min(0.0f)
       .max(1.0f)
-      .compositor_domain_priority(0);
-  b.add_output<decl::Color>("Image");
+      .description(
+          "The UV coordinates at which to sample the texture. The Z component is assumed to "
+          "contain an alpha channel")
+      .compositor_domain_priority(0)
+      .structure_type(StructureType::Dynamic);
+
+  b.add_output<decl::Color>("Image").structure_type(StructureType::Dynamic);
 }
 
 static void node_composit_buts_map_uv(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "filter_type", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
-  uiItemR(layout, ptr, "alpha", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "filter_type", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
 }
 
 static void node_composit_init_map_uv(bNodeTree * /*ntree*/, bNode *node)
 {
-  node->custom2 = CMP_NODE_MAP_UV_FILTERING_ANISOTROPIC;
+  node->custom2 = CMP_NODE_INTERPOLATION_ANISOTROPIC;
 }
 
 using namespace blender::compositor;
@@ -57,8 +65,10 @@ class MapUVOperation : public NodeOperation {
 
   void execute() override
   {
-    if (get_input("Image").is_single_value()) {
-      get_input("Image").pass_through(get_result("Image"));
+    const Result &input = this->get_input("Image");
+    if (input.is_single_value()) {
+      Result &output = this->get_result("Image");
+      output.share_data(input);
       return;
     }
 
@@ -72,23 +82,19 @@ class MapUVOperation : public NodeOperation {
 
   void execute_gpu()
   {
-    GPUShader *shader = context().get_shader(get_shader_name());
+    const Interpolation interpolation = this->get_interpolation();
+    GPUShader *shader = context().get_shader(this->get_shader_name(interpolation));
     GPU_shader_bind(shader);
 
-    const bool nearest_neighbour = get_nearest_neighbour();
-    if (!nearest_neighbour) {
-      GPU_shader_uniform_1f(
-          shader, "gradient_attenuation_factor", get_gradient_attenuation_factor());
-    }
-
     const Result &input_image = get_input("Image");
-    if (nearest_neighbour) {
-      GPU_texture_mipmap_mode(input_image, false, false);
-      GPU_texture_anisotropic_filter(input_image, false);
+    if (interpolation == Interpolation::Anisotropic) {
+      GPU_texture_anisotropic_filter(input_image, true);
+      GPU_texture_mipmap_mode(input_image, true, true);
     }
     else {
-      GPU_texture_mipmap_mode(input_image, true, true);
-      GPU_texture_anisotropic_filter(input_image, true);
+      const bool use_bilinear = ELEM(
+          interpolation, Interpolation::Bilinear, Interpolation::Bicubic);
+      GPU_texture_filter_mode(input_image, use_bilinear);
     }
 
     GPU_texture_extend_mode(input_image, GPU_SAMPLER_EXTEND_MODE_CLAMP_TO_BORDER);
@@ -110,35 +116,57 @@ class MapUVOperation : public NodeOperation {
     GPU_shader_unbind();
   }
 
-  char const *get_shader_name()
+  char const *get_shader_name(const Interpolation &interpolation)
   {
-    return get_nearest_neighbour() ? "compositor_map_uv_nearest_neighbour" :
-                                     "compositor_map_uv_anisotropic";
+    switch (interpolation) {
+      case Interpolation::Anisotropic:
+        return "compositor_map_uv_anisotropic";
+      case Interpolation::Bicubic:
+        return "compositor_map_uv_bicubic";
+      case Interpolation::Bilinear:
+      case Interpolation::Nearest:
+        return "compositor_map_uv";
+    }
+    BLI_assert_unreachable();
+    return "compositor_map_uv";
   }
 
   void execute_cpu()
   {
+    const Interpolation interpolation = this->get_interpolation();
     const Result &input_uv = get_input("UV");
     if (input_uv.is_single_value()) {
-      this->execute_single_cpu();
+      this->execute_single_cpu(interpolation);
       return;
     }
-
-    if (this->get_nearest_neighbour()) {
-      this->execute_cpu_nearest();
+    if (interpolation == Interpolation::Anisotropic) {
+      this->execute_cpu_anisotropic();
     }
     else {
-      this->execute_cpu_anisotropic();
+      this->execute_cpu_interpolation(interpolation);
     }
   }
 
-  void execute_single_cpu()
+  void execute_single_cpu(const Interpolation &interpolation)
   {
     const Result &input_uv = get_input("UV");
     const Result &input_image = get_input("Image");
 
     float2 uv_coordinates = input_uv.get_single_value<float3>().xy();
-    float4 sampled_color = input_image.sample_nearest_zero(uv_coordinates);
+    float4 sampled_color{0.0f};
+    switch (interpolation) {
+      case Interpolation::Nearest:
+        sampled_color = input_image.sample_nearest_zero(uv_coordinates);
+        break;
+      case Interpolation::Bilinear:
+        sampled_color = input_image.sample_bilinear_zero(uv_coordinates);
+        break;
+      /* NOTE: The anisotropic case should be handled after reimplementation of EWA. */
+      case Interpolation::Anisotropic:
+      case Interpolation::Bicubic:
+        sampled_color = input_image.sample_cubic_wrap(uv_coordinates, false, false);
+        break;
+    }
 
     /* The UV input is assumed to contain an alpha channel as its third channel, since the
      * UV coordinates might be defined in only a subset area of the UV texture as mentioned.
@@ -155,7 +183,7 @@ class MapUVOperation : public NodeOperation {
     output.set_single_value(result);
   }
 
-  void execute_cpu_nearest()
+  void execute_cpu_interpolation(const Interpolation &interpolation)
   {
     const Result &input_image = get_input("Image");
     const Result &input_uv = get_input("UV");
@@ -166,8 +194,23 @@ class MapUVOperation : public NodeOperation {
 
     parallel_for(domain.size, [&](const int2 texel) {
       float2 uv_coordinates = input_uv.load_pixel<float3>(texel).xy();
+      float4 sampled_color{0.0f};
 
-      float4 sampled_color = input_image.sample_nearest_zero(uv_coordinates);
+      switch (interpolation) {
+        /* Anisotropic is handled separately. */
+        case Interpolation::Anisotropic:
+          BLI_assert_unreachable();
+          break;
+        case Interpolation::Nearest:
+          sampled_color = input_image.sample_nearest_zero(uv_coordinates);
+          break;
+        case Interpolation::Bilinear:
+          sampled_color = input_image.sample_bilinear_zero(uv_coordinates);
+          break;
+        case Interpolation::Bicubic:
+          sampled_color = input_image.sample_cubic_wrap(uv_coordinates, false, false);
+          break;
+      }
 
       /* The UV input is assumed to contain an alpha channel as its third channel, since the
        * UV coordinates might be defined in only a subset area of the UV texture as mentioned.
@@ -191,7 +234,6 @@ class MapUVOperation : public NodeOperation {
     const Domain domain = compute_domain();
     Result &output_image = get_result("Image");
     output_image.allocate_texture(domain);
-    const float gradient_attenuation_factor = this->get_gradient_attenuation_factor();
 
     /* In order to perform EWA sampling, we need to compute the partial derivative of the UV
      * coordinates along the x and y directions using a finite difference approximation. But in
@@ -231,20 +273,6 @@ class MapUVOperation : public NodeOperation {
          * to utilize the anisotropic filtering capabilities of the sampler. */
         float4 sampled_color = input_image.sample_ewa_zero(coordinates, x_gradient, y_gradient);
 
-        /* The UV coordinates might be defined in only a subset area of the UV textures, in which
-         * case, the gradients would be infinite at the boundary of that area, which would
-         * produce erroneous results due to anisotropic filtering. To workaround this, we
-         * attenuate the result if its computed gradients are too high such that the result tends
-         * to zero when the magnitude of the gradients tends to one, that is when their sum tends
-         * to 2. One is chosen as the threshold because that's the maximum gradient magnitude
-         * when the boundary is the maximum sampler value of one and the out of bound values are
-         * zero. Additionally, the user supplied gradient attenuation factor can be used to
-         * control this attenuation or even disable it when it is zero, ranging between zero and
-         * one. */
-        float gradient_magnitude = (math::length(x_gradient) + math::length(y_gradient)) / 2.0f;
-        float gradient_attenuation = math::max(
-            0.0f, 1.0f - gradient_attenuation_factor * gradient_magnitude);
-
         /* The UV input is assumed to contain an alpha channel as its third channel, since the
          * UV coordinates might be defined in only a subset area of the UV texture as mentioned.
          * In that case, the alpha is typically opaque at the subset area and transparent
@@ -253,7 +281,7 @@ class MapUVOperation : public NodeOperation {
          * engines, hence the mentioned logic. */
         float alpha = input_uv.load_pixel<float3>(texel).z;
 
-        float4 result = sampled_color * gradient_attenuation * alpha;
+        float4 result = sampled_color * alpha;
 
         output_image.store_pixel(texel, result);
       };
@@ -273,18 +301,21 @@ class MapUVOperation : public NodeOperation {
     });
   }
 
-  /* A factor that controls the attenuation of the result at the pixels where the gradients of
-   * the UV texture are too high, see the shader for more information. The factor ranges between
-   * zero and one, where it has no effect when it is zero and performs full attenuation when it
-   * is 1. */
-  float get_gradient_attenuation_factor()
+  Interpolation get_interpolation() const
   {
-    return bnode().custom1 / 100.0f;
-  }
+    switch (static_cast<CMPNodeInterpolation>(bnode().custom2)) {
+      case CMP_NODE_INTERPOLATION_ANISOTROPIC:
+        return Interpolation::Anisotropic;
+      case CMP_NODE_INTERPOLATION_NEAREST:
+        return Interpolation::Nearest;
+      case CMP_NODE_INTERPOLATION_BILINEAR:
+        return Interpolation::Bilinear;
+      case CMP_NODE_INTERPOLATION_BICUBIC:
+        return Interpolation::Bicubic;
+    }
 
-  bool get_nearest_neighbour()
-  {
-    return bnode().custom2 == CMP_NODE_MAP_UV_FILTERING_NEAREST;
+    BLI_assert_unreachable();
+    return Interpolation::Nearest;
   }
 };
 
@@ -295,7 +326,7 @@ static NodeOperation *get_compositor_operation(Context &context, DNode node)
 
 }  // namespace blender::nodes::node_composite_map_uv_cc
 
-void register_node_type_cmp_mapuv()
+static void register_node_type_cmp_mapuv()
 {
   namespace file_ns = blender::nodes::node_composite_map_uv_cc;
 
@@ -314,3 +345,4 @@ void register_node_type_cmp_mapuv()
 
   blender::bke::node_register_type(ntype);
 }
+NOD_REGISTER_NODE(register_node_type_cmp_mapuv)

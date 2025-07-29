@@ -60,12 +60,14 @@
 #include "WM_types.hh"
 
 #include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_view2d.hh"
 
 #include "RNA_access.hh"
 #include "RNA_define.hh"
 #include "RNA_enum_types.hh"
 #include "RNA_path.hh"
+#include "RNA_prototypes.hh"
 
 #include "GPU_material.hh"
 
@@ -100,7 +102,9 @@ static void outliner_copybuffer_filepath_get(char filepath[FILE_MAX], size_t fil
 /** \name Highlight on Cursor Motion Operator
  * \{ */
 
-static int outliner_highlight_update_invoke(bContext *C, wmOperator * /*op*/, const wmEvent *event)
+static wmOperatorStatus outliner_highlight_update_invoke(bContext *C,
+                                                         wmOperator * /*op*/,
+                                                         const wmEvent *event)
 {
   /* stop highlighting if out of area */
   if (!ED_screen_area_active(C)) {
@@ -202,10 +206,13 @@ struct OpenCloseData {
   int x_location;
 };
 
-static int outliner_item_openclose_modal(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus outliner_item_openclose_modal(bContext *C,
+                                                      wmOperator *op,
+                                                      const wmEvent *event)
 {
   ARegion *region = CTX_wm_region(C);
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
+  OpenCloseData *data = (OpenCloseData *)op->customdata;
 
   float view_mval[2];
   UI_view2d_region_to_view(
@@ -213,8 +220,6 @@ static int outliner_item_openclose_modal(bContext *C, wmOperator *op, const wmEv
 
   if (event->type == MOUSEMOVE) {
     TreeElement *te = outliner_find_item_at_y(space_outliner, &space_outliner->tree, view_mval[1]);
-
-    OpenCloseData *data = (OpenCloseData *)op->customdata;
 
     /* Only openclose if mouse is not over the previously toggled element */
     if (te && TREESTORE(te) != data->prev_tselem) {
@@ -235,7 +240,7 @@ static int outliner_item_openclose_modal(bContext *C, wmOperator *op, const wmEv
     }
   }
   else if (event->val == KM_RELEASE) {
-    MEM_freeN(op->customdata);
+    MEM_freeN(data);
 
     return OPERATOR_FINISHED;
   }
@@ -243,7 +248,9 @@ static int outliner_item_openclose_modal(bContext *C, wmOperator *op, const wmEv
   return OPERATOR_RUNNING_MODAL;
 }
 
-static int outliner_item_openclose_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus outliner_item_openclose_invoke(bContext *C,
+                                                       wmOperator *op,
+                                                       const wmEvent *event)
 {
   ARegion *region = CTX_wm_region(C);
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
@@ -274,7 +281,7 @@ static int outliner_item_openclose_invoke(bContext *C, wmOperator *op, const wmE
     }
 
     /* Store last expanded tselem and x coordinate of disclosure triangle */
-    OpenCloseData *toggle_data = MEM_cnew<OpenCloseData>("open_close_data");
+    OpenCloseData *toggle_data = MEM_callocN<OpenCloseData>("open_close_data");
     toggle_data->prev_tselem = tselem;
     toggle_data->open = open;
     toggle_data->x_location = te->xs;
@@ -337,7 +344,7 @@ static void do_item_rename(ARegion *region,
            TSE_RNA_PROPERTY,
            TSE_RNA_ARRAY_ELEM,
            TSE_ID_BASE) ||
-      ELEM(tselem->type, TSE_SCENE_OBJECTS_BASE, TSE_GENERIC_LABEL))
+      ELEM(tselem->type, TSE_SCENE_OBJECTS_BASE, TSE_GENERIC_LABEL, TSE_GPENCIL_EFFECT_BASE))
   {
     BKE_report(reports, RPT_INFO, "Not an editable name");
   }
@@ -412,7 +419,9 @@ static TreeElement *outliner_item_rename_find_hovered(const SpaceOutliner *space
   return nullptr;
 }
 
-static int outliner_item_rename_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus outliner_item_rename_invoke(bContext *C,
+                                                    wmOperator *op,
+                                                    const wmEvent *event)
 {
   ARegion *region = CTX_wm_region(C);
   View2D *v2d = &region->v2d;
@@ -458,7 +467,7 @@ void OUTLINER_OT_item_rename(wmOperatorType *ot)
                          false,
                          "Use Active",
                          "Rename the active item, rather than the one the mouse is over");
-  RNA_def_property_flag(prop, PropertyFlag(PROP_SKIP_SAVE | PROP_HIDDEN));
+  RNA_def_property_flag(prop, PROP_SKIP_SAVE | PROP_HIDDEN);
 }
 
 /** \} */
@@ -564,7 +573,9 @@ static int outliner_id_delete_tag(bContext *C,
   return id_tagged_num;
 }
 
-static int outliner_id_delete_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus outliner_id_delete_invoke(bContext *C,
+                                                  wmOperator *op,
+                                                  const wmEvent *event)
 {
   Main *bmain = CTX_data_main(C);
   ARegion *region = CTX_wm_region(C);
@@ -611,7 +622,7 @@ void OUTLINER_OT_id_delete(wmOperatorType *ot)
 /** \name ID Remap Operator
  * \{ */
 
-static int outliner_id_remap_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus outliner_id_remap_exec(bContext *C, wmOperator *op)
 {
   Main *bmain = CTX_data_main(C);
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
@@ -684,7 +695,7 @@ static bool outliner_id_remap_find_tree_element(bContext *C,
   return false;
 }
 
-static int outliner_id_remap_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus outliner_id_remap_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
   ARegion *region = CTX_wm_region(C);
@@ -781,7 +792,7 @@ void id_remap_fn(bContext *C,
   RNA_enum_set(&op_props, "id_type", GS(tselem->id->name));
   RNA_enum_set_identifier(C, &op_props, "old_id", tselem->id->name + 2);
 
-  WM_operator_name_call_ptr(C, ot, WM_OP_INVOKE_DEFAULT, &op_props, nullptr);
+  WM_operator_name_call_ptr(C, ot, wm::OpCallContext::InvokeDefault, &op_props, nullptr);
 
   WM_operator_properties_free(&op_props);
 }
@@ -821,7 +832,7 @@ static int outliner_id_copy_tag(SpaceOutliner *space_outliner,
   return num_ids;
 }
 
-static int outliner_id_copy_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus outliner_id_copy_exec(bContext *C, wmOperator *op)
 {
   using namespace blender::bke::blendfile;
 
@@ -865,7 +876,7 @@ void OUTLINER_OT_id_copy(wmOperatorType *ot)
 /** \name ID Paste Operator
  * \{ */
 
-static int outliner_id_paste_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus outliner_id_paste_exec(bContext *C, wmOperator *op)
 {
   char filepath[FILE_MAX];
   const short flag = FILE_AUTOSELECT | FILE_ACTIVE_COLLECTION;
@@ -903,14 +914,78 @@ void OUTLINER_OT_id_paste(wmOperatorType *ot)
 /** \} */
 
 /* -------------------------------------------------------------------- */
+/** \name Linked ID Relocate Operator
+ * \{ */
+
+static wmOperatorStatus outliner_id_relocate_invoke(bContext *C,
+                                                    wmOperator *op,
+                                                    const wmEvent * /*event*/)
+{
+  PointerRNA id_linked_ptr = CTX_data_pointer_get_type(C, "id", &RNA_ID);
+  ID *id_linked = static_cast<ID *>(id_linked_ptr.data);
+
+  if (!id_linked) {
+    BKE_report(op->reports, RPT_ERROR_INVALID_INPUT, "There is no active data-block");
+    return OPERATOR_CANCELLED;
+  }
+  if (!ID_IS_LINKED(id_linked) || !BKE_idtype_idcode_is_linkable(GS(id_linked->name))) {
+    BKE_reportf(op->reports,
+                RPT_ERROR_INVALID_INPUT,
+                "The active data-block '%s' is not a valid linked one",
+                BKE_id_name(*id_linked));
+    return OPERATOR_CANCELLED;
+  }
+  if (BKE_library_ID_is_indirectly_used(CTX_data_main(C), id_linked)) {
+    BKE_reportf(op->reports,
+                RPT_ERROR_INVALID_INPUT,
+                "The active data-block '%s' is used by other linked data",
+                BKE_id_name(*id_linked));
+    return OPERATOR_CANCELLED;
+  }
+
+  wmOperatorType *ot = WM_operatortype_find("WM_OT_id_linked_relocate", false);
+  PointerRNA op_props;
+
+  WM_operator_properties_create_ptr(&op_props, ot);
+  RNA_int_set(&op_props, "id_session_uid", *reinterpret_cast<int *>(&id_linked->session_uid));
+
+  const wmOperatorStatus ret = WM_operator_name_call_ptr(
+      C, ot, wm::OpCallContext::InvokeDefault, &op_props, nullptr);
+
+  WM_operator_properties_free(&op_props);
+
+  /* If the matching WM operator invoke was successful, it was added to modal handlers. This
+   * operator however is _not_ modal, and will leak memory if it returns this status. */
+  return (ret == OPERATOR_RUNNING_MODAL) ? OPERATOR_FINISHED : ret;
+}
+
+void OUTLINER_OT_id_linked_relocate(wmOperatorType *ot)
+{
+  ot->name = "Relocate Linked ID";
+  ot->idname = "OUTLINER_OT_id_linked_relocate";
+  ot->description =
+      "Replace the active linked ID (and its dependencies if any) by another one, from the same "
+      "or a different library";
+
+  ot->invoke = outliner_id_relocate_invoke;
+  ot->poll = ED_operator_region_outliner_active;
+
+  /* Flags. No undo, no registering, all the actual work/changes is done by the matching WM
+   * operator. */
+  ot->flag = 0;
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
 /** \name Library Relocate Operator
  * \{ */
 
-static int lib_relocate(
+static wmOperatorStatus lib_relocate(
     bContext *C, TreeElement *te, TreeStoreElem *tselem, wmOperatorType *ot, const bool reload)
 {
   PointerRNA op_props;
-  int ret = 0;
+  wmOperatorStatus ret = wmOperatorStatus(0);
 
   BLI_assert(te->idcode == ID_LI && tselem->id != nullptr);
   UNUSED_VARS_NDEBUG(te);
@@ -935,10 +1010,10 @@ static int lib_relocate(
     RNA_string_set(&op_props, "directory", dir);
     RNA_string_set(&op_props, "filename", filename);
 
-    ret = WM_operator_name_call_ptr(C, ot, WM_OP_EXEC_DEFAULT, &op_props, nullptr);
+    ret = WM_operator_name_call_ptr(C, ot, wm::OpCallContext::ExecDefault, &op_props, nullptr);
   }
   else {
-    ret = WM_operator_name_call_ptr(C, ot, WM_OP_INVOKE_DEFAULT, &op_props, nullptr);
+    ret = WM_operator_name_call_ptr(C, ot, wm::OpCallContext::InvokeDefault, &op_props, nullptr);
   }
 
   WM_operator_properties_free(&op_props);
@@ -946,7 +1021,7 @@ static int lib_relocate(
   return ret;
 }
 
-static int outliner_lib_relocate_invoke_do(
+static wmOperatorStatus outliner_lib_relocate_invoke_do(
     bContext *C, ReportList *reports, TreeElement *te, const float mval[2], const bool reload)
 {
   if (mval[1] > te->ys && mval[1] < te->ys + UI_UNIT_Y) {
@@ -968,17 +1043,19 @@ static int outliner_lib_relocate_invoke_do(
   }
   else {
     LISTBASE_FOREACH (TreeElement *, te_sub, &te->subtree) {
-      int ret;
+      wmOperatorStatus ret;
       if ((ret = outliner_lib_relocate_invoke_do(C, reports, te_sub, mval, reload))) {
         return ret;
       }
     }
   }
 
-  return 0;
+  return wmOperatorStatus(0);
 }
 
-static int outliner_lib_relocate_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus outliner_lib_relocate_invoke(bContext *C,
+                                                     wmOperator *op,
+                                                     const wmEvent *event)
 {
   ARegion *region = CTX_wm_region(C);
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
@@ -989,7 +1066,7 @@ static int outliner_lib_relocate_invoke(bContext *C, wmOperator *op, const wmEve
   UI_view2d_region_to_view(&region->v2d, event->mval[0], event->mval[1], &fmval[0], &fmval[1]);
 
   LISTBASE_FOREACH (TreeElement *, te, &space_outliner->tree) {
-    int ret;
+    wmOperatorStatus ret;
 
     if ((ret = outliner_lib_relocate_invoke_do(C, op->reports, te, fmval, false))) {
       return ret;
@@ -1028,7 +1105,9 @@ void lib_relocate_fn(bContext *C,
   lib_relocate(C, te, tselem, ot, false);
 }
 
-static int outliner_lib_reload_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus outliner_lib_reload_invoke(bContext *C,
+                                                   wmOperator *op,
+                                                   const wmEvent *event)
 {
   ARegion *region = CTX_wm_region(C);
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
@@ -1039,7 +1118,7 @@ static int outliner_lib_reload_invoke(bContext *C, wmOperator *op, const wmEvent
   UI_view2d_region_to_view(&region->v2d, event->mval[0], event->mval[1], &fmval[0], &fmval[1]);
 
   LISTBASE_FOREACH (TreeElement *, te, &space_outliner->tree) {
-    int ret;
+    wmOperatorStatus ret;
 
     if ((ret = outliner_lib_relocate_invoke_do(C, op->reports, te, fmval, true))) {
       return ret;
@@ -1163,7 +1242,7 @@ bool outliner_flag_flip(const ListBase &lb, const short flag)
 /** \name Toggle Expanded (Outliner) Operator
  * \{ */
 
-static int outliner_toggle_expanded_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus outliner_toggle_expanded_exec(bContext *C, wmOperator * /*op*/)
 {
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
   ARegion *region = CTX_wm_region(C);
@@ -1200,7 +1279,7 @@ void OUTLINER_OT_expanded_toggle(wmOperatorType *ot)
 /** \name Toggle Selected (Outliner) Operator
  * \{ */
 
-static int outliner_select_all_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus outliner_select_all_exec(bContext *C, wmOperator *op)
 {
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
   ARegion *region = CTX_wm_region(C);
@@ -1255,7 +1334,7 @@ void OUTLINER_OT_select_all(wmOperatorType *ot)
 /** \name Start / Clear Search Filter Operators
  * \{ */
 
-static int outliner_start_filter_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus outliner_start_filter_exec(bContext *C, wmOperator * /*op*/)
 {
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
   ScrArea *area = CTX_wm_area(C);
@@ -1277,7 +1356,7 @@ void OUTLINER_OT_start_filter(wmOperatorType *ot)
   ot->poll = ED_operator_outliner_active;
 }
 
-static int outliner_clear_filter_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus outliner_clear_filter_exec(bContext *C, wmOperator * /*op*/)
 {
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
   space_outliner->search_string[0] = '\0';
@@ -1315,17 +1394,17 @@ void outliner_set_coordinates(const ARegion *region, const SpaceOutliner *space_
   });
 }
 
-/* return 1 when levels were opened */
-static int outliner_open_back(TreeElement *te)
+/** Return true when levels were opened. */
+static bool outliner_open_back(TreeElement *te)
 {
   TreeStoreElem *tselem;
-  int retval = 0;
+  bool retval = false;
 
   for (te = te->parent; te; te = te->parent) {
     tselem = TREESTORE(te);
     if (tselem->flag & TSE_CLOSED) {
       tselem->flag &= ~TSE_CLOSED;
-      retval = 1;
+      retval = true;
     }
   }
   return retval;
@@ -1390,7 +1469,7 @@ static void outliner_show_active(SpaceOutliner *space_outliner,
   }
 }
 
-static int outliner_show_active_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus outliner_show_active_exec(bContext *C, wmOperator * /*op*/)
 {
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
   const Scene *scene = CTX_data_scene(C);
@@ -1448,7 +1527,7 @@ void OUTLINER_OT_show_active(wmOperatorType *ot)
 /** \name View Panning (Outliner) Operator
  * \{ */
 
-static int outliner_scroll_page_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus outliner_scroll_page_exec(bContext *C, wmOperator *op)
 {
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
   ARegion *region = CTX_wm_region(C);
@@ -1512,7 +1591,7 @@ static void outliner_openclose_level(ListBase *lb, int curlevel, int level, int 
   }
 }
 
-static int outliner_one_level_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus outliner_one_level_exec(bContext *C, wmOperator *op)
 {
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
   ARegion *region = CTX_wm_region(C);
@@ -1620,7 +1699,7 @@ static void tree_element_show_hierarchy(Scene *scene, SpaceOutliner *space_outli
 }
 
 /* show entire object level hierarchy */
-static int outliner_show_hierarchy_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus outliner_show_hierarchy_exec(bContext *C, wmOperator * /*op*/)
 {
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
   ARegion *region = CTX_wm_region(C);
@@ -1701,7 +1780,7 @@ static void tree_element_to_path(TreeElement *te,
 
   /* step 1: flatten out hierarchy of parents into a flat chain */
   for (TreeElement *tem = te->parent; tem; tem = tem->parent) {
-    LinkData *ld = MEM_cnew<LinkData>("LinkData for tree_element_to_path()");
+    LinkData *ld = MEM_callocN<LinkData>("LinkData for tree_element_to_path()");
     ld->data = tem;
     BLI_addhead(&hierarchy, ld);
   }
@@ -1906,7 +1985,7 @@ static void do_outliner_drivers_editop(SpaceOutliner *space_outliner,
 /** \name Driver Add Operator
  * \{ */
 
-static int outliner_drivers_addsel_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus outliner_drivers_addsel_exec(bContext *C, wmOperator *op)
 {
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
 
@@ -1926,12 +2005,12 @@ static int outliner_drivers_addsel_exec(bContext *C, wmOperator *op)
 
 void OUTLINER_OT_drivers_add_selected(wmOperatorType *ot)
 {
-  /* api callbacks */
+  /* API callbacks. */
   ot->idname = "OUTLINER_OT_drivers_add_selected";
   ot->name = "Add Drivers for Selected";
   ot->description = "Add drivers to selected items";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = outliner_drivers_addsel_exec;
   ot->poll = ed_operator_outliner_datablocks_active;
 
@@ -1945,7 +2024,7 @@ void OUTLINER_OT_drivers_add_selected(wmOperatorType *ot)
 /** \name Driver Remove Operator
  * \{ */
 
-static int outliner_drivers_deletesel_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus outliner_drivers_deletesel_exec(bContext *C, wmOperator *op)
 {
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
 
@@ -1970,7 +2049,7 @@ void OUTLINER_OT_drivers_delete_selected(wmOperatorType *ot)
   ot->name = "Delete Drivers for Selected";
   ot->description = "Delete drivers assigned to selected items";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = outliner_drivers_deletesel_exec;
   ot->poll = ed_operator_outliner_datablocks_active;
 
@@ -2090,7 +2169,7 @@ static void do_outliner_keyingset_editop(SpaceOutliner *space_outliner,
 /** \name Keying-Set Add Operator
  * \{ */
 
-static int outliner_keyingset_additems_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus outliner_keyingset_additems_exec(bContext *C, wmOperator *op)
 {
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
   Scene *scene = CTX_data_scene(C);
@@ -2121,7 +2200,7 @@ void OUTLINER_OT_keyingset_add_selected(wmOperatorType *ot)
   ot->name = "Keying Set Add Selected";
   ot->description = "Add selected items (blue-gray rows) to active Keying Set";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = outliner_keyingset_additems_exec;
   ot->poll = ed_operator_outliner_datablocks_active;
 
@@ -2135,7 +2214,7 @@ void OUTLINER_OT_keyingset_add_selected(wmOperatorType *ot)
 /** \name Keying-Set Remove Operator
  * \{ */
 
-static int outliner_keyingset_removeitems_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus outliner_keyingset_removeitems_exec(bContext *C, wmOperator * /*op*/)
 {
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
   Scene *scene = CTX_data_scene(C);
@@ -2162,7 +2241,7 @@ void OUTLINER_OT_keyingset_remove_selected(wmOperatorType *ot)
   ot->name = "Keying Set Remove Selected";
   ot->description = "Remove selected items (blue-gray rows) from active Keying Set";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = outliner_keyingset_removeitems_exec;
   ot->poll = ed_operator_outliner_datablocks_active;
 
@@ -2263,7 +2342,9 @@ static bool outliner_orphans_purge_check(bContext *C, wmOperator *op)
   return true;
 }
 
-static int outliner_orphans_purge_invoke(bContext *C, wmOperator *op, const wmEvent * /*event*/)
+static wmOperatorStatus outliner_orphans_purge_invoke(bContext *C,
+                                                      wmOperator *op,
+                                                      const wmEvent * /*event*/)
 {
   op->customdata = MEM_new<LibQueryUnusedIDsData>(__func__);
 
@@ -2277,7 +2358,7 @@ static int outliner_orphans_purge_invoke(bContext *C, wmOperator *op, const wmEv
                                         IFACE_("Delete"));
 }
 
-static int outliner_orphans_purge_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus outliner_orphans_purge_exec(bContext *C, wmOperator *op)
 {
   Main *bmain = CTX_data_main(C);
   ScrArea *area = CTX_wm_area(C);
@@ -2348,21 +2429,21 @@ static void outliner_orphans_purge_ui(bContext * /*C*/, wmOperator *op)
 
   std::string unused_message;
   unused_message_gen(unused_message, data.num_local);
-  uiLayout *column = uiLayoutColumn(layout, true);
-  uiItemR(column, ptr, "do_local_ids", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-  uiLayout *row = uiLayoutRow(column, true);
-  uiItemS_ex(row, 2.67f);
-  uiItemL(row, unused_message, ICON_NONE);
+  uiLayout *column = &layout->column(true);
+  column->prop(ptr, "do_local_ids", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  uiLayout *row = &column->row(true);
+  row->separator(2.67f);
+  row->label(unused_message, ICON_NONE);
 
   unused_message = "";
   unused_message_gen(unused_message, data.num_linked);
-  column = uiLayoutColumn(layout, true);
-  uiItemR(column, ptr, "do_linked_ids", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-  row = uiLayoutRow(column, true);
-  uiItemS_ex(row, 2.67f);
-  uiItemL(row, unused_message, ICON_NONE);
+  column = &layout->column(true);
+  column->prop(ptr, "do_linked_ids", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  row = &column->row(true);
+  row->separator(2.67f);
+  row->label(unused_message, ICON_NONE);
 
-  uiItemR(layout, ptr, "do_recursive", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "do_recursive", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 }
 
 void OUTLINER_OT_orphans_purge(wmOperatorType *ot)
@@ -2411,7 +2492,9 @@ void OUTLINER_OT_orphans_purge(wmOperatorType *ot)
 /** \name Manage Orphan Data-Blocks Operator
  * \{ */
 
-static int outliner_orphans_manage_invoke(bContext *C, wmOperator * /*op*/, const wmEvent *event)
+static wmOperatorStatus outliner_orphans_manage_invoke(bContext *C,
+                                                       wmOperator * /*op*/,
+                                                       const wmEvent *event)
 {
   const int sizex = int(450.0f * UI_SCALE_FAC);
   const int sizey = int(450.0f * UI_SCALE_FAC);

@@ -14,7 +14,6 @@
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
 
-#include "GHOST_DisplayManagerX11.hh"
 #include "GHOST_EventButton.hh"
 #include "GHOST_EventCursor.hh"
 #include "GHOST_EventDragnDrop.hh"
@@ -251,11 +250,7 @@ GHOST_TSuccess GHOST_SystemX11::init()
 #ifdef WITH_INPUT_NDOF
     m_ndofManager = new GHOST_NDOFManagerUnix(*this);
 #endif
-    m_displayManager = new GHOST_DisplayManagerX11(this);
-
-    if (m_displayManager) {
-      return GHOST_kSuccess;
-    }
+    return GHOST_kSuccess;
   }
 
   return GHOST_kFailure;
@@ -710,6 +705,8 @@ bool GHOST_SystemX11::processEvents(bool waitForEvent)
                   XK_Alt_R,
                   XK_Super_L,
                   XK_Super_R,
+                  XK_Hyper_L,
+                  XK_Hyper_R,
               };
 
               for (int i = 0; i < int(ARRAY_SIZE(modifiers)); i++) {
@@ -1033,14 +1030,14 @@ void GHOST_SystemX11::processEvent(XEvent *xe)
       char ascii;
 
 #if defined(WITH_X11_XINPUT) && defined(X_HAVE_UTF8_STRING)
-      /* utf8_array[] is initial buffer used for Xutf8LookupString().
-       * if the length of the utf8 string exceeds this array, allocate
-       * another memory area and call Xutf8LookupString() again.
+      /* `utf8_array[]` is initial buffer used for #Xutf8LookupString().
+       * if the length of the UTF8 string exceeds this array, allocate
+       * another memory area and call #Xutf8LookupString() again.
        * the last 5 bytes are used to avoid segfault that might happen
-       * at the end of this buffer when the constructor of GHOST_EventKey
+       * at the end of this buffer when the constructor of #GHOST_EventKey
        * reads 6 bytes regardless of the effective data length. */
-      char utf8_array[16 * 6 + 5]; /* 16 utf8 characters */
-      int len = 1;                 /* at least one null character will be stored */
+      char utf8_array[16 * 6 + 5]; /* 16 UTF8 characters. */
+      int len = 1;                 /* At least one null character will be stored. */
 #else
       char utf8_array[sizeof(GHOST_TEventKeyData::utf8_buf)] = {'\0'};
 #endif
@@ -1053,7 +1050,7 @@ void GHOST_SystemX11::processEvent(XEvent *xe)
        * - In keyboards like Latin ones, numbers need a 'Shift' to be accessed but key_sym
        *   is unmodified (or anyone swapping the keys with `xmodmap`).
        * - #XLookupKeysym seems to always use first defined key-map (see #47228), which generates
-       *   key-codes unusable by ghost_key_from_keysym for non-Latin-compatible key-maps.
+       *   key-codes unusable by #ghost_key_from_keysym for non-Latin-compatible key-maps.
        *
        * To address this, we:
        * - Try to get a 'number' key_sym using #XLookupKeysym (with virtual shift modifier),
@@ -1104,6 +1101,8 @@ void GHOST_SystemX11::processEvent(XEvent *xe)
         case GHOST_kKeyLeftControl:
         case GHOST_kKeyLeftOS:
         case GHOST_kKeyRightOS:
+        case GHOST_kKeyLeftHyper:
+        case GHOST_kKeyRightHyper:
         case GHOST_kKey0:
         case GHOST_kKey1:
         case GHOST_kKey2:
@@ -1146,7 +1145,7 @@ void GHOST_SystemX11::processEvent(XEvent *xe)
        * Here we look at the 'Shifted' version of the key.
        * If it is a number, then we take it instead of the normal key.
        *
-       * The modified key is sent in the 'ascii's variable anyway.
+       * The modified key is sent in the `ascii`s variable anyway.
        */
       if ((xke->keycode >= 10 && xke->keycode < 20) &&
           ((key_sym = XLookupKeysym(xke, ShiftMask)) >= XK_0) && (key_sym <= XK_9))
@@ -1178,7 +1177,7 @@ void GHOST_SystemX11::processEvent(XEvent *xe)
         if (xic) {
           Status status;
 
-          /* Use utf8 because its not locale repentant, from XORG docs. */
+          /* Use UTF8 because its not locale repentant, from XORG docs. */
           if (!(len = Xutf8LookupString(
                     xic, xke, utf8_buf, sizeof(utf8_array) - 5, &key_sym, &status)))
           {
@@ -1224,8 +1223,8 @@ void GHOST_SystemX11::processEvent(XEvent *xe)
       g_event = new GHOST_EventKey(event_ms, type, window, gkey, is_repeat, utf8_buf);
 
 #if defined(WITH_X11_XINPUT) && defined(X_HAVE_UTF8_STRING)
-      /* when using IM for some languages such as Japanese,
-       * one event inserts multiple utf8 characters */
+      /* When using IM for some languages such as Japanese,
+       * one event inserts multiple UTF8 characters. */
       if (xke->type == KeyPress && xic) {
         uchar c;
         int i = 0;
@@ -1269,13 +1268,13 @@ void GHOST_SystemX11::processEvent(XEvent *xe)
       /* process wheel mouse events and break, only pass on press events */
       if (xbe.button == Button4) {
         if (xbe.type == ButtonPress) {
-          g_event = new GHOST_EventWheel(event_ms, window, 1);
+          g_event = new GHOST_EventWheel(event_ms, window, GHOST_kEventWheelAxisVertical, 1);
         }
         break;
       }
       if (xbe.button == Button5) {
         if (xbe.type == ButtonPress) {
-          g_event = new GHOST_EventWheel(event_ms, window, -1);
+          g_event = new GHOST_EventWheel(event_ms, window, GHOST_kEventWheelAxisVertical, -1);
         }
         break;
       }
@@ -1666,6 +1665,8 @@ GHOST_TSuccess GHOST_SystemX11::getModifierKeys(GHOST_ModifierKeys &keys) const
   const static KeyCode alt_r = XKeysymToKeycode(m_display, XK_Alt_R);
   const static KeyCode super_l = XKeysymToKeycode(m_display, XK_Super_L);
   const static KeyCode super_r = XKeysymToKeycode(m_display, XK_Super_R);
+  const static KeyCode hyper_l = XKeysymToKeycode(m_display, XK_Hyper_L);
+  const static KeyCode hyper_r = XKeysymToKeycode(m_display, XK_Hyper_R);
 
   /* shift */
   keys.set(GHOST_kModifierKeyLeftShift,
@@ -1685,6 +1686,11 @@ GHOST_TSuccess GHOST_SystemX11::getModifierKeys(GHOST_ModifierKeys &keys) const
            ((m_keyboard_vector[super_l >> 3] >> (super_l & 7)) & 1) != 0);
   keys.set(GHOST_kModifierKeyRightOS,
            ((m_keyboard_vector[super_r >> 3] >> (super_r & 7)) & 1) != 0);
+  /* hyper */
+  keys.set(GHOST_kModifierKeyLeftHyper,
+           ((m_keyboard_vector[hyper_l >> 3] >> (hyper_l & 7)) & 1) != 0);
+  keys.set(GHOST_kModifierKeyRightHyper,
+           ((m_keyboard_vector[hyper_r >> 3] >> (hyper_r & 7)) & 1) != 0);
 
   return GHOST_kSuccess;
 }
@@ -1812,14 +1818,20 @@ GHOST_TSuccess GHOST_SystemX11::setCursorPosition(int32_t x, int32_t y)
 
 GHOST_TCapabilityFlag GHOST_SystemX11::getCapabilities() const
 {
-  return GHOST_TCapabilityFlag(GHOST_CAPABILITY_FLAG_ALL &
-                               ~(
-                                   /* No support yet for image copy/paste. */
-                                   GHOST_kCapabilityClipboardImages |
-                                   /* No support yet for IME input methods. */
-                                   GHOST_kCapabilityInputIME |
-                                   /* No support for window decoration styles. */
-                                   GHOST_kCapabilityWindowDecorationStyles));
+  return GHOST_TCapabilityFlag(
+      GHOST_CAPABILITY_FLAG_ALL &
+      /* NOTE: order the following flags as they they're declared in the source. */
+      ~(
+          /* No support yet for image copy/paste. */
+          GHOST_kCapabilityClipboardImage |
+          /* No support yet for IME input methods. */
+          GHOST_kCapabilityInputIME |
+          /* No support for window decoration styles. */
+          GHOST_kCapabilityWindowDecorationStyles |
+          /* No support yet for RGBA mouse cursors. */
+          GHOST_kCapabilityCursorRGBA |
+          /* No support yet for dynamic cursor generation. */
+          GHOST_kCapabilityCursorGenerator));
 }
 
 void GHOST_SystemX11::addDirtyWindow(GHOST_WindowX11 *bad_wind)
@@ -1917,6 +1929,8 @@ static GHOST_TKey ghost_key_from_keysym(const KeySym key)
       GXMAP(type, XK_Alt_R, GHOST_kKeyRightAlt);
       GXMAP(type, XK_Super_L, GHOST_kKeyLeftOS);
       GXMAP(type, XK_Super_R, GHOST_kKeyRightOS);
+      GXMAP(type, XK_Hyper_L, GHOST_kKeyLeftHyper);
+      GXMAP(type, XK_Hyper_R, GHOST_kKeyRightHyper);
 
       GXMAP(type, XK_Insert, GHOST_kKeyInsert);
       GXMAP(type, XK_Delete, GHOST_kKeyDelete);

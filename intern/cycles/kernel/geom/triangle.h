@@ -138,8 +138,8 @@ ccl_device_inline float3 triangle_smooth_normal(KernelGlobals kg,
   const float3 n2 = kernel_data_fetch(tri_vnormal, tri_vindex.z);
 
   const float3 N = safe_normalize(triangle_interpolate(u, v, n0, n1, n2));
-  N_x = safe_normalize(triangle_interpolate(u + du.dx * BUMP_DX, v + dv.dx * BUMP_DX, n0, n1, n2));
-  N_y = safe_normalize(triangle_interpolate(u + du.dy * BUMP_DY, v + dv.dy * BUMP_DY, n0, n1, n2));
+  N_x = safe_normalize(triangle_interpolate(u + du.dx, v + dv.dx, n0, n1, n2));
+  N_y = safe_normalize(triangle_interpolate(u + du.dy, v + dv.dy, n0, n1, n2));
 
   N_x = is_zero(N_x) ? Ng : N_x;
   N_y = is_zero(N_y) ? Ng : N_y;
@@ -222,12 +222,13 @@ ccl_device_inline T triangle_attribute_dfdy(const ccl_private differential &du,
 /* Read attributes on various triangle elements, and compute the partial derivatives if requested.
  */
 template<typename T>
-ccl_device T triangle_attribute(KernelGlobals kg,
-                                const ccl_private ShaderData *sd,
-                                const AttributeDescriptor desc,
-                                ccl_private T *dfdx,
-                                ccl_private T *dfdy)
+ccl_device dual<T> triangle_attribute(KernelGlobals kg,
+                                      const ccl_private ShaderData *sd,
+                                      const AttributeDescriptor desc,
+                                      const bool dx = false,
+                                      const bool dy = false)
 {
+  dual<T> result;
   if (desc.element & (ATTR_ELEMENT_VERTEX | ATTR_ELEMENT_VERTEX_MOTION | ATTR_ELEMENT_CORNER |
                       ATTR_ELEMENT_CORNER_BYTE))
   {
@@ -256,29 +257,22 @@ ccl_device T triangle_attribute(KernelGlobals kg,
     }
 
 #ifdef __RAY_DIFFERENTIALS__
-    if (dfdx) {
-      *dfdx = triangle_attribute_dfdx(sd->du, sd->dv, f0, f1, f2);
+    if (dx) {
+      result.dx = triangle_attribute_dfdx(sd->du, sd->dv, f0, f1, f2);
     }
-    if (dfdy) {
-      *dfdy = triangle_attribute_dfdy(sd->du, sd->dv, f0, f1, f2);
+    if (dy) {
+      result.dy = triangle_attribute_dfdy(sd->du, sd->dv, f0, f1, f2);
     }
 #endif
 
-    return sd->u * f1 + sd->v * f2 + (1.0f - sd->u - sd->v) * f0;
+    result.val = sd->u * f1 + sd->v * f2 + (1.0f - sd->u - sd->v) * f0;
+    return result;
   }
-#ifdef __RAY_DIFFERENTIALS__
-  if (dfdx) {
-    *dfdx = make_zero<T>();
-  }
-  if (dfdy) {
-    *dfdy = make_zero<T>();
-  }
-#endif
 
   if (desc.element == ATTR_ELEMENT_FACE) {
-    return attribute_data_fetch<T>(kg, desc.offset + sd->prim);
+    return dual<T>(attribute_data_fetch<T>(kg, desc.offset + sd->prim));
   }
-  return make_zero<T>();
+  return make_zero<dual<T>>();
 }
 
 CCL_NAMESPACE_END

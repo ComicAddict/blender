@@ -23,6 +23,7 @@
 #include "BLI_utildefines.h"
 
 #include "BLI_asan.h"
+#include "BLI_math_base.h"
 #include "BLI_mempool.h"         /* own include */
 #include "BLI_mempool_private.h" /* own include */
 
@@ -44,20 +45,12 @@
 #  define POISON_REDZONE_SIZE 0
 #endif
 
-/* NOTE: copied from BLO_blend_defs.hh, don't use here because we're in BLI. */
-#ifdef __BIG_ENDIAN__
-/* Big Endian */
-#  define MAKE_ID(a, b, c, d) ((int)(a) << 24 | (int)(b) << 16 | (c) << 8 | (d))
-#  define MAKE_ID_8(a, b, c, d, e, f, g, h) \
-    ((int64_t)(a) << 56 | (int64_t)(b) << 48 | (int64_t)(c) << 40 | (int64_t)(d) << 32 | \
-     (int64_t)(e) << 24 | (int64_t)(f) << 16 | (int64_t)(g) << 8 | (h))
-#else
-/* Little Endian */
-#  define MAKE_ID(a, b, c, d) (int(d) << 24 | int(c) << 16 | (b) << 8 | (a))
-#  define MAKE_ID_8(a, b, c, d, e, f, g, h) \
-    (int64_t(h) << 56 | int64_t(g) << 48 | int64_t(f) << 40 | int64_t(e) << 32 | \
-     int64_t(d) << 24 | int64_t(c) << 16 | int64_t(b) << 8 | (a))
-#endif
+/* NOTE: copied from BLO_core_bhead.hh, don't use here because we're in BLI. */
+/* NOTE: this is endianness-sensitive. */
+#define MAKE_ID(a, b, c, d) (int(d) << 24 | int(c) << 16 | (b) << 8 | (a))
+#define MAKE_ID_8(a, b, c, d, e, f, g, h) \
+  (int64_t(h) << 56 | int64_t(g) << 48 | int64_t(f) << 40 | int64_t(e) << 32 | int64_t(d) << 24 | \
+   int64_t(c) << 16 | int64_t(b) << 8 | (a))
 
 /**
  * Important that this value is an is _not_  aligned with `sizeof(void *)`.
@@ -159,19 +152,6 @@ static void mempool_asan_lock(BLI_mempool *pool)
   UNUSED_VARS(pool);
 #endif
 }
-
-#ifdef USE_CHUNK_POW2
-static uint power_of_2_max_u(uint x)
-{
-  x -= 1;
-  x = x | (x >> 1);
-  x = x | (x >> 2);
-  x = x | (x >> 4);
-  x = x | (x >> 8);
-  x = x | (x >> 16);
-  return x + 1;
-}
-#endif
 
 BLI_INLINE BLI_mempool_chunk *mempool_chunk_find(BLI_mempool_chunk *head, uint index)
 {
@@ -340,7 +320,7 @@ BLI_mempool *BLI_mempool_create(uint esize, uint elem_num, uint pchunk, uint fla
   uint i, maxchunks;
 
   /* allocate the pool structure */
-  pool = MEM_cnew<BLI_mempool>("memory pool");
+  pool = MEM_callocN<BLI_mempool>("memory pool");
 
 #ifdef WITH_ASAN
   BLI_mutex_init(&pool->mutex);
@@ -450,11 +430,6 @@ void *BLI_mempool_calloc(BLI_mempool *pool)
   return retval;
 }
 
-/**
- * Free an element from the mempool.
- *
- * \note doesn't protect against double frees, take care!
- */
 void BLI_mempool_free(BLI_mempool *pool, void *addr)
 {
   BLI_freenode *newhead = static_cast<BLI_freenode *>(addr);
@@ -618,8 +593,9 @@ ParallelMempoolTaskData *mempool_iter_threadsafe_create(BLI_mempool *pool, const
 {
   BLI_assert(pool->flag & BLI_MEMPOOL_ALLOW_ITER);
 
-  ParallelMempoolTaskData *iter_arr = MEM_cnew_array<ParallelMempoolTaskData>(iter_num, __func__);
-  BLI_mempool_chunk **curchunk_threaded_shared = MEM_cnew<BLI_mempool_chunk *>(__func__);
+  ParallelMempoolTaskData *iter_arr = MEM_calloc_arrayN<ParallelMempoolTaskData>(iter_num,
+                                                                                 __func__);
+  BLI_mempool_chunk **curchunk_threaded_shared = MEM_callocN<BLI_mempool_chunk *>(__func__);
 
   mempool_threadsafe_iternew(pool, &iter_arr->ts_iter);
 

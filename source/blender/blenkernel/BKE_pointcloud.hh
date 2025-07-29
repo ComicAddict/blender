@@ -26,10 +26,6 @@ namespace blender::bke::bake {
 struct BakeMaterialsList;
 }
 
-/* PointCloud datablock */
-extern const char *POINTCLOUD_ATTR_POSITION;
-extern const char *POINTCLOUD_ATTR_RADIUS;
-
 namespace blender::bke {
 
 struct PointCloudRuntime {
@@ -39,6 +35,7 @@ struct PointCloudRuntime {
    * See #SharedCache comments.
    */
   mutable SharedCache<Bounds<float3>> bounds_cache;
+  mutable SharedCache<Bounds<float3>> bounds_with_radius_cache;
 
   /** Stores weak references to material data blocks. */
   std::unique_ptr<bake::BakeMaterialsList> bake_materials;
@@ -53,7 +50,6 @@ PointCloud *pointcloud_new_no_attributes(int totpoint);
 }  // namespace blender::bke
 
 PointCloud *BKE_pointcloud_add(Main *bmain, const char *name);
-PointCloud *BKE_pointcloud_add_default(Main *bmain, const char *name);
 PointCloud *BKE_pointcloud_new_nomain(int totpoint);
 void BKE_pointcloud_nomain_to_pointcloud(PointCloud *pointcloud_src, PointCloud *pointcloud_dst);
 

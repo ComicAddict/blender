@@ -13,8 +13,13 @@
 #include "DNA_defs.h"
 #include "DNA_listBase.h"
 
+#include "BLI_assert.h"
+#include "BLI_compiler_typecheck.h"
+
 /** Workaround to forward-declare C++ type in C header. */
 #ifdef __cplusplus
+#  include <type_traits>
+
 namespace blender::bke {
 struct PreviewImageRuntime;
 }
@@ -40,26 +45,6 @@ struct Library;
 struct PackedFile;
 struct UniqueName_Map;
 struct Depsgraph;
-
-/* Runtime display data */
-struct DrawData;
-typedef void (*DrawDataInitCb)(struct DrawData *engine_data);
-typedef void (*DrawDataFreeCb)(struct DrawData *engine_data);
-
-#
-#
-typedef struct DrawData {
-  struct DrawData *next, *prev;
-  struct DrawEngineType *engine_type;
-  /* Only nested data, NOT the engine data itself. */
-  DrawDataFreeCb free;
-  /* Accumulated recalc flags, which corresponds to ID->recalc flags. */
-  unsigned int recalc;
-} DrawData;
-
-typedef struct DrawDataList {
-  struct DrawData *first, *last;
-} DrawDataList;
 
 typedef struct IDPropertyUIData {
   /** Tool-tip / property description pointer. Owned by the #IDProperty. */
@@ -166,8 +151,7 @@ typedef struct IDProperty {
   char subtype;
   /** #IDP_FLAG_GHOST and others. */
   short flag;
-  /** Size matches #MAX_IDPROP_NAME. */
-  char name[64];
+  char name[/*MAX_IDPROP_NAME*/ 64];
 
   char _pad0[4];
 
@@ -375,8 +359,8 @@ enum {
  * provides a common handle to place all data in double-linked lists.
  */
 
-/* 2 characters for ID code and 64 for actual name */
-#define MAX_ID_NAME 66
+/* 2 characters for ID code and 256 for actual name */
+#define MAX_ID_NAME 258
 
 /** #ID_Runtime_Remap.status */
 enum {
@@ -428,8 +412,15 @@ typedef struct ID {
   /** If the ID is an asset, this pointer is set. Owning pointer. */
   struct AssetMetaData *asset_data;
 
-  /** MAX_ID_NAME. */
-  char name[66];
+  /**
+   * Main identifier for this data-block. Must be unique within the ID name-space (defined by its
+   * type, and owning #Library).
+   *
+   * The first two bytes are always the #ID_Type code of the data-block's type.
+   *
+   * One critical usage is to reference external linked data. */
+  char name[/*MAX_ID_NAME*/ 258];
+
   /**
    * ID_FLAG_... flags report on status of the data-block this ID belongs to
    * (persistent, saved to and read from .blend).
@@ -460,7 +451,22 @@ typedef struct ID {
    */
   unsigned int session_uid;
 
+  /**
+   * User-defined custom properties storage. Typically Accessed through the 'dict' syntax from
+   * Python.
+   */
   IDProperty *properties;
+
+  /**
+   * System-defined custom properties storage. Used to store data dynamically defined either by
+   * Blender itself (e.g. the GeoNode modifier), or some python script, extension etc.
+   *
+   * Typically accessed through RNA paths (`C.object.my_dynamic_float_property = 33.3`), when
+   * wrapped/defined by RNA.
+   */
+  IDProperty *system_properties;
+
+  void *_pad1;
 
   /** Reference linked ID which this one overrides. */
   IDOverrideLibrary *override_library;
@@ -484,7 +490,8 @@ typedef struct ID {
    *   so accessing it from Python raises an exception instead of crashing.
    *
    *   This is of limited benefit though, as it doesn't apply to non #ID data
-   *   that references this ID (the bones of an armature or the modifiers of an object for e.g.).
+   *   that references this ID (the bones of an armature or the modifiers of an object for
+   *   example).
    */
   void *py_instance;
 
@@ -503,9 +510,14 @@ typedef struct ID {
  * For each library file used, a Library struct is added to Main.
  */
 typedef struct Library {
+#ifdef __cplusplus
+  /** See #ID_Type comment for why this is here. */
+  static constexpr ID_Type id_type = ID_LI;
+#endif
+
   ID id;
   /** Path name used for reading, can be relative and edited in the outliner. */
-  char filepath[1024];
+  char filepath[/*FILE_MAX*/ 1024];
 
   struct PackedFile *packedfile;
 
@@ -529,10 +541,10 @@ typedef struct Library {
  */
 typedef struct LibraryWeakReference {
   /**  Expected to match a `Library.filepath`. */
-  char library_filepath[1024];
+  char library_filepath[/*FILE_MAX*/ 1024];
 
-  /** MAX_ID_NAME. May be different from the current local ID name. */
-  char library_id_name[66];
+  /** May be different from the current local ID name. */
+  char library_id_name[/*MAX_ID_NAME*/ 258];
 
   char _pad[2];
 } LibraryWeakReference;
@@ -604,9 +616,7 @@ typedef struct PreviewImage {
  */
 #define ID_REFCOUNTING_USERS(id) (ID_REAL_USERS(id) - ID_EXTRA_REAL_USERS(id))
 
-#define ID_CHECK_UNDO(id) \
-  ((GS((id)->name) != ID_SCR) && (GS((id)->name) != ID_WM) && (GS((id)->name) != ID_WS)) && \
-      (GS((id)->name) != ID_BR)
+#define ID_CHECK_UNDO(id) (!ELEM(GS((id)->name), ID_SCR, ID_WM, ID_WS, ID_BR))
 
 #define ID_BLEND_PATH(_bmain, _id) \
   ((_id)->lib ? (_id)->lib->runtime->filepath_abs : BKE_main_blendfile_path((_bmain)))
@@ -722,12 +732,12 @@ enum {
  * code:
  *
  * - RESET_BEFORE_USE: piece of code that wants to use such flag has to ensure they are properly
- *   'reset' first.
+ *   "reset" first.
  * - RESET_AFTER_USE: piece of code that wants to use such flag has to ensure they are properly
- *   'reset' after usage (though 'lifetime' of those flags is a bit fuzzy, e.g. _RECALC ones are
+ *   "reset" after usage (though "lifetime" of those flags is a bit fuzzy, e.g. _RECALC ones are
  *   reset on depsgraph evaluation...).
  * - RESET_NEVER: these flags are 'status' ones, and never actually need any reset (except on
- *   initialization during .blend file reading).
+ *   initialization during `.blend` file reading).
  *
  * \note These tags are purely runtime, so changing there value is not an issue. When adding new
  * tags, please put them in the relevant category and always keep their values strictly increasing.
@@ -1273,4 +1283,79 @@ typedef enum eID_Index {
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef __cplusplus
+namespace blender::dna {
+namespace detail {
+template<typename, typename = void> struct has_ID_member : std::false_type {};
+template<typename T> struct has_ID_member<T, std::void_t<decltype(&T::id)>> : std::true_type {};
+template<typename T> constexpr bool has_ID_as_first_member()
+{
+  if constexpr (std::is_standard_layout_v<T> && has_ID_member<T>::value) {
+    return offsetof(T, id) == 0 && std::is_same_v<decltype(T::id), ID>;
+  }
+  else {
+    return false;
+  }
+}
+}  // namespace detail
+
+/**
+ * Type trait to check if a type is a ID data-block. It just actually checks whether the type has
+ * #ID is first data member, which should be good enough in practice.
+ */
+template<typename T>
+constexpr bool is_ID_v = detail::has_ID_as_first_member<T>() || std::is_same_v<T, ID>;
+
+}  // namespace blender::dna
+
+namespace blender {
+
+namespace dna::detail {
+template<typename Dst, typename Src, typename SrcRuntime>
+constexpr void id_cast_assert([[maybe_unused]] SrcRuntime *src)
+{
+  static_assert(blender::dna::is_ID_v<Src>);
+  static_assert(blender::dna::is_ID_v<Dst>);
+  if constexpr (std::is_same_v<Src, ID> && !std::is_same_v<Dst, ID>) {
+    /* Runtime check for when converting from #ID to subtype like #Object. */
+    BLI_assert(src == nullptr || GS(src->name) == Dst::id_type);
+  }
+  else if constexpr (!std::is_same_v<Src, ID> && std::is_same_v<Dst, ID>) {
+    /* Converting from subtype like #Object to #ID is always allowed. */
+  }
+  else {
+    /* Converting between the same types is always allowed. */
+    static_assert(std::is_same_v<Src, Dst>);
+  }
+}
+}  // namespace dna::detail
+
+/**
+ * A drop-in replacement for `reinterpret_cast` that does additional checks:
+ * - Static check that the source and destination types are data-block types.
+ * - Run-time assert when down-casting from #ID to e.g. #Object.
+ *
+ * \note This can't be used with forward-declared types as the type information is necessary for
+ * the additional checks. For the same reason, it also can't be used to convert from void pointers.
+ */
+template<typename Dst, typename Src> inline Dst id_cast(Src &&id)
+{
+  using DstDecay = std::decay_t<Dst>;
+  using SrcDecay = std::decay_t<Src>;
+  static_assert(std::is_pointer_v<SrcDecay> == std::is_pointer_v<DstDecay>);
+  if constexpr (std::is_pointer_v<SrcDecay>) {
+    dna::detail::id_cast_assert<std::decay_t<std::remove_pointer_t<DstDecay>>,
+                                std::decay_t<std::remove_pointer_t<SrcDecay>>>(id);
+  }
+  else {
+    static_assert(std::is_lvalue_reference_v<Src> && std::is_lvalue_reference_v<Dst>);
+    dna::detail::id_cast_assert<DstDecay, SrcDecay>(&id);
+  }
+  /* This also makes sure that we don't cast away constness. */
+  return reinterpret_cast<Dst>(id);
+}
+
+}  // namespace blender
 #endif

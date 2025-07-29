@@ -324,23 +324,28 @@ ccl_device_forceinline uchar4 make_uchar4(const uchar x,
 #    define METALRT_BLAS_TAGS
 #  endif /* __METALRT_MOTION__ */
 
+#  if defined(__METALRT_EXTENDED_LIMITS__)
+#    define METALRT_LIMITS , extended_limits
+#  else
+#    define METALRT_LIMITS
+#  endif /* __METALRT_MOTION__ */
+
 typedef acceleration_structure<METALRT_TAGS> metalrt_as_type;
-typedef intersection_function_table<triangle_data, curve_data, METALRT_TAGS, extended_limits>
+typedef intersection_function_table<triangle_data, curve_data, METALRT_TAGS METALRT_LIMITS>
     metalrt_ift_type;
-typedef metal::raytracing::intersector<triangle_data, curve_data, METALRT_TAGS, extended_limits>
+typedef metal::raytracing::intersector<triangle_data, curve_data, METALRT_TAGS METALRT_LIMITS>
     metalrt_intersector_type;
 #  if defined(__METALRT_MOTION__)
 typedef acceleration_structure<primitive_motion> metalrt_blas_as_type;
-typedef intersection_function_table<triangle_data, curve_data, primitive_motion, extended_limits>
+typedef intersection_function_table<triangle_data, curve_data, primitive_motion METALRT_LIMITS>
     metalrt_blas_ift_type;
-typedef metal::raytracing::
-    intersector<triangle_data, curve_data, primitive_motion, extended_limits>
-        metalrt_blas_intersector_type;
+typedef metal::raytracing::intersector<triangle_data, curve_data, primitive_motion METALRT_LIMITS>
+    metalrt_blas_intersector_type;
 #  else
 typedef acceleration_structure<> metalrt_blas_as_type;
-typedef intersection_function_table<triangle_data, curve_data, extended_limits>
+typedef intersection_function_table<triangle_data, curve_data METALRT_LIMITS>
     metalrt_blas_ift_type;
-typedef metal::raytracing::intersector<triangle_data, curve_data, extended_limits>
+typedef metal::raytracing::intersector<triangle_data, curve_data METALRT_LIMITS>
     metalrt_blas_intersector_type;
 #  endif
 
@@ -348,15 +353,12 @@ typedef metal::raytracing::intersector<triangle_data, curve_data, extended_limit
 
 /* texture bindings and sampler setup */
 
-struct Buffer1DParamsMetal {
-  device float *buf;
+/* TextureParamsMetal is reinterpreted as Texture2DParamsMetal. */
+struct TextureParamsMetal {
+  uint64_t tex;
 };
-
 struct Texture2DParamsMetal {
   texture2d<float, access::sample> tex;
-};
-struct Texture3DParamsMetal {
-  texture3d<float, access::sample> tex;
 };
 
 #ifdef __METALRT__
@@ -365,13 +367,15 @@ struct MetalRTBlasWrapper {
 };
 #endif
 
+/* Additional Metal-specific resources which aren't encoded in KernelData.
+ * IMPORTANT: If this layout changes, ANCILLARY_SLOT_COUNT and the host-side encoding must change
+ * to match. */
 struct MetalAncillaries {
-  device Texture2DParamsMetal *textures_2d;
-  device Texture3DParamsMetal *textures_3d;
-  device Buffer1DParamsMetal *buffers;
+  device TextureParamsMetal *textures;
 
 #ifdef __METALRT__
   metalrt_as_type accel_struct;
+  constant MetalRTBlasWrapper *blas_accel_structs;
   metalrt_ift_type ift_default;
   metalrt_ift_type ift_shadow;
   metalrt_ift_type ift_shadow_all;
@@ -380,7 +384,6 @@ struct MetalAncillaries {
   metalrt_ift_type ift_local_mblur;
   metalrt_blas_ift_type ift_local_single_hit;
   metalrt_ift_type ift_local_single_hit_mblur;
-  constant MetalRTBlasWrapper *blas_accel_structs;
 #endif
 };
 

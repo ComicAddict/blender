@@ -2,6 +2,10 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
+/** \file
+ * \ingroup bli
+ */
+
 #include <functional>
 
 #include "BLI_array_utils.hh"
@@ -47,7 +51,7 @@ void gather(const GVArray &src,
 
 void gather(const GSpan src, const IndexMask &indices, GMutableSpan dst, const int64_t grain_size)
 {
-  gather(GVArray::ForSpan(src), indices, dst, grain_size);
+  gather(GVArray::from_span(src), indices, dst, grain_size);
 }
 
 void copy_group_to_group(const OffsetIndices<int> src_offsets,

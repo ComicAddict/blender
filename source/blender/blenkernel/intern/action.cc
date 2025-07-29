@@ -24,7 +24,6 @@
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 
-#include "BLI_endian_switch.h"
 #include "BLI_ghash.h"
 #include "BLI_listbase.h"
 #include "BLI_math_color.h"
@@ -69,13 +68,14 @@
 
 #include "ANIM_action.hh"
 #include "ANIM_action_legacy.hh"
+#include "ANIM_armature.hh"
 #include "ANIM_bone_collections.hh"
 #include "ANIM_bonecolor.hh"
 #include "ANIM_versioning.hh"
 
 #include "CLG_log.h"
 
-static CLG_LogRef LOG = {"bke.action"};
+static CLG_LogRef LOG = {"anim.action"};
 
 using namespace blender;
 
@@ -133,7 +133,7 @@ static void action_copy_data(Main * /*bmain*/,
 
   /* Duplicate the lists of groups and markers. */
   BLI_duplicatelist(&action_dst.groups, &action_src.groups);
-  BLI_duplicatelist(&action_dst.markers, &action_src.markers);
+  BKE_copy_time_markers(action_dst.markers, action_src.markers, flag);
 
   /* Copy F-Curves, fixing up the links as we go. */
   BLI_listbase_clear(&action_dst.curves);
@@ -176,13 +176,13 @@ static void action_copy_data(Main * /*bmain*/,
   action_dst.last_slot_handle = action_src.last_slot_handle;
 
   /* Layers, and (recursively) Strips. */
-  action_dst.layer_array = MEM_cnew_array<ActionLayer *>(action_src.layer_array_num, __func__);
+  action_dst.layer_array = MEM_calloc_arrayN<ActionLayer *>(action_src.layer_array_num, __func__);
   for (int i : action_src.layers().index_range()) {
     action_dst.layer_array[i] = action_src.layer(i)->duplicate_with_shallow_strip_copies(__func__);
   }
 
   /* Strip data. */
-  action_dst.strip_keyframe_data_array = MEM_cnew_array<ActionStripKeyframeData *>(
+  action_dst.strip_keyframe_data_array = MEM_calloc_arrayN<ActionStripKeyframeData *>(
       action_src.strip_keyframe_data_array_num, __func__);
   for (int i : action_src.strip_keyframe_data().index_range()) {
     action_dst.strip_keyframe_data_array[i] = MEM_new<animrig::StripKeyframeData>(
@@ -190,7 +190,7 @@ static void action_copy_data(Main * /*bmain*/,
   }
 
   /* Slots. */
-  action_dst.slot_array = MEM_cnew_array<ActionSlot *>(action_src.slot_array_num, __func__);
+  action_dst.slot_array = MEM_calloc_arrayN<ActionSlot *>(action_src.slot_array_num, __func__);
   for (int i : action_src.slots().index_range()) {
     action_dst.slot_array[i] = MEM_new<animrig::Slot>(__func__, *action_src.slot(i));
   }
@@ -572,9 +572,7 @@ static void action_blend_write(BlendWriter *writer, ID *id, const void *id_addre
     BLO_write_struct(writer, bActionGroup, grp);
   }
 
-  LISTBASE_FOREACH (TimeMarker *, marker, &action.markers) {
-    BLO_write_struct(writer, TimeMarker, marker);
-  }
+  BKE_time_markers_blend_write(writer, action.markers);
 
   BKE_previewimg_blend_write(writer, action.preview);
 }
@@ -672,12 +670,11 @@ static void read_slots(BlendDataReader *reader, animrig::Action &action)
   for (int i = 0; i < action.slot_array_num; i++) {
     BLO_read_struct(reader, ActionSlot, &action.slot_array[i]);
 
-    /* Undo generic endian switching, as the ID type values are not numerically the same between
-     * little and big endian machines. Due to the way they are defined, they are always in the same
-     * byte order, regardless of hardware/platform endianness. */
-    if (BLO_read_requires_endian_switch(reader)) {
-      BLI_endian_switch_int16(&action.slot_array[i]->idtype);
-    }
+    /* NOTE: this is endianness-sensitive. */
+    /* In case of required endian switching, this code would have to undo the generic endian
+     * switching, as the ID type values are not numerically the same between little and big endian
+     * machines. Due to the way they are defined, they are always in the same byte order,
+     * regardless of hardware/platform endianness. */
 
     action.slot_array[i]->wrap().blend_read_post();
   }
@@ -687,12 +684,10 @@ static void action_blend_read_data(BlendDataReader *reader, ID *id)
 {
   animrig::Action &action = reinterpret_cast<bAction *>(id)->wrap();
 
-  /* Undo generic endian switching (careful, only the two least significant bytes of the int32 must
-   * be swapped back here, since this value is actually an int16). */
-  if (BLO_read_requires_endian_switch(reader)) {
-    bAction *act = reinterpret_cast<bAction *>(id);
-    BLI_endian_switch_int16(reinterpret_cast<short *>(&act->idroot));
-  }
+  /* NOTE: this is endianness-sensitive. */
+  /* In case of required endianness switching, this code would need to undo the generic endian
+   * switching (careful, only the two least significant bytes of the int32 must be swapped back
+   * here, since this value is actually an int16). */
 
   read_strip_keyframe_data_array(reader, action);
   read_layers(reader, action);
@@ -732,7 +727,7 @@ static void action_blend_read_data(BlendDataReader *reader, ID *id)
     }
   }
 
-  BLO_read_struct_list(reader, TimeMarker, &action.markers);
+  BKE_time_markers_blend_read(reader, action.markers);
 
   /* End of reading legacy data. */
 
@@ -765,7 +760,7 @@ static AssetTypeInfo AssetType_AC = {
 }  // namespace blender::bke
 
 IDTypeInfo IDType_ID_AC = {
-    /*id_code*/ ID_AC,
+    /*id_code*/ bAction::id_type,
     /*id_filter*/ FILTER_ID_AC,
 
     /* This value will be set dynamically in `BKE_idtype_init()` to only include
@@ -804,7 +799,7 @@ bAction *BKE_action_add(Main *bmain, const char name[])
 {
   bAction *act;
 
-  act = static_cast<bAction *>(BKE_id_new(bmain, ID_AC, name));
+  act = BKE_id_new<bAction>(bmain, name);
 
   return act;
 }
@@ -909,7 +904,7 @@ bActionGroup *action_groups_add_new(bAction *act, const char name[])
   BLI_assert(act->wrap().is_action_legacy());
 
   /* allocate a new one */
-  agrp = static_cast<bActionGroup *>(MEM_callocN(sizeof(bActionGroup), "bActionGroup"));
+  agrp = MEM_callocN<bActionGroup>("bActionGroup");
 
   /* make it selected, with default name */
   agrp->flag = AGRP_SELECTED;
@@ -1142,11 +1137,11 @@ bPoseChannel *BKE_pose_channel_ensure(bPose *pose, const char *name)
   }
 
   /* If not, create it and add it */
-  chan = static_cast<bPoseChannel *>(MEM_callocN(sizeof(bPoseChannel), "verifyPoseChannel"));
+  chan = MEM_callocN<bPoseChannel>("verifyPoseChannel");
 
   BKE_pose_channel_session_uid_generate(chan);
 
-  STRNCPY(chan->name, name);
+  STRNCPY_UTF8(chan->name, name);
 
   copy_v3_fl(chan->custom_scale_xyz, 1.0f);
   zero_v3(chan->custom_translation);
@@ -1156,7 +1151,7 @@ bPoseChannel *BKE_pose_channel_ensure(bPose *pose, const char *name)
   /* init vars to prevent math errors */
   unit_qt(chan->quat);
   unit_axis_angle(chan->rotAxis, &chan->rotAngle);
-  chan->size[0] = chan->size[1] = chan->size[2] = 1.0f;
+  chan->scale[0] = chan->scale[1] = chan->scale[2] = 1.0f;
 
   copy_v3_fl(chan->scale_in, 1.0f);
   copy_v3_fl(chan->scale_out, 1.0f);
@@ -1232,13 +1227,17 @@ bPoseChannel *BKE_pose_channel_active_or_first_selected(Object *ob)
   }
 
   bPoseChannel *pchan = BKE_pose_channel_active_if_bonecoll_visible(ob);
-  if (pchan && (pchan->bone->flag & BONE_SELECTED) && PBONE_VISIBLE(arm, pchan->bone)) {
+  if (pchan && (pchan->bone->flag & BONE_SELECTED) &&
+      blender::animrig::bone_is_visible_pchan(arm, pchan))
+  {
     return pchan;
   }
 
   LISTBASE_FOREACH (bPoseChannel *, pchan, &ob->pose->chanbase) {
     if (pchan->bone != nullptr) {
-      if ((pchan->bone->flag & BONE_SELECTED) && PBONE_VISIBLE(arm, pchan->bone)) {
+      if ((pchan->bone->flag & BONE_SELECTED) &&
+          blender::animrig::bone_is_visible_pchan(arm, pchan))
+      {
         return pchan;
       }
     }
@@ -1285,7 +1284,7 @@ void BKE_pose_copy_data_ex(bPose **dst,
     return;
   }
 
-  outPose = static_cast<bPose *>(MEM_callocN(sizeof(bPose), "pose"));
+  outPose = MEM_callocN<bPose>("pose");
 
   BLI_duplicatelist(&outPose->chanbase, &src->chanbase);
 
@@ -1337,6 +1336,9 @@ void BKE_pose_copy_data_ex(bPose **dst,
     if (pchan->prop) {
       pchan->prop = IDP_CopyProperty_ex(pchan->prop, flag);
     }
+    if (pchan->system_properties) {
+      pchan->system_properties = IDP_CopyProperty_ex(pchan->system_properties, flag);
+    }
 
     pchan->draw_data = nullptr; /* Drawing cache, no need to copy. */
 
@@ -1379,7 +1381,7 @@ void BKE_pose_ikparam_init(bPose *pose)
   bItasc *itasc;
   switch (pose->iksolver) {
     case IKSOLVER_ITASC:
-      itasc = static_cast<bItasc *>(MEM_callocN(sizeof(bItasc), "itasc"));
+      itasc = MEM_callocN<bItasc>("itasc");
       BKE_pose_itasc_init(itasc);
       pose->ikparam = itasc;
       break;
@@ -1534,6 +1536,10 @@ void BKE_pose_channel_free_ex(bPoseChannel *pchan, bool do_id_user)
     IDP_FreeProperty_ex(pchan->prop, do_id_user);
     pchan->prop = nullptr;
   }
+  if (pchan->system_properties) {
+    IDP_FreeProperty_ex(pchan->system_properties, do_id_user);
+    pchan->system_properties = nullptr;
+  }
 
   /* Cached data, for new draw manager rendering code. */
   MEM_SAFE_FREE(pchan->draw_data);
@@ -1544,13 +1550,13 @@ void BKE_pose_channel_free_ex(bPoseChannel *pchan, bool do_id_user)
 
 void BKE_pose_channel_runtime_reset(bPoseChannel_Runtime *runtime)
 {
-  memset(runtime, 0, sizeof(*runtime));
+  *runtime = bPoseChannel_Runtime{};
 }
 
 void BKE_pose_channel_runtime_reset_on_copy(bPoseChannel_Runtime *runtime)
 {
   const SessionUID uid = runtime->session_uid;
-  memset(runtime, 0, sizeof(*runtime));
+  *runtime = bPoseChannel_Runtime{};
   runtime->session_uid = uid;
 }
 
@@ -1609,7 +1615,7 @@ void BKE_pose_free_data_ex(bPose *pose, bool do_id_user)
 
   /* free IK solver param */
   if (pose->ikparam) {
-    MEM_freeN(pose->ikparam);
+    MEM_freeN(static_cast<bItasc *>(pose->ikparam));
   }
 }
 
@@ -1661,12 +1667,20 @@ void BKE_pose_channel_copy_data(bPoseChannel *pchan, const bPoseChannel *pchan_f
 
   /* id-properties */
   if (pchan->prop) {
-    /* unlikely but possible it exists */
+    /* Unlikely, but possible that it exists. */
     IDP_FreeProperty(pchan->prop);
     pchan->prop = nullptr;
   }
   if (pchan_from->prop) {
     pchan->prop = IDP_CopyProperty(pchan_from->prop);
+  }
+  if (pchan->system_properties) {
+    /* Unlikely, but possible that it exists. */
+    IDP_FreeProperty(pchan->system_properties);
+    pchan->system_properties = nullptr;
+  }
+  if (pchan_from->system_properties) {
+    pchan->system_properties = IDP_CopyProperty(pchan_from->system_properties);
   }
 
   /* custom shape */
@@ -1778,8 +1792,8 @@ bActionGroup *BKE_pose_add_group(bPose *pose, const char *name)
     name = DATA_("Group");
   }
 
-  grp = static_cast<bActionGroup *>(MEM_callocN(sizeof(bActionGroup), "PoseGroup"));
-  STRNCPY(grp->name, name);
+  grp = MEM_callocN<bActionGroup>("PoseGroup");
+  STRNCPY_UTF8(grp->name, name);
   BLI_addtail(&pose->agroups, grp);
   BLI_uniquename(&pose->agroups, grp, name, '.', offsetof(bActionGroup, name), sizeof(grp->name));
 
@@ -1856,7 +1870,7 @@ void BKE_pose_rest(bPose *pose, bool selected_bones_only)
     zero_v3(pchan->eul);
     unit_qt(pchan->quat);
     unit_axis_angle(pchan->rotAxis, &pchan->rotAngle);
-    pchan->size[0] = pchan->size[1] = pchan->size[2] = 1.0f;
+    pchan->scale[0] = pchan->scale[1] = pchan->scale[2] = 1.0f;
 
     pchan->roll1 = pchan->roll2 = 0.0f;
     pchan->curve_in_x = pchan->curve_in_z = 0.0f;
@@ -1866,7 +1880,7 @@ void BKE_pose_rest(bPose *pose, bool selected_bones_only)
     copy_v3_fl(pchan->scale_in, 1.0f);
     copy_v3_fl(pchan->scale_out, 1.0f);
 
-    pchan->flag &= ~(POSE_LOC | POSE_ROT | POSE_SIZE | POSE_BBONE_SHAPE);
+    pchan->flag &= ~(POSE_LOC | POSE_ROT | POSE_SCALE | POSE_BBONE_SHAPE);
   }
 }
 
@@ -1879,7 +1893,7 @@ void BKE_pose_copy_pchan_result(bPoseChannel *pchanto, const bPoseChannel *pchan
   copy_v3_v3(pchanto->loc, pchanfrom->loc);
   copy_qt_qt(pchanto->quat, pchanfrom->quat);
   copy_v3_v3(pchanto->eul, pchanfrom->eul);
-  copy_v3_v3(pchanto->size, pchanfrom->size);
+  copy_v3_v3(pchanto->scale, pchanfrom->scale);
 
   copy_v3_v3(pchanto->pose_head, pchanfrom->pose_head);
   copy_v3_v3(pchanto->pose_tail, pchanfrom->pose_tail);
@@ -1995,10 +2009,10 @@ void what_does_obaction(Object *ob,
     }
   }
 
-  STRNCPY(workob->parsubstr, ob->parsubstr);
+  STRNCPY_UTF8(workob->parsubstr, ob->parsubstr);
 
   /* we don't use real object name, otherwise RNA screws with the real thing */
-  STRNCPY(workob->id.name, "OB<ConstrWorkOb>");
+  STRNCPY_UTF8(workob->id.name, "OB<ConstrWorkOb>");
 
   /* If we're given a group to use, it's likely to be more efficient
    * (though a bit more dangerous). */
@@ -2071,6 +2085,9 @@ void BKE_pose_blend_write(BlendWriter *writer, bPose *pose, bArmature *arm)
     if (chan->prop) {
       IDP_BlendWrite(writer, chan->prop);
     }
+    if (chan->system_properties) {
+      IDP_BlendWrite(writer, chan->system_properties);
+    }
 
     BKE_constraint_blend_write(writer, &chan->constraints);
 
@@ -2135,6 +2152,8 @@ void BKE_pose_blend_read_data(BlendDataReader *reader, ID *id_owner, bPose *pose
 
     BLO_read_struct(reader, IDProperty, &pchan->prop);
     IDP_BlendDataRead(reader, &pchan->prop);
+    BLO_read_struct(reader, IDProperty, &pchan->system_properties);
+    IDP_BlendDataRead(reader, &pchan->system_properties);
 
     BLO_read_struct(reader, bMotionPath, &pchan->mpath);
     if (pchan->mpath) {
@@ -2188,6 +2207,14 @@ void BKE_pose_blend_read_after_liblink(BlendLibReader *reader, Object *ob, bPose
       /* local pose selection copied to armature, bit hackish */
       pchan->bone->flag &= ~BONE_SELECTED;
       pchan->bone->flag |= pchan->selectflag;
+    }
+
+    /* At some point in history, bones could have an armature object as custom shape, which caused
+     * all kinds of wonderful issues. This is now avoided in RNA, but through the magic of linking
+     * and editing the library file, the situation can still occur. Better to just reset the
+     * pointer in those cases. */
+    if (pchan->custom && pchan->custom->type == OB_ARMATURE) {
+      pchan->custom = nullptr;
     }
   }
 

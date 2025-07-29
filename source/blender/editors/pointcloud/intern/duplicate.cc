@@ -32,7 +32,7 @@ static void duplicate_points(PointCloud &pointcloud, const IndexMask &mask)
   BKE_pointcloud_nomain_to_pointcloud(new_pointcloud, &pointcloud);
 }
 
-static int duplicate_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus duplicate_exec(bContext *C, wmOperator * /*op*/)
 {
   for (PointCloud *pointcloud : get_unique_editable_pointclouds(*C)) {
     IndexMaskMemory memory;
@@ -61,7 +61,7 @@ void POINTCLOUD_OT_duplicate(wmOperatorType *ot)
 {
   ot->name = "Duplicate";
   ot->idname = "POINTCLOUD_OT_duplicate";
-  ot->description = "Copy selected points ";
+  ot->description = "Copy selected points";
 
   ot->exec = duplicate_exec;
   ot->poll = editable_pointcloud_in_edit_mode_poll;

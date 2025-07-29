@@ -21,7 +21,7 @@
 
 #include "BLI_listbase.h"
 #include "BLI_string.h"
-#include "BLI_system.h" /* for 'BLI_system_backtrace' stub. */
+#include "BLI_system.h" /* For #BLI_system_backtrace stub. */
 #include "BLI_utildefines.h"
 
 #include "RNA_define.hh"
@@ -239,8 +239,8 @@ static int replace_if_different(const char *tmpfile, const char *dep_files[])
   }
 
   /* Now compare the files: */
-  arr_new = static_cast<char *>(MEM_mallocN(sizeof(char) * len_new, "rna_cmp_file_new"));
-  arr_org = static_cast<char *>(MEM_mallocN(sizeof(char) * len_org, "rna_cmp_file_org"));
+  arr_new = MEM_malloc_arrayN<char>(size_t(len_new), "rna_cmp_file_new");
+  arr_org = MEM_malloc_arrayN<char>(size_t(len_org), "rna_cmp_file_org");
 
   if (fread(arr_new, sizeof(char), len_new, fp_new) != len_new) {
     CLOG_ERROR(&LOG, "unable to read file %s for comparison.", tmpfile);
@@ -351,7 +351,7 @@ static void rna_sortlist(ListBase *listbase, int (*cmp)(const void *, const void
     size++;
   }
 
-  array = static_cast<void **>(MEM_mallocN(sizeof(void *) * size, "rna_sortlist"));
+  array = MEM_malloc_arrayN<void *>(size_t(size), "rna_sortlist");
   for (a = 0, link = static_cast<Link *>(listbase->first); link; link = link->next, a++) {
     array[a] = link;
   }
@@ -438,7 +438,7 @@ static void rna_construct_wrapper_function_name(
 
 void *rna_alloc_from_buffer(const char *buffer, int buffer_size)
 {
-  AllocDefRNA *alloc = static_cast<AllocDefRNA *>(MEM_callocN(sizeof(AllocDefRNA), "AllocDefRNA"));
+  AllocDefRNA *alloc = MEM_callocN<AllocDefRNA>("AllocDefRNA");
   alloc->mem = MEM_mallocN(buffer_size, __func__);
   memcpy(alloc->mem, buffer, buffer_size);
   rna_addtail(&DefRNA.allocs, alloc);
@@ -447,7 +447,7 @@ void *rna_alloc_from_buffer(const char *buffer, int buffer_size)
 
 void *rna_calloc(int buffer_size)
 {
-  AllocDefRNA *alloc = static_cast<AllocDefRNA *>(MEM_callocN(sizeof(AllocDefRNA), "AllocDefRNA"));
+  AllocDefRNA *alloc = MEM_callocN<AllocDefRNA>("AllocDefRNA");
   alloc->mem = MEM_callocN(buffer_size, __func__);
   rna_addtail(&DefRNA.allocs, alloc);
   return alloc->mem;
@@ -758,7 +758,7 @@ static char *rna_def_property_get_func(
     /* Check log scale sliders for negative range. */
     if (prop->type == PROP_FLOAT) {
       FloatPropertyRNA *fprop = (FloatPropertyRNA *)prop;
-      /* NOTE: UI_BTYPE_NUM_SLIDER can't have a softmin of zero. */
+      /* NOTE: ButType::NumSlider can't have a softmin of zero. */
       if ((fprop->ui_scale_type == PROP_SCALE_LOG) && (fprop->hardmin < 0 || fprop->softmin < 0)) {
         CLOG_ERROR(
             &LOG, "\"%s.%s\", range for log scale < 0.", srna->identifier, prop->identifier);
@@ -768,7 +768,7 @@ static char *rna_def_property_get_func(
     }
     if (prop->type == PROP_INT) {
       IntPropertyRNA *iprop = (IntPropertyRNA *)prop;
-      /* Only UI_BTYPE_NUM_SLIDER is implemented and that one can't have a softmin of zero. */
+      /* Only ButType::NumSlider is implemented and that one can't have a softmin of zero. */
       if ((iprop->ui_scale_type == PROP_SCALE_LOG) && (iprop->hardmin <= 0 || iprop->softmin <= 0))
       {
         CLOG_ERROR(
@@ -1221,10 +1221,11 @@ static char *rna_def_property_set_func(
                   "    if (data->%s != nullptr) { MEM_freeN(data->%s); }\n",
                   dp->dnaname,
                   dp->dnaname);
-          fprintf(f, "    const int length = strlen(value);\n");
+          fprintf(f, "    const size_t length = strlen(value);\n");
           fprintf(f, "    if (length > 0) {\n");
-          fprintf(
-              f, "        data->%s = (char *)MEM_mallocN(length + 1, __func__);\n", dp->dnaname);
+          fprintf(f,
+                  "        data->%s = MEM_malloc_arrayN<char>(length + 1, __func__);\n",
+                  dp->dnaname);
           fprintf(f, "        memcpy(data->%s, value, length + 1);\n", dp->dnaname);
           fprintf(f, "    } else { data->%s = nullptr; }\n", dp->dnaname);
         }
@@ -1899,7 +1900,8 @@ static char *rna_def_property_lookup_string_func(FILE *f,
   fprintf(f, "                }\n");
   fprintf(f, "            }\n");
   fprintf(f, "            else {\n");
-  fprintf(f, "                name = (char *)MEM_mallocN(namelen+1, \"name string\");\n");
+  fprintf(f, "                name = MEM_malloc_arrayN<char>(size_t(namelen) + 1,\n");
+  fprintf(f, "                                               \"name string\");\n");
   fprintf(f,
           "                %s_%s_get(&iter.ptr, name);\n",
           item_name_base->identifier,
@@ -2034,7 +2036,7 @@ static void rna_set_raw_offset(FILE *f, StructRNA *srna, PropertyRNA *prop)
   PropertyDefRNA *dp = rna_find_struct_property_def(srna, prop);
 
   fprintf(
-      f, "\toffsetof(%s, %s), (RawPropertyType)%d", dp->dnastructname, dp->dnaname, prop->rawtype);
+      f, "\toffsetof(%s, %s), RawPropertyType(%d)", dp->dnastructname, dp->dnaname, prop->rawtype);
 }
 
 static void rna_def_property_funcs(FILE *f, StructRNA *srna, PropertyDefRNA *dp)
@@ -2226,11 +2228,6 @@ static void rna_def_property_funcs(FILE *f, StructRNA *srna, PropertyDefRNA *dp)
                    srna->identifier,
                    prop->identifier);
         DefRNA.error = true;
-      }
-
-      if (dp->dnapointerlevel == 0 && pprop->get == nullptr) {
-        /* Set the flag for generated documentation. */
-        RNA_def_property_flag(prop, PROP_NEVER_NULL);
       }
 
       pprop->get = reinterpret_cast<PropPointerGetFunc>(
@@ -2649,7 +2646,7 @@ static void rna_def_property_funcs_header_cpp(FILE *f, StructRNA *srna, Property
 static const char *rna_parameter_type_cpp_name(PropertyRNA *prop)
 {
   if (prop->type == PROP_POINTER) {
-    /* for cpp api we need to use RNA structures names for pointers */
+    /* For the C++ API we need to use RNA structures names for pointers. */
     PointerPropertyRNA *pprop = (PointerPropertyRNA *)prop;
 
     return (const char *)pprop->type;
@@ -2919,7 +2916,10 @@ static void rna_def_struct_function_call_impl_cpp(FILE *f, StructRNA *srna, Func
 
   if ((func->flag & FUNC_NO_SELF) == 0) {
     WRITE_COMMA;
-    if (dsrna->dnafromprop) {
+    if ((func->flag & FUNC_SELF_AS_RNA) != 0) {
+      fprintf(f, "this->ptr");
+    }
+    else if (dsrna->dnafromprop) {
       fprintf(f, "(::%s *) this->ptr.data", dsrna->dnafromname);
     }
     else if (dsrna->dnaname) {
@@ -3173,7 +3173,10 @@ static void rna_def_function_funcs(FILE *f, StructDefRNA *dsrna, FunctionDefRNA 
   }
 
   if ((func->flag & FUNC_NO_SELF) == 0) {
-    if (dsrna->dnafromprop) {
+    if ((func->flag & FUNC_SELF_AS_RNA) != 0) {
+      fprintf(f, "\tstruct PointerRNA _self;\n");
+    }
+    else if (dsrna->dnafromprop) {
       fprintf(f, "\tstruct %s *_self;\n", dsrna->dnafromname);
     }
     else if (dsrna->dnaname) {
@@ -3254,7 +3257,10 @@ static void rna_def_function_funcs(FILE *f, StructDefRNA *dsrna, FunctionDefRNA 
   }
 
   if ((func->flag & FUNC_NO_SELF) == 0) {
-    if (dsrna->dnafromprop) {
+    if ((func->flag & FUNC_SELF_AS_RNA) != 0) {
+      fprintf(f, "\t_self = *_ptr;\n");
+    }
+    else if (dsrna->dnafromprop) {
       fprintf(f, "\t_self = (struct %s *)_ptr->data;\n", dsrna->dnafromname);
     }
     else if (dsrna->dnaname) {
@@ -3439,12 +3445,20 @@ static void rna_def_function_funcs(FILE *f, StructDefRNA *dsrna, FunctionDefRNA 
                   (dparm->prop->arraydimension)) ?
                      "*" :
                      "";
-        fprintf(f,
-                "\t*((%s%s %s*)_retdata) = %s;\n",
-                rna_type_struct(dparm->prop),
-                rna_parameter_type_name(dparm->prop),
-                ptrstr,
-                func->c_ret->identifier);
+        if (dparm->prop->type == PROP_COLLECTION) {
+          /* Placement new is necessary because #ParameterList::data is not initialized. */
+          fprintf(f,
+                  "\tnew ((CollectionVector *)_retdata) CollectionVector(std::move(%s));\n",
+                  func->c_ret->identifier);
+        }
+        else {
+          fprintf(f,
+                  "\t*((%s%s %s*)_retdata) = %s;\n",
+                  rna_type_struct(dparm->prop),
+                  rna_parameter_type_name(dparm->prop),
+                  ptrstr,
+                  func->c_ret->identifier);
+        }
       }
     }
   }
@@ -3899,7 +3913,10 @@ static void rna_generate_static_parameter_prototypes(FILE *f,
     if (!first) {
       fprintf(f, ", ");
     }
-    if (dsrna->dnafromprop) {
+    if ((func->flag & FUNC_SELF_AS_RNA) != 0) {
+      fprintf(f, "struct PointerRNA _self");
+    }
+    else if (dsrna->dnafromprop) {
       fprintf(f, "struct %s *_self", dsrna->dnafromname);
     }
     else if (dsrna->dnaname) {
@@ -4099,12 +4116,10 @@ static void rna_generate_property(FILE *f, StructRNA *srna, const char *nest, Pr
   bool freenest = false;
 
   if (nest != nullptr) {
-    int len = strlen(nest);
+    size_t len = strlen(nest);
 
-    strnest = static_cast<char *>(
-        MEM_mallocN(sizeof(char) * len + 2, "rna_generate_property -> strnest"));
-    errnest = static_cast<char *>(
-        MEM_mallocN(sizeof(char) * len + 2, "rna_generate_property -> errnest"));
+    strnest = MEM_malloc_arrayN<char>(len + 2, "rna_generate_property -> strnest");
+    errnest = MEM_malloc_arrayN<char>(len + 2, "rna_generate_property -> errnest");
 
     strnest[0] = '_';
     memcpy(strnest + 1, nest, len + 1);
@@ -4347,6 +4362,7 @@ static void rna_generate_property(FILE *f, StructRNA *srna, const char *nest, Pr
           prop->flag_parameter,
           prop->flag_internal,
           prop->tags);
+  fprintf(f, "PropertyPathTemplateType(%d), ", prop->path_template_type);
   rna_print_c_string(f, prop->name);
   fprintf(f, ",\n\t");
   rna_print_c_string(f, prop->description);
@@ -4355,7 +4371,7 @@ static void rna_generate_property(FILE *f, StructRNA *srna, const char *nest, Pr
   rna_print_c_string(f, prop->translation_context);
   fprintf(f, ",\n");
   fprintf(f,
-          "\t%s, (PropertySubType)((int)%s | (int)%s), %s, %u, {%u, %u, %u}, %u,\n",
+          "\t%s, PropertySubType(int(%s) | int(%s)), %s, %u, {%u, %u, %u}, %u,\n",
           RNA_property_typename(prop->type),
           rna_property_subtypename(prop->subtype),
           rna_property_subtype_unit(prop->subtype),
@@ -4504,7 +4520,7 @@ static void rna_generate_property(FILE *f, StructRNA *srna, const char *nest, Pr
     case PROP_STRING: {
       StringPropertyRNA *sprop = (StringPropertyRNA *)prop;
       fprintf(f,
-              "\t%s, %s, %s, %s, %s, %s, %s, (eStringPropertySearchFlag)%d, %s, %d, ",
+              "\t%s, %s, %s, %s, %s, %s, %s, eStringPropertySearchFlag(%d), %s, %d, ",
               rna_function_string(sprop->get),
               rna_function_string(sprop->length),
               rna_function_string(sprop->set),
@@ -4522,12 +4538,13 @@ static void rna_generate_property(FILE *f, StructRNA *srna, const char *nest, Pr
     case PROP_ENUM: {
       EnumPropertyRNA *eprop = (EnumPropertyRNA *)prop;
       fprintf(f,
-              "\t%s, %s, %s, %s, %s, ",
+              "\t%s, %s, %s, %s, %s, %s, ",
               rna_function_string(eprop->get),
               rna_function_string(eprop->set),
               rna_function_string(eprop->item_fn),
               rna_function_string(eprop->get_ex),
-              rna_function_string(eprop->set_ex));
+              rna_function_string(eprop->set_ex),
+              rna_function_string(eprop->get_default));
       if (eprop->item) {
         const char *item_global_id = rna_enum_id_from_pointer(eprop->item);
         if (item_global_id != nullptr) {
@@ -4781,6 +4798,7 @@ static void rna_generate_struct(BlenderRNA * /*brna*/, StructRNA *srna, FILE *f)
   fprintf(f, "\t%s,\n", rna_function_string(srna->unreg));
   fprintf(f, "\t%s,\n", rna_function_string(srna->instance));
   fprintf(f, "\t%s,\n", rna_function_string(srna->idproperties));
+  fprintf(f, "\t%s,\n", rna_function_string(srna->system_idproperties));
 
   if (srna->reg && !srna->refine) {
     CLOG_ERROR(
@@ -5245,7 +5263,7 @@ static const char *cpp_classes =
     "                found = true; \\\n"
     "            } \\\n"
     "            if (name_fixed != name) { \\\n"
-    "                MEM_freeN((void *) name); \\\n"
+    "                MEM_freeN( name); \\\n"
     "            } \\\n"
     "            sname##_##identifier##_next(&iter); \\\n"
     "        } \\\n"
@@ -5830,7 +5848,7 @@ int main(int argc, char **argv)
 
   /* Some useful defaults since this runs standalone. */
   CLG_output_use_basename_set(true);
-  CLG_level_set(debugSRNA);
+  CLG_level_set(debugSRNA ? CLG_LEVEL_DEBUG : CLG_LEVEL_WARN);
 
   if (argc < 2) {
     fprintf(stderr, "Usage: %s outdirectory [public header outdirectory]/\n", argv[0]);

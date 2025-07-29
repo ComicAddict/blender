@@ -12,6 +12,7 @@
 
 #include "BLI_listbase.h"
 #include "BLI_string.h"
+#include "BLI_string_utf8.h"
 
 #include "BKE_context.hh"
 #include "BKE_screen.hh"
@@ -35,7 +36,7 @@ static SpaceLink *userpref_create(const ScrArea *area, const Scene * /*scene*/)
   ARegion *region;
   SpaceUserPref *spref;
 
-  spref = static_cast<SpaceUserPref *>(MEM_callocN(sizeof(SpaceUserPref), "inituserpref"));
+  spref = MEM_callocN<SpaceUserPref>("inituserpref");
   spref->spacetype = SPACE_USERPREF;
 
   /* header */
@@ -120,12 +121,16 @@ static void userpref_main_region_layout(const bContext *C, ARegion *region)
     }
     const char *id = items[i].identifier;
     BLI_assert(strlen(id) < sizeof(id_lower));
-    STRNCPY(id_lower, id);
+    STRNCPY_UTF8(id_lower, id);
     BLI_str_tolower_ascii(id_lower, strlen(id_lower));
   }
 
-  ED_region_panels_layout_ex(
-      C, region, &region->runtime->type->paneltypes, WM_OP_INVOKE_REGION_WIN, contexts, nullptr);
+  ED_region_panels_layout_ex(C,
+                             region,
+                             &region->runtime->type->paneltypes,
+                             blender::wm::OpCallContext::InvokeRegionWin,
+                             contexts,
+                             nullptr);
 }
 
 static void userpref_operatortypes() {}
@@ -188,7 +193,7 @@ void ED_spacetype_userpref()
   ARegionType *art;
 
   st->spaceid = SPACE_USERPREF;
-  STRNCPY(st->name, "Userpref");
+  STRNCPY_UTF8(st->name, "Userpref");
 
   st->create = userpref_create;
   st->free = userpref_free;
@@ -199,7 +204,7 @@ void ED_spacetype_userpref()
   st->blend_write = userpref_space_blend_write;
 
   /* regions: main window */
-  art = static_cast<ARegionType *>(MEM_callocN(sizeof(ARegionType), "spacetype userpref region"));
+  art = MEM_callocN<ARegionType>("spacetype userpref region");
   art->regionid = RGN_TYPE_WINDOW;
   art->init = userpref_main_region_init;
   art->layout = userpref_main_region_layout;
@@ -210,7 +215,7 @@ void ED_spacetype_userpref()
   BLI_addhead(&st->regiontypes, art);
 
   /* regions: header */
-  art = static_cast<ARegionType *>(MEM_callocN(sizeof(ARegionType), "spacetype userpref region"));
+  art = MEM_callocN<ARegionType>("spacetype userpref region");
   art->regionid = RGN_TYPE_HEADER;
   art->prefsizey = HEADERY;
   art->keymapflag = ED_KEYMAP_UI | ED_KEYMAP_VIEW2D | ED_KEYMAP_HEADER;
@@ -221,7 +226,7 @@ void ED_spacetype_userpref()
   BLI_addhead(&st->regiontypes, art);
 
   /* regions: navigation window */
-  art = static_cast<ARegionType *>(MEM_callocN(sizeof(ARegionType), "spacetype userpref region"));
+  art = MEM_callocN<ARegionType>("spacetype userpref region");
   art->regionid = RGN_TYPE_NAV_BAR;
   art->prefsizex = UI_NAVIGATION_REGION_WIDTH;
   art->init = userpref_navigation_region_init;
@@ -232,7 +237,7 @@ void ED_spacetype_userpref()
   BLI_addhead(&st->regiontypes, art);
 
   /* regions: execution window */
-  art = static_cast<ARegionType *>(MEM_callocN(sizeof(ARegionType), "spacetype userpref region"));
+  art = MEM_callocN<ARegionType>("spacetype userpref region");
   art->regionid = RGN_TYPE_EXECUTE;
   art->prefsizey = HEADERY;
   art->poll = userpref_execute_region_poll;

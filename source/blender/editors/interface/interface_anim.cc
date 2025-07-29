@@ -32,8 +32,6 @@
 #include "ANIM_fcurve.hh"
 #include "ANIM_keyframing.hh"
 
-#include "UI_interface.hh"
-
 #include "RNA_access.hh"
 #include "RNA_path.hh"
 
@@ -200,7 +198,7 @@ bool ui_but_anim_expression_get(uiBut *but, char *str, size_t str_maxncpy)
 
     if (driver && driver->type == DRIVER_TYPE_PYTHON) {
       if (str) {
-        BLI_strncpy(str, driver->expression, str_maxncpy);
+        BLI_strncpy_utf8(str, driver->expression, str_maxncpy);
       }
       return true;
     }
@@ -268,9 +266,9 @@ bool ui_but_anim_expression_create(uiBut *but, const char *str)
     }
   }
 
-  /* make sure we have animdata for this */
+  /* Make sure we have animation-data for this. */
   /* FIXME: until materials can be handled by depsgraph,
-   * don't allow drivers to be created for them */
+   * don't allow drivers to be created for them. */
   id = but->rnapoin.owner_id;
   if ((id == nullptr) || (GS(id->name) == ID_MA) || (GS(id->name) == ID_TE)) {
     if (G.debug & G_DEBUG) {
@@ -319,13 +317,21 @@ void ui_but_anim_autokey(bContext *C, uiBut *but, Scene *scene, float cfra)
 void ui_but_anim_copy_driver(bContext *C)
 {
   /* this operator calls UI_context_active_but_prop_get */
-  WM_operator_name_call(C, "ANIM_OT_copy_driver_button", WM_OP_INVOKE_DEFAULT, nullptr, nullptr);
+  WM_operator_name_call(C,
+                        "ANIM_OT_copy_driver_button",
+                        blender::wm::OpCallContext::InvokeDefault,
+                        nullptr,
+                        nullptr);
 }
 
 void ui_but_anim_paste_driver(bContext *C)
 {
   /* this operator calls UI_context_active_but_prop_get */
-  WM_operator_name_call(C, "ANIM_OT_paste_driver_button", WM_OP_INVOKE_DEFAULT, nullptr, nullptr);
+  WM_operator_name_call(C,
+                        "ANIM_OT_paste_driver_button",
+                        blender::wm::OpCallContext::InvokeDefault,
+                        nullptr,
+                        nullptr);
 }
 
 void ui_but_anim_decorate_cb(bContext *C, void *arg_but, void * /*arg_dummy*/)
@@ -337,9 +343,9 @@ void ui_but_anim_decorate_cb(bContext *C, void *arg_but, void * /*arg_dummy*/)
   if (!but_anim) {
     return;
   }
-
-  /* FIXME(@ideasman42): swapping active pointer is weak. */
-  std::swap(but_anim->active, but_decorate->active);
+  /* While click drag the active button may not be `but_decorate`, instead is the but where the
+   * drag started, temporarily override `but_anim` as active. */
+  but_anim->flag |= UI_BUT_ACTIVE_OVERRIDE;
   wm->op_undo_depth++;
 
   if (but_anim->flag & UI_BUT_DRIVEN) {
@@ -351,7 +357,8 @@ void ui_but_anim_decorate_cb(bContext *C, void *arg_but, void * /*arg_dummy*/)
     wmOperatorType *ot = WM_operatortype_find("ANIM_OT_keyframe_delete_button", false);
     WM_operator_properties_create_ptr(&props_ptr, ot);
     RNA_boolean_set(&props_ptr, "all", but_anim->rnaindex == -1);
-    WM_operator_name_call_ptr(C, ot, WM_OP_INVOKE_DEFAULT, &props_ptr, nullptr);
+    WM_operator_name_call_ptr(
+        C, ot, blender::wm::OpCallContext::InvokeDefault, &props_ptr, nullptr);
     WM_operator_properties_free(&props_ptr);
   }
   else {
@@ -359,10 +366,11 @@ void ui_but_anim_decorate_cb(bContext *C, void *arg_but, void * /*arg_dummy*/)
     wmOperatorType *ot = WM_operatortype_find("ANIM_OT_keyframe_insert_button", false);
     WM_operator_properties_create_ptr(&props_ptr, ot);
     RNA_boolean_set(&props_ptr, "all", but_anim->rnaindex == -1);
-    WM_operator_name_call_ptr(C, ot, WM_OP_INVOKE_DEFAULT, &props_ptr, nullptr);
+    WM_operator_name_call_ptr(
+        C, ot, blender::wm::OpCallContext::InvokeDefault, &props_ptr, nullptr);
     WM_operator_properties_free(&props_ptr);
   }
 
-  std::swap(but_anim->active, but_decorate->active);
+  but_anim->flag &= ~UI_BUT_ACTIVE_OVERRIDE;
   wm->op_undo_depth--;
 }

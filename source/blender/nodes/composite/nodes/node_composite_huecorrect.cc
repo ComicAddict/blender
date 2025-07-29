@@ -26,6 +26,7 @@ namespace blender::nodes::node_composite_huecorrect_cc {
 
 static void cmp_node_huecorrect_declare(NodeDeclarationBuilder &b)
 {
+  b.is_function_node();
   b.add_input<decl::Float>("Fac")
       .default_value(1.0f)
       .min(0.0f)
@@ -139,7 +140,7 @@ static void node_build_multi_function(blender::nodes::NodeMultiFunctionBuilder &
 
 }  // namespace blender::nodes::node_composite_huecorrect_cc
 
-void register_node_type_cmp_huecorrect()
+static void register_node_type_cmp_huecorrect()
 {
   namespace file_ns = blender::nodes::node_composite_huecorrect_cc;
 
@@ -159,3 +160,4 @@ void register_node_type_cmp_huecorrect()
 
   blender::bke::node_register_type(ntype);
 }
+NOD_REGISTER_NODE(register_node_type_cmp_huecorrect)

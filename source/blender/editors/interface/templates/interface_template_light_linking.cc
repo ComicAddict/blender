@@ -25,6 +25,7 @@
 #include "RNA_prototypes.hh"
 
 #include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 #include "UI_tree_view.hh"
 
@@ -238,14 +239,14 @@ class CollectionViewItem : public BasicTreeViewItem {
       PointerRNA id_ptr = RNA_id_pointer_create(&id_);
       PointerRNA collection_ptr = RNA_id_pointer_create(&collection_.id);
 
-      uiLayoutSetContextPointer(&context_layout_, "id", &id_ptr);
-      uiLayoutSetContextPointer(&context_layout_, "collection", &collection_ptr);
+      context_layout_.context_ptr_set("id", &id_ptr);
+      context_layout_.context_ptr_set("collection", &collection_ptr);
     }
 
     add_label(row);
 
-    uiLayout *sub = uiLayoutRow(&row, true);
-    uiLayoutSetPropDecorate(sub, false);
+    uiLayout *sub = &row.row(true);
+    sub->use_property_decorate_set(false);
 
     build_state_button(*sub);
   }
@@ -289,14 +290,14 @@ class CollectionViewItem : public BasicTreeViewItem {
 
   void build_state_button(uiLayout &row)
   {
-    uiBlock *block = uiLayoutGetBlock(&row);
+    uiBlock *block = row.block();
     const int icon = get_state_icon();
 
     PointerRNA collection_light_linking_ptr = RNA_pointer_create_discrete(
         &collection_.id, &RNA_CollectionLightLinking, &collection_light_linking_);
 
     uiBut *button = uiDefIconButR(block,
-                                  UI_BTYPE_BUT,
+                                  ButType::But,
                                   0,
                                   icon,
                                   0,
@@ -398,14 +399,14 @@ void uiTemplateLightLinkingCollection(uiLayout *layout,
 
   Collection *collection = static_cast<Collection *>(collection_ptr.data);
 
-  uiBlock *block = uiLayoutGetBlock(layout);
+  uiBlock *block = layout->block();
 
   blender::ui::AbstractTreeView *tree_view = UI_block_add_view(
       *block,
       "Light Linking Collection Tree View",
       std::make_unique<blender::ui::light_linking::CollectionView>(*context_layout, *collection));
   tree_view->set_context_menu_title("Light Linking");
-  tree_view->set_default_rows(3);
+  tree_view->set_default_rows(5);
 
   blender::ui::TreeViewBuilder::build_tree_view(*C, *tree_view, *layout);
 }

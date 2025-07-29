@@ -98,7 +98,10 @@ PointerRNA *WM_gizmo_operator_set(wmGizmo *gz,
                                   int part_index,
                                   wmOperatorType *ot,
                                   IDProperty *properties);
-int WM_gizmo_operator_invoke(bContext *C, wmGizmo *gz, wmGizmoOpElem *gzop, const wmEvent *event);
+wmOperatorStatus WM_gizmo_operator_invoke(bContext *C,
+                                          wmGizmo *gz,
+                                          wmGizmoOpElem *gzop,
+                                          const wmEvent *event);
 
 /* Callbacks. */
 
@@ -326,7 +329,7 @@ wmKeyMap *WM_gizmo_keymap_generic_maybe_drag(wmWindowManager *wm);
 
 void WM_gizmogroup_ensure_init(const bContext *C, wmGizmoGroup *gzgroup);
 
-/* Sort utilities for use with 'BLI_listbase_sort'. */
+/* Sort utilities for use with `BLI_listbase_sort`. */
 
 int WM_gizmo_cmp_temp_fl(const void *gz_a_ptr, const void *gz_b_ptr);
 int WM_gizmo_cmp_temp_fl_reverse(const void *gz_a_ptr, const void *gz_b_ptr);
@@ -457,6 +460,8 @@ void WM_gizmo_group_type_reinit_ptr(Main *bmain, wmGizmoGroupType *gzgt);
 void WM_gizmo_group_type_reinit(Main *bmain, blender::StringRef idname);
 
 /* Utilities. */
+
+bool WM_gizmo_group_is_modal(const wmGizmoGroup *gzgroup);
 
 bool WM_gizmo_context_check_drawstep(const bContext *C, eWM_GizmoFlagMapDrawStep step);
 

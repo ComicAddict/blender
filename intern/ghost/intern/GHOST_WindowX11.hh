@@ -17,8 +17,6 @@
 #  include <X11/extensions/XInput.h>
 #endif
 
-#include "GHOST_TaskbarX11.hh"
-
 #include <map>
 
 class GHOST_SystemX11;
@@ -154,10 +152,6 @@ class GHOST_WindowX11 : public GHOST_Window {
   bool m_post_init;
   GHOST_TWindowState m_post_state;
 
-  GHOST_TSuccess beginFullScreen() const override;
-
-  GHOST_TSuccess endFullScreen() const override;
-
   GHOST_TSuccess setDialogHints(GHOST_WindowX11 *parentWindow);
 
   uint16_t getDPIHint() override;
@@ -194,13 +188,11 @@ class GHOST_WindowX11 : public GHOST_Window {
    * Sets the cursor shape on the window using
    * native window system calls (Arbitrary size/color).
    */
-  GHOST_TSuccess setWindowCustomCursorShape(uint8_t *bitmap,
-                                            uint8_t *mask,
-                                            int sizex,
-                                            int sizey,
-                                            int hotX,
-                                            int hotY,
-                                            bool canInvertColor) override;
+  GHOST_TSuccess setWindowCustomCursorShape(const uint8_t *bitmap,
+                                            const uint8_t *mask,
+                                            const int size[2],
+                                            const int hot_spot[2],
+                                            bool can_invert_color) override;
 
  private:
   /* Force use of public constructor. */
@@ -237,8 +229,6 @@ class GHOST_WindowX11 : public GHOST_Window {
 
   /** Cache of XC_* ID's to XCursor structures */
   std::map<uint, Cursor> m_standard_cursors;
-
-  GHOST_TaskBarX11 m_taskbar;
 
 #ifdef WITH_XDND
   GHOST_DropTargetX11 *m_dropTarget;

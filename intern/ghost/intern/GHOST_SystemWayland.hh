@@ -90,13 +90,6 @@ bool ghost_wl_dynload_libraries_init();
 void ghost_wl_dynload_libraries_exit();
 #endif
 
-#if defined(WITH_GHOST_WAYLAND_LIBDECOR) && defined(WITH_VULKAN_BACKEND)
-/**
- * Needed for temporary buffer creation.
- */
-int memfd_create_sealed_for_vulkan_hack(const char *name);
-#endif
-
 struct GWL_Output {
 
   /** Wayland core types. */
@@ -111,11 +104,24 @@ struct GWL_Output {
 
   GHOST_SystemWayland *system = nullptr;
 
-  /** Dimensions in pixels. */
+  /**
+   * Dimensions in pixels.
+   *
+   * \note Rotation (from the `transform` flag has *not* been applied.
+   * So a vertical monitor will still have a larger width.
+   */
   int32_t size_native[2] = {0, 0};
   /** Dimensions in millimeter. */
   int32_t size_mm[2] = {0, 0};
 
+  /**
+   * Dimensions in logical points.
+   *
+   * \note A 2x Hi-DPI monitor with a `size_native` of 1600x1200
+   * would have a `size_logical` of 800x600.
+   *
+   * \note Rotation (from the `transform` flag *has* been applied.
+   */
   int32_t size_logical[2] = {0, 0};
   bool has_size_logical = false;
 
@@ -196,6 +202,8 @@ class GHOST_SystemWayland : public GHOST_System {
   GHOST_TSuccess getCursorPosition(int32_t &x, int32_t &y) const override;
   GHOST_TSuccess setCursorPosition(int32_t x, int32_t y) override;
 
+  uint32_t getCursorPreferredLogicalSize() const override;
+
   void getMainDisplayDimensions(uint32_t &width, uint32_t &height) const override;
 
   void getAllDisplayDimensions(uint32_t &width, uint32_t &height) const override;
@@ -225,13 +233,7 @@ class GHOST_SystemWayland : public GHOST_System {
 
   GHOST_TSuccess cursor_shape_check(GHOST_TStandardCursor cursorShape);
 
-  GHOST_TSuccess cursor_shape_custom_set(const uint8_t *bitmap,
-                                         const uint8_t *mask,
-                                         int sizex,
-                                         int sizey,
-                                         int hotX,
-                                         int hotY,
-                                         bool canInvertColor);
+  GHOST_TSuccess cursor_shape_custom_set(const GHOST_CursorGenerator &cg);
 
   GHOST_TSuccess cursor_bitmap_get(GHOST_CursorBitmapRef *bitmap);
 

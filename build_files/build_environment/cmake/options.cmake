@@ -11,11 +11,20 @@ option(FORCE_CHECK_HASH "Force a check of all hashses during CMake the configure
 cmake_host_system_information(RESULT NUM_CORES QUERY NUMBER_OF_LOGICAL_CORES)
 set(MAKE_THREADS ${NUM_CORES} CACHE STRING "Number of threads to run make with")
 
+# Any python module building with setup.py cannot use multiple theads on windows
+# as they will try to write to the same .pdb file simultaniously which causes
+# build errors.
+if(WIN32)
+  set(PYTHON_MAKE_THREADS 1)
+else()
+  set(PYTHON_MAKE_THREADS ${MAKE_THREADS})
+endif()
+
 if(NOT BUILD_MODE)
   set(BUILD_MODE "Release")
   message(STATUS "Build type not specified: defaulting to a release build.")
 endif()
-message("BuildMode = ${BUILD_MODE}")
+message(STATUS "BuildMode = ${BUILD_MODE}")
 
 if(BUILD_MODE STREQUAL "Debug")
   set(LIBDIR ${CMAKE_CURRENT_BINARY_DIR}/Debug)
@@ -35,11 +44,11 @@ file(TO_CMAKE_PATH ${PACKAGE_DIR} PACKAGE_DIR)
 set(PATCH_DIR ${CMAKE_CURRENT_SOURCE_DIR}/patches)
 set(BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/build)
 
-message("LIBDIR = ${LIBDIR}")
-message("DOWNLOAD_DIR = ${DOWNLOAD_DIR}")
-message("PACKAGE_DIR = ${PACKAGE_DIR}")
-message("PATCH_DIR = ${PATCH_DIR}")
-message("BUILD_DIR = ${BUILD_DIR}")
+message(STATUS "LIBDIR = ${LIBDIR}")
+message(STATUS "DOWNLOAD_DIR = ${DOWNLOAD_DIR}")
+message(STATUS "PACKAGE_DIR = ${PACKAGE_DIR}")
+message(STATUS "PATCH_DIR = ${PATCH_DIR}")
+message(STATUS "BUILD_DIR = ${BUILD_DIR}")
 
 if(WIN32)
   if(CMAKE_SYSTEM_PROCESSOR STREQUAL "ARM64")
@@ -176,6 +185,19 @@ if(WIN32)
     set CC=cl &&
     set CXX=cl &&
     set LD=link &&
+    set CFLAGS=${MINGW_CFLAGS} &&
+    set LDFLAGS=${MINGW_LDFLAGS}
+  )
+
+  set(CONFIGURE_ENV_CLANG_CL_NO_PERL
+    cd ${MINGW_PATH} &&
+    call ${MINGW_SHELL} &&
+    set path &&
+    set CC=${LIBDIR}/llvm/bin/clang-cl.exe &&
+    set CXX=${LIBDIR}/llvm/bin/clang-cl.exe &&
+    set RANLIB=${LIBDIR}/llvm/bin/llvm-ranlib.exe &&
+    set RC=${LIBDIR}/llvm/bin/llvm-rc.exe &&
+    set AR=${LIBDIR}/llvm/bin/llvm-ar.exe &&
     set CFLAGS=${MINGW_CFLAGS} &&
     set LDFLAGS=${MINGW_LDFLAGS}
   )

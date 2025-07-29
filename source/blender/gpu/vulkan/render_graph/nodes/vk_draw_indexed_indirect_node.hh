@@ -20,6 +20,7 @@ struct VKDrawIndexedIndirectData {
   VKPipelineData pipeline_data;
   VKIndexBufferBinding index_buffer;
   VKVertexBufferBindings vertex_buffers;
+  VKViewportData viewport_data;
   VkBuffer indirect_buffer;
   VkDeviceSize offset;
   uint32_t draw_count;
@@ -62,7 +63,11 @@ class VKDrawIndexedIndirectNode
                    const CreateInfo &create_info) override
   {
     create_info.resources.build_links(resources, node_links);
-    vk_index_buffer_binding_build_links(resources, node_links, create_info.node_data.index_buffer);
+    if (create_info.node_data.index_buffer.buffer != VK_NULL_HANDLE) {
+      vk_index_buffer_binding_build_links(
+          resources, node_links, create_info.node_data.index_buffer);
+    }
+
     vk_vertex_buffer_bindings_build_links(
         resources, node_links, create_info.node_data.vertex_buffers);
     ResourceWithStamp buffer_resource = resources.get_buffer(
@@ -77,6 +82,8 @@ class VKDrawIndexedIndirectNode
                       Data &data,
                       VKBoundPipelines &r_bound_pipelines) override
   {
+    vk_pipeline_viewport_set_commands(
+        command_buffer, data.viewport_data, r_bound_pipelines.graphics.viewport_state);
     vk_pipeline_data_build_commands(command_buffer,
                                     data.pipeline_data,
                                     r_bound_pipelines.graphics.pipeline,

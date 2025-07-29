@@ -42,7 +42,7 @@ static const EnumPropertyItem prop_view_items[] = {
     {0, nullptr, 0, nullptr, nullptr},
 };
 
-static int view_axis_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus view_axis_exec(bContext *C, wmOperator *op)
 {
   View3D *v3d;
   ARegion *region;
@@ -164,7 +164,7 @@ void VIEW3D_OT_view_axis(wmOperatorType *ot)
   ot->description = "Use a preset viewpoint";
   ot->idname = "VIEW3D_OT_view_axis";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = view_axis_exec;
   ot->poll = ED_operator_rv3d_user_region_poll;
 

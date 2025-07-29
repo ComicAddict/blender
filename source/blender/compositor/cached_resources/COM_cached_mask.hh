@@ -48,9 +48,6 @@ bool operator==(const CachedMaskKey &a, const CachedMaskKey &b);
  * A cached resource that computes and caches a result containing the result of evaluating the
  * given mask ID on a space that spans the given size, parameterized by the given parameters. */
 class CachedMask : public CachedResource {
- private:
-  Array<float> evaluated_mask_;
-
  public:
   Result result;
 
@@ -72,6 +69,9 @@ class CachedMask : public CachedResource {
 class CachedMaskContainer : CachedResourceContainer {
  private:
   Map<std::string, Map<CachedMaskKey, std::unique_ptr<CachedMask>>> map_;
+
+  /* A map that stores the update counts of the masks at the moment they were cached. */
+  Map<std::string, uint64_t> update_counts_;
 
  public:
   void reset() override;

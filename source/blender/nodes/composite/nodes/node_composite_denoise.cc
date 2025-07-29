@@ -10,9 +10,11 @@
 #  include "BLI_system.h"
 #endif
 
+#include "BLI_span.hh"
+
 #include "MEM_guardedalloc.h"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "GPU_state.hh"
@@ -24,6 +26,7 @@
 #include "COM_derived_resources.hh"
 #include "COM_node_operation.hh"
 #include "COM_utilities.hh"
+#include "COM_utilities_oidn.hh"
 
 #include "node_composite_util.hh"
 
@@ -39,24 +42,28 @@ static void cmp_node_denoise_declare(NodeDeclarationBuilder &b)
 {
   b.add_input<decl::Color>("Image")
       .default_value({1.0f, 1.0f, 1.0f, 1.0f})
-      .compositor_domain_priority(0);
+      .compositor_domain_priority(0)
+      .structure_type(StructureType::Dynamic);
   b.add_input<decl::Vector>("Normal")
       .default_value({0.0f, 0.0f, 0.0f})
       .min(-1.0f)
       .max(1.0f)
       .hide_value()
-      .compositor_domain_priority(2);
+      .compositor_domain_priority(2)
+      .structure_type(StructureType::Dynamic);
   b.add_input<decl::Color>("Albedo")
       .default_value({1.0f, 1.0f, 1.0f, 1.0f})
       .hide_value()
-      .compositor_domain_priority(1);
-  b.add_output<decl::Color>("Image");
+      .compositor_domain_priority(1)
+      .structure_type(StructureType::Dynamic);
+  b.add_input<decl::Bool>("HDR").default_value(true);
+
+  b.add_output<decl::Color>("Image").structure_type(StructureType::Dynamic);
 }
 
 static void node_composit_init_denonise(bNodeTree * /*ntree*/, bNode *node)
 {
-  NodeDenoise *ndg = MEM_cnew<NodeDenoise>(__func__);
-  ndg->hdr = true;
+  NodeDenoise *ndg = MEM_callocN<NodeDenoise>(__func__);
   ndg->prefilter = CMP_NODE_DENOISE_PREFILTER_ACCURATE;
   ndg->quality = CMP_NODE_DENOISE_QUALITY_SCENE;
   node->storage = ndg;
@@ -82,18 +89,17 @@ static bool is_oidn_supported()
 static void node_composit_buts_denoise(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
 #ifndef WITH_OPENIMAGEDENOISE
-  uiItemL(layout, RPT_("Disabled. Built without OpenImageDenoise"), ICON_ERROR);
+  layout->label(RPT_("Disabled. Built without OpenImageDenoise"), ICON_ERROR);
 #else
   if (!is_oidn_supported()) {
-    uiItemL(layout, RPT_("Disabled. Platform not supported"), ICON_ERROR);
+    layout->label(RPT_("Disabled. Platform not supported"), ICON_ERROR);
   }
 #endif
 
-  uiItemL(layout, IFACE_("Prefilter:"), ICON_NONE);
-  uiItemR(layout, ptr, "prefilter", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
-  uiItemL(layout, IFACE_("Quality:"), ICON_NONE);
-  uiItemR(layout, ptr, "quality", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
-  uiItemR(layout, ptr, "use_hdr", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+  layout->label(IFACE_("Prefilter:"), ICON_NONE);
+  layout->prop(ptr, "prefilter", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+  layout->label(IFACE_("Quality:"), ICON_NONE);
+  layout->prop(ptr, "quality", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
 }
 
 using namespace blender::compositor;
@@ -115,18 +121,18 @@ class DenoiseOperation : public NodeOperation {
 
   void execute() override
   {
-    Result &input_image = get_input("Image");
+    const Result &input_image = get_input("Image");
     Result &output_image = get_result("Image");
 
     if (!is_oidn_supported() || input_image.is_single_value()) {
-      input_image.pass_through(output_image);
+      output_image.share_data(input_image);
       return;
     }
 
     output_image.allocate_texture(input_image.domain());
 
 #ifdef WITH_OPENIMAGEDENOISE
-    oidn::DeviceRef device = oidn::newDevice(oidn::DeviceType::CPU);
+    oidn::DeviceRef device = create_oidn_device(this->context());
     device.set("setAffinity", false);
     device.commit();
 
@@ -148,12 +154,19 @@ class DenoiseOperation : public NodeOperation {
       temporary_buffers_to_free.append(input_color);
     }
     else {
-      input_color = static_cast<float *>(input_image.cpu_data().data());
+      input_color = const_cast<float *>(static_cast<const float *>(input_image.cpu_data().data()));
       output_color = static_cast<float *>(output_image.cpu_data().data());
     }
+
+    const int64_t buffer_size = int64_t(width) * height * input_image.channels_count();
+    const MutableSpan<float> input_buffer_span = MutableSpan<float>(input_color, buffer_size);
+    oidn::BufferRef input_buffer = create_oidn_buffer(device, input_buffer_span);
+    const MutableSpan<float> output_buffer_span = MutableSpan<float>(output_color, buffer_size);
+    oidn::BufferRef output_buffer = create_oidn_buffer(device, output_buffer_span);
+
     oidn::FilterRef filter = device.newFilter("RT");
-    filter.setImage("color", input_color, oidn::Format::Float3, width, height, 0, pixel_stride);
-    filter.setImage("output", output_color, oidn::Format::Float3, width, height, 0, pixel_stride);
+    filter.setImage("color", input_buffer, oidn::Format::Float3, width, height, 0, pixel_stride);
+    filter.setImage("output", output_buffer, oidn::Format::Float3, width, height, 0, pixel_stride);
     filter.set("hdr", use_hdr());
     filter.set("cleanAux", auxiliary_passes_are_clean());
     this->set_filter_quality(filter);
@@ -183,7 +196,11 @@ class DenoiseOperation : public NodeOperation {
         }
       }
 
-      filter.setImage("albedo", albedo, oidn::Format::Float3, width, height, 0, pixel_stride);
+      const MutableSpan<float> albedo_buffer_span = MutableSpan<float>(albedo, buffer_size);
+      oidn::BufferRef albedo_buffer = create_oidn_buffer(device, albedo_buffer_span);
+
+      filter.setImage(
+          "albedo", albedo_buffer, oidn::Format::Float3, width, height, 0, pixel_stride);
     }
 
     /* If the albedo and normal inputs are not single value inputs, set the normal input to the
@@ -213,17 +230,26 @@ class DenoiseOperation : public NodeOperation {
 
       /* Float3 results might be stored in 4-component textures due to hardware limitations, so we
        * need to use the pixel stride of the texture. */
-      int normal_pixel_stride = sizeof(float) *
-                                (this->context().use_gpu() ?
-                                     GPU_texture_component_len(GPU_texture_format(input_normal)) :
-                                     input_normal.channels_count());
+      const int normal_channels_count = this->context().use_gpu() ?
+                                            GPU_texture_component_len(
+                                                GPU_texture_format(input_normal)) :
+                                            input_normal.channels_count();
+      int normal_pixel_stride = sizeof(float) * normal_channels_count;
+
+      const int64_t normal_buffer_size = int64_t(width) * height * normal_channels_count;
+      const MutableSpan<float> normal_buffer_span = MutableSpan<float>(normal, normal_buffer_size);
+      oidn::BufferRef normal_buffer = create_oidn_buffer(device, normal_buffer_span);
 
       filter.setImage(
-          "normal", normal, oidn::Format::Float3, width, height, 0, normal_pixel_stride);
+          "normal", normal_buffer, oidn::Format::Float3, width, height, 0, normal_pixel_stride);
     }
 
     filter.commit();
     filter.execute();
+
+    if (output_buffer.getStorage() != oidn::Storage::Host) {
+      output_buffer.read(0, buffer_size * sizeof(float), output_color);
+    }
 
     if (this->context().use_gpu()) {
       GPU_texture_update(output_image, data_format, output_color);
@@ -264,7 +290,7 @@ class DenoiseOperation : public NodeOperation {
 
   bool use_hdr()
   {
-    return node_storage(bnode()).hdr;
+    return this->get_input("HDR").get_single_value_default(true);
   }
 
   CMPNodeDenoisePrefilter get_prefilter_mode()
@@ -325,7 +351,7 @@ static NodeOperation *get_compositor_operation(Context &context, DNode node)
 
 }  // namespace blender::nodes::node_composite_denoise_cc
 
-void register_node_type_cmp_denoise()
+static void register_node_type_cmp_denoise()
 {
   namespace file_ns = blender::nodes::node_composite_denoise_cc;
 
@@ -345,3 +371,4 @@ void register_node_type_cmp_denoise()
 
   blender::bke::node_register_type(ntype);
 }
+NOD_REGISTER_NODE(register_node_type_cmp_denoise)

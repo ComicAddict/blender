@@ -10,8 +10,8 @@
  * More work is needed for logging drawing to work properly.
  *
  * - Use GPU_matrix API.
- * - Replace old OpenGL calls to glColor, etc with 'imm' API.
- * - Investigate BLF font flushing (UI_widgetbase_draw_cache_flush) which is currently disabled.
+ * - Replace old OpenGL calls to `glColor`, etc with `imm` API.
+ * - Investigate BLF font flushing (`UI_widgetbase_draw_cache_flush`) which is currently disabled.
  */
 
 #ifdef _MSC_VER
@@ -730,7 +730,10 @@ static void extrawindow_spin_cursor(ExtraWindow *ew, uint64_t time)
     mask[y][x / 8] |= (1 << (x % 8));
   }
 
-  GHOST_SetCustomCursorShape(ew->win, &bitmap[0][0], &mask[0][0], 16, 16, 0, 0, true);
+  const int size[2] = {16, 16};
+  const int hot_spot[2] = {0, 0};
+
+  GHOST_SetCustomCursorShape(ew->win, &bitmap[0][0], &mask[0][0], size, hot_spot, true);
 }
 
 static void extrawindow_handle(void *priv, GHOST_EventHandle evt)

@@ -10,13 +10,8 @@
 
 #if (!defined(__KERNEL_GPU__) || (defined(__KERNEL_ONEAPI__) && defined(WITH_EMBREE_GPU))) && \
     defined(WITH_EMBREE)
-#  if EMBREE_MAJOR_VERSION == 4
-#    include <embree4/rtcore.h>
-#    include <embree4/rtcore_scene.h>
-#  else
-#    include <embree3/rtcore.h>
-#    include <embree3/rtcore_scene.h>
-#  endif
+#  include <embree4/rtcore.h>
+#  include <embree4/rtcore_scene.h>
 #  define __EMBREE__
 #endif
 
@@ -38,6 +33,7 @@ CCL_NAMESPACE_BEGIN
 #define FILTER_TABLE_SIZE 1024
 #define RAMP_TABLE_SIZE 256
 #define SHUTTER_TABLE_SIZE 256
+#define THIN_FILM_TABLE_SIZE 512
 
 #define BSSRDF_MIN_RADIUS 1e-8f
 #define BSSRDF_MAX_HITS 4
@@ -70,95 +66,96 @@ CCL_NAMESPACE_BEGIN
 // NOLINTEND
 
 /* Kernel Features */
+/* NOTE: Keep kernel features as defines as they are used by the preprocessor to do compile time
+ * optimization while using adaptive kernel compilation. */
 
 /* Shader nodes. */
-enum {
-  KERNEL_FEATURE_NODE_BSDF = (1U << 0U),
-  KERNEL_FEATURE_NODE_EMISSION = (1U << 1U),
-  KERNEL_FEATURE_NODE_VOLUME = (1U << 2U),
-  KERNEL_FEATURE_NODE_BUMP = (1U << 3U),
-  KERNEL_FEATURE_NODE_BUMP_STATE = (1U << 4U),
-  KERNEL_FEATURE_NODE_VORONOI_EXTRA = (1U << 5U),
-  KERNEL_FEATURE_NODE_RAYTRACE = (1U << 6U),
-  KERNEL_FEATURE_NODE_AOV = (1U << 7U),
-  KERNEL_FEATURE_NODE_LIGHT_PATH = (1U << 8U),
-  KERNEL_FEATURE_NODE_PRINCIPLED_HAIR = (1U << 9U),
+#define KERNEL_FEATURE_NODE_BSDF (1U << 0U)
+#define KERNEL_FEATURE_NODE_EMISSION (1U << 1U)
+#define KERNEL_FEATURE_NODE_VOLUME (1U << 2U)
+#define KERNEL_FEATURE_NODE_BUMP (1U << 3U)
+#define KERNEL_FEATURE_NODE_BUMP_STATE (1U << 4U)
+#define KERNEL_FEATURE_NODE_VORONOI_EXTRA (1U << 5U)
+#define KERNEL_FEATURE_NODE_RAYTRACE (1U << 6U)
+#define KERNEL_FEATURE_NODE_AOV (1U << 7U)
+#define KERNEL_FEATURE_NODE_LIGHT_PATH (1U << 8U)
+#define KERNEL_FEATURE_NODE_PRINCIPLED_HAIR (1U << 9U)
+#define KERNEL_FEATURE_NODE_PORTAL (1U << 10U)
 
-  /* Use path tracing kernels. */
-  KERNEL_FEATURE_PATH_TRACING = (1U << 10U),
+/* Use path tracing kernels. */
+#define KERNEL_FEATURE_PATH_TRACING (1U << 11U)
 
-  /* BVH/sampling kernel features. */
-  KERNEL_FEATURE_POINTCLOUD = (1U << 11U),
-  KERNEL_FEATURE_HAIR = (1U << 12U),
-  KERNEL_FEATURE_HAIR_THICK = (1U << 13U),
-  KERNEL_FEATURE_OBJECT_MOTION = (1U << 14U),
+/* BVH/sampling kernel features. */
+#define KERNEL_FEATURE_POINTCLOUD (1U << 12U)
+#define KERNEL_FEATURE_HAIR (1U << 13U)
+#define KERNEL_FEATURE_HAIR_THICK (1U << 14U)
+#define KERNEL_FEATURE_OBJECT_MOTION (1U << 15U)
 
-  /* Denotes whether baking functionality is needed. */
-  KERNEL_FEATURE_BAKING = (1U << 15U),
+/* Denotes whether baking functionality is needed. */
+#define KERNEL_FEATURE_BAKING (1U << 16U)
 
-  /* Use subsurface scattering materials. */
-  KERNEL_FEATURE_SUBSURFACE = (1U << 16U),
+/* Use subsurface scattering materials. */
+#define KERNEL_FEATURE_SUBSURFACE (1U << 17U)
 
-  /* Use volume materials. */
-  KERNEL_FEATURE_VOLUME = (1U << 17U),
+/* Use volume materials. */
+#define KERNEL_FEATURE_VOLUME (1U << 18U)
 
-  /* Use OpenSubdiv patch evaluation */
-  KERNEL_FEATURE_PATCH_EVALUATION = (1U << 18U),
+/* Use Transparent shadows */
+#define KERNEL_FEATURE_TRANSPARENT (1U << 19U)
 
-  /* Use Transparent shadows */
-  KERNEL_FEATURE_TRANSPARENT = (1U << 19U),
+/* Use shadow catcher. */
+#define KERNEL_FEATURE_SHADOW_CATCHER (1U << 20U)
 
-  /* Use shadow catcher. */
-  KERNEL_FEATURE_SHADOW_CATCHER = (1U << 20U),
+/* Light render passes. */
+#define KERNEL_FEATURE_LIGHT_PASSES (1U << 21U)
 
-  /* Light render passes. */
-  KERNEL_FEATURE_LIGHT_PASSES = (1U << 21U),
-
-  /* AO. */
-  KERNEL_FEATURE_AO_PASS = (1U << 22U),
-  KERNEL_FEATURE_AO_ADDITIVE = (1U << 23U),
-
-  /* MNEE. */
-  KERNEL_FEATURE_MNEE = (1U << 24U),
-
-  /* Path guiding. */
-  KERNEL_FEATURE_PATH_GUIDING = (1U << 25U),
-
-  /* OSL. */
-  KERNEL_FEATURE_OSL = (1U << 26U),
-
-  /* Light and shadow linking. */
-  KERNEL_FEATURE_LIGHT_LINKING = (1U << 27U),
-  KERNEL_FEATURE_SHADOW_LINKING = (1U << 28U),
-
-  /* Use denoising kernels and output denoising passes. */
-  KERNEL_FEATURE_DENOISING = (1U << 29U),
-
-  /* Light tree. */
-  KERNEL_FEATURE_LIGHT_TREE = (1U << 30U)
-};
-
+/* AO. */
+#define KERNEL_FEATURE_AO_PASS (1U << 22U)
+#define KERNEL_FEATURE_AO_ADDITIVE (1U << 23U)
 #define KERNEL_FEATURE_AO (KERNEL_FEATURE_AO_PASS | KERNEL_FEATURE_AO_ADDITIVE)
+
+/* MNEE. */
+#define KERNEL_FEATURE_MNEE (1U << 24U)
+
+/* Path guiding. */
+#define KERNEL_FEATURE_PATH_GUIDING (1U << 25U)
+
+/* OSL. */
+#define KERNEL_FEATURE_OSL_SHADING (1U << 26U)
+#define KERNEL_FEATURE_OSL_CAMERA (1U << 27U)
+
+/* Light and shadow linking. */
+#define KERNEL_FEATURE_LIGHT_LINKING (1U << 28U)
+#define KERNEL_FEATURE_SHADOW_LINKING (1U << 29U)
+
+/* Use denoising kernels and output denoising passes. */
+#define KERNEL_FEATURE_DENOISING (1U << 30U)
+
+/* Light tree. */
+#define KERNEL_FEATURE_LIGHT_TREE (1U << 31U)
 
 /* Shader node feature mask, to specialize shader evaluation for kernels. */
 
 #define KERNEL_FEATURE_NODE_MASK_SURFACE_LIGHT \
   (KERNEL_FEATURE_NODE_EMISSION | KERNEL_FEATURE_NODE_VORONOI_EXTRA | \
-   KERNEL_FEATURE_NODE_LIGHT_PATH)
+   KERNEL_FEATURE_NODE_LIGHT_PATH | KERNEL_FEATURE_NODE_PORTAL)
 #define KERNEL_FEATURE_NODE_MASK_SURFACE_BACKGROUND \
   (KERNEL_FEATURE_NODE_MASK_SURFACE_LIGHT | KERNEL_FEATURE_NODE_AOV)
 #define KERNEL_FEATURE_NODE_MASK_SURFACE_SHADOW \
   (KERNEL_FEATURE_NODE_BSDF | KERNEL_FEATURE_NODE_EMISSION | KERNEL_FEATURE_NODE_BUMP | \
    KERNEL_FEATURE_NODE_BUMP_STATE | KERNEL_FEATURE_NODE_VORONOI_EXTRA | \
-   KERNEL_FEATURE_NODE_LIGHT_PATH | KERNEL_FEATURE_NODE_PRINCIPLED_HAIR)
+   KERNEL_FEATURE_NODE_LIGHT_PATH | KERNEL_FEATURE_NODE_PRINCIPLED_HAIR | \
+   KERNEL_FEATURE_NODE_PORTAL)
 #define KERNEL_FEATURE_NODE_MASK_SURFACE \
   (KERNEL_FEATURE_NODE_MASK_SURFACE_SHADOW | KERNEL_FEATURE_NODE_RAYTRACE | \
    KERNEL_FEATURE_NODE_AOV | KERNEL_FEATURE_NODE_LIGHT_PATH)
 #define KERNEL_FEATURE_NODE_MASK_VOLUME \
   (KERNEL_FEATURE_NODE_EMISSION | KERNEL_FEATURE_NODE_VOLUME | \
-   KERNEL_FEATURE_NODE_VORONOI_EXTRA | KERNEL_FEATURE_NODE_LIGHT_PATH)
+   KERNEL_FEATURE_NODE_VORONOI_EXTRA | KERNEL_FEATURE_NODE_LIGHT_PATH | \
+   KERNEL_FEATURE_NODE_PORTAL)
 #define KERNEL_FEATURE_NODE_MASK_DISPLACEMENT \
-  (KERNEL_FEATURE_NODE_VORONOI_EXTRA | KERNEL_FEATURE_NODE_BUMP | KERNEL_FEATURE_NODE_BUMP_STATE)
+  (KERNEL_FEATURE_NODE_VORONOI_EXTRA | KERNEL_FEATURE_NODE_BUMP | \
+   KERNEL_FEATURE_NODE_BUMP_STATE | KERNEL_FEATURE_NODE_PORTAL)
 #define KERNEL_FEATURE_NODE_MASK_BUMP KERNEL_FEATURE_NODE_MASK_DISPLACEMENT
 
 /* Must be constexpr on the CPU to avoid compile errors because the state types
@@ -188,7 +185,6 @@ enum {
 #define __OBJECT_MOTION__
 #define __MNEE__
 #define __PASSES__
-#define __PATCH_EVAL__
 #define __POINTCLOUD__
 #define __PRINCIPLED_HAIR__
 #define __RAY_DIFFERENTIALS__
@@ -210,7 +206,7 @@ enum {
 #  endif
 #endif
 #ifndef __KERNEL_GPU__
-#  ifdef WITH_PATH_GUIDING
+#  if defined(WITH_PATH_GUIDING)
 #    define __PATH_GUIDING__
 #  endif
 #  define __VOLUME_RECORD_ALL__
@@ -222,7 +218,6 @@ enum {
 #  undef __MNEE__
 #endif
 
-/* Scene-based selective features compilation. */
 /* Scene-based selective features compilation. */
 #ifdef __KERNEL_FEATURES__
 #  if !(__KERNEL_FEATURES__ & KERNEL_FEATURE_OBJECT_MOTION)
@@ -243,9 +238,6 @@ enum {
 #  endif
 #  if !(__KERNEL_FEATURES__ & KERNEL_FEATURE_SUBSURFACE)
 #    undef __SUBSURFACE__
-#  endif
-#  if !(__KERNEL_FEATURES__ & KERNEL_FEATURE_PATCH_EVALUATION)
-#    undef __PATCH_EVAL__
 #  endif
 #  if !(__KERNEL_FEATURES__ & KERNEL_FEATURE_SHADOW_CATCHER)
 #    undef __SHADOW_CATCHER__
@@ -668,7 +660,7 @@ enum GuidingDirectionalSamplingType {
 
 /* Camera Type */
 
-enum CameraType { CAMERA_PERSPECTIVE, CAMERA_ORTHOGRAPHIC, CAMERA_PANORAMA };
+enum CameraType { CAMERA_PERSPECTIVE, CAMERA_ORTHOGRAPHIC, CAMERA_PANORAMA, CAMERA_CUSTOM };
 
 /* Panorama Type */
 
@@ -881,7 +873,6 @@ enum AttributeElement {
 enum AttributeStandard {
   ATTR_STD_NONE = 0,
   ATTR_STD_VERTEX_NORMAL,
-  ATTR_STD_FACE_NORMAL,
   ATTR_STD_UV,
   ATTR_STD_UV_TANGENT,
   ATTR_STD_UV_TANGENT_SIGN,
@@ -890,6 +881,7 @@ enum AttributeStandard {
   ATTR_STD_GENERATED_TRANSFORM,
   ATTR_STD_POSITION_UNDEFORMED,
   ATTR_STD_POSITION_UNDISPLACED,
+  ATTR_STD_NORMAL_UNDISPLACED,
   ATTR_STD_MOTION_VERTEX_POSITION,
   ATTR_STD_MOTION_VERTEX_NORMAL,
   ATTR_STD_PARTICLE,
@@ -917,14 +909,13 @@ enum AttributeStandard {
 };
 
 enum AttributeFlag {
-  ATTR_FINAL_SIZE = (1 << 0),
-  ATTR_SUBDIVIDED = (1 << 1),
+  ATTR_SUBDIVIDE_SMOOTH_FVAR = (1 << 0), /* This attribute is face-varying and requires smooth
+                                          * subdivision (typically UV map). */
 };
 
 struct AttributeDescriptor {
   AttributeElement element;
   NodeAttributeType type;
-  uint flags; /* see enum AttributeFlag */
   int offset;
 };
 
@@ -934,7 +925,7 @@ struct AttributeMap {
   int offset;       /* Offset into __attributes global arrays. */
   uint16_t element; /* AttributeElement. */
   uint8_t type;     /* NodeAttributeType. */
-  uint8_t flags;    /* AttributeFlag. */
+  uint8_t pad;
 };
 
 /* Closure data */
@@ -1042,7 +1033,7 @@ enum ShaderDataFlag {
 
   /* Shader flags. */
 
-  /* Apply a correction term to smooth illumination on grazing angles when using bump mapping.. */
+  /* Apply a correction term to smooth illumination on grazing angles when using bump mapping. */
   SD_USE_BUMP_MAP_CORRECTION = (1 << 15),
   /* Use front side for direct light sampling. */
   SD_MIS_FRONT = (1 << 16),
@@ -1131,6 +1122,10 @@ struct ccl_align(16) ShaderData
   float3 Ng;
   /* view/incoming direction */
   float3 wi;
+
+  /* combined type and curve segment for hair */
+  int type;
+
   /* shader id */
   int shader;
   /* booleans describing shader, see ShaderDataFlag */
@@ -1138,11 +1133,12 @@ struct ccl_align(16) ShaderData
   /* booleans describing object of the shader, see ShaderDataObjectFlag */
   int object_flag;
 
+  /* Closure data, we store a fixed array of closures */
+  int num_closure;
+  int num_closure_left;
+
   /* primitive id if there is one, ~0 otherwise */
   int prim;
-
-  /* combined type and curve segment for hair */
-  int type;
 
   /* parametric coordinates
    * - barycentric weights for triangles */
@@ -1187,10 +1183,6 @@ struct ccl_align(16) ShaderData
   /* LCG state for closures that require additional random numbers. */
   uint lcg_state;
 
-  /* Closure data, we store a fixed array of closures */
-  int num_closure;
-  int num_closure_left;
-
   /* Closure weights summed directly, so we can evaluate
    * emission and shadow transparency with MAX_CLOSURE 0. */
   Spectrum closure_emission_background;
@@ -1200,6 +1192,7 @@ struct ccl_align(16) ShaderData
   struct ShaderClosure closure[MAX_CLOSURE];
 };
 
+#ifdef __KERNEL_GPU__
 /* ShaderDataTinyStorage needs the same alignment as ShaderData, or else
  * the pointer cast in AS_SHADER_DATA invokes undefined behavior. */
 struct ccl_align(16) ShaderDataTinyStorage
@@ -1213,6 +1206,11 @@ struct ccl_align(16) ShaderDataCausticsStorage
 {
   char pad[sizeof(ShaderData) - sizeof(ShaderClosure) * (MAX_CLOSURE - CAUSTICS_MAX_CLOSURE)];
 };
+#else
+/* On the CPU use full size, to avoid compiler and ASAN warnings. */
+using ShaderDataTinyStorage = ShaderData;
+using ShaderDataCausticsStorage = ShaderData;
+#endif
 
 #define AS_SHADER_DATA(shader_data_tiny_storage) \
   ((ccl_private ShaderData *)shader_data_tiny_storage)
@@ -1441,7 +1439,7 @@ struct KernelTables {
   int sheen_ltc;
   int ggx_gen_schlick_ior_s;
   int ggx_gen_schlick_s;
-  int pad1;
+  int thin_film_table;
   int pad2;
 };
 static_assert_align(KernelTables, 16);
@@ -1485,7 +1483,11 @@ struct ccl_align(16) KernelData
   void *device_bvh;
 #else
 #  ifdef __EMBREE__
+#    if RTC_VERSION >= 40400
+  RTCTraversable device_bvh;
+#    else
   RTCScene device_bvh;
+#    endif
 #    ifndef __KERNEL_64_BIT__
   int pad1;
 #    endif
@@ -1518,7 +1520,6 @@ struct KernelObject {
   int num_tfm_steps;
   int numverts;
 
-  uint patch_map_offset;
   uint attribute_map_offset;
   uint motion_offset;
 
@@ -1537,8 +1538,6 @@ struct KernelObject {
 
   /* Volume velocity scale. */
   float velocity_scale;
-
-  int pad[3];
 
   /* TODO: separate array to avoid memory overhead when not used. */
   uint64_t light_set_membership;
@@ -1771,7 +1770,7 @@ struct KernelWorkTile {
 /* Shader Evaluation.
  *
  * Position on a primitive on an object at which we want to evaluate the
- * shader for e.g. mesh displacement or light importance map. */
+ * shader for example mesh displacement or light importance map. */
 
 struct KernelShaderEvalInput {
   int object;

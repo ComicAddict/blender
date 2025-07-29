@@ -32,8 +32,8 @@
  * # Registering the plugin
  * The plugin should be registered with lsregister. Either by calling lsregister or by launching
  * the parent app.
- * /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
-   -dump | grep blender-thumbnailer
+ * /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+ * \ -dump | grep blender-thumbnailer
  *
  * # Debugging
  * Since read-only entitlement is there, creating files to log is not possible. So NSLog and
@@ -47,16 +47,16 @@
  *
  * # Troubleshooting
  * - The appex shouldn't have any quarantine flag.
-     xattr -rl bin/Blender.app/Contents/Plugins/blender-thumbnailer.appex
+ *   xattr -rl bin/Blender.app/Contents/Plugins/blender-thumbnailer.appex
  * - Is it registered with lsregister and there isn't a conflict with another plugin taking
  *   precedence? lsregister -dump | grep blender-thumbnailer.appex
- * - For RBSLaunchRequest error: is the executable executable? chmod u+x
-  bin/Blender.app/Contents/PlugIns/blender-thumbnailer.appex/Contents/MacOS/blender-thumbnailer
+ * - For RBSLaunchRequest error: is the executable flag set? chmod u+x
+ * bin/Blender.app/Contents/PlugIns/blender-thumbnailer.appex/Contents/MacOS/blender-thumbnailer
  * - Is it codesigned and sandboxed?
  *   codesign --display --verbose --entitlements - --xml \
-  bin/Blender.app/Contents/Plugins/blender-thumbnailer.appex codesign --deep --force --sign - \
-  --entitlements ../blender/release/darwin/thumbnailer_entitlements.plist --timestamp=none \
-  bin/Blender.app/Contents/Plugins/blender-thumbnailer.appex
+ * bin/Blender.app/Contents/Plugins/blender-thumbnailer.appex codesign --deep --force --sign - \
+ * --entitlements ../blender/release/darwin/thumbnailer_entitlements.plist --timestamp=none \
+ * bin/Blender.app/Contents/Plugins/blender-thumbnailer.appex
  * - Sometimes blender-thumbnailer running in background can be killed.
  * - qlmanage -r && killall Finder
  * - The code cannot attempt to do anything outside sandbox like writing to blend.
@@ -152,23 +152,33 @@ static NSImage *generate_nsimage_for_file(const char *src_blend_path, NSError *e
   NSLog(@"Generating thumbnail for %@", request.fileURL.path);
   @autoreleasepool {
     NSError *error = nil;
-    NSImage *ns_image = generate_nsimage_for_file(request.fileURL.path.fileSystemRepresentation,
-                                                  error);
-    if (ns_image == nil) {
+    NSImage *image = generate_nsimage_for_file(request.fileURL.path.fileSystemRepresentation,
+                                               error);
+    if (image == nil || image.size.width <= 0 || image.size.height <= 0) {
       handler(nil, error);
       return;
     }
-    handler([QLThumbnailReply replyWithContextSize:request.maximumSize
-                        currentContextDrawingBlock:^BOOL {
-                          [ns_image drawInRect:NSMakeRect(0,
-                                                          0,
-                                                          request.maximumSize.width,
-                                                          request.maximumSize.height)];
-                          // Release the ns_image that was strongly captured by the block.
-                          [ns_image release];
-                          return YES;
-                        }],
-            nil);
+
+    const CGFloat width_ratio = request.maximumSize.width / image.size.width;
+    const CGFloat height_ratio = request.maximumSize.height / image.size.height;
+    const CGFloat scale_factor = MIN(width_ratio, height_ratio);
+
+    const NSSize context_size = NSMakeSize(image.size.width * scale_factor,
+                                           image.size.height * scale_factor);
+
+    const NSRect context_rect = NSMakeRect(0, 0, context_size.width, context_size.height);
+
+    QLThumbnailReply *thumbnailReply = [QLThumbnailReply replyWithContextSize:context_size
+                                                   currentContextDrawingBlock:^BOOL {
+                                                     [image drawInRect:context_rect];
+                                                     /* Release the image that was strongly
+                                                      * captured by this block. */
+                                                     [image release];
+                                                     return YES;
+                                                   }];
+
+    /* Return the thumbnail reply. */
+    handler(thumbnailReply, nil);
   }
   NSLog(@"Thumbnail generation succcessfully completed");
 }

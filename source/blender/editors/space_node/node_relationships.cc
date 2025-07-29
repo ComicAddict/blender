@@ -49,7 +49,6 @@ struct NodeInsertOfsData {
   bNodeTree *ntree;
   bNode *insert;      /* Inserted node. */
   bNode *prev, *next; /* Previous/next node in the chain. */
-  bNode *insert_parent;
 
   wmTimer *anim_timer;
 
@@ -159,8 +158,9 @@ static void pick_input_link_by_link_intersect(const bContext &C,
   }
 }
 
-static bool socket_is_available(bNodeTree * /*ntree*/, bNodeSocket *sock, const bool allow_used)
+static bool socket_is_available(bNodeTree *ntree, bNodeSocket *sock, const bool allow_used)
 {
+  ntree->ensure_topology_cache();
   if (!sock->is_visible()) {
     return false;
   }
@@ -217,6 +217,34 @@ static bNodeSocket *best_socket_output(bNodeTree *ntree,
     }
   }
 
+  /* If the target is an extend socket, then connect the first available socket that is not
+   * already linked to the target node. */
+  ntree->ensure_topology_cache();
+  if (STREQ(sock_target->idname, "NodeSocketVirtual")) {
+    LISTBASE_FOREACH (bNodeSocket *, output, &node->outputs) {
+      if (!output->is_icon_visible()) {
+        continue;
+      }
+
+      /* Find out if the socket is already linked to the target node. */
+      const Span<bNodeSocket *> directly_linked_sockets = output->directly_linked_sockets();
+      bool is_output_linked_to_target_node = false;
+      for (bNodeSocket *socket : directly_linked_sockets) {
+        if (&socket->owner_node() == &sock_target->owner_node()) {
+          is_output_linked_to_target_node = true;
+          break;
+        }
+      }
+
+      /* Already linked, ignore it. */
+      if (is_output_linked_to_target_node) {
+        continue;
+      }
+
+      return output;
+    }
+  }
+
   /* Always allow linking to an reroute node. The socket type of the reroute sockets might change
    * after the link has been created. */
   if (node->is_reroute()) {
@@ -237,7 +265,7 @@ static bNodeSocket *best_socket_input(bNodeTree *ntree, bNode *node, int num, in
 
   /* Find sockets of higher 'types' first (i.e. image). */
   int a = 0;
-  for (int socktype = maxtype; socktype >= 0; socktype--) {
+  for (int socktype = maxtype; socktype >= SOCK_CUSTOM; socktype--) {
     LISTBASE_FOREACH (bNodeSocket *, sock, &node->inputs) {
       if (!socket_is_available(ntree, sock, replace)) {
         a++;
@@ -271,7 +299,21 @@ static bool snode_autoconnect_input(SpaceNode &snode,
     bke::node_remove_socket_links(*ntree, *sock_to);
   }
 
-  bke::node_add_link(*ntree, *node_fr, *sock_fr, *node_to, *sock_to);
+  bNodeLink &link = bke::node_add_link(*ntree, *node_fr, *sock_fr, *node_to, *sock_to);
+
+  if (link.fromnode->typeinfo->insert_link) {
+    if (!link.fromnode->typeinfo->insert_link(ntree, link.fromnode, &link)) {
+      bke::node_remove_link(ntree, link);
+      return false;
+    }
+  }
+  if (link.tonode->typeinfo->insert_link) {
+    if (!link.tonode->typeinfo->insert_link(ntree, link.tonode, &link)) {
+      bke::node_remove_link(ntree, link);
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -399,9 +441,9 @@ namespace viewer_linking {
  * \{ */
 
 /* Depending on the node tree type, different socket types are supported by viewer nodes. */
-static bool socket_can_be_viewed(const bNode &node, const bNodeSocket &socket)
+static bool socket_can_be_viewed(const bNodeSocket &socket)
 {
-  if (!node.is_socket_icon_drawn(socket)) {
+  if (!socket.is_icon_visible()) {
     return false;
   }
   if (STREQ(socket.idname, "NodeSocketVirtual")) {
@@ -440,7 +482,7 @@ static bNodeSocket *node_link_viewer_get_socket(bNodeTree &ntree,
   }
 
   ntree.ensure_topology_cache();
-  if (!socket_can_be_viewed(src_socket.owner_node(), src_socket)) {
+  if (!socket_can_be_viewed(src_socket)) {
     return nullptr;
   }
 
@@ -499,7 +541,7 @@ static bNodeSocket *determine_socket_to_view(bNode &node_to_view)
   int last_linked_data_socket_index = -1;
   bool has_linked_geometry_socket = false;
   for (bNodeSocket *socket : node_to_view.output_sockets()) {
-    if (!socket_can_be_viewed(node_to_view, *socket)) {
+    if (!socket_can_be_viewed(*socket)) {
       continue;
     }
     for (bNodeLink *link : socket->directly_linked_links()) {
@@ -523,7 +565,7 @@ static bNodeSocket *determine_socket_to_view(bNode &node_to_view)
   if (last_linked_data_socket_index == -1 && !has_linked_geometry_socket) {
     /* Return the first socket that can be viewed. */
     for (bNodeSocket *socket : node_to_view.output_sockets()) {
-      if (socket_can_be_viewed(node_to_view, *socket)) {
+      if (socket_can_be_viewed(*socket)) {
         return socket;
       }
     }
@@ -537,7 +579,7 @@ static bNodeSocket *determine_socket_to_view(bNode &node_to_view)
   for (const int offset : IndexRange(1, tot_outputs)) {
     const int index = (last_linked_data_socket_index + offset) % tot_outputs;
     bNodeSocket &output_socket = node_to_view.output_socket(index);
-    if (!socket_can_be_viewed(node_to_view, output_socket)) {
+    if (!socket_can_be_viewed(output_socket)) {
       continue;
     }
     if (has_linked_geometry_socket && output_socket.type == SOCK_GEOMETRY) {
@@ -581,9 +623,18 @@ static void finalize_viewer_link(const bContext &C,
   viewer_link.flag &= ~NODE_LINK_MUTED;
   viewer_node.flag &= ~NODE_MUTED;
   viewer_node.flag |= NODE_DO_OUTPUT;
+
   if (snode.edittree->type == NTREE_GEOMETRY) {
     viewer_path::activate_geometry_node(*bmain, snode, viewer_node);
   }
+  else if (snode.edittree->type == NTREE_COMPOSIT) {
+    for (bNode *node : snode.nodetree->all_nodes()) {
+      if (node->is_type("CompositorNodeViewer") && node != &viewer_node) {
+        node->flag &= ~NODE_DO_OUTPUT;
+      }
+    }
+  }
+  BKE_ntree_update_tag_active_output_changed(snode.edittree);
   BKE_main_ensure_invariants(*bmain, snode.edittree->id);
 }
 
@@ -636,11 +687,15 @@ static Vector<float2> get_viewer_node_position_candidates(const float2 initial,
  * algorithm tries to avoid moving the viewer to a place where it would overlap with other nodes.
  * For that it iterates over many possible locations with increasing distance to the node to view.
  */
-static void position_viewer_node(bNodeTree &tree,
+static void position_viewer_node(const bContext &C,
+                                 bNodeTree &tree,
                                  bNode &viewer_node,
-                                 const bNode &node_to_view,
-                                 const ARegion &region)
+                                 const bNode &node_to_view)
 {
+  ScrArea &area = *CTX_wm_area(&C);
+  ARegion &region = *CTX_wm_region(&C);
+  ARegion &sidebar = *BKE_area_find_region_type(&area, RGN_TYPE_UI);
+
   tree.ensure_topology_cache();
 
   const View2D &v2d = region.v2d;
@@ -649,21 +704,34 @@ static void position_viewer_node(bNodeTree &tree,
   region_rect.xmax = region.winx;
   region_rect.ymin = 0;
   region_rect.ymax = region.winy;
+  if (U.uiflag2 & USER_REGION_OVERLAP) {
+    region_rect.xmax -= sidebar.winx;
+  }
+
   rctf region_bounds;
   UI_view2d_region_to_view_rctf(&v2d, &region_rect, &region_bounds);
 
   viewer_node.ui_order = tree.all_nodes().size();
   tree_draw_order_update(tree);
 
+  const bool is_new_viewer_node = BLI_rctf_size_x(&viewer_node.runtime->draw_bounds) == 0;
+  if (!is_new_viewer_node &&
+      BLI_rctf_inside_rctf(&region_bounds, &viewer_node.runtime->draw_bounds) &&
+      viewer_node.runtime->draw_bounds.xmin > node_to_view.runtime->draw_bounds.xmax)
+  {
+    /* Stay at the old viewer position when the viewer node is still in view and on the right side
+     * of the node-to-view. */
+    return;
+  }
+
   const float default_padding_x = U.node_margin;
   const float default_padding_y = 10;
-  const float viewer_width = BLI_rctf_size_x(&viewer_node.runtime->draw_bounds);
-  float viewer_height = BLI_rctf_size_y(&viewer_node.runtime->draw_bounds);
-  if (viewer_height == 0) {
-    /* Can't use if the viewer node has only just been added and the actual height is not yet
-     * known. */
-    viewer_height = 100;
-  }
+  const float viewer_width = is_new_viewer_node ?
+                                 viewer_node.width * UI_SCALE_FAC :
+                                 BLI_rctf_size_x(&viewer_node.runtime->draw_bounds);
+  const float viewer_height = is_new_viewer_node ?
+                                  100 * UI_SCALE_FAC :
+                                  BLI_rctf_size_y(&viewer_node.runtime->draw_bounds);
 
   const float2 main_candidate{node_to_view.runtime->draw_bounds.xmax + default_padding_x,
                               node_to_view.runtime->draw_bounds.ymax + viewer_height +
@@ -700,29 +768,6 @@ static void position_viewer_node(bNodeTree &tree,
     new_viewer_position = main_candidate;
   }
 
-  const float2 old_position = float2(viewer_node.location) * UI_SCALE_FAC;
-  if (old_position.x > node_to_view.runtime->draw_bounds.xmax) {
-    if (BLI_rctf_inside_rctf(&region_bounds, &viewer_node.runtime->draw_bounds)) {
-      /* Measure distance from right edge of the node to view and the left edge of the
-       * viewer node. */
-      const float2 node_to_view_top_right{node_to_view.runtime->draw_bounds.xmax,
-                                          node_to_view.runtime->draw_bounds.ymax};
-      const float2 node_to_view_bottom_right{node_to_view.runtime->draw_bounds.xmax,
-                                             node_to_view.runtime->draw_bounds.ymin};
-      const float old_distance = dist_seg_seg_v2(old_position,
-                                                 old_position + float2(0, viewer_height),
-                                                 node_to_view_top_right,
-                                                 node_to_view_bottom_right);
-      const float new_distance = dist_seg_seg_v2(*new_viewer_position,
-                                                 *new_viewer_position + float2(0, viewer_height),
-                                                 node_to_view_top_right,
-                                                 node_to_view_bottom_right);
-      if (old_distance <= new_distance) {
-        new_viewer_position = old_position;
-      }
-    }
-  }
-
   viewer_node.location[0] = new_viewer_position->x / UI_SCALE_FAC;
   viewer_node.location[1] = new_viewer_position->y / UI_SCALE_FAC;
   viewer_node.parent = nullptr;
@@ -734,8 +779,6 @@ static int view_socket(const bContext &C,
                        bNode &bnode_to_view,
                        bNodeSocket &bsocket_to_view)
 {
-  ARegion &region = *CTX_wm_region(&C);
-
   bNode *viewer_node = nullptr;
   /* Try to find a viewer that is already active. */
   for (bNode *node : btree.all_nodes()) {
@@ -753,7 +796,7 @@ static int view_socket(const bContext &C,
     bNode &target_node = *link->tonode;
     if (is_viewer_socket(target_socket) && ELEM(viewer_node, nullptr, &target_node)) {
       finalize_viewer_link(C, snode, target_node, *link);
-      position_viewer_node(btree, target_node, bnode_to_view, region);
+      position_viewer_node(C, btree, target_node, bnode_to_view);
       return OPERATOR_FINISHED;
     }
   }
@@ -797,7 +840,7 @@ static int view_socket(const bContext &C,
     BKE_ntree_update_tag_link_changed(&btree);
   }
   finalize_viewer_link(C, snode, *viewer_node, *viewer_link);
-  position_viewer_node(btree, *viewer_node, bnode_to_view, region);
+  position_viewer_node(C, btree, *viewer_node, bnode_to_view);
   return OPERATOR_CANCELLED;
 }
 
@@ -826,7 +869,7 @@ static int node_link_viewer(const bContext &C, bNode &bnode_to_view, bNodeSocket
 /** \name Link to Viewer Node Operator
  * \{ */
 
-static int node_active_link_viewer_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus node_active_link_viewer_exec(bContext *C, wmOperator * /*op*/)
 {
   SpaceNode &snode = *CTX_wm_space_node(C);
   bNode *node = bke::node_get_active(*snode.edittree);
@@ -880,7 +923,7 @@ void NODE_OT_link_viewer(wmOperatorType *ot)
   ot->description = "Link to viewer node";
   ot->idname = "NODE_OT_link_viewer";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = node_active_link_viewer_exec;
   ot->poll = node_active_link_viewer_poll;
 
@@ -1010,7 +1053,7 @@ static bNodeSocket *node_find_linkable_socket(const bNodeTree &ntree,
 
   bNodeSocket *socket = socket_to_match->next ? socket_to_match->next : first_socket;
   while (socket != socket_to_match) {
-    if (!socket->is_hidden() && socket->is_available()) {
+    if (socket->is_visible()) {
       const bool sockets_are_compatible = socket->typeinfo == socket_to_match->typeinfo;
       if (sockets_are_compatible) {
         const int link_count = node_socket_count_links(ntree, *socket);
@@ -1212,7 +1255,7 @@ static void add_dragged_links_to_tree(bContext &C, bNodeLinkDrag &nldrag)
 
     /* Before actually adding the link let nodes perform special link insertion handling. */
 
-    bNodeLink *new_link = static_cast<bNodeLink *>(MEM_mallocN(sizeof(bNodeLink), __func__));
+    bNodeLink *new_link = MEM_mallocN<bNodeLink>(__func__);
     *new_link = link;
     if (link.fromnode->typeinfo->insert_link) {
       if (!link.fromnode->typeinfo->insert_link(&ntree, link.fromnode, new_link)) {
@@ -1365,7 +1408,7 @@ wmKeyMap *node_link_modal_keymap(wmKeyConfig *keyconf)
   return keymap;
 }
 
-static int node_link_modal(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus node_link_modal(bContext *C, wmOperator *op, const wmEvent *event)
 {
   bNodeLinkDrag &nldrag = *static_cast<bNodeLinkDrag *>(op->customdata);
   SpaceNode &snode = *CTX_wm_space_node(C);
@@ -1524,7 +1567,7 @@ static std::unique_ptr<bNodeLinkDrag> node_link_init(ARegion &region,
   return {};
 }
 
-static int node_link_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus node_link_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   Main &bmain = *CTX_data_main(C);
   SpaceNode &snode = *CTX_wm_space_node(C);
@@ -1567,7 +1610,7 @@ void NODE_OT_link(wmOperatorType *ot)
   ot->idname = "NODE_OT_link";
   ot->description = "Use the mouse to create a link between two nodes";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->invoke = node_link_invoke;
   ot->modal = node_link_modal;
   ot->poll = ED_operator_node_editable;
@@ -1604,7 +1647,7 @@ void NODE_OT_link(wmOperatorType *ot)
  * \{ */
 
 /* Makes a link between selected output and input sockets. */
-static int node_make_link_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus node_make_link_exec(bContext *C, wmOperator *op)
 {
   Main &bmain = *CTX_data_main(C);
   SpaceNode &snode = *CTX_wm_space_node(C);
@@ -1649,7 +1692,7 @@ void NODE_OT_link_make(wmOperatorType *ot)
 /** \name Cut Link Operator
  * \{ */
 
-static int cut_links_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus cut_links_exec(bContext *C, wmOperator *op)
 {
   Main &bmain = *CTX_data_main(C);
   SpaceNode &snode = *CTX_wm_space_node(C);
@@ -1757,7 +1800,7 @@ bool all_links_muted(const bNodeSocket &socket)
   return true;
 }
 
-static int mute_links_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus mute_links_exec(bContext *C, wmOperator *op)
 {
   Main &bmain = *CTX_data_main(C);
   SpaceNode &snode = *CTX_wm_space_node(C);
@@ -1873,7 +1916,7 @@ void NODE_OT_links_mute(wmOperatorType *ot)
 /** \name Detach Links Operator
  * \{ */
 
-static int detach_links_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus detach_links_exec(bContext *C, wmOperator * /*op*/)
 {
   SpaceNode &snode = *CTX_wm_space_node(C);
   bNodeTree &ntree = *snode.edittree;
@@ -1910,7 +1953,7 @@ void NODE_OT_links_detach(wmOperatorType *ot)
 /** \name Set Parent Operator
  * \{ */
 
-static int node_parent_set_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus node_parent_set_exec(bContext *C, wmOperator * /*op*/)
 {
   SpaceNode &snode = *CTX_wm_space_node(C);
   bNodeTree &ntree = *snode.edittree;
@@ -1942,7 +1985,7 @@ void NODE_OT_parent_set(wmOperatorType *ot)
   ot->description = "Attach selected nodes";
   ot->idname = "NODE_OT_parent_set";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = node_parent_set_exec;
   ot->poll = ED_operator_node_editable;
 
@@ -2034,7 +2077,7 @@ static const bNode *find_common_parent_node(const Span<const bNode *> nodes)
   return candidates.last();
 }
 
-static int node_join_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus node_join_exec(bContext *C, wmOperator * /*op*/)
 {
   Main &bmain = *CTX_data_main(C);
   SpaceNode &snode = *CTX_wm_space_node(C);
@@ -2042,7 +2085,7 @@ static int node_join_exec(bContext *C, wmOperator * /*op*/)
 
   const VectorSet<bNode *> selected_nodes = get_selected_nodes(ntree);
 
-  bNode *frame_node = bke::node_add_static_node(C, ntree, NODE_FRAME);
+  bNode *frame_node = add_static_node(*C, NODE_FRAME, snode.runtime->cursor);
   bke::node_set_active(ntree, *frame_node);
   frame_node->parent = const_cast<bNode *>(find_common_parent_node(selected_nodes.as_span()));
 
@@ -2063,6 +2106,24 @@ static int node_join_exec(bContext *C, wmOperator * /*op*/)
   return OPERATOR_FINISHED;
 }
 
+static wmOperatorStatus node_join_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+{
+  ARegion *region = CTX_wm_region(C);
+  SpaceNode *snode = CTX_wm_space_node(C);
+
+  /* Convert mouse coordinates to v2d space. */
+  UI_view2d_region_to_view(&region->v2d,
+                           event->mval[0],
+                           event->mval[1],
+                           &snode->runtime->cursor[0],
+                           &snode->runtime->cursor[1]);
+
+  snode->runtime->cursor[0] /= UI_SCALE_FAC;
+  snode->runtime->cursor[1] /= UI_SCALE_FAC;
+
+  return node_join_exec(C, op);
+}
+
 void NODE_OT_join(wmOperatorType *ot)
 {
   /* identifiers */
@@ -2070,8 +2131,9 @@ void NODE_OT_join(wmOperatorType *ot)
   ot->description = "Attach selected nodes to a new common frame";
   ot->idname = "NODE_OT_join";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = node_join_exec;
+  ot->invoke = node_join_invoke;
   ot->poll = ED_operator_node_editable;
 
   /* flags */
@@ -2103,7 +2165,27 @@ static bNode *node_find_frame_to_attach(ARegion &region, bNodeTree &ntree, const
   return nullptr;
 }
 
-static int node_attach_invoke(bContext *C, wmOperator * /*op*/, const wmEvent *event)
+static bool can_attach_node_to_frame(const bNode &node, const bNode &frame)
+{
+  /* Disallow moving a parent into its child. */
+  if (node.is_frame() && bke::node_is_parent_and_child(node, frame)) {
+    return false;
+  }
+  if (node.parent == nullptr) {
+    return true;
+  }
+  if (node.parent == &frame) {
+    return false;
+  }
+  /* Attach nodes which share parent with the frame. */
+  const bool share_parent = bke::node_is_parent_and_child(*node.parent, frame);
+  if (!share_parent) {
+    return false;
+  }
+  return true;
+}
+
+static wmOperatorStatus node_attach_invoke(bContext *C, wmOperator * /*op*/, const wmEvent *event)
 {
   ARegion &region = *CTX_wm_region(C);
   SpaceNode &snode = *CTX_wm_space_node(C);
@@ -2120,28 +2202,9 @@ static int node_attach_invoke(bContext *C, wmOperator * /*op*/, const wmEvent *e
     if (!(node->flag & NODE_SELECT)) {
       continue;
     }
-
-    /* Disallow moving a parent into its child. */
-    if (node->is_frame() && bke::node_is_parent_and_child(*node, *frame)) {
+    if (!can_attach_node_to_frame(*node, *frame)) {
       continue;
     }
-
-    if (node->parent == nullptr) {
-      bke::node_attach_node(ntree, *node, *frame);
-      changed = true;
-      continue;
-    }
-
-    if (node->parent == frame) {
-      continue;
-    }
-
-    /* Attach nodes which share parent with the frame. */
-    const bool share_parent = bke::node_is_parent_and_child(*node->parent, *frame);
-    if (!share_parent) {
-      continue;
-    }
-
     bke::node_detach_node(ntree, *node);
     bke::node_attach_node(ntree, *node, *frame);
     changed = true;
@@ -2206,7 +2269,7 @@ static void node_detach_recursive(bNodeTree &ntree,
 }
 
 /* Detach the root nodes in the current selection. */
-static int node_detach_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus node_detach_exec(bContext *C, wmOperator * /*op*/)
 {
   SpaceNode &snode = *CTX_wm_space_node(C);
   bNodeTree &ntree = *snode.edittree;
@@ -2233,7 +2296,7 @@ void NODE_OT_detach(wmOperatorType *ot)
   ot->description = "Detach selected nodes from parents";
   ot->idname = "NODE_OT_detach";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = node_detach_exec;
   ot->poll = ED_operator_node_editable;
 
@@ -2381,6 +2444,35 @@ void node_insert_on_link_flags_set(SpaceNode &snode,
   }
 }
 
+void node_insert_on_frame_flag_set(bContext &C, SpaceNode &snode, const int2 &cursor)
+{
+  snode.runtime->frame_identifier_to_highlight.reset();
+
+  ARegion &region = *CTX_wm_region(&C);
+
+  snode.edittree->ensure_topology_cache();
+  const bNode *frame = node_find_frame_to_attach(region, *snode.edittree, cursor);
+  if (!frame) {
+    return;
+  }
+  for (const bNode *node : snode.edittree->all_nodes()) {
+    if (!(node->flag & NODE_SELECT)) {
+      continue;
+    }
+    if (!can_attach_node_to_frame(*node, *frame)) {
+      continue;
+    }
+    /* We detected that a node can be attached to the frame, so highlight it. */
+    snode.runtime->frame_identifier_to_highlight = frame->identifier;
+    return;
+  }
+}
+
+void node_insert_on_frame_flag_clear(SpaceNode &snode)
+{
+  snode.runtime->frame_identifier_to_highlight.reset();
+}
+
 void node_insert_on_link_flags_clear(bNodeTree &node_tree)
 {
   LISTBASE_FOREACH (bNodeLink *, link, &node_tree.links) {
@@ -2441,14 +2533,14 @@ void node_insert_on_link_flags(Main &bmain, SpaceNode &snode, bool is_new_node)
   if (!node_to_insert->is_reroute()) {
     /* Ignore main sockets when the types don't match. */
     if (best_input != nullptr && ntree.typeinfo->validate_link != nullptr &&
-        !ntree.typeinfo->validate_link(static_cast<eNodeSocketDatatype>(old_link->fromsock->type),
-                                       static_cast<eNodeSocketDatatype>(best_input->type)))
+        !ntree.typeinfo->validate_link(eNodeSocketDatatype(old_link->fromsock->type),
+                                       eNodeSocketDatatype(best_input->type)))
     {
       best_input = nullptr;
     }
     if (best_output != nullptr && ntree.typeinfo->validate_link != nullptr &&
-        !ntree.typeinfo->validate_link(static_cast<eNodeSocketDatatype>(best_output->type),
-                                       static_cast<eNodeSocketDatatype>(old_link->tosock->type)))
+        !ntree.typeinfo->validate_link(eNodeSocketDatatype(best_output->type),
+                                       eNodeSocketDatatype(old_link->tosock->type)))
     {
       best_output = nullptr;
     }
@@ -2481,7 +2573,7 @@ void node_insert_on_link_flags(Main &bmain, SpaceNode &snode, bool is_new_node)
   /* Set up insert offset data, it needs stuff from here. */
   if (U.uiflag & USER_NODE_AUTO_OFFSET) {
     BLI_assert(snode.runtime->iofsd == nullptr);
-    NodeInsertOfsData *iofsd = MEM_cnew<NodeInsertOfsData>(__func__);
+    NodeInsertOfsData *iofsd = MEM_callocN<NodeInsertOfsData>(__func__);
 
     iofsd->insert = node_to_insert;
     iofsd->prev = from_node;
@@ -2501,7 +2593,7 @@ void node_insert_on_link_flags(Main &bmain, SpaceNode &snode, bool is_new_node)
 
 static int get_main_socket_priority(const bNodeSocket *socket)
 {
-  switch ((eNodeSocketDatatype)socket->type) {
+  switch (eNodeSocketDatatype(socket->type)) {
     case SOCK_CUSTOM:
       return 0;
     case SOCK_BOOLEAN:
@@ -2525,6 +2617,8 @@ static int get_main_socket_priority(const bNodeSocket *socket)
     case SOCK_TEXTURE:
     case SOCK_MATERIAL:
     case SOCK_MENU:
+    case SOCK_BUNDLE:
+    case SOCK_CLOSURE:
       return 6;
   }
   return -1;
@@ -2590,59 +2684,7 @@ static void node_offset_apply(bNode &node, const float offset_x)
   }
 }
 
-static void node_parent_offset_apply(NodeInsertOfsData *data, bNode *parent, const float offset_x)
-{
-  node_offset_apply(*parent, offset_x);
-
-  /* Flag all children as offset to prevent them from being offset
-   * separately (they've already moved with the parent). */
-  for (bNode *node : data->ntree->all_nodes()) {
-    if (bke::node_is_parent_and_child(*parent, *node)) {
-      /* NODE_TEST is used to flag nodes that shouldn't be offset (again) */
-      node->flag |= NODE_TEST;
-    }
-  }
-}
-
 #define NODE_INSOFS_ANIM_DURATION 0.25f
-
-/**
- * Callback that applies #NodeInsertOfsData.offset_x to a node or its parent, similar
- * to node_link_insert_offset_output_chain_cb below, but with slightly different logic
- */
-static bool node_link_insert_offset_frame_chain_cb(bNode *fromnode,
-                                                   bNode *tonode,
-                                                   void *userdata,
-                                                   const bool reversed)
-{
-  NodeInsertOfsData *data = (NodeInsertOfsData *)userdata;
-  bNode *ofs_node = reversed ? fromnode : tonode;
-
-  if (ofs_node->parent && ofs_node->parent != data->insert_parent) {
-    node_offset_apply(*ofs_node->parent, data->offset_x);
-  }
-  else {
-    node_offset_apply(*ofs_node, data->offset_x);
-  }
-
-  return true;
-}
-
-/**
- * Applies #NodeInsertOfsData.offset_x to all children of \a parent.
- */
-static void node_link_insert_offset_frame_chains(bNodeTree *ntree,
-                                                 const bNode *parent,
-                                                 NodeInsertOfsData *data,
-                                                 const bool reversed)
-{
-  for (bNode *node : ntree->all_nodes()) {
-    if (bke::node_is_parent_and_child(*parent, *node)) {
-      bke::node_chain_iterator(
-          ntree, node, node_link_insert_offset_frame_chain_cb, data, reversed);
-    }
-  }
-}
 
 /**
  * Callback that applies NodeInsertOfsData.offset_x to a node or its parent,
@@ -2656,26 +2698,7 @@ static bool node_link_insert_offset_chain_cb(bNode *fromnode,
   NodeInsertOfsData *data = (NodeInsertOfsData *)userdata;
   bNode *ofs_node = reversed ? fromnode : tonode;
 
-  if (data->insert_parent) {
-    if (ofs_node->parent && (ofs_node->parent->flag & NODE_TEST) == 0) {
-      node_parent_offset_apply(data, ofs_node->parent, data->offset_x);
-      node_link_insert_offset_frame_chains(data->ntree, ofs_node->parent, data, reversed);
-    }
-    else {
-      node_offset_apply(*ofs_node, data->offset_x);
-    }
-
-    if (!bke::node_is_parent_and_child(*data->insert_parent, *ofs_node)) {
-      data->insert_parent = nullptr;
-    }
-  }
-  else if (ofs_node->parent) {
-    bNode *node = bke::node_find_root_parent(*ofs_node);
-    node_offset_apply(*node, data->offset_x);
-  }
-  else {
-    node_offset_apply(*ofs_node, data->offset_x);
-  }
+  node_offset_apply(*ofs_node, data->offset_x);
 
   return true;
 }
@@ -2766,14 +2789,7 @@ static void node_link_insert_offset_ntree(NodeInsertOfsData *iofsd,
     const float addval = (min_margin - dist) * (right_alignment ? 1.0f : -1.0f);
     if (needs_alignment) {
       bNode *offs_node = right_alignment ? next : prev;
-      if (!offs_node->parent || offs_node->parent == insert.parent ||
-          bke::node_is_parent_and_child(*offs_node->parent, insert))
-      {
-        node_offset_apply(*offs_node, addval);
-      }
-      else if (!insert.parent && offs_node->parent) {
-        node_offset_apply(*bke::node_find_root_parent(*offs_node), addval);
-      }
+      node_offset_apply(*offs_node, addval);
       margin = addval;
     }
     /* enough room is available, but we want to ensure the min margin at the right */
@@ -2784,7 +2800,6 @@ static void node_link_insert_offset_ntree(NodeInsertOfsData *iofsd,
   }
 
   if (needs_alignment) {
-    iofsd->insert_parent = insert.parent;
     iofsd->offset_x = margin;
 
     /* flag all parents of insert as offset to prevent them from being offset */
@@ -2803,7 +2818,7 @@ static void node_link_insert_offset_ntree(NodeInsertOfsData *iofsd,
 /**
  * Modal handler for insert offset animation
  */
-static int node_insert_offset_modal(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus node_insert_offset_modal(bContext *C, wmOperator *op, const wmEvent *event)
 {
   SpaceNode *snode = CTX_wm_space_node(C);
   NodeInsertOfsData *iofsd = static_cast<NodeInsertOfsData *>(op->customdata);
@@ -2856,7 +2871,9 @@ static int node_insert_offset_modal(bContext *C, wmOperator *op, const wmEvent *
 
 #undef NODE_INSOFS_ANIM_DURATION
 
-static int node_insert_offset_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus node_insert_offset_invoke(bContext *C,
+                                                  wmOperator *op,
+                                                  const wmEvent *event)
 {
   const SpaceNode *snode = CTX_wm_space_node(C);
   NodeInsertOfsData *iofsd = snode->runtime->iofsd;

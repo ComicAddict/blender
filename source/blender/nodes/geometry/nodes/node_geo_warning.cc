@@ -4,7 +4,7 @@
 
 #include "node_geometry_util.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "BLI_string_utf8.h"
@@ -33,6 +33,7 @@ class LazyFunctionForWarningNode : public LazyFunction {
  public:
   LazyFunctionForWarningNode(const bNode &node) : node_(node)
   {
+    debug_name_ = "Warning";
     const CPPType &type = CPPType::get<SocketValueVariant>();
     inputs_.append_as("Show", type, lf::ValueUsage::Used);
     inputs_.append_as("Message", type);
@@ -54,8 +55,8 @@ class LazyFunctionForWarningNode : public LazyFunction {
       return;
     }
     std::string message = message_variant->extract<std::string>();
-    GeoNodesLFUserData &user_data = *static_cast<GeoNodesLFUserData *>(context.user_data);
-    GeoNodesLFLocalUserData &local_user_data = *static_cast<GeoNodesLFLocalUserData *>(
+    GeoNodesUserData &user_data = *static_cast<GeoNodesUserData *>(context.user_data);
+    GeoNodesLocalUserData &local_user_data = *static_cast<GeoNodesLocalUserData *>(
         context.local_user_data);
     if (geo_eval_log::GeoTreeLogger *tree_logger = local_user_data.try_get_tree_logger(user_data))
     {
@@ -70,9 +71,9 @@ class LazyFunctionForWarningNode : public LazyFunction {
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiLayoutSetPropSep(layout, true);
-  uiLayoutSetPropDecorate(layout, false);
-  uiItemR(layout, ptr, "warning_type", UI_ITEM_NONE, "", ICON_NONE);
+  layout->use_property_split_set(true);
+  layout->use_property_decorate_set(false);
+  layout->prop(ptr, "warning_type", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_rna(StructRNA *srna)

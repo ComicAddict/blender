@@ -72,7 +72,7 @@ void *node_initexec_curves(bNodeExecContext * /*context*/, bNode *node, bNodeIns
 
 void node_sock_label(bNodeSocket *sock, const char *name)
 {
-  STRNCPY(sock->label, name);
+  STRNCPY_UTF8(sock->label, name);
 }
 
 void node_sock_label_clear(bNodeSocket *sock)
@@ -181,7 +181,7 @@ void node_blend_label(const bNodeTree * /*ntree*/,
   const char *name;
   bool enum_label = RNA_enum_name(rna_enum_ramp_blend_items, node->custom1, &name);
   if (!enum_label) {
-    name = IFACE_("Unknown");
+    name = N_("Unknown");
   }
   BLI_strncpy_utf8(label, IFACE_(name), label_maxncpy);
 }
@@ -191,9 +191,11 @@ void node_image_label(const bNodeTree * /*ntree*/,
                       char *label,
                       int label_maxncpy)
 {
-  /* If there is no loaded image, return an empty string,
-   * and let blender::bke::nodeLabel() fill in the proper type translation. */
-  BLI_strncpy(label, (node->id) ? node->id->name + 2 : "", label_maxncpy);
+  if (node->id == nullptr) {
+    BLI_strncpy(label, IFACE_(node->typeinfo->ui_name.c_str()), label_maxncpy);
+    return;
+  }
+  BLI_strncpy(label, node->id->name + 2, label_maxncpy);
 }
 
 void node_math_label(const bNodeTree * /*ntree*/,
@@ -204,7 +206,7 @@ void node_math_label(const bNodeTree * /*ntree*/,
   const char *name;
   bool enum_label = RNA_enum_name(rna_enum_node_math_items, node->custom1, &name);
   if (!enum_label) {
-    name = IFACE_("Unknown");
+    name = CTX_N_(BLT_I18NCONTEXT_ID_NODETREE, "Unknown");
   }
   BLI_strncpy_utf8(label, CTX_IFACE_(BLT_I18NCONTEXT_ID_NODETREE, name), label_maxncpy);
 }
@@ -217,7 +219,7 @@ void node_vector_math_label(const bNodeTree * /*ntree*/,
   const char *name;
   bool enum_label = RNA_enum_name(rna_enum_node_vec_math_items, node->custom1, &name);
   if (!enum_label) {
-    name = IFACE_("Unknown");
+    name = CTX_N_(BLT_I18NCONTEXT_ID_NODETREE, "Unknown");
   }
   BLI_strncpy_utf8(label, CTX_IFACE_(BLT_I18NCONTEXT_ID_NODETREE, name), label_maxncpy);
 }
@@ -230,7 +232,7 @@ void node_filter_label(const bNodeTree * /*ntree*/,
   const char *name;
   bool enum_label = RNA_enum_name(rna_enum_node_filter_items, node->custom1, &name);
   if (!enum_label) {
-    name = IFACE_("Unknown");
+    name = N_("Unknown");
   }
   BLI_strncpy_utf8(label, IFACE_(name), label_maxncpy);
 }

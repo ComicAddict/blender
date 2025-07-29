@@ -331,8 +331,6 @@ def __get_nla_tracks_obj(obj_uuid: str, export_settings):
     if len(obj.animation_data.nla_tracks) == 0:
         return TracksData()
 
-    exported_tracks = []
-
     current_exported_tracks = []
 
     tracks_data = TracksData()
@@ -356,15 +354,14 @@ def __get_nla_tracks_obj(obj_uuid: str, export_settings):
         else:
             # The previous one(s) can go to the list, if any (not for first track)
             if len(current_exported_tracks) != 0:
-                exported_tracks.append(current_exported_tracks)
-                current_exported_tracks = []
 
                 # Store data
                 track_data = TrackData(
                     current_exported_tracks,
-                    obj.animation_data.nla_tracks[exported_tracks[-1][0].idx].name,
+                    obj.animation_data.nla_tracks[current_exported_tracks[0].idx].name,
                     "OBJECT"
                 )
+                current_exported_tracks = []
 
                 tracks_data.add(track_data)
 
@@ -373,13 +370,11 @@ def __get_nla_tracks_obj(obj_uuid: str, export_settings):
 
     # End of loop. Keep the last one(s), if any
     if len(current_exported_tracks) != 0:
-        exported_tracks.append(current_exported_tracks)
 
-    if len(exported_tracks) != 0:
         # Store data for the last one
         track_data = TrackData(
             current_exported_tracks,
-            obj.animation_data.nla_tracks[exported_tracks[-1][0].idx].name,
+            obj.animation_data.nla_tracks[current_exported_tracks[0].idx].name,
             "OBJECT"
         )
         tracks_data.add(track_data)
@@ -401,8 +396,6 @@ def __get_nla_tracks_sk(obj_uuid: str, export_settings):
         return TracksData()
     if len(obj.data.shape_keys.animation_data.nla_tracks) == 0:
         return TracksData()
-
-    exported_tracks = []
 
     current_exported_tracks = []
 
@@ -427,31 +420,31 @@ def __get_nla_tracks_sk(obj_uuid: str, export_settings):
         else:
             # The previous one(s) can go to the list, if any (not for first track)
             if len(current_exported_tracks) != 0:
-                exported_tracks.append(current_exported_tracks)
-                current_exported_tracks = []
 
                 # Store data
                 track_data = TrackData(
                     current_exported_tracks,
-                    obj.data.shape_keys.animation_data.nla_tracks[exported_tracks[-1][0].idx].name,
+                    obj.data.shape_keys.animation_data.nla_tracks[current_exported_tracks[0].idx].name,
                     "KEY"
                 )
+                current_exported_tracks = []
 
                 tracks_data.add(track_data)
 
         # Start a new stack
         current_exported_tracks.append(stored_track)
 
-    # End of loop. Keep the last one(s)
-    exported_tracks.append(current_exported_tracks)
-    # Store data for the last one
-    track_data = TrackData(
-        current_exported_tracks,
-        obj.data.shape_keys.animation_data.nla_tracks[exported_tracks[-1][0].idx].name,
-        "KEY"
-    )
+    # End of loop. Keep the last one(s), if any
+    if len(current_exported_tracks) != 0:
 
-    tracks_data.add(track_data)
+        # Store data for the last one
+        track_data = TrackData(
+            current_exported_tracks,
+            obj.data.shape_keys.animation_data.nla_tracks[current_exported_tracks[0].idx].name,
+            "KEY"
+        )
+
+        tracks_data.add(track_data)
 
     return tracks_data
 
@@ -532,7 +525,10 @@ def gather_data_track_animations(
     blender_tracks = __get_data_blender_tracks(blender_type_data, blender_id, export_settings)
 
     if blender_type_data == "materials":
-        blender_data_object = [mat for mat in bpy.data.materials if id(mat) == blender_id][0]
+        if export_settings['gltf_animation_mode'] == "NLA_TRACKS" and export_settings['gltf_apply'] is True:
+            blender_data_object = export_settings['material_identifiers'][blender_id]
+        else:
+            blender_data_object = [mat for mat in bpy.data.materials if id(mat) == blender_id][0]
     elif blender_type_data == "cameras":
         blender_data_object = [cam for cam in bpy.data.cameras if id(cam) == blender_id][0]
     elif blender_type_data == "lights":
@@ -692,7 +688,7 @@ def gather_data_track_animations(
 
 
 def __get_data_blender_tracks(blender_type_data, blender_id, export_settings):
-    tracks_data = __get_nla_tracks_material(blender_type_data, blender_id, export_settings)
+    tracks_data = __get_nla_tracks_data(blender_type_data, blender_id, export_settings)
     if blender_type_data in ["materials", "lights"]:
         tracks_data_tree = __get_nla_tracks_material_node_tree(
             blender_type_data, blender_id, export_settings)
@@ -704,9 +700,13 @@ def __get_data_blender_tracks(blender_type_data, blender_id, export_settings):
     return tracks_data
 
 
-def __get_nla_tracks_material(blender_type_data, blender_id, export_settings):
+def __get_nla_tracks_data(blender_type_data, blender_id, export_settings):
     if blender_type_data == "materials":
-        blender_data_object = [mat for mat in bpy.data.materials if id(mat) == blender_id][0]
+        # Special cases for materials, where, when apply modifiers, the original material changed
+        if export_settings['gltf_animation_mode'] == "NLA_TRACKS" and export_settings['gltf_apply'] is True:
+            blender_data_object = export_settings['material_identifiers'][blender_id]
+        else:
+            blender_data_object = [mat for mat in bpy.data.materials if id(mat) == blender_id][0]
         on_type = "MATERIAL"
     elif blender_type_data == "cameras":
         blender_data_object = [cam for cam in bpy.data.cameras if id(cam) == blender_id][0]
@@ -721,8 +721,6 @@ def __get_nla_tracks_material(blender_type_data, blender_id, export_settings):
         return TracksData()
     if len(blender_data_object.animation_data.nla_tracks) == 0:
         return TracksData()
-
-    exported_tracks = []
 
     current_exported_tracks = []
 
@@ -747,32 +745,32 @@ def __get_nla_tracks_material(blender_type_data, blender_id, export_settings):
         else:
             # The previous one(s) can go to the list, if any (not for first track)
             if len(current_exported_tracks) != 0:
-                exported_tracks.append(current_exported_tracks)
-                current_exported_tracks = []
 
                 # Store data
                 track_data = TrackData(
                     current_exported_tracks,
-                    blender_data_object.animation_data.nla_tracks[exported_tracks[-1][0].idx].name,
+                    blender_data_object.animation_data.nla_tracks[current_exported_tracks[0].idx].name,
                     on_type
                 )
+                current_exported_tracks = []
 
                 tracks_data.add(track_data)
 
         # Start a new stack
         current_exported_tracks.append(stored_track)
 
-    # End of loop. Keep the last one(s)
-    exported_tracks.append(current_exported_tracks)
+    # End of loop. Keep the last one(s), if any
+    # End of loop. Keep the last one(s), if any
+    if len(current_exported_tracks) != 0:
 
-    # Store data for the last one
-    track_data = TrackData(
-        current_exported_tracks,
-        blender_data_object.animation_data.nla_tracks[exported_tracks[-1][0].idx].name,
-        on_type
-    )
+        # Store data for the last one
+        track_data = TrackData(
+            current_exported_tracks,
+            blender_data_object.animation_data.nla_tracks[current_exported_tracks[0].idx].name,
+            on_type
+        )
 
-    tracks_data.add(track_data)
+        tracks_data.add(track_data)
 
     return tracks_data
 
@@ -780,7 +778,10 @@ def __get_nla_tracks_material(blender_type_data, blender_id, export_settings):
 def __get_nla_tracks_material_node_tree(blender_type_data, blender_id, export_settings):
     on_type = "NODETREE"
     if blender_type_data == "materials":
-        blender_object_data = [mat for mat in bpy.data.materials if id(mat) == blender_id][0]
+        if export_settings['gltf_animation_mode'] == "NLA_TRACKS" and export_settings['gltf_apply'] is True:
+            blender_object_data = export_settings['material_identifiers'][blender_id]
+        else:
+            blender_object_data = [mat for mat in bpy.data.materials if id(mat) == blender_id][0]
     elif blender_type_data == "lights":
         blender_object_data = [light for light in bpy.data.lights if id(light) == blender_id][0]
 
@@ -790,8 +791,6 @@ def __get_nla_tracks_material_node_tree(blender_type_data, blender_id, export_se
         return TracksData()
     if len(blender_object_data.node_tree.animation_data.nla_tracks) == 0:
         return TracksData()
-
-    exported_tracks = []
 
     current_exported_tracks = []
 
@@ -816,31 +815,32 @@ def __get_nla_tracks_material_node_tree(blender_type_data, blender_id, export_se
         else:
             # The previous one(s) can go to the list, if any (not for first track)
             if len(current_exported_tracks) != 0:
-                exported_tracks.append(current_exported_tracks)
-                current_exported_tracks = []
 
                 # Store data
                 track_data = TrackData(
                     current_exported_tracks,
-                    blender_object_data.node_tree.animation_data.nla_tracks[exported_tracks[-1][0].idx].name,
+                    blender_object_data.node_tree.animation_data.nla_tracks[current_exported_tracks[0].idx].name,
                     on_type
                 )
+                current_exported_tracks = []
 
                 tracks_data.add(track_data)
 
         # Start a new stack
         current_exported_tracks.append(stored_track)
 
-    # End of loop. Keep the last one(s)
-    exported_tracks.append(current_exported_tracks)
+    # End of loop. Keep the last one(s), if any
 
-    # Store data for the last one
-    track_data = TrackData(
-        current_exported_tracks,
-        blender_object_data.node_tree.animation_data.nla_tracks[exported_tracks[-1][0].idx].name,
-        on_type
-    )
+    # End of loop. Keep the last one(s), if any
+    if len(current_exported_tracks) != 0:
 
-    tracks_data.add(track_data)
+        # Store data for the last one
+        track_data = TrackData(
+            current_exported_tracks,
+            blender_object_data.node_tree.animation_data.nla_tracks[current_exported_tracks[0].idx].name,
+            on_type
+        )
+
+        tracks_data.add(track_data)
 
     return tracks_data

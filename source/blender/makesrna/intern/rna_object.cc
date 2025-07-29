@@ -289,6 +289,8 @@ const EnumPropertyItem rna_enum_object_axis_items[] = {
 
 #  include <fmt/format.h>
 
+#  include "BLI_bounds.hh"
+
 #  include "DNA_ID.h"
 #  include "DNA_constraint_types.h"
 #  include "DNA_gpencil_legacy_types.h"
@@ -559,7 +561,7 @@ static void rna_Object_data_set(PointerRNA *ptr, PointerRNA value, ReportList *r
     BKE_object_materials_sync_length(G_MAIN, ob, id);
 
     if (GS(id->name) == ID_CU_LEGACY) {
-      BKE_curve_type_test(ob);
+      BKE_curve_type_test(ob, true);
     }
     else if (ob->type == OB_ARMATURE) {
       BKE_pose_rebuild(G_MAIN, ob, static_cast<bArmature *>(ob->data), true);
@@ -598,7 +600,7 @@ static StructRNA *rna_Object_data_typef(PointerRNA *ptr)
     case OB_LIGHTPROBE:
       return &RNA_LightProbe;
     case OB_GPENCIL_LEGACY:
-      return &RNA_GreasePencil;
+      return &RNA_Annotation;
     case OB_GREASE_PENCIL:
       return &RNA_GreasePencilv3;
     case OB_CURVES:
@@ -1330,7 +1332,7 @@ static PointerRNA rna_MaterialSlot_material_get(PointerRNA *ptr)
   Material *ma;
   const int index = rna_MaterialSlot_index(ptr);
 
-  if (DEG_is_evaluated_object(ob)) {
+  if (DEG_is_evaluated(ob)) {
     ma = BKE_object_material_get_eval(ob, index + 1);
   }
   else {
@@ -1443,7 +1445,7 @@ static std::optional<std::string> rna_MaterialSlot_path(const PointerRNA *ptr)
 static int rna_Object_material_slots_length(PointerRNA *ptr)
 {
   Object *ob = reinterpret_cast<Object *>(ptr->owner_id);
-  if (DEG_is_evaluated_object(ob)) {
+  if (DEG_is_evaluated(ob)) {
     return BKE_object_material_count_eval(ob);
   }
   else {
@@ -1892,9 +1894,7 @@ static void rna_Object_boundbox_get(PointerRNA *ptr, float *values)
   using namespace blender;
   Object *ob = reinterpret_cast<Object *>(ptr->owner_id);
   if (const std::optional<Bounds<float3>> bounds = BKE_object_boundbox_eval_cached_get(ob)) {
-    BoundBox bb;
-    BKE_boundbox_init_from_minmax(&bb, bounds->min, bounds->max);
-    memcpy(values, bb.vec, sizeof(bb.vec));
+    *reinterpret_cast<std::array<float3, 8> *>(values) = blender::bounds::corners(*bounds);
   }
   else {
     copy_vn_fl(values, 8 * 3, 0.0f);
@@ -2659,7 +2659,7 @@ static void rna_def_object_lineart(BlenderRNA *brna)
   StructRNA *srna;
   PropertyRNA *prop;
 
-  static EnumPropertyItem prop_feature_line_usage_items[] = {
+  static const EnumPropertyItem prop_feature_line_usage_items[] = {
       {OBJECT_LRT_INHERIT, "INHERIT", 0, "Inherit", "Use settings from the parent collection"},
       {OBJECT_LRT_INCLUDE,
        "INCLUDE",
@@ -2955,6 +2955,14 @@ static void rna_def_object(BlenderRNA *brna)
       prop, "Parent Bone", "Name of parent bone in case of a bone parenting relation");
   RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Object_dependency_update");
 
+  prop = RNA_def_property(srna, "use_parent_final_indices", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "transflag", OB_PARENT_USE_FINAL_INDICES);
+  RNA_def_property_ui_text(
+      prop,
+      "Use Final Indices",
+      "Use the final evaluated indices rather than the original mesh indices");
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Object_internal_update");
+
   prop = RNA_def_property(srna, "use_camera_lock_parent", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(
       prop, nullptr, "transflag", OB_TRANSFORM_ADJUST_ROOT_PARENT_FOR_VIEW_LOCK);
@@ -3064,7 +3072,11 @@ static void rna_def_object(BlenderRNA *brna)
   RNA_def_property_enum_sdna(prop, nullptr, "rotmode");
   RNA_def_property_enum_items(prop, rna_enum_object_rotation_mode_items);
   RNA_def_property_enum_funcs(prop, nullptr, "rna_Object_rotation_mode_set", nullptr);
-  RNA_def_property_ui_text(prop, "Rotation Mode", "");
+  RNA_def_property_ui_text(
+      prop,
+      "Rotation Mode",
+      /* This description is shared by other "rotation_mode" properties. */
+      "The kind of rotation to apply, values from other rotation modes aren't used");
   RNA_def_property_update(prop, NC_OBJECT | ND_TRANSFORM, "rna_Object_internal_update");
 
   prop = RNA_def_property(srna, "scale", PROP_FLOAT, PROP_XYZ);
@@ -3339,7 +3351,7 @@ static void rna_def_object(BlenderRNA *brna)
       "Use alpha blending instead of alpha test (can produce sorting artifacts)");
   RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, nullptr);
 
-  static EnumPropertyItem prop_empty_image_side_items[] = {
+  static const EnumPropertyItem prop_empty_image_side_items[] = {
       {0, "DOUBLE_SIDED", 0, "Both", ""},
       {OB_EMPTY_IMAGE_HIDE_BACK, "FRONT", 0, "Front", ""},
       {OB_EMPTY_IMAGE_HIDE_FRONT, "BACK", 0, "Back", ""},
@@ -3631,6 +3643,36 @@ static void rna_def_object(BlenderRNA *brna)
   RNA_def_property_struct_type(prop, "ObjectLightLinking");
   RNA_def_property_pointer_funcs(prop, "rna_Object_light_linking_get", nullptr, nullptr, nullptr);
   RNA_def_property_ui_text(prop, "Light Linking", "Light linking settings");
+
+  /* Shadow terminator. */
+  prop = RNA_def_property(srna, "shadow_terminator_normal_offset", PROP_FLOAT, PROP_DISTANCE);
+  RNA_def_property_range(prop, 0.0f, FLT_MAX);
+  RNA_def_property_ui_range(prop, 0.0, 10, 0.01f, 4);
+  RNA_def_property_ui_text(
+      prop,
+      "Shadow Terminator Normal Offset",
+      "Offset rays from the surface to reduce shadow terminator artifact on low poly geometry. "
+      "Only affect triangles that are affected by the geometry offset");
+
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, nullptr);
+
+  prop = RNA_def_property(srna, "shadow_terminator_geometry_offset", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_range(prop, 0.0f, FLT_MAX);
+  RNA_def_property_ui_range(prop, 0.0, 1.0, 1, 2);
+  RNA_def_property_ui_text(prop,
+                           "Shadow Terminator Geometry Offset",
+                           "Offset rays from the surface to reduce shadow terminator artifact on "
+                           "low poly geometry. Only affects triangles at grazing angles to light");
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, nullptr);
+
+  prop = RNA_def_property(srna, "shadow_terminator_shading_offset", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_range(prop, 0.0f, FLT_MAX);
+  RNA_def_property_ui_range(prop, 0.0, 1.0, 1, 2);
+  RNA_def_property_ui_text(
+      prop,
+      "Shadow Terminator Shading Offset",
+      "Push the shadow terminator towards the light to hide artifacts on low poly geometry");
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, nullptr);
 
   RNA_define_lib_overridable(false);
 

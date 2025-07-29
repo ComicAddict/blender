@@ -26,7 +26,7 @@
 
 namespace blender::ed::curves {
 
-static int separate_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus separate_exec(bContext *C, wmOperator * /*op*/)
 {
   Main *bmain = CTX_data_main(C);
   Scene *scene = CTX_data_scene(C);
@@ -52,8 +52,15 @@ static int separate_exec(bContext *C, wmOperator * /*op*/)
           if (selection.is_empty()) {
             continue;
           }
-          dst_geometry[i] = bke::curves_copy_point_selection(src.geometry.wrap(), selection, {});
-          src.geometry.wrap() = geometry::remove_points_and_split(src.geometry.wrap(), selection);
+          bke::CurvesGeometry separated;
+          bke::CurvesGeometry retained;
+          separate_points(src.geometry.wrap(), selection, separated, retained);
+
+          separated.calculate_bezier_auto_handles();
+          retained.calculate_bezier_auto_handles();
+
+          dst_geometry[i] = std::move(separated);
+          src.geometry.wrap() = std::move(retained);
           break;
         }
         case bke::AttrDomain::Curve: {

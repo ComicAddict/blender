@@ -269,8 +269,7 @@ static void rna_Main_materials_gpencil_remove(Main * /*bmain*/, PointerRNA *id_p
   ID *id = static_cast<ID *>(id_ptr->data);
   Material *ma = (Material *)id;
   if (ma->gp_style) {
-    MEM_freeN(ma->gp_style);
-    ma->gp_style = nullptr;
+    MEM_SAFE_FREE(ma->gp_style);
   }
 }
 
@@ -511,7 +510,7 @@ static Brush *rna_Main_brushes_new(Main *bmain, const char *name, int mode)
 static void rna_Main_brush_gpencil_data(Main * /*bmain*/, PointerRNA *id_ptr)
 {
   ID *id = static_cast<ID *>(id_ptr->data);
-  Brush *brush = (Brush *)id;
+  Brush *brush = reinterpret_cast<Brush *>(id);
   BKE_brush_init_gpencil_settings(brush);
 }
 
@@ -522,6 +521,9 @@ static World *rna_Main_worlds_new(Main *bmain, const char *name)
 
   World *world = BKE_world_add(bmain, safe_name);
   id_us_min(&world->id);
+
+  world->nodetree = blender::bke::node_tree_add_tree_embedded(
+      bmain, &world->id, "World Node Tree", "ShaderNodeTree");
 
   WM_main_add_notifier(NC_ID | NA_ADDED, nullptr);
 
@@ -863,7 +865,7 @@ void RNA_api_main(StructRNA * /*srna*/)
   RNA_def_function_ui_description(func, "Add a new image");
   parm = RNA_def_string_file_path(
       func, "filepath", nullptr, 0, "", "File path to load image from");
-  RNA_def_parameter_flags(parm, PropertyFlag(0), PARM_REQUIRED);
+  RNA_def_parameter_flags(parm, PROP_PATH_SUPPORTS_BLEND_RELATIVE, PARM_REQUIRED);
   parm = RNA_def_pointer(func, "image", "Image", "", "New image");
   RNA_def_function_return(func, parm);
 #  endif
@@ -1045,11 +1047,6 @@ void RNA_def_main_node_groups(BlenderRNA *brna, PropertyRNA *cprop)
   FunctionRNA *func;
   PropertyRNA *parm;
 
-  static const EnumPropertyItem dummy_items[] = {
-      {0, "DUMMY", 0, "", ""},
-      {0, nullptr, 0, nullptr, nullptr},
-  };
-
   RNA_def_property_srna(cprop, "BlendDataNodeTrees");
   srna = RNA_def_struct(brna, "BlendDataNodeTrees", nullptr);
   RNA_def_struct_sdna(srna, "Main");
@@ -1059,9 +1056,10 @@ void RNA_def_main_node_groups(BlenderRNA *brna, PropertyRNA *cprop)
   RNA_def_function_ui_description(func, "Add a new node tree to the main database");
   parm = RNA_def_string(func, "name", "NodeGroup", 0, "", "New name for the data-block");
   RNA_def_parameter_flags(parm, PropertyFlag(0), PARM_REQUIRED);
-  parm = RNA_def_enum(func, "type", dummy_items, 0, "Type", "The type of node_group to add");
+  parm = RNA_def_enum(
+      func, "type", rna_enum_dummy_DEFAULT_items, 0, "Type", "The type of node_group to add");
   RNA_def_property_enum_funcs(parm, nullptr, nullptr, "rna_Main_nodetree_type_itemf");
-  RNA_def_parameter_flags(parm, PropertyFlag(0), PARM_REQUIRED);
+  RNA_def_parameter_flags(parm, PROP_ENUM_NO_CONTEXT, PARM_REQUIRED);
   /* return type */
   parm = RNA_def_pointer(func, "tree", "NodeTree", "", "New node tree data-block");
   RNA_def_function_return(func, parm);
@@ -1303,7 +1301,7 @@ void RNA_def_main_images(BlenderRNA *brna, PropertyRNA *cprop)
   RNA_def_function_ui_description(func, "Load a new image into the main database");
   parm = RNA_def_string_file_path(
       func, "filepath", "File Path", 0, "", "Path of the file to load");
-  RNA_def_parameter_flags(parm, PropertyFlag(0), PARM_REQUIRED);
+  RNA_def_parameter_flags(parm, PROP_PATH_SUPPORTS_BLEND_RELATIVE, PARM_REQUIRED);
   RNA_def_boolean(func,
                   "check_existing",
                   false,
@@ -1479,7 +1477,7 @@ void RNA_def_main_fonts(BlenderRNA *brna, PropertyRNA *cprop)
   RNA_def_function_ui_description(func, "Load a new font into the main database");
   parm = RNA_def_string_file_path(
       func, "filepath", "File Path", 0, "", "path of the font to load");
-  RNA_def_parameter_flags(parm, PropertyFlag(0), PARM_REQUIRED);
+  RNA_def_parameter_flags(parm, PROP_PATH_SUPPORTS_BLEND_RELATIVE, PARM_REQUIRED);
   RNA_def_boolean(func,
                   "check_existing",
                   false,
@@ -1755,7 +1753,7 @@ void RNA_def_main_texts(BlenderRNA *brna, PropertyRNA *cprop)
   RNA_def_function_ui_description(func, "Add a new text to the main database from a file");
   parm = RNA_def_string_file_path(
       func, "filepath", "Path", FILE_MAX, "", "path for the data-block");
-  RNA_def_parameter_flags(parm, PropertyFlag(0), PARM_REQUIRED);
+  RNA_def_parameter_flags(parm, PROP_PATH_SUPPORTS_BLEND_RELATIVE, PARM_REQUIRED);
   parm = RNA_def_boolean(
       func, "internal", false, "Make internal", "Make text file internal after loading");
   /* return type */
@@ -1783,7 +1781,7 @@ void RNA_def_main_sounds(BlenderRNA *brna, PropertyRNA *cprop)
   RNA_def_function_ui_description(func, "Add a new sound to the main database from a file");
   parm = RNA_def_string_file_path(
       func, "filepath", "Path", FILE_MAX, "", "path for the data-block");
-  RNA_def_parameter_flags(parm, PropertyFlag(0), PARM_REQUIRED);
+  RNA_def_parameter_flags(parm, PROP_PATH_SUPPORTS_BLEND_RELATIVE, PARM_REQUIRED);
   RNA_def_boolean(func,
                   "check_existing",
                   false,
@@ -2018,8 +2016,8 @@ void RNA_def_main_annotations(BlenderRNA *brna, PropertyRNA *cprop)
   FunctionRNA *func;
   PropertyRNA *parm;
 
-  RNA_def_property_srna(cprop, "BlendDataGreasePencils");
-  srna = RNA_def_struct(brna, "BlendDataGreasePencils", nullptr);
+  RNA_def_property_srna(cprop, "BlendDataAnnotations");
+  srna = RNA_def_struct(brna, "BlendDataAnnotations", nullptr);
   RNA_def_struct_sdna(srna, "Main");
   RNA_def_struct_ui_text(srna, "Main Annotations", "Collection of annotations");
 
@@ -2029,16 +2027,16 @@ void RNA_def_main_annotations(BlenderRNA *brna, PropertyRNA *cprop)
 
   func = RNA_def_function(srna, "new", "rna_Main_annotations_new");
   RNA_def_function_ui_description(func, "Add a new annotation datablock to the main database");
-  parm = RNA_def_string(func, "name", "GreasePencil", 0, "", "New name for the data-block");
+  parm = RNA_def_string(func, "name", "Annotation", 0, "", "New name for the data-block");
   RNA_def_parameter_flags(parm, PropertyFlag(0), PARM_REQUIRED);
   /* return type */
-  parm = RNA_def_pointer(func, "grease_pencil", "GreasePencil", "", "New annotation data-block");
+  parm = RNA_def_pointer(func, "annotation", "Annotation", "", "New annotation data-block");
   RNA_def_function_return(func, parm);
 
   func = RNA_def_function(srna, "remove", "rna_Main_ID_remove");
   RNA_def_function_flag(func, FUNC_USE_REPORTS);
   RNA_def_function_ui_description(func, "Remove annotation instance from the current blendfile");
-  parm = RNA_def_pointer(func, "grease_pencil", "GreasePencil", "", "Grease Pencil to remove");
+  parm = RNA_def_pointer(func, "annotation", "Annotation", "", "Grease Pencil to remove");
   RNA_def_parameter_flags(parm, PROP_NEVER_NULL, PARM_REQUIRED | PARM_RNAPTR);
   RNA_def_parameter_clear_flags(parm, PROP_THICK_WRAP, ParameterFlag(0));
   RNA_def_boolean(
@@ -2135,7 +2133,7 @@ void RNA_def_main_movieclips(BlenderRNA *brna, PropertyRNA *cprop)
       "behavior with multiple movie-clips using the same file may incorrectly generate proxies)");
   parm = RNA_def_string_file_path(
       func, "filepath", "Path", FILE_MAX, "", "path for the data-block");
-  RNA_def_parameter_flags(parm, PropertyFlag(0), PARM_REQUIRED);
+  RNA_def_parameter_flags(parm, PROP_PATH_SUPPORTS_BLEND_RELATIVE, PARM_REQUIRED);
   RNA_def_boolean(func,
                   "check_existing",
                   false,

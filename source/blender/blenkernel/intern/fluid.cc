@@ -20,11 +20,13 @@
 #include "BLI_task.h"
 #include "BLI_utildefines.h"
 
+#include "DNA_colorband_types.h"
 #include "DNA_defaults.h"
 #include "DNA_fluid_types.h"
 #include "DNA_modifier_types.h"
 #include "DNA_object_types.h"
 #include "DNA_rigidbody_types.h"
+#include "DNA_texture_types.h"
 
 #include "BKE_attribute.hh"
 #include "BKE_effect.h"
@@ -53,6 +55,7 @@
 #  include "BLI_kdopbvh.hh"
 #  include "BLI_kdtree.h"
 #  include "BLI_math_vector.hh"
+#  include "BLI_mutex.hh"
 #  include "BLI_threads.h"
 #  include "BLI_voxel.h"
 
@@ -89,13 +92,13 @@ static void fluid_modifier_reset_ex(FluidModifierData *fmd, bool need_lock);
 #ifdef WITH_FLUID
 // #define DEBUG_PRINT
 
-static CLG_LogRef LOG = {"bke.fluid"};
+static CLG_LogRef LOG = {"physics.fluid"};
 
 /* -------------------------------------------------------------------- */
 /** \name Fluid API
  * \{ */
 
-static ThreadMutex object_update_lock = BLI_MUTEX_INITIALIZER;
+static blender::Mutex object_update_lock;
 
 #  define ADD_IF_LOWER_POS(a, b) min_ff((a) + (b), max_ff((a), (b)))
 #  define ADD_IF_LOWER_NEG(a, b) max_ff((a) + (b), min_ff((a), (b)))
@@ -689,19 +692,15 @@ static void bb_allocateData(FluidObjectBB *bb, bool use_velocity, bool use_influ
   bb->total_cells = res[0] * res[1] * res[2];
   copy_v3_v3_int(bb->res, res);
 
-  bb->numobjs = static_cast<float *>(
-      MEM_calloc_arrayN(bb->total_cells, sizeof(float), "fluid_bb_numobjs"));
+  bb->numobjs = MEM_calloc_arrayN<float>(bb->total_cells, "fluid_bb_numobjs");
   if (use_influence) {
-    bb->influence = static_cast<float *>(
-        MEM_calloc_arrayN(bb->total_cells, sizeof(float), "fluid_bb_influence"));
+    bb->influence = MEM_calloc_arrayN<float>(bb->total_cells, "fluid_bb_influence");
   }
   if (use_velocity) {
-    bb->velocity = static_cast<float *>(
-        MEM_calloc_arrayN(bb->total_cells, sizeof(float[3]), "fluid_bb_velocity"));
+    bb->velocity = MEM_calloc_arrayN<float>(3 * size_t(bb->total_cells), "fluid_bb_velocity");
   }
 
-  bb->distances = static_cast<float *>(
-      MEM_malloc_arrayN(bb->total_cells, sizeof(float), "fluid_bb_distances"));
+  bb->distances = MEM_malloc_arrayN<float>(size_t(bb->total_cells), "fluid_bb_distances");
   copy_vn_fl(bb->distances, bb->total_cells, FLT_MAX);
 
   bb->valid = true;
@@ -1023,16 +1022,14 @@ static void obstacles_from_mesh(Object *coll_ob,
 
     /* TODO(sebbas): Make initialization of vertex velocities optional? */
     {
-      vert_vel = static_cast<float *>(
-          MEM_callocN(sizeof(float[3]) * numverts, "manta_obs_velocity"));
+      vert_vel = MEM_calloc_arrayN<float>(3 * size_t(numverts), "manta_obs_velocity");
 
       if (fes->numverts != numverts || !fes->verts_old) {
         if (fes->verts_old) {
           MEM_freeN(fes->verts_old);
         }
 
-        fes->verts_old = static_cast<float *>(
-            MEM_callocN(sizeof(float[3]) * numverts, "manta_obs_verts_old"));
+        fes->verts_old = MEM_calloc_arrayN<float>(3 * size_t(numverts), "manta_obs_verts_old");
         fes->numverts = numverts;
       }
       else {
@@ -1060,6 +1057,8 @@ static void obstacles_from_mesh(Object *coll_ob,
       /* Calculate emission map bounds. */
       bb_boundInsert(bb, positions[i]);
     }
+
+    mesh->tag_positions_changed();
 
     /* Set emission map.
      * Use 3 cell diagonals as margin (3 * 1.732 = 5.196). */
@@ -1305,8 +1304,7 @@ static void update_obstacles(Depsgraph *depsgraph,
   ensure_obstaclefields(fds);
 
   /* Allocate effector map for each effector object. */
-  bb_maps = static_cast<FluidObjectBB *>(
-      MEM_callocN(sizeof(FluidObjectBB) * numeffecobjs, "fluid_effector_bb_maps"));
+  bb_maps = MEM_calloc_arrayN<FluidObjectBB>(numeffecobjs, "fluid_effector_bb_maps");
 
   /* Initialize effector map for each effector object. */
   compute_obstaclesemission(scene,
@@ -1554,10 +1552,10 @@ static void emit_from_particles(Object *flow_ob,
       totchild = psys->totchild * psys->part->disp / 100;
     }
 
-    particle_pos = static_cast<float *>(
-        MEM_callocN(sizeof(float[3]) * (totpart + totchild), "manta_flow_particles_pos"));
-    particle_vel = static_cast<float *>(
-        MEM_callocN(sizeof(float[3]) * (totpart + totchild), "manta_flow_particles_vel"));
+    particle_pos = MEM_calloc_arrayN<float>(3 * size_t(totpart + totchild),
+                                            "manta_flow_particles_pos");
+    particle_vel = MEM_calloc_arrayN<float>(3 * size_t(totpart + totchild),
+                                            "manta_flow_particles_vel");
 
     /* setup particle radius emission if enabled */
     if (ffs->flags & FLUID_FLOW_USE_PART_SIZE) {
@@ -1796,7 +1794,7 @@ static void sample_mesh(FluidFlowSettings *ffs,
                         const blender::Span<blender::float3> vert_normals,
                         const int *corner_verts,
                         const blender::int3 *corner_tris,
-                        const float (*mloopuv)[2],
+                        blender::Span<blender::float2> mloopuv,
                         float *influence_map,
                         float *velocity_map,
                         int index,
@@ -1917,7 +1915,7 @@ static void sample_mesh(FluidFlowSettings *ffs,
           tex_co[2] = ((z - flow_center[2]) / base_res[2] - ffs->texture_offset) /
                       ffs->texture_size;
         }
-        else if (mloopuv) {
+        else if (!mloopuv.is_empty()) {
           const float *uv[3];
           uv[0] = mloopuv[corner_tris[tri_i][0]];
           uv[1] = mloopuv[corner_tris[tri_i][1]];
@@ -1994,7 +1992,7 @@ struct EmitFromDMData {
   blender::Span<blender::float3> vert_normals;
   blender::Span<int> corner_verts;
   blender::Span<blender::int3> corner_tris;
-  const float (*mloopuv)[2];
+  blender::Span<blender::float2> mloopuv;
   const MDeformVert *dvert;
   int defgrp_index;
 
@@ -2079,19 +2077,18 @@ static void emit_from_mesh(
     const blender::Span<blender::int3> corner_tris = mesh->corner_tris();
     const int numverts = mesh->verts_num;
     const MDeformVert *dvert = mesh->deform_verts().data();
-    const float(*mloopuv)[2] = static_cast<const float(*)[2]>(
-        CustomData_get_layer_named(&mesh->corner_data, CD_PROP_FLOAT2, ffs->uvlayer_name));
+    const blender::bke::AttributeAccessor attributes = mesh->attributes();
+    const blender::VArraySpan uv_map = *attributes.lookup<blender::float2>(
+        ffs->uvlayer_name, blender::bke::AttrDomain::Corner);
 
     if (ffs->flags & FLUID_FLOW_INITVELOCITY) {
-      vert_vel = static_cast<float *>(
-          MEM_callocN(sizeof(float[3]) * numverts, "manta_flow_velocity"));
+      vert_vel = MEM_calloc_arrayN<float>(3 * size_t(numverts), "manta_flow_velocity");
 
       if (ffs->numverts != numverts || !ffs->verts_old) {
         if (ffs->verts_old) {
           MEM_freeN(ffs->verts_old);
         }
-        ffs->verts_old = static_cast<float *>(
-            MEM_callocN(sizeof(float[3]) * numverts, "manta_flow_verts_old"));
+        ffs->verts_old = MEM_calloc_arrayN<float>(3 * size_t(numverts), "manta_flow_verts_old");
         ffs->numverts = numverts;
       }
       else {
@@ -2149,7 +2146,7 @@ static void emit_from_mesh(
       data.vert_normals = mesh->vert_normals();
       data.corner_verts = corner_verts;
       data.corner_tris = corner_tris;
-      data.mloopuv = mloopuv;
+      data.mloopuv = uv_map;
       data.dvert = dvert;
       data.defgrp_index = defgrp_index;
       data.tree = &tree_data;
@@ -2225,6 +2222,7 @@ static void adaptive_domain_adjust(
   int x, y, z;
   float *density = manta_smoke_get_density(fds->fluid);
   float *fuel = manta_smoke_get_fuel(fds->fluid);
+  float *heat = manta_smoke_get_heat(fds->fluid);
   float *bigdensity = manta_noise_get_density(fds->fluid);
   float *bigfuel = manta_noise_get_fuel(fds->fluid);
   float *vx = manta_get_velocity_x(fds->fluid);
@@ -2261,6 +2259,7 @@ static void adaptive_domain_adjust(
                                 fds->res[1],
                                 z - fds->res_min[2]);
         max_den = (fuel) ? std::max(density[index], fuel[index]) : density[index];
+        max_den = (heat) ? std::max(max_den, heat[index]) : max_den;
 
         /* Check high resolution bounds if max density isn't already high enough. */
         if (max_den < fds->adapt_threshold && fds->flags & FLUID_DOMAIN_USE_NOISE && fds->fluid) {
@@ -2803,8 +2802,7 @@ static void update_flowsfluids(Depsgraph *depsgraph,
   ensure_flowsfields(fds);
 
   /* Allocate emission map for each flow object. */
-  bb_maps = static_cast<FluidObjectBB *>(
-      MEM_callocN(sizeof(FluidObjectBB) * numflowobjs, "fluid_flow_bb_maps"));
+  bb_maps = MEM_calloc_arrayN<FluidObjectBB>(numflowobjs, "fluid_flow_bb_maps");
 
   /* Initialize emission map for each flow object. */
   compute_flowsemission(scene,
@@ -3084,7 +3082,7 @@ static void update_effectors_task_cb(void *__restrict userdata,
       const uint index = manta_get_index(x, fds->res[0], y, fds->res[1], z);
 
       if ((data->fuel && std::max(data->density[index], data->fuel[index]) < FLT_EPSILON) ||
-          (data->density && data->density[index] < FLT_EPSILON) ||
+          (!data->fuel && data->density && data->density[index] < FLT_EPSILON) ||
           (data->phi_obs_in && data->phi_obs_in[index] < 0.0f) ||
           data->flags[index] & 2) /* Manta-flow convention: `2 == FlagObstacle`. */
       {
@@ -3488,7 +3486,7 @@ static int manta_step(
   /* Keep track of original total time to correct small errors at end of step. */
   time_total_old = fds->time_total;
 
-  BLI_mutex_lock(&object_update_lock);
+  std::scoped_lock lock(object_update_lock);
 
   /* Loop as long as time_per_frame (sum of sub dt's) does not exceed actual frame-length. */
   while (time_per_frame + FLT_EPSILON < frame_length) {
@@ -3542,7 +3540,6 @@ static int manta_step(
         fds, DEG_get_evaluated_scene(depsgraph), DEG_get_evaluated_view_layer(depsgraph));
   }
 
-  BLI_mutex_unlock(&object_update_lock);
   return result;
 }
 
@@ -3552,12 +3549,10 @@ static void manta_guiding(
   FluidDomainSettings *fds = fmd->domain;
   float dt = DT_DEFAULT * (25.0f / FPS) * fds->time_scale;
 
-  BLI_mutex_lock(&object_update_lock);
+  std::scoped_lock lock(object_update_lock);
 
   update_obstacles(depsgraph, scene, ob, fds, dt, dt, frame, dt);
   manta_bake_guiding(fds->fluid, fmd, frame);
-
-  BLI_mutex_unlock(&object_update_lock);
 }
 
 static void fluid_modifier_processFlow(FluidModifierData *fmd,
@@ -4420,12 +4415,21 @@ void BKE_fluid_particle_system_create(Main *bmain,
 
   /* add particle system */
   part = BKE_particlesettings_add(bmain, pset_name);
-  psys = MEM_cnew<ParticleSystem>(__func__);
+  psys = MEM_callocN<ParticleSystem>(__func__);
 
   part->type = psys_type;
   part->totpart = 0;
   part->draw_size = 0.01f; /* Make fluid particles more subtle in viewport. */
   part->draw_col = PART_DRAW_COL_VEL;
+
+  /* Use different shape and color for fluid particles to be able to find issues in Viewport */
+  if (psys_type == PART_FLUID_BUBBLE) {
+    part->draw_as = PART_DRAW_CIRC;
+  }
+  if (psys_type == PART_FLUID_FOAM) {
+    part->draw_as = PART_DRAW_CROSS;
+  }
+
   part->phystype = PART_PHYS_NO; /* No physics needed, part system only used to display data. */
   psys->part = part;
   psys->pointcache = BKE_ptcache_add(&psys->ptcaches);

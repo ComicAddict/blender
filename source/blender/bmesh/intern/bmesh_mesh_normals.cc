@@ -610,7 +610,6 @@ static int bm_mesh_loops_calc_normals_for_loop(BMesh *bm,
     }
 
     while (true) {
-      /* Much simpler than in sibling code with basic Mesh data! */
       lfan_pivot_next = BM_vert_step_fan_loop(lfan_pivot, &e_next);
       if (lfan_pivot_next) {
         BLI_assert(lfan_pivot_next->v == v_pivot);
@@ -1881,7 +1880,7 @@ void BM_lnorspace_rebuild(BMesh *bm, bool preserve_clnor)
 void BM_lnorspace_update(BMesh *bm)
 {
   if (bm->lnor_spacearr == nullptr) {
-    bm->lnor_spacearr = MEM_cnew<MLoopNorSpaceArray>(__func__);
+    bm->lnor_spacearr = MEM_callocN<MLoopNorSpaceArray>(__func__);
   }
   if (bm->lnor_spacearr->lspacearr == nullptr) {
     Array<float3> lnors(bm->totloop, float3(0));
@@ -1911,7 +1910,7 @@ void BM_lnorspace_err(BMesh *bm)
   bm->spacearr_dirty |= BM_SPACEARR_DIRTY_ALL;
   bool clear = true;
 
-  MLoopNorSpaceArray *temp = MEM_cnew<MLoopNorSpaceArray>(__func__);
+  MLoopNorSpaceArray *temp = MEM_callocN<MLoopNorSpaceArray>(__func__);
   temp->lspacearr = nullptr;
 
   BKE_lnor_spacearr_init(temp, bm->totloop, MLNOR_SPACEARR_BMLOOP_PTR);
@@ -2137,8 +2136,9 @@ BMLoopNorEditDataArray *BM_loop_normal_editdata_array_init(BMesh *bm,
 
   BLI_assert(bm->spacearr_dirty == 0);
 
-  BMLoopNorEditDataArray *lnors_ed_arr = MEM_cnew<BMLoopNorEditDataArray>(__func__);
-  lnors_ed_arr->lidx_to_lnor_editdata = MEM_cnew_array<BMLoopNorEditData *>(bm->totloop, __func__);
+  BMLoopNorEditDataArray *lnors_ed_arr = MEM_callocN<BMLoopNorEditDataArray>(__func__);
+  lnors_ed_arr->lidx_to_lnor_editdata = MEM_calloc_arrayN<BMLoopNorEditData *>(bm->totloop,
+                                                                               __func__);
 
   BM_data_layer_ensure_named(bm, &bm->ldata, CD_PROP_INT16_2D, "custom_normal");
   const int cd_custom_normal_offset = CustomData_get_offset_named(
@@ -2152,8 +2152,8 @@ BMLoopNorEditDataArray *BM_loop_normal_editdata_array_init(BMesh *bm,
   totloopsel = bm_loop_normal_mark_indiv(bm, loops, do_all_loops_of_vert);
 
   if (totloopsel) {
-    BMLoopNorEditData *lnor_ed = lnors_ed_arr->lnor_editdata = static_cast<BMLoopNorEditData *>(
-        MEM_mallocN(sizeof(*lnor_ed) * totloopsel, __func__));
+    BMLoopNorEditData *lnor_ed = lnors_ed_arr->lnor_editdata =
+        MEM_malloc_arrayN<BMLoopNorEditData>(totloopsel, __func__);
 
     BM_ITER_MESH (v, &viter, bm, BM_VERTS_OF_MESH) {
       BM_ITER_ELEM (l, &liter, v, BM_LOOPS_OF_VERT) {
@@ -2237,7 +2237,7 @@ void BM_custom_loop_normals_from_vector_layer(BMesh *bm, bool add_sharp_edges)
   }
 
   if (bm->lnor_spacearr == nullptr) {
-    bm->lnor_spacearr = MEM_cnew<MLoopNorSpaceArray>(__func__);
+    bm->lnor_spacearr = MEM_callocN<MLoopNorSpaceArray>(__func__);
   }
 
   bm_mesh_loops_custom_normals_set(bm,

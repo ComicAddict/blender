@@ -13,7 +13,7 @@
 
 #include "RNA_access.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 namespace blender::nodes::node_shader_tex_voronoi_cc {
@@ -23,7 +23,8 @@ NODE_STORAGE_FUNCS(NodeTexVoronoi)
 static void sh_node_tex_voronoi_declare(NodeDeclarationBuilder &b)
 {
   b.is_function_node();
-  b.add_input<decl::Vector>("Vector").hide_value().implicit_field(implicit_field_inputs::position);
+  b.add_input<decl::Vector>("Vector").hide_value().implicit_field(
+      NODE_DEFAULT_INPUT_POSITION_FIELD);
   b.add_input<decl::Float>("W").min(-1000.0f).max(1000.0f).make_available([](bNode &node) {
     /* Default to 1 instead of 4, because it is much faster. */
     node_storage(node).dimensions = 1;
@@ -77,22 +78,22 @@ static void sh_node_tex_voronoi_declare(NodeDeclarationBuilder &b)
 
 static void node_shader_buts_tex_voronoi(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "voronoi_dimensions", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
-  uiItemR(layout, ptr, "feature", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  layout->prop(ptr, "voronoi_dimensions", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  layout->prop(ptr, "feature", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
   int feature = RNA_enum_get(ptr, "feature");
   if (!ELEM(feature, SHD_VORONOI_DISTANCE_TO_EDGE, SHD_VORONOI_N_SPHERE_RADIUS) &&
       RNA_enum_get(ptr, "voronoi_dimensions") != 1)
   {
-    uiItemR(layout, ptr, "distance", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+    layout->prop(ptr, "distance", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
   }
   if (!ELEM(feature, SHD_VORONOI_N_SPHERE_RADIUS)) {
-    uiItemR(layout, ptr, "normalize", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+    layout->prop(ptr, "normalize", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
   }
 }
 
 static void node_shader_init_tex_voronoi(bNodeTree * /*ntree*/, bNode *node)
 {
-  NodeTexVoronoi *tex = MEM_cnew<NodeTexVoronoi>(__func__);
+  NodeTexVoronoi *tex = MEM_callocN<NodeTexVoronoi>(__func__);
   BKE_texture_mapping_default(&tex->base.tex_mapping, TEXMAP_TYPE_POINT);
   BKE_texture_colormapping_default(&tex->base.color_mapping);
   tex->dimensions = 3;
@@ -833,6 +834,7 @@ void register_node_type_sh_tex_voronoi()
   ntype.gpu_fn = file_ns::node_shader_gpu_tex_voronoi;
   ntype.updatefunc = file_ns::node_shader_update_tex_voronoi;
   ntype.build_multi_function = file_ns::sh_node_voronoi_build_multi_function;
+  blender::bke::node_type_size(ntype, 155, 140, NODE_DEFAULT_MAX_WIDTH);
 
   blender::bke::node_register_type(ntype);
 }

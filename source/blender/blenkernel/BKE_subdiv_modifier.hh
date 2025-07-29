@@ -8,7 +8,10 @@
 
 #pragma once
 
+#include "BKE_mesh_types.hh"
 #include "BKE_subdiv.hh"
+
+#include "DNA_mesh_types.h"
 
 /* Hardcoded for until GPU shaders are automatically generated, then we will have a more
  * programmatic way of detecting this. */
@@ -68,16 +71,17 @@ bool BKE_subsurf_modifier_has_split_normals(const SubsurfModifierData *smd, cons
 bool BKE_subsurf_modifier_force_disable_gpu_evaluation_for_mesh(const SubsurfModifierData *smd,
                                                                 const Mesh *mesh);
 /**
- * \param skip_check_is_last: When true, we assume that the modifier passed is the last enabled
- * modifier in the stack.
+ * Return true if GPU subdivision can be used for this modifier. It does not check if
+ * the modifier is in the right place in the modifier stack, only if the settings and
+ * GPU are compatible.
  */
-bool BKE_subsurf_modifier_can_do_gpu_subdiv(const Scene *scene,
-                                            const Object *ob,
-                                            const Mesh *mesh,
-                                            const SubsurfModifierData *smd,
-                                            int required_mode);
+bool BKE_subsurf_modifier_can_do_gpu_subdiv(const SubsurfModifierData *smd, const Mesh *mesh);
 
-bool BKE_subsurf_modifier_has_gpu_subdiv(const Mesh *mesh);
+inline bool BKE_subsurf_modifier_has_gpu_subdiv(const Mesh *mesh)
+{
+  SubsurfRuntimeData *runtime_data = mesh->runtime->subsurf_runtime_data;
+  return runtime_data && runtime_data->has_gpu_subdiv;
+}
 
 extern void (*BKE_subsurf_modifier_free_gpu_cache_cb)(blender::bke::subdiv::Subdiv *subdiv);
 

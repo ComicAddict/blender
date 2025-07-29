@@ -30,9 +30,9 @@
 #include "DRW_gpu_wrapper.hh"
 
 #include "draw_common_c.hh"
+#include "draw_context_private.hh"
 #include "draw_hair_private.hh"
 #include "draw_manager.hh"
-#include "draw_manager_c.hh"
 #include "draw_shader.hh"
 #include "draw_shader_shared.hh"
 
@@ -86,7 +86,7 @@ blender::gpu::VertBuf *DRW_hair_pos_buffer_get(Object *object,
                                                ParticleSystem *psys,
                                                ModifierData *md)
 {
-  const DRWContextState *draw_ctx = DRW_context_state_get();
+  const DRWContext *draw_ctx = DRW_context_get();
   Scene *scene = draw_ctx->scene;
 
   int subdiv = scene->r.hair_subdiv;
@@ -96,34 +96,6 @@ blender::gpu::VertBuf *DRW_hair_pos_buffer_get(Object *object,
       object, psys, md, nullptr, subdiv, thickness_res);
 
   return cache->final[subdiv].proc_buf;
-}
-
-void DRW_hair_duplimat_get(Object *object,
-                           ParticleSystem * /*psys*/,
-                           ModifierData * /*md*/,
-                           float (*dupli_mat)[4])
-{
-  Object *dupli_parent = DRW_object_get_dupli_parent(object);
-  DupliObject *dupli_object = DRW_object_get_dupli(object);
-
-  if ((dupli_parent != nullptr) && (dupli_object != nullptr)) {
-    if (dupli_object->type & OB_DUPLICOLLECTION) {
-      unit_m4(dupli_mat);
-      Collection *collection = dupli_parent->instance_collection;
-      if (collection != nullptr) {
-        sub_v3_v3(dupli_mat[3], collection->instance_offset);
-      }
-      mul_m4_m4m4(dupli_mat, dupli_parent->object_to_world().ptr(), dupli_mat);
-    }
-    else {
-      copy_m4_m4(dupli_mat, dupli_object->ob->object_to_world().ptr());
-      invert_m4(dupli_mat);
-      mul_m4_m4m4(dupli_mat, object->object_to_world().ptr(), dupli_mat);
-    }
-  }
-  else {
-    unit_m4(dupli_mat);
-  }
 }
 
 /* New Draw Manager. */
@@ -193,17 +165,37 @@ blender::gpu::VertBuf *hair_pos_buffer_get(Scene *scene,
 template<typename PassT>
 blender::gpu::Batch *hair_sub_pass_setup_implementation(PassT &sub_ps,
                                                         const Scene *scene,
-                                                        Object *object,
+                                                        const ObjectRef &ob_ref,
                                                         ParticleSystem *psys,
                                                         ModifierData *md,
                                                         GPUMaterial *gpu_material)
 {
   /** NOTE: This still relies on the old DRW_hair implementation. */
+  Object *object = ob_ref.object;
 
   int subdiv = scene->r.hair_subdiv;
   int thickness_res = (scene->r.hair_type == SCE_HAIR_SHAPE_STRAND) ? 1 : 2;
   ParticleHairCache *hair_cache = drw_hair_particle_cache_get(
       object, psys, md, gpu_material, subdiv, thickness_res);
+
+  /* TODO(fclem): Remove Global access. */
+  CurvesModule &module = *drw_get().data->curves_module;
+
+  /* Ensure we have no unbound resources.
+   * Required for Vulkan.
+   * Fixes issues with certain GL drivers not drawing anything. */
+  sub_ps.bind_texture("u", module.dummy_vbo);
+  sub_ps.bind_texture("au", module.dummy_vbo);
+  sub_ps.bind_texture("a", module.dummy_vbo);
+  sub_ps.bind_texture("c", module.dummy_vbo);
+  sub_ps.bind_texture("ac", module.dummy_vbo);
+  if (gpu_material) {
+    ListBase attr_list = GPU_material_attributes(gpu_material);
+    ListBaseWrapper<GPUMaterialAttribute> attrs(attr_list);
+    for (const GPUMaterialAttribute *attr : attrs) {
+      sub_ps.bind_texture(attr->input_name, module.dummy_vbo);
+    }
+  }
 
   /* TODO: optimize this. Only bind the ones #GPUMaterial needs. */
   for (int i : IndexRange(hair_cache->num_uv_layers)) {
@@ -217,23 +209,7 @@ blender::gpu::Batch *hair_sub_pass_setup_implementation(PassT &sub_ps,
     }
   }
 
-  /* TODO(fclem): Remove Global access. */
-  CurvesModule &module = *drw_get().data->curves_module;
-
-  /* Fix issue with certain driver not drawing anything if there is nothing bound to
-   * "ac", "au", "u" or "c". */
-  if (hair_cache->num_uv_layers == 0) {
-    sub_ps.bind_texture("u", module.dummy_vbo);
-    sub_ps.bind_texture("au", module.dummy_vbo);
-    sub_ps.bind_texture("a", module.dummy_vbo);
-  }
-  if (hair_cache->num_col_layers == 0) {
-    sub_ps.bind_texture("c", module.dummy_vbo);
-    sub_ps.bind_texture("ac", module.dummy_vbo);
-  }
-
-  float4x4 dupli_mat;
-  DRW_hair_duplimat_get(object, psys, md, dupli_mat.ptr());
+  float4x4 dupli_mat = ob_ref.particles_matrix();
 
   /* Get hair shape parameters. */
   ParticleSettings *part = psys->part;
@@ -261,22 +237,22 @@ blender::gpu::Batch *hair_sub_pass_setup_implementation(PassT &sub_ps,
 
 blender::gpu::Batch *hair_sub_pass_setup(PassMain::Sub &sub_ps,
                                          const Scene *scene,
-                                         Object *object,
+                                         const ObjectRef &ob_ref,
                                          ParticleSystem *psys,
                                          ModifierData *md,
                                          GPUMaterial *gpu_material)
 {
-  return hair_sub_pass_setup_implementation(sub_ps, scene, object, psys, md, gpu_material);
+  return hair_sub_pass_setup_implementation(sub_ps, scene, ob_ref, psys, md, gpu_material);
 }
 
 blender::gpu::Batch *hair_sub_pass_setup(PassSimple::Sub &sub_ps,
                                          const Scene *scene,
-                                         Object *object,
+                                         const ObjectRef &ob_ref,
                                          ParticleSystem *psys,
                                          ModifierData *md,
                                          GPUMaterial *gpu_material)
 {
-  return hair_sub_pass_setup_implementation(sub_ps, scene, object, psys, md, gpu_material);
+  return hair_sub_pass_setup_implementation(sub_ps, scene, ob_ref, psys, md, gpu_material);
 }
 
 }  // namespace blender::draw

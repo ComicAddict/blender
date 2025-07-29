@@ -145,6 +145,11 @@ void GPU_state_set(eGPUWriteMask write_mask,
   state.provoking_vert = uint32_t(provoking_vert);
 }
 
+void GPU_clip_control_unit_range(bool enable)
+{
+  SET_IMMUTABLE_STATE(clip_control, enable);
+}
+
 /** \} */
 
 /* -------------------------------------------------------------------- */
@@ -254,6 +259,12 @@ float GPU_line_width_get()
   return state.line_width;
 }
 
+bool GPU_line_smooth_get()
+{
+  const GPUState &state = Context::get()->state_manager->state;
+  return bool(state.line_smooth);
+}
+
 void GPU_scissor_get(int coords[4])
 {
   Context::get()->active_fb->scissor_get(coords);
@@ -309,65 +320,6 @@ void GPU_apply_state()
 /** \} */
 
 /* -------------------------------------------------------------------- */
-/** \name BGL workaround
- *
- * bgl makes direct GL calls that makes our state tracking out of date.
- * This flag make it so that the pyGPU calls will not override the state set by
- * bgl functions.
- * \{ */
-
-void GPU_bgl_start()
-{
-  Context *ctx = Context::get();
-  if (!(ctx && ctx->state_manager)) {
-    return;
-  }
-  StateManager &state_manager = *(Context::get()->state_manager);
-  if (state_manager.use_bgl == false) {
-    /* Expected by many addons (see #80169, #81289).
-     * This will reset the blend function. */
-    GPU_blend(GPU_BLEND_NONE);
-
-    /* Equivalent of setting the depth func `glDepthFunc(GL_LEQUAL)`
-     * Needed since Python scripts may enable depth test.
-     * Without this block the depth test function is undefined. */
-    {
-      eGPUDepthTest depth_test_real = GPU_depth_test_get();
-      eGPUDepthTest depth_test_temp = GPU_DEPTH_LESS_EQUAL;
-      if (depth_test_real != depth_test_temp) {
-        GPU_depth_test(depth_test_temp);
-        state_manager.apply_state();
-        GPU_depth_test(depth_test_real);
-      }
-    }
-
-    state_manager.apply_state();
-    state_manager.use_bgl = true;
-  }
-}
-
-void GPU_bgl_end()
-{
-  Context *ctx = Context::get();
-  if (!(ctx && ctx->state_manager)) {
-    return;
-  }
-  StateManager &state_manager = *ctx->state_manager;
-  if (state_manager.use_bgl == true) {
-    state_manager.use_bgl = false;
-    /* Resync state tracking. */
-    state_manager.force_state();
-  }
-}
-
-bool GPU_bgl_get()
-{
-  return Context::get()->state_manager->use_bgl;
-}
-
-/** \} */
-
-/* -------------------------------------------------------------------- */
 /** \name Synchronization Utils
  * \{ */
 
@@ -417,6 +369,7 @@ StateManager::StateManager()
   state.invert_facing = false;
   state.shadow_bias = false;
   state.clip_distances = 0;
+  state.clip_control = false;
   state.polygon_smooth = false;
   state.line_smooth = false;
 

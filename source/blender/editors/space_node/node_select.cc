@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cstdlib>
+#include <fmt/format.h>
 
 #include "DNA_node_types.h"
 #include "DNA_windowmanager_types.h"
@@ -22,6 +23,7 @@
 
 #include "BKE_context.hh"
 #include "BKE_main.hh"
+#include "BKE_main_invariants.hh"
 #include "BKE_node.hh"
 #include "BKE_node_legacy_types.hh"
 #include "BKE_node_runtime.hh"
@@ -41,7 +43,6 @@
 #include "WM_api.hh"
 #include "WM_types.hh"
 
-#include "UI_interface.hh"
 #include "UI_resources.hh"
 #include "UI_string_search.hh"
 #include "UI_view2d.hh"
@@ -398,7 +399,7 @@ enum {
   NODE_SELECT_GROUPED_SUFIX = 3,
 };
 
-static int node_select_grouped_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus node_select_grouped_exec(bContext *C, wmOperator *op)
 {
   SpaceNode &snode = *CTX_wm_space_node(C);
   bNodeTree &node_tree = *snode.edittree;
@@ -459,7 +460,7 @@ void NODE_OT_select_grouped(wmOperatorType *ot)
   ot->description = "Select nodes with similar properties";
   ot->idname = "NODE_OT_select_grouped";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->invoke = WM_menu_invoke;
   ot->exec = node_select_grouped_exec;
   ot->poll = ED_operator_node_active;
@@ -514,7 +515,7 @@ void node_select_single(bContext &C, bNode &node)
 static bool node_mouse_select(bContext *C,
                               wmOperator *op,
                               const int2 mval,
-                              SelectPick_Params *params)
+                              const SelectPick_Params &params)
 {
   Main &bmain = *CTX_data_main(C);
   SpaceNode &snode = *CTX_wm_space_node(C);
@@ -527,7 +528,7 @@ static bool node_mouse_select(bContext *C,
   bNodeSocket *sock = nullptr;
 
   /* Always do socket_select when extending selection. */
-  const bool socket_select = (params->sel_op == SEL_OP_XOR) ||
+  const bool socket_select = (params.sel_op == SEL_OP_XOR) ||
                              RNA_boolean_get(op->ptr, "socket_select");
   bool changed = false;
   bool found = false;
@@ -540,7 +541,7 @@ static bool node_mouse_select(bContext *C,
   /* First do socket selection, these generally overlap with nodes. */
   if (socket_select) {
     /* NOTE: unlike nodes #SelectPick_Params isn't fully supported. */
-    const bool extend = (params->sel_op == SEL_OP_XOR);
+    const bool extend = (params.sel_op == SEL_OP_XOR);
     sock = node_find_indicated_socket(snode, region, cursor, SOCK_IN);
     if (sock) {
       node = &sock->owner_node();
@@ -600,18 +601,18 @@ static bool node_mouse_select(bContext *C,
     found = (node != nullptr);
     node_was_selected = node && (node->flag & SELECT);
 
-    if (params->sel_op == SEL_OP_SET) {
-      if ((found && params->select_passthrough) && (node->flag & SELECT)) {
+    if (params.sel_op == SEL_OP_SET) {
+      if ((found && params.select_passthrough) && (node->flag & SELECT)) {
         found = false;
       }
-      else if (found || params->deselect_all) {
+      else if (found || params.deselect_all) {
         /* Deselect everything. */
         changed = node_deselect_all(node_tree);
       }
     }
 
     if (found) {
-      switch (params->sel_op) {
+      switch (params.sel_op) {
         case SEL_OP_ADD:
           bke::node_set_selected(*node, true);
           break;
@@ -641,6 +642,15 @@ static bool node_mouse_select(bContext *C,
     if (node == nullptr) {
       /* Disable existing active viewer. */
       WorkSpace *workspace = CTX_wm_workspace(C);
+      if (const std::optional<viewer_path::ViewerPathForGeometryNodesViewer> parsed_path =
+              viewer_path::parse_geometry_nodes_viewer(workspace->viewer_path))
+      {
+        /* The object needs to be reevaluated, because the viewer path is changed which means that
+         * the object may generate different viewer geometry as a side effect. */
+        Depsgraph *depsgraph = CTX_data_depsgraph_pointer(C);
+        DEG_id_tag_update_for_side_effect_request(
+            depsgraph, &parsed_path->object->id, ID_RECALC_GEOMETRY);
+      }
       BKE_viewer_path_clear(&workspace->viewer_path);
       WM_event_add_notifier(C, NC_VIEWER_PATH, nullptr);
     }
@@ -652,7 +662,7 @@ static bool node_mouse_select(bContext *C,
 
   bool active_texture_changed = false;
   bool viewer_node_changed = false;
-  if ((node != nullptr) && (node_was_selected == false || params->select_passthrough == false)) {
+  if ((node != nullptr) && (node_was_selected == false || params.select_passthrough == false)) {
     viewer_node_changed = (node->flag & NODE_DO_OUTPUT) == 0 &&
                           node->type_legacy == GEO_NODE_VIEWER;
     ED_node_set_active(&bmain, &snode, snode.edittree, node, &active_texture_changed);
@@ -671,20 +681,21 @@ static bool node_mouse_select(bContext *C,
   WM_event_add_notifier(C, NC_NODE | NA_SELECTED, nullptr);
   WM_event_add_notifier(C, NC_NODE | ND_NODE_GIZMO, nullptr);
 
+  BKE_main_ensure_invariants(bmain, node_tree.id);
+
   return true;
 }
 
-static int node_select_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus node_select_exec(bContext *C, wmOperator *op)
 {
   /* Get settings from RNA properties for operator. */
   int2 mval;
   RNA_int_get_array(op->ptr, "location", mval);
 
-  SelectPick_Params params = {};
-  ED_select_pick_params_from_operator(op->ptr, &params);
+  const SelectPick_Params params = ED_select_pick_params_from_operator(op->ptr);
 
   /* Perform the selection. */
-  const bool changed = node_mouse_select(C, op, mval, &params);
+  const bool changed = node_mouse_select(C, op, mval, params);
 
   if (changed) {
     return OPERATOR_PASS_THROUGH | OPERATOR_FINISHED;
@@ -693,11 +704,11 @@ static int node_select_exec(bContext *C, wmOperator *op)
   return OPERATOR_PASS_THROUGH | OPERATOR_CANCELLED;
 }
 
-static int node_select_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus node_select_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   RNA_int_set_array(op->ptr, "location", event->mval);
 
-  const int retval = node_select_exec(C, op);
+  const wmOperatorStatus retval = node_select_exec(C, op);
 
   return WM_operator_flag_only_pass_through_on_press(retval, event);
 }
@@ -711,7 +722,7 @@ void NODE_OT_select(wmOperatorType *ot)
   ot->idname = "NODE_OT_select";
   ot->description = "Select the node under the cursor";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = node_select_exec;
   ot->invoke = node_select_invoke;
   ot->poll = ED_operator_node_active;
@@ -750,7 +761,7 @@ void NODE_OT_select(wmOperatorType *ot)
 /** \name Box Select Operator
  * \{ */
 
-static int node_box_select_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus node_box_select_exec(bContext *C, wmOperator *op)
 {
   SpaceNode &snode = *CTX_wm_space_node(C);
   bNodeTree &node_tree = *snode.edittree;
@@ -796,11 +807,12 @@ static int node_box_select_exec(bContext *C, wmOperator *op)
   tree_draw_order_update(node_tree);
 
   WM_event_add_notifier(C, NC_NODE | NA_SELECTED, nullptr);
+  WM_event_add_notifier(C, NC_NODE | ND_NODE_GIZMO, nullptr);
 
   return OPERATOR_FINISHED;
 }
 
-static int node_box_select_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus node_box_select_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   const bool tweak = RNA_boolean_get(op->ptr, "tweak");
 
@@ -818,7 +830,7 @@ void NODE_OT_select_box(wmOperatorType *ot)
   ot->idname = "NODE_OT_select_box";
   ot->description = "Use box selection to select nodes";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->invoke = node_box_select_invoke;
   ot->exec = node_box_select_exec;
   ot->modal = WM_gesture_box_modal;
@@ -846,7 +858,7 @@ void NODE_OT_select_box(wmOperatorType *ot)
 /** \name Circle Select Operator
  * \{ */
 
-static int node_circleselect_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus node_circleselect_exec(bContext *C, wmOperator *op)
 {
   SpaceNode *snode = CTX_wm_space_node(C);
   ARegion *region = CTX_wm_region(C);
@@ -897,6 +909,7 @@ static int node_circleselect_exec(bContext *C, wmOperator *op)
   }
 
   WM_event_add_notifier(C, NC_NODE | NA_SELECTED, nullptr);
+  WM_event_add_notifier(C, NC_NODE | ND_NODE_GIZMO, nullptr);
 
   return OPERATOR_FINISHED;
 }
@@ -908,7 +921,7 @@ void NODE_OT_select_circle(wmOperatorType *ot)
   ot->idname = "NODE_OT_select_circle";
   ot->description = "Use circle selection to select nodes";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->invoke = WM_gesture_circle_invoke;
   ot->exec = node_circleselect_exec;
   ot->modal = WM_gesture_circle_modal;
@@ -929,7 +942,7 @@ void NODE_OT_select_circle(wmOperatorType *ot)
 /** \name Lasso Select Operator
  * \{ */
 
-static int node_lasso_select_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus node_lasso_select_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   const bool tweak = RNA_boolean_get(op->ptr, "tweak");
 
@@ -1001,12 +1014,13 @@ static bool do_lasso_select_node(bContext *C, const Span<int2> mcoords, eSelectO
 
   if (changed) {
     WM_event_add_notifier(C, NC_NODE | NA_SELECTED, nullptr);
+    WM_event_add_notifier(C, NC_NODE | ND_NODE_GIZMO, nullptr);
   }
 
   return changed;
 }
 
-static int node_lasso_select_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus node_lasso_select_exec(bContext *C, wmOperator *op)
 {
   const Array<int2> mcoords = WM_gesture_lasso_path_to_array(C, op);
 
@@ -1028,7 +1042,7 @@ void NODE_OT_select_lasso(wmOperatorType *ot)
   ot->description = "Select nodes using lasso selection";
   ot->idname = "NODE_OT_select_lasso";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->invoke = node_lasso_select_invoke;
   ot->modal = WM_gesture_lasso_modal;
   ot->exec = node_lasso_select_exec;
@@ -1065,7 +1079,7 @@ static bool any_node_selected(const bNodeTree &node_tree)
   return false;
 }
 
-static int node_select_all_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus node_select_all_exec(bContext *C, wmOperator *op)
 {
   SpaceNode &snode = *CTX_wm_space_node(C);
   bNodeTree &node_tree = *snode.edittree;
@@ -1112,7 +1126,7 @@ void NODE_OT_select_all(wmOperatorType *ot)
   ot->description = "(De)select all nodes";
   ot->idname = "NODE_OT_select_all";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = node_select_all_exec;
   ot->poll = ED_operator_node_active;
 
@@ -1128,7 +1142,7 @@ void NODE_OT_select_all(wmOperatorType *ot)
 /** \name Select Linked To Operator
  * \{ */
 
-static int node_select_linked_to_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus node_select_linked_to_exec(bContext *C, wmOperator * /*op*/)
 {
   SpaceNode &snode = *CTX_wm_space_node(C);
   bNodeTree &node_tree = *snode.edittree;
@@ -1164,7 +1178,7 @@ void NODE_OT_select_linked_to(wmOperatorType *ot)
   ot->description = "Select nodes linked to the selected ones";
   ot->idname = "NODE_OT_select_linked_to";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = node_select_linked_to_exec;
   ot->poll = ED_operator_node_active;
 
@@ -1178,7 +1192,7 @@ void NODE_OT_select_linked_to(wmOperatorType *ot)
 /** \name Select Linked From Operator
  * \{ */
 
-static int node_select_linked_from_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus node_select_linked_from_exec(bContext *C, wmOperator * /*op*/)
 {
   SpaceNode &snode = *CTX_wm_space_node(C);
   bNodeTree &node_tree = *snode.edittree;
@@ -1214,7 +1228,7 @@ void NODE_OT_select_linked_from(wmOperatorType *ot)
   ot->description = "Select nodes linked from the selected ones";
   ot->idname = "NODE_OT_select_linked_from";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = node_select_linked_from_exec;
   ot->poll = ED_operator_node_active;
 
@@ -1233,7 +1247,7 @@ static bool nodes_are_same_type_for_select(const bNode &a, const bNode &b)
   return a.type_legacy == b.type_legacy;
 }
 
-static int node_select_same_type_step_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus node_select_same_type_step_exec(bContext *C, wmOperator *op)
 {
   SpaceNode *snode = CTX_wm_space_node(C);
   ARegion *region = CTX_wm_region(C);
@@ -1286,7 +1300,7 @@ void NODE_OT_select_same_type_step(wmOperatorType *ot)
   ot->description = "Activate and view same node type, step by step";
   ot->idname = "NODE_OT_select_same_type_step";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = node_select_same_type_step_exec;
   ot->poll = ED_operator_node_active;
 
@@ -1302,14 +1316,13 @@ void NODE_OT_select_same_type_step(wmOperatorType *ot)
 /** \name Find Node by Name Operator
  * \{ */
 
-static void node_find_create_label(const bNode *node, char *str, int str_maxncpy)
+static std::string node_find_create_label(const bNodeTree &ntree, const bNode &node)
 {
-  if (node->label[0]) {
-    BLI_snprintf(str, str_maxncpy, "%s (%s)", node->name, node->label);
+  std::string label = bke::node_label(ntree, node);
+  if (label == node.name) {
+    return label;
   }
-  else {
-    BLI_strncpy(str, node->name, str_maxncpy);
-  }
+  return fmt::format("{} ({})", label, node.name);
 }
 
 /* Generic search invoke. */
@@ -1323,17 +1336,16 @@ static void node_find_update_fn(const bContext *C,
 
   ui::string_search::StringSearch<bNode> search;
 
+  const bNodeTree &ntree = *snode->edittree;
   for (bNode *node : snode->edittree->all_nodes()) {
-    char name[256];
-    node_find_create_label(node, name, ARRAY_SIZE(name));
+    const std::string name = node_find_create_label(ntree, *node);
     search.add(name, node);
   }
 
   const Vector<bNode *> filtered_nodes = search.query(str);
 
   for (bNode *node : filtered_nodes) {
-    char name[256];
-    node_find_create_label(node, name, ARRAY_SIZE(name));
+    const std::string name = node_find_create_label(ntree, *node);
     if (!UI_search_item_add(items, name, node, ICON_NONE, 0, 0)) {
       break;
     }
@@ -1362,46 +1374,33 @@ static uiBlock *node_find_menu(bContext *C, ARegion *region, void *arg_optype)
   uiBut *but;
   wmOperatorType *optype = (wmOperatorType *)arg_optype;
 
-  block = UI_block_begin(C, region, "_popup", UI_EMBOSS);
+  block = UI_block_begin(C, region, "_popup", ui::EmbossType::Emboss);
   UI_block_flag_enable(block, UI_BLOCK_LOOP | UI_BLOCK_MOVEMOUSE_QUIT | UI_BLOCK_SEARCH_MENU);
   UI_block_theme_style_set(block, UI_BLOCK_THEME_STYLE_POPUP);
 
-  but = uiDefSearchBut(block,
-                       search,
-                       0,
-                       ICON_VIEWZOOM,
-                       sizeof(search),
-                       10,
-                       10,
-                       UI_searchbox_size_x(),
-                       UI_UNIT_Y,
-                       "");
+  const int box_width = UI_searchbox_size_x_guess(C, node_find_update_fn, nullptr);
+
+  but = uiDefSearchBut(
+      block, search, 0, ICON_VIEWZOOM, sizeof(search), 0, 0, box_width, UI_UNIT_Y, "");
   UI_but_func_search_set(
       but, nullptr, node_find_update_fn, optype, false, nullptr, node_find_exec_fn, nullptr);
   UI_but_flag_enable(but, UI_BUT_ACTIVATE_ON_INIT);
 
   /* Fake button holds space for search items. */
-  uiDefBut(block,
-           UI_BTYPE_LABEL,
-           0,
-           "",
-           10,
-           10 - UI_searchbox_size_y(),
-           UI_searchbox_size_x(),
-           UI_searchbox_size_y(),
-           nullptr,
-           0,
-           0,
-           std::nullopt);
+  const int height = UI_searchbox_size_y() - UI_SEARCHBOX_BOUNDS;
+  uiDefBut(
+      block, ButType::Label, 0, "", 0, -height, box_width, height, nullptr, 0, 0, std::nullopt);
 
   /* Move it downwards, mouse over button. */
   std::array<int, 2> bounds_offset = {0, -UI_UNIT_Y};
-  UI_block_bounds_set_popup(block, 0.3f * U.widget_unit, bounds_offset.data());
+  UI_block_bounds_set_popup(block, UI_SEARCHBOX_BOUNDS, bounds_offset.data());
 
   return block;
 }
 
-static int node_find_node_invoke(bContext *C, wmOperator *op, const wmEvent * /*event*/)
+static wmOperatorStatus node_find_node_invoke(bContext *C,
+                                              wmOperator *op,
+                                              const wmEvent * /*event*/)
 {
   UI_popup_block_invoke(C, node_find_menu, op->type, nullptr);
   return OPERATOR_CANCELLED;
@@ -1414,7 +1413,7 @@ void NODE_OT_find_node(wmOperatorType *ot)
   ot->description = "Search for a node by name and focus and select it";
   ot->idname = "NODE_OT_find_node";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->invoke = node_find_node_invoke;
   ot->poll = ED_operator_node_active;
 

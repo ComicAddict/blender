@@ -8,12 +8,12 @@
 
 #include <cstring>
 
-#include "BLI_buffer.h"
 #include "BLI_ghash.h"
 #include "BLI_listbase.h"
 #include "BLI_math_vector.h"
 #include "BLI_math_vector_types.hh"
 #include "BLI_rect.h"
+#include "BLI_vector.hh"
 
 #include "BKE_context.hh"
 #include "BKE_global.hh"
@@ -180,7 +180,7 @@ static wmGizmoMap *wm_gizmomap_new_from_type_ex(wmGizmoMapType *gzmap_type, wmGi
 wmGizmoMap *WM_gizmomap_new_from_type(const wmGizmoMapType_Params *gzmap_params)
 {
   wmGizmoMapType *gzmap_type = WM_gizmomaptype_ensure(gzmap_params);
-  wmGizmoMap *gzmap = static_cast<wmGizmoMap *>(MEM_callocN(sizeof(wmGizmoMap), "GizmoMap"));
+  wmGizmoMap *gzmap = MEM_callocN<wmGizmoMap>("GizmoMap");
   wm_gizmomap_new_from_type_ex(gzmap_type, gzmap);
   return gzmap;
 }
@@ -314,6 +314,9 @@ void WM_gizmomap_tag_refresh_drawstep(wmGizmoMap *gzmap, const eWM_GizmoFlagMapD
   BLI_assert(uint(drawstep) < WM_GIZMOMAP_DRAWSTEP_MAX);
   if (gzmap) {
     gzmap->update_flag[drawstep] |= (GIZMOMAP_IS_PREPARE_DRAW | GIZMOMAP_IS_REFRESH_CALLBACK);
+    /* This could be split out into a separate tagging function,
+     * in practice both when refreshing the highlight should also be updated. */
+    gzmap->tag_highlight_pending = true;
   }
 }
 
@@ -323,6 +326,8 @@ void WM_gizmomap_tag_refresh(wmGizmoMap *gzmap)
     for (int i = 0; i < WM_GIZMOMAP_DRAWSTEP_MAX; i++) {
       gzmap->update_flag[i] |= (GIZMOMAP_IS_PREPARE_DRAW | GIZMOMAP_IS_REFRESH_CALLBACK);
     }
+    /* See code-comment for #WM_gizmomap_tag_refresh_drawstep. */
+    gzmap->tag_highlight_pending = true;
   }
 }
 
@@ -514,9 +519,16 @@ static void gizmo_draw_select_3d_loop(const bContext *C,
                                       const int visible_gizmos_len,
                                       bool *r_use_select_bias)
 {
+  /* WORKAROUND(#132196): `GPU_DEPTH_NONE` leads to issues with Intel GPU drivers on Windows
+   * where camera gizmos cannot be shifted. `glGetQueryObjectuiv` for `GL_SAMPLES_PASSED`
+   * seems to return zero in all cases. This might be due to undefined behavior of OpenGL
+   * when the depth test is disabled and rendering to a depth render target-only framebuffer.
+   * Using `GPU_DEPTH_ALWAYS` fixes the issue. */
+  const bool use_intel_gpu_workaround = true;
 
-  /* TODO(@ideasman42): this depends on depth buffer being written to,
-   * currently broken for the 3D view. */
+  /* Set default depth state. */
+  GPU_depth_test(use_intel_gpu_workaround ? GPU_DEPTH_ALWAYS : GPU_DEPTH_NONE);
+  GPU_depth_mask(true);
   bool is_depth_prev = false;
   bool is_depth_skip_prev = false;
 
@@ -535,7 +547,7 @@ static void gizmo_draw_select_3d_loop(const bContext *C,
         GPU_depth_test(GPU_DEPTH_LESS_EQUAL);
       }
       else {
-        GPU_depth_test(GPU_DEPTH_NONE);
+        GPU_depth_test(use_intel_gpu_workaround ? GPU_DEPTH_ALWAYS : GPU_DEPTH_NONE);
       }
       is_depth_prev = is_depth;
     }
@@ -557,7 +569,9 @@ static void gizmo_draw_select_3d_loop(const bContext *C,
     gz->type->draw_select(C, gz, select_id << 8);
   }
 
-  if (is_depth_prev) {
+  /* Reset depth state. */
+
+  if (is_depth_prev || use_intel_gpu_workaround) {
     GPU_depth_test(GPU_DEPTH_NONE);
   }
   if (is_depth_skip_prev) {
@@ -697,7 +711,7 @@ static wmGizmo *gizmo_find_intersected_3d(bContext *C,
     if (viewport == nullptr) {
       return nullptr;
     }
-    GPUTexture *depth_tx = GPU_viewport_depth_texture(viewport);
+    blender::gpu::Texture *depth_tx = GPU_viewport_depth_texture(viewport);
     GPUFrameBuffer *depth_read_fb = nullptr;
     GPU_framebuffer_ensure_config(&depth_read_fb,
                                   {
@@ -706,10 +720,22 @@ static wmGizmo *gizmo_find_intersected_3d(bContext *C,
                                   });
     GPU_framebuffer_bind(depth_read_fb);
 
+    /* NOTE(@ideasman42): Regarding the hit-radius:
+     *
+     * - These must remain constant for all event types
+     *   since changing the radius per event types means non-motion events
+     *   can cause the gizmo not to be highlighted.
+     * - A single large radius would result in gizmos that are further away from the cursor
+     *   with a nearer Z-depth being highlighted.
+     *   So only use the larger radius when the first (smaller) pass has no hits.
+     * - As this runs on cursor-motion, avoid doing too many tests (currently 2x).
+     */
     const int hotspot_radii[] = {
-        int(3 * U.pixelsize),
-        /* This runs on mouse move, careful doing too many tests! */
-        int(10 * U.pixelsize),
+        /* Use a small value so it's possible to accurately pick a gizmo
+         * when multiple are overlapping. */
+        int(3.0f * UI_SCALE_FAC),
+        /* Use a larger value as a fallback so wire gizmos aren't difficult to click on. */
+        int(10.0f * UI_SCALE_FAC),
     };
     for (int i = 0; i < ARRAY_SIZE(hotspot_radii); i++) {
       hit = gizmo_find_intersected_3d_intern(
@@ -734,6 +760,15 @@ static wmGizmo *gizmo_find_intersected_3d(bContext *C,
   return result;
 }
 
+bool wm_gizmomap_highlight_pending(const wmGizmoMap *gzmap)
+{
+  return gzmap->tag_highlight_pending;
+}
+bool wm_gizmomap_highlight_handled(wmGizmoMap *gzmap)
+{
+  return gzmap->tag_highlight_pending = false;
+}
+
 wmGizmo *wm_gizmomap_highlight_find(wmGizmoMap *gzmap,
                                     bContext *C,
                                     const wmEvent *event,
@@ -741,7 +776,7 @@ wmGizmo *wm_gizmomap_highlight_find(wmGizmoMap *gzmap,
 {
   wmWindowManager *wm = CTX_wm_manager(C);
   wmGizmo *gz = nullptr;
-  BLI_buffer_declare_static(wmGizmo *, visible_3d_gizmos, BLI_BUFFER_NOP, 128);
+  blender::Vector<wmGizmo *, 128> visible_3d_gizmos;
   bool do_step[WM_GIZMOMAP_DRAWSTEP_MAX];
 
   int mval[2];
@@ -787,17 +822,13 @@ wmGizmo *wm_gizmomap_highlight_find(wmGizmoMap *gzmap,
     }
   }
 
-  if (visible_3d_gizmos.count) {
+  if (!visible_3d_gizmos.is_empty()) {
     /* 2D gizmos get priority. */
     if (gz == nullptr) {
-      gz = gizmo_find_intersected_3d(C,
-                                     mval,
-                                     static_cast<wmGizmo **>(visible_3d_gizmos.data),
-                                     visible_3d_gizmos.count,
-                                     r_part);
+      gz = gizmo_find_intersected_3d(
+          C, mval, visible_3d_gizmos.data(), visible_3d_gizmos.size(), r_part);
     }
   }
-  BLI_buffer_free(&visible_3d_gizmos);
 
   gzmap->update_flag[WM_GIZMOMAP_DRAWSTEP_3D] &= ~GIZMOMAP_IS_REFRESH_CALLBACK;
   gzmap->update_flag[WM_GIZMOMAP_DRAWSTEP_2D] &= ~GIZMOMAP_IS_REFRESH_CALLBACK;
@@ -816,8 +847,7 @@ void WM_gizmomap_add_handlers(ARegion *region, wmGizmoMap *gzmap)
     }
   }
 
-  wmEventHandler_Gizmo *handler = static_cast<wmEventHandler_Gizmo *>(
-      MEM_callocN(sizeof(*handler), __func__));
+  wmEventHandler_Gizmo *handler = MEM_callocN<wmEventHandler_Gizmo>(__func__);
   handler->head.type = WM_HANDLER_TYPE_GIZMO;
   BLI_assert(gzmap == region->runtime->gizmo_map);
   handler->gizmo_map = gzmap;
@@ -846,7 +876,8 @@ void wm_gizmomaps_handled_modal_update(bContext *C, wmEvent *event, wmEventHandl
     if (gz && gzop && (gzop->type != nullptr) && (gzop->type == handler->op->type)) {
       wmGizmoFnModal modal_fn = gz->custom_modal ? gz->custom_modal : gz->type->modal;
       if (modal_fn != nullptr) {
-        int retval = modal_fn(C, gz, event, eWM_GizmoFlagTweak(0));
+        const wmOperatorStatus retval = modal_fn(C, gz, event, eWM_GizmoFlagTweak(0));
+        OPERATOR_RETVAL_CHECK(retval);
         /* The gizmo is tried to the operator, we can't choose when to exit. */
         BLI_assert(retval & OPERATOR_RUNNING_MODAL);
         UNUSED_VARS_NDEBUG(retval);
@@ -1068,7 +1099,9 @@ void wm_gizmomap_modal_set(
     }
 
     if (gz->type->invoke && (gz->type->modal || gz->custom_modal)) {
-      const int retval = gz->type->invoke(C, gz, event);
+      const wmOperatorStatus retval = gz->type->invoke(C, gz, event);
+      OPERATOR_RETVAL_CHECK(retval);
+
       if ((retval & OPERATOR_RUNNING_MODAL) == 0) {
         return;
       }
@@ -1091,7 +1124,9 @@ void wm_gizmomap_modal_set(
 
     wmGizmoOpElem *gzop = WM_gizmo_operator_get(gz, gz->highlight_part);
     if (gzop && gzop->type) {
-      const int retval = WM_gizmo_operator_invoke(C, gz, gzop, event);
+      const wmOperatorStatus retval = WM_gizmo_operator_invoke(C, gz, gzop, event);
+      OPERATOR_RETVAL_CHECK(retval);
+
       if ((retval & OPERATOR_RUNNING_MODAL) == 0) {
         wm_gizmomap_modal_set(gzmap, C, gz, event, false);
       }
@@ -1255,8 +1290,7 @@ wmGizmoMapType *WM_gizmomaptype_ensure(const wmGizmoMapType_Params *gzmap_params
     return gzmap_type;
   }
 
-  gzmap_type = static_cast<wmGizmoMapType *>(
-      MEM_callocN(sizeof(wmGizmoMapType), "gizmotype list"));
+  gzmap_type = MEM_callocN<wmGizmoMapType>("gizmotype list");
   gzmap_type->spaceid = gzmap_params->spaceid;
   gzmap_type->regionid = gzmap_params->regionid;
   BLI_addhead(&gizmomaptypes, gzmap_type);

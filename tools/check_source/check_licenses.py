@@ -510,7 +510,7 @@ def main() -> None:
                 "./lib",
                 # Needs manual handling as it mixes two licenses.
                 "./intern/atomic",
-                # Practically an "extern" within an "intern" module, leave as-is.
+                # Practically an `./extern` within an `./intern` module, leave as-is.
                 "./intern/itasc/kdl",
 
                 # TODO: Files in these directories should be handled but the files have valid licenses.
@@ -521,7 +521,8 @@ def main() -> None:
                 "./build_files/build_environment/patches/config_gmpxx.h",
 
                 # A modified `Apache-2.0` license.
-                "./intern/opensubdiv/internal/evaluator/shaders/glsl_compute_kernel.glsl",
+                "./intern/opensubdiv/internal/evaluator/shaders/osd_eval_patches_comp.glsl",
+                "./intern/opensubdiv/internal/evaluator/shaders/osd_eval_stencils_comp.glsl",
             ),
         ),
         Pass(

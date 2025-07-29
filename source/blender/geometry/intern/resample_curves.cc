@@ -29,7 +29,7 @@ static fn::Field<int> get_count_input_max_one(const fn::Field<int> &count_field)
       "Clamp Above One",
       [](int value) { return std::max(1, value); },
       mf::build::exec_presets::AllSpanOrSingle());
-  return fn::Field<int>(fn::FieldOperation::Create(max_one_fn, {count_field}));
+  return fn::Field<int>(fn::FieldOperation::from(max_one_fn, {count_field}));
 }
 
 static int get_count_from_length(const float curve_length,
@@ -53,7 +53,7 @@ static fn::Field<int> get_count_input_from_length(const fn::Field<float> &length
       get_count_from_length,
       mf::build::exec_presets::SomeSpanOrSingle<0, 1>());
 
-  auto get_count_op = fn::FieldOperation::Create(
+  auto get_count_op = fn::FieldOperation::from(
       get_count_fn,
       {fn::Field<float>(std::make_shared<bke::CurveLengthFieldInput>()),
        length_field,
@@ -112,8 +112,7 @@ static void retrieve_attribute_spans(const Span<StringRef> ids,
                                                                       bke::AttrDomain::Point);
     src.append(src_attribute.varray);
 
-    const eCustomDataType data_type = bke::cpp_type_to_custom_data_type(
-        src_attribute.varray.type());
+    const bke::AttrType data_type = bke::cpp_type_to_attribute_type(src_attribute.varray.type());
     bke::GSpanAttributeWriter dst_attribute =
         dst_curves.attributes_for_write().lookup_or_add_for_write_only_span(
             ids[i], bke::AttrDomain::Point, data_type);
@@ -152,7 +151,7 @@ static void gather_point_attributes_to_interpolate(
     if (iter.domain != bke::AttrDomain::Point) {
       return;
     }
-    if (iter.data_type == CD_PROP_STRING) {
+    if (iter.data_type == bke::AttrType::String) {
       return;
     }
     if (!interpolate_attribute_to_curves(iter.name, dst_curves.curve_type_counts())) {
@@ -186,14 +185,14 @@ static void gather_point_attributes_to_interpolate(
   if (output_ids.tangent_id) {
     result.src_evaluated_tangents = src_curves.evaluated_tangents();
     bke::GSpanAttributeWriter dst_attribute = dst_attributes.lookup_or_add_for_write_only_span(
-        *output_ids.tangent_id, bke::AttrDomain::Point, CD_PROP_FLOAT3);
+        *output_ids.tangent_id, bke::AttrDomain::Point, bke::AttrType::Float3);
     result.dst_tangents = dst_attribute.span.typed<float3>();
     result.dst_attributes.append(std::move(dst_attribute));
   }
   if (output_ids.normal_id) {
     result.src_evaluated_normals = src_curves.evaluated_normals();
     bke::GSpanAttributeWriter dst_attribute = dst_attributes.lookup_or_add_for_write_only_span(
-        *output_ids.normal_id, bke::AttrDomain::Point, CD_PROP_FLOAT3);
+        *output_ids.normal_id, bke::AttrDomain::Point, bke::AttrType::Float3);
     result.dst_normals = dst_attribute.span.typed<float3>();
     result.dst_attributes.append(std::move(dst_attribute));
   }
@@ -441,6 +440,7 @@ static CurvesGeometry resample_to_uniform(const CurvesGeometry &src_curves,
 
   resample_to_uniform(src_curves, selection, output_ids, dst_curves);
 
+  bke::curves::nurbs::copy_custom_knots(src_curves, selection, dst_curves);
   return dst_curves;
 }
 
@@ -475,6 +475,7 @@ CurvesGeometry resample_to_count(const CurvesGeometry &src_curves,
 
   resample_to_uniform(src_curves, selection, output_ids, dst_curves);
 
+  bke::curves::nurbs::copy_custom_knots(src_curves, selection, dst_curves);
   return dst_curves;
 }
 
@@ -526,6 +527,7 @@ CurvesGeometry resample_to_length(const CurvesGeometry &src_curves,
 
   resample_to_uniform(src_curves, selection, output_ids, dst_curves);
 
+  bke::curves::nurbs::copy_custom_knots(src_curves, selection, dst_curves);
   return dst_curves;
 }
 
@@ -622,6 +624,7 @@ CurvesGeometry resample_to_evaluated(const CurvesGeometry &src_curves,
     attribute.finish();
   }
 
+  bke::curves::nurbs::copy_custom_knots(src_curves, selection, dst_curves);
   return dst_curves;
 }
 

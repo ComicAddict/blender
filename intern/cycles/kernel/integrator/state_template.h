@@ -27,6 +27,8 @@ KERNEL_STRUCT_MEMBER(path, uint16_t, transmission_bounce, KERNEL_FEATURE_PATH_TR
 KERNEL_STRUCT_MEMBER(path, uint16_t, volume_bounce, KERNEL_FEATURE_PATH_TRACING)
 /* Current volume bounds ray bounce depth. */
 KERNEL_STRUCT_MEMBER(path, uint16_t, volume_bounds_bounce, KERNEL_FEATURE_PATH_TRACING)
+/* Current portal ray bounce depth. */
+KERNEL_STRUCT_MEMBER(path, uint16_t, portal_bounce, KERNEL_FEATURE_NODE_PORTAL)
 /* DeviceKernel bit indicating queued kernels. */
 KERNEL_STRUCT_MEMBER(path, uint16_t, queued_kernel, KERNEL_FEATURE_PATH_TRACING)
 /* Random number generator per-pixel info. */
@@ -110,7 +112,7 @@ KERNEL_STRUCT_END_ARRAY(volume_stack,
 
 /************************************ Path Guiding *****************************/
 KERNEL_STRUCT_BEGIN(guiding)
-#ifdef __PATH_GUIDING__
+#if defined(__PATH_GUIDING__)
 /* Current path segment of the random walk/path. */
 KERNEL_STRUCT_MEMBER(guiding,
                      openpgl::cpp::PathSegment *,

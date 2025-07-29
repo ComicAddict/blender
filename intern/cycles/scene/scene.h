@@ -35,6 +35,7 @@ class Geometry;
 class GeometryManager;
 class Object;
 class ObjectManager;
+class OSLManager;
 class ParticleSystemManager;
 class ParticleSystem;
 class PointCloud;
@@ -143,6 +144,7 @@ class Scene : public NodeOwner {
   /* data managers */
   unique_ptr<ImageManager> image_manager;
   unique_ptr<LightManager> light_manager;
+  unique_ptr<OSLManager> osl_manager;
   unique_ptr<ShaderManager> shader_manager;
   unique_ptr<GeometryManager> geometry_manager;
   unique_ptr<ObjectManager> object_manager;
@@ -192,8 +194,8 @@ class Scene : public NodeOwner {
 
   void enable_update_stats();
 
-  bool load_kernels(Progress &progress);
   bool update(Progress &progress);
+  bool update_camera_resolution(Progress &progress, int width, int height);
 
   bool has_shadow_catcher();
   void tag_shadow_catcher_modified();
@@ -250,6 +252,8 @@ class Scene : public NodeOwner {
 
   /* Get size of a volume stack needed to render this scene. */
   int get_volume_stack_size() const;
+
+  bool load_kernels(Progress &progress);
 };
 
 template<> Light *Scene::create_node<Light>();

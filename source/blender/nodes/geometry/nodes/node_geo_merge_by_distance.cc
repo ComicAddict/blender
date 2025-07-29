@@ -10,7 +10,7 @@
 
 #include "NOD_rna_define.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "node_geometry_util.hh"
@@ -21,23 +21,27 @@ NODE_STORAGE_FUNCS(NodeGeometryMergeByDistance)
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
+  b.use_custom_socket_order();
+  b.allow_any_socket_order();
+  b.add_default_layout();
   b.add_input<decl::Geometry>("Geometry")
-      .supported_type({GeometryComponent::Type::PointCloud, GeometryComponent::Type::Mesh});
+      .supported_type({GeometryComponent::Type::PointCloud, GeometryComponent::Type::Mesh})
+      .description("Point cloud or mesh to merge points of");
+  b.add_output<decl::Geometry>("Geometry").propagate_all().align_with_previous();
   b.add_input<decl::Bool>("Selection").default_value(true).hide_value().field_on_all();
   b.add_input<decl::Float>("Distance").default_value(0.001f).min(0.0f).subtype(PROP_DISTANCE);
-  b.add_output<decl::Geometry>("Geometry").propagate_all();
 }
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiLayoutSetPropSep(layout, true);
-  uiLayoutSetPropDecorate(layout, false);
-  uiItemR(layout, ptr, "mode", UI_ITEM_NONE, "", ICON_NONE);
+  layout->use_property_split_set(true);
+  layout->use_property_decorate_set(false);
+  layout->prop(ptr, "mode", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
 {
-  NodeGeometryMergeByDistance *data = MEM_cnew<NodeGeometryMergeByDistance>(__func__);
+  NodeGeometryMergeByDistance *data = MEM_callocN<NodeGeometryMergeByDistance>(__func__);
   data->mode = GEO_NODE_MERGE_BY_DISTANCE_MODE_ALL;
   node->storage = data;
 }

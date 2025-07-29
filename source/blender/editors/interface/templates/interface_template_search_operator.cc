@@ -23,7 +23,7 @@
 #include "WM_api.hh"
 #include "WM_types.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "interface_intern.hh"
 
 /* -------------------------------------------------------------------- */
@@ -35,7 +35,7 @@ static void operator_search_exec_fn(bContext *C, void * /*arg1*/, void *arg2)
   wmOperatorType *ot = static_cast<wmOperatorType *>(arg2);
 
   if (ot) {
-    WM_operator_name_call_ptr(C, ot, WM_OP_INVOKE_DEFAULT, nullptr, nullptr);
+    WM_operator_name_call_ptr(C, ot, blender::wm::OpCallContext::InvokeDefault, nullptr, nullptr);
   }
 }
 
@@ -63,7 +63,7 @@ static void operator_search_update_fn(const bContext *C,
       if (WM_operator_poll((bContext *)C, ot)) {
         std::string name = ot_ui_name;
         if (const std::optional<std::string> kmi_str = WM_key_event_operator_string(
-                C, ot->idname, WM_OP_EXEC_DEFAULT, nullptr, true))
+                C, ot->idname, blender::wm::OpCallContext::ExecDefault, nullptr, true))
         {
           name += UI_SEP_CHAR;
           name += *kmi_str;
@@ -101,8 +101,8 @@ void uiTemplateOperatorSearch(uiLayout *layout)
   uiBut *but;
   static char search[256] = "";
 
-  block = uiLayoutGetBlock(layout);
-  UI_block_layout_set_current(block, layout);
+  block = layout->block();
+  blender::ui::block_layout_set_current(block, layout);
 
   but = uiDefSearchBut(
       block, search, 0, ICON_VIEWZOOM, sizeof(search), 0, 0, UI_UNIT_X * 6, UI_UNIT_Y, "");

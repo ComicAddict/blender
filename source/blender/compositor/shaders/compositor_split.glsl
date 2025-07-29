@@ -6,14 +6,13 @@
 
 void main()
 {
-  ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
-  ivec2 output_size = imageSize(output_img);
-#if defined(SPLIT_HORIZONTAL)
-  bool condition = (output_size.x * split_ratio) <= texel.x;
-#elif defined(SPLIT_VERTICAL)
-  bool condition = (output_size.y * split_ratio) <= texel.y;
-#endif
-  vec4 color = condition ? texture_load(first_image_tx, texel) :
-                           texture_load(second_image_tx, texel);
+  int2 texel = int2(gl_GlobalInvocationID.xy);
+
+  const float2 direction_to_line_point = position - float2(texel);
+  const float projection = dot(normal, direction_to_line_point);
+
+  bool is_below_line = projection <= 0;
+  float4 color = is_below_line ? texture_load(first_image_tx, texel) :
+                                 texture_load(second_image_tx, texel);
   imageStore(output_img, texel, color);
 }

@@ -9,6 +9,7 @@
 #include "vk_buffer.hh"
 #include "vk_backend.hh"
 #include "vk_context.hh"
+#include <vulkan/vulkan_core.h>
 
 namespace blender::gpu {
 
@@ -19,33 +20,33 @@ VKBuffer::~VKBuffer()
   }
 }
 
-bool VKBuffer::is_allocated() const
-{
-  return allocation_ != VK_NULL_HANDLE;
-}
-
 bool VKBuffer::create(size_t size_in_bytes,
                       VkBufferUsageFlags buffer_usage,
                       VkMemoryPropertyFlags required_flags,
                       VkMemoryPropertyFlags preferred_flags,
-                      VmaAllocationCreateFlags allocation_flags)
+                      VmaAllocationCreateFlags allocation_flags,
+                      bool export_memory)
 {
   BLI_assert(!is_allocated());
   BLI_assert(vk_buffer_ == VK_NULL_HANDLE);
   BLI_assert(mapped_memory_ == nullptr);
+  if (allocation_failed_) {
+    return false;
+  }
 
   size_in_bytes_ = size_in_bytes;
+  /*
+   * Vulkan doesn't allow empty buffers but some areas (DrawManager Instance data, PyGPU) create
+   * them.
+   */
+  alloc_size_in_bytes_ = ceil_to_multiple_ul(max_ulul(size_in_bytes_, 16), 16);
   VKDevice &device = VKBackend::get().device;
 
   VmaAllocator allocator = device.mem_allocator_get();
   VkBufferCreateInfo create_info = {};
   create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   create_info.flags = 0;
-  /*
-   * Vulkan doesn't allow empty buffers but some areas (DrawManager Instance data, PyGPU) create
-   * them.
-   */
-  create_info.size = max_ulul(size_in_bytes, 1);
+  create_info.size = alloc_size_in_bytes_;
   create_info.usage = buffer_usage;
   /* We use the same command queue for the compute and graphics pipeline, so it is safe to use
    * exclusive resource handling. */
@@ -54,6 +55,9 @@ bool VKBuffer::create(size_t size_in_bytes,
   const uint32_t queue_family_indices[1] = {device.queue_family_get()};
   create_info.pQueueFamilyIndices = queue_family_indices;
 
+  VkExternalMemoryBufferCreateInfo external_memory_create_info = {
+      VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO, nullptr, 0};
+
   VmaAllocationCreateInfo vma_create_info = {};
   vma_create_info.flags = allocation_flags;
   vma_create_info.priority = 1.0f;
@@ -61,26 +65,60 @@ bool VKBuffer::create(size_t size_in_bytes,
   vma_create_info.preferredFlags = preferred_flags;
   vma_create_info.usage = VMA_MEMORY_USAGE_AUTO;
 
+  if (export_memory) {
+    create_info.pNext = &external_memory_create_info;
+#ifdef _WIN32
+    external_memory_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+#else
+    external_memory_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+#endif
+    /* Dedicated allocation for zero offset. */
+    vma_create_info.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+    vma_create_info.pool = device.vma_pools.external_memory;
+  }
+
+  const bool use_descriptor_buffer = device.extensions_get().descriptor_buffer;
+  if (use_descriptor_buffer) {
+    create_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+  }
+
   VkResult result = vmaCreateBuffer(
       allocator, &create_info, &vma_create_info, &vk_buffer_, &allocation_, nullptr);
   if (result != VK_SUCCESS) {
+    allocation_failed_ = true;
+    size_in_bytes_ = 0;
+    alloc_size_in_bytes_ = 0;
     return false;
   }
 
   device.resources.add_buffer(vk_buffer_);
 
-  vmaGetAllocationMemoryProperties(allocator, allocation_, &vk_memory_property_flags_);
+  if (use_descriptor_buffer) {
+    VkBufferDeviceAddressInfo vk_buffer_device_address_info = {
+        VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, nullptr, vk_buffer_};
+    vk_device_address = vkGetBufferDeviceAddress(device.vk_handle(),
+                                                 &vk_buffer_device_address_info);
+  }
 
+  vmaGetAllocationMemoryProperties(allocator, allocation_, &vk_memory_property_flags_);
   if (vk_memory_property_flags_ & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
     return map();
   }
+
   return true;
 }
 
 void VKBuffer::update_immediately(const void *data) const
 {
+  update_sub_immediately(0, size_in_bytes_, data);
+}
+
+void VKBuffer::update_sub_immediately(size_t start_offset,
+                                      size_t data_size,
+                                      const void *data) const
+{
   BLI_assert_msg(is_mapped(), "Cannot update a non-mapped buffer.");
-  memcpy(mapped_memory_, data, size_in_bytes_);
+  memcpy(static_cast<uint8_t *>(mapped_memory_) + start_offset, data, data_size);
 }
 
 void VKBuffer::update_render_graph(VKContext &context, void *data) const
@@ -105,7 +143,7 @@ void VKBuffer::clear(VKContext &context, uint32_t clear_value)
   render_graph::VKFillBufferNode::CreateInfo fill_buffer = {};
   fill_buffer.vk_buffer = vk_buffer_;
   fill_buffer.data = clear_value;
-  fill_buffer.size = size_in_bytes_;
+  fill_buffer.size = alloc_size_in_bytes_;
   context.render_graph().add_node(fill_buffer);
 }
 
@@ -113,7 +151,6 @@ void VKBuffer::async_flush_to_host(VKContext &context)
 {
   BLI_assert(async_timeline_ == 0);
   context.rendering_end();
-  context.descriptor_set_get().upload_descriptor_sets();
   async_timeline_ = context.flush_render_graph(RenderGraphFlushFlags::SUBMIT |
                                                RenderGraphFlushFlags::RENEW_RENDER_GRAPH);
 }
@@ -136,22 +173,10 @@ void VKBuffer::read(VKContext &context, void *data) const
   BLI_assert_msg(is_mapped(), "Cannot read a non-mapped buffer.");
   BLI_assert(async_timeline_ == 0);
   context.rendering_end();
-  context.descriptor_set_get().upload_descriptor_sets();
   context.flush_render_graph(RenderGraphFlushFlags::SUBMIT |
                              RenderGraphFlushFlags::WAIT_FOR_COMPLETION |
                              RenderGraphFlushFlags::RENEW_RENDER_GRAPH);
   memcpy(data, mapped_memory_, size_in_bytes_);
-}
-
-void *VKBuffer::mapped_memory_get() const
-{
-  BLI_assert_msg(is_mapped(), "Cannot access a non-mapped buffer.");
-  return mapped_memory_;
-}
-
-bool VKBuffer::is_mapped() const
-{
-  return mapped_memory_ != nullptr;
 }
 
 bool VKBuffer::map()
@@ -170,6 +195,24 @@ void VKBuffer::unmap()
   VmaAllocator allocator = device.mem_allocator_get();
   vmaUnmapMemory(allocator, allocation_);
   mapped_memory_ = nullptr;
+}
+
+VkDeviceMemory VKBuffer::export_memory_get(size_t &memory_size)
+{
+  const VKDevice &device = VKBackend::get().device;
+  VmaAllocator allocator = device.mem_allocator_get();
+
+  VmaAllocationInfo info = {};
+  vmaGetAllocationInfo(allocator, allocation_, &info);
+
+  /* VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT should ensure this. */
+  if (info.offset != 0) {
+    BLI_assert(!"Failed to get zero offset export memory for Vulkan buffer");
+    return nullptr;
+  }
+
+  memory_size = info.size;
+  return info.deviceMemory;
 }
 
 bool VKBuffer::free()

@@ -300,9 +300,9 @@ void MESH_OT_flip_quad_tessellation(wmOperatorType *ot);
 
 /* *** editmesh_mask_extract.cc *** */
 
-void MESH_OT_paint_mask_extract(wmOperatorType *ot);
-void MESH_OT_face_set_extract(wmOperatorType *ot);
-void MESH_OT_paint_mask_slice(wmOperatorType *ot);
+void SCULPT_OT_paint_mask_extract(wmOperatorType *ot);
+void SCULPT_OT_face_set_extract(wmOperatorType *ot);
+void SCULPT_OT_paint_mask_slice(wmOperatorType *ot);
 
 /** Called in `transform_ops.cc`, on each regeneration of key-maps. */
 wmKeyMap *point_normals_modal_keymap(wmKeyConfig *keyconf);
@@ -321,3 +321,4 @@ void MESH_OT_customdata_skin_add(wmOperatorType *ot);
 void MESH_OT_customdata_skin_clear(wmOperatorType *ot);
 void MESH_OT_customdata_custom_splitnormals_add(wmOperatorType *ot);
 void MESH_OT_customdata_custom_splitnormals_clear(wmOperatorType *ot);
+void MESH_OT_reorder_vertices_spatial(wmOperatorType *ot);

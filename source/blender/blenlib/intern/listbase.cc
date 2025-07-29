@@ -7,7 +7,7 @@
  *
  * Manipulations on double-linked list (#ListBase structs).
  *
- * For single linked lists see 'BLI_linklist.h'
+ * For single linked lists see `BLI_linklist.h`.
  */
 
 #include <cstdlib>
@@ -635,6 +635,18 @@ void *BLI_rfindstring(const ListBase *listbase, const char *id, const int offset
 
   return nullptr;
 }
+void *BLI_listbase_findafter_string(Link *link, const char *id, const int offset)
+{
+  /* Same as #BLI_findstring but start searching after given link. */
+  for (link = link->next; link; link = link->next) {
+    const char *id_iter = ((const char *)link) + offset;
+    if (id[0] == id_iter[0] && STREQ(id, id_iter)) {
+      return link;
+    }
+  }
+
+  return nullptr;
+}
 
 void *BLI_findstring_ptr(const ListBase *listbase, const char *id, const int offset)
 {
@@ -916,7 +928,7 @@ LinkData *BLI_genericNodeN(void *data)
   }
 
   /* create new link, and make it hold the given data */
-  ld = MEM_cnew<LinkData>(__func__);
+  ld = MEM_callocN<LinkData>(__func__);
   ld->data = data;
 
   return ld;

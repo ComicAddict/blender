@@ -31,6 +31,8 @@
 
 #include <Python.h>
 
+#include "../generic/python_compat.hh" /* IWYU pragma: keep. */
+
 #include "../mathutils/mathutils.hh"
 
 #include "../generic/py_capi_utils.hh"
@@ -1302,7 +1304,7 @@ static PyObject *bpy_bmesh_from_object(BPy_BMesh *self, PyObject *args, PyObject
 
   const bool use_render = DEG_get_mode(depsgraph) == DAG_EVAL_RENDER;
   scene_eval = DEG_get_evaluated_scene(depsgraph);
-  ob_eval = DEG_get_evaluated_object(depsgraph, ob);
+  ob_eval = DEG_get_evaluated(depsgraph, ob);
   bool need_free = false;
 
   /* Write the display mesh into the dummy mesh */
@@ -1314,7 +1316,7 @@ static PyObject *bpy_bmesh_from_object(BPy_BMesh *self, PyObject *args, PyObject
       return nullptr;
     }
 
-    mesh_eval = BKE_mesh_new_from_object(depsgraph, ob_eval, true, false);
+    mesh_eval = BKE_mesh_new_from_object(depsgraph, ob_eval, true, false, true);
     need_free = true;
   }
   else {
@@ -3127,9 +3129,14 @@ static PyObject *bpy_bmelemseq_sort(BPy_BMElemSeq *self, PyObject *args, PyObjec
   Py_RETURN_NONE;
 }
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic push
-#  pragma GCC diagnostic ignored "-Wcast-function-type"
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wcast-function-type"
+#  else
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wcast-function-type"
+#  endif
 #endif
 
 static PyMethodDef bpy_bmesh_methods[] = {
@@ -3386,8 +3393,12 @@ static PyMethodDef bpy_bmloopseq_methods[] = {
     {nullptr, nullptr, 0, nullptr},
 };
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic pop
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic pop
+#  else
+#    pragma GCC diagnostic pop
+#  endif
 #endif
 
 /* Sequences
@@ -3810,12 +3821,12 @@ static void bpy_bmelemseq_dealloc(BPy_BMElemSeq *self)
 /* not sure where this should go */
 static Py_hash_t bpy_bm_elem_hash(PyObject *self)
 {
-  return _Py_HashPointer(((BPy_BMElem *)self)->ele);
+  return Py_HashPointer(((BPy_BMElem *)self)->ele);
 }
 
 static Py_hash_t bpy_bm_hash(PyObject *self)
 {
-  return _Py_HashPointer(((BPy_BMesh *)self)->bm);
+  return Py_HashPointer(((BPy_BMesh *)self)->bm);
 }
 
 /* Type Doc-strings
@@ -4621,7 +4632,7 @@ int BPy_BMElem_CheckHType(PyTypeObject *type, const char htype)
 
 char *BPy_BMElem_StringFromHType_ex(const char htype, char ret[32])
 {
-  /* zero to ensure string is always nullptr terminated */
+  /* Zero to ensure string is always null terminated. */
   const char *ret_array[4];
   int i = 0;
   if (htype & BM_VERT) {
@@ -4644,7 +4655,7 @@ char *BPy_BMElem_StringFromHType_ex(const char htype, char ret[32])
 }
 char *BPy_BMElem_StringFromHType(const char htype)
 {
-  /* zero to ensure string is always nullptr terminated */
+  /* Zero to ensure string is always null terminated. */
   static char ret[32];
   return BPy_BMElem_StringFromHType_ex(htype, ret);
 }

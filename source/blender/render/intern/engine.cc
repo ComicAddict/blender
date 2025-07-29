@@ -45,6 +45,8 @@
 
 #include "WM_api.hh"
 
+#include "CLG_log.h"
+
 #include "pipeline.hh"
 #include "render_result.h"
 #include "render_types.h"
@@ -53,16 +55,26 @@
 
 ListBase R_engines = {nullptr, nullptr};
 
+static CLG_LogRef LOG = {"render"};
+
 void RE_engines_init()
 {
   DRW_engines_register();
+  DRW_module_init();
 }
 
 void RE_engines_exit()
 {
   RenderEngineType *type, *next;
 
-  DRW_engines_free();
+  if (DRW_gpu_context_try_enable()) {
+    /* Clean resources if the DRW context exists.
+     * We need a context bound even when dealing with non context dependent GPU resources,
+     * since GL functions may be null otherwise (See #141233). */
+    DRW_engines_free();
+    DRW_module_exit();
+    DRW_gpu_context_disable();
+  }
 
   for (type = static_cast<RenderEngineType *>(R_engines.first); type; type = next) {
     next = type->next;
@@ -81,9 +93,6 @@ void RE_engines_exit()
 
 void RE_engines_register(RenderEngineType *render_type)
 {
-  if (render_type->draw_engine) {
-    DRW_engine_register(render_type->draw_engine);
-  }
   BLI_addtail(&R_engines, render_type);
 }
 
@@ -93,7 +102,7 @@ RenderEngineType *RE_engines_find(const char *idname)
       BLI_findstring(&R_engines, idname, offsetof(RenderEngineType, idname)));
   if (!type) {
     type = static_cast<RenderEngineType *>(
-        BLI_findstring(&R_engines, "BLENDER_EEVEE_NEXT", offsetof(RenderEngineType, idname)));
+        BLI_findstring(&R_engines, "BLENDER_EEVEE", offsetof(RenderEngineType, idname)));
   }
 
   return type;
@@ -121,7 +130,7 @@ bool RE_engine_supports_alembic_procedural(const RenderEngineType *render_type, 
 
 RenderEngine *RE_engine_create(RenderEngineType *type)
 {
-  RenderEngine *engine = MEM_cnew<RenderEngine>("RenderEngine");
+  RenderEngine *engine = MEM_callocN<RenderEngine>("RenderEngine");
   engine->type = type;
 
   BLI_mutex_init(&engine->update_render_passes_mutex);
@@ -192,7 +201,7 @@ static RenderResult *render_result_from_bake(
   }
 
   /* Create render result with specified size. */
-  RenderResult *rr = MEM_cnew<RenderResult>(__func__);
+  RenderResult *rr = MEM_callocN<RenderResult>(__func__);
 
   rr->rectx = w;
   rr->recty = h;
@@ -201,8 +210,10 @@ static RenderResult *render_result_from_bake(
   rr->tilerect.xmax = x + w;
   rr->tilerect.ymax = y + h;
 
+  BKE_scene_ppm_get(&engine->re->r, rr->ppm);
+
   /* Add single baking render layer. */
-  RenderLayer *rl = MEM_cnew<RenderLayer>("bake render layer");
+  RenderLayer *rl = MEM_callocN<RenderLayer>("bake render layer");
   STRNCPY(rl->name, layername);
   rl->rectx = w;
   rl->recty = h;
@@ -523,8 +534,8 @@ void RE_engine_update_memory_stats(RenderEngine *engine, float mem_used, float m
   Render *re = engine->re;
 
   if (re) {
-    re->i.mem_used = mem_used;
-    re->i.mem_peak = mem_peak;
+    re->i.mem_used = (int)ceilf(mem_used);
+    re->i.mem_peak = (int)ceilf(mem_peak);
   }
 }
 
@@ -781,7 +792,7 @@ bool RE_bake_engine(Render *re,
 
   /* set render info */
   re->i.cfra = re->scene->r.cfra;
-  BLI_strncpy(re->i.scene_name, re->scene->id.name + 2, sizeof(re->i.scene_name) - 2);
+  STRNCPY(re->i.scene_name, re->scene->id.name + 2);
 
   /* render */
   engine = re->engine;
@@ -855,7 +866,7 @@ static bool possibly_using_gpu_compositor(const Render *re)
   }
 
   const Scene *scene = re->pipeline_scene_eval;
-  return (scene->nodetree && scene->use_nodes && (scene->r.scemode & R_DOCOMP));
+  return (scene->compositing_node_group && (scene->r.scemode & R_DOCOMP));
 }
 
 static void engine_render_view_layer(Render *re,
@@ -946,6 +957,7 @@ static void engine_render_view_layer(Render *re,
      * dependency graph, which is only allowed if there is no grease
      * pencil (pipeline is taking care of that). */
     if (!RE_engine_test_break(engine) && engine->depsgraph != nullptr) {
+      CLOG_INFO(&LOG, "Rendering grease pencil");
       DRW_render_gpencil(engine, engine->depsgraph);
     }
   }
@@ -1083,12 +1095,16 @@ bool RE_engine_render(Render *re, bool do_all)
 
   if (type->render) {
     FOREACH_VIEW_LAYER_TO_RENDER_BEGIN (re, view_layer_iter) {
-      engine_render_view_layer(re, engine, view_layer_iter, true, true);
+      CLOG_INFO(&LOG, "Start rendering: %s, %s", re->scene->id.name + 2, view_layer_iter->name);
+      CLOG_INFO(&LOG, "Engine: %s", engine->type->name);
+      const bool use_grease_pencil = (view_layer_iter->layflag & SCE_LAY_GREASE_PENCIL) != 0;
+      engine_render_view_layer(re, engine, view_layer_iter, true, use_grease_pencil);
 
       /* If render passes are not allocated the render engine deferred final pixels write for
        * later. Need to defer the grease pencil for until after the engine has written the
        * render result to Blender. */
-      delay_grease_pencil = engine->has_grease_pencil && !re->result->passes_allocated;
+      delay_grease_pencil = use_grease_pencil && engine->has_grease_pencil &&
+                            !re->result->passes_allocated;
 
       if (RE_engine_test_break(engine)) {
         break;
@@ -1104,6 +1120,10 @@ bool RE_engine_render(Render *re, bool do_all)
   /* Perform delayed grease pencil rendering. */
   if (delay_grease_pencil) {
     FOREACH_VIEW_LAYER_TO_RENDER_BEGIN (re, view_layer_iter) {
+      const bool use_grease_pencil = (view_layer_iter->layflag & SCE_LAY_GREASE_PENCIL) != 0;
+      if (!use_grease_pencil) {
+        continue;
+      }
       engine_render_view_layer(re, engine, view_layer_iter, false, true);
       if (RE_engine_test_break(engine)) {
         break;
@@ -1138,6 +1158,7 @@ bool RE_engine_render(Render *re, bool do_all)
 
 #ifdef WITH_FREESTYLE
   if (re->r.mode & R_EDGE_FRS) {
+    CLOG_INFO(&LOG, "Rendering freestyle");
     RE_RenderFreestyleExternal(re);
   }
 #endif

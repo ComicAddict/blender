@@ -11,7 +11,6 @@
 #include <optional>
 
 #include "BLI_compiler_compat.h"
-#include "BLI_ghash.h"
 #include "BLI_span.hh"
 
 #include "BKE_volume_enums.hh"
@@ -98,15 +97,20 @@ namespace blender::bke {
  */
 struct bNodeSocketTemplate {
   int type;
-  char name[64];                /* MAX_NAME */
-  float val1, val2, val3, val4; /* default alloc value for inputs */
+  char name[/*MAX_NAME*/ 64];
+  /** Default alloc value for inputs. */
+  float val1, val2, val3, val4;
   float min, max;
-  int subtype; /* would use PropertySubType but this is a bad level include to use RNA */
+  /** Would use PropertySubType but this is a bad level include to use RNA. */
+  int subtype;
   int flag;
 
-  /* after this line is used internal only */
-  bNodeSocket *sock;   /* used to hold verified socket */
-  char identifier[64]; /* generated from name */
+  /* After this line is used internal only. */
+
+  /** Used to hold verified socket. */
+  bNodeSocket *sock;
+  /** Generated from name. */
+  char identifier[/*MAX_NAME*/ 64];
 };
 
 /* Use `void *` for callbacks that require C++. This is rather ugly, but works well for now. This
@@ -137,6 +141,13 @@ using NodeInverseElemEvalFunction =
     void (*)(blender::nodes::value_elem::InverseElemEvalParams &params);
 using NodeElemEvalFunction = void (*)(blender::nodes::value_elem::ElemEvalParams &params);
 using NodeInverseEvalFunction = void (*)(blender::nodes::inverse_eval::InverseEvalParams &params);
+using NodeInternallyLinkedInputFunction = const bNodeSocket *(*)(const bNodeTree &tree,
+                                                                 const bNode &node,
+                                                                 const bNodeSocket &output_socket);
+using NodeBlendWriteFunction = void (*)(const bNodeTree &tree,
+                                        const bNode &node,
+                                        BlendWriter &writer);
+using NodeBlendDataReadFunction = void (*)(bNodeTree &tree, bNode &node, BlendDataReader &reader);
 
 /**
  * \brief Defines a socket type.
@@ -178,7 +189,8 @@ struct bNodeSocketType {
   ExtensionRNA ext_interface = {};
 
   /* for standard socket types in C */
-  int type = 0, subtype = 0;
+  eNodeSocketDatatype type = eNodeSocketDatatype(0);
+  int subtype = 0;
 
   /* When set, bNodeSocket->limit does not have any effect anymore. */
   bool use_link_limits_of_type = false;
@@ -260,8 +272,6 @@ struct bNodeType {
 
   /** Called when the node is updated in the editor. */
   void (*updatefunc)(bNodeTree *ntree, bNode *node) = nullptr;
-  /** Check and update if internal ID data has changed. */
-  void (*group_update_func)(bNodeTree *ntree, bNode *node) = nullptr;
 
   /**
    * Initialize a new node instance of this type after creation.
@@ -368,6 +378,16 @@ struct bNodeType {
   /** Get extra information that is drawn next to the node. */
   NodeExtraInfoFunction get_extra_info = nullptr;
 
+  /** Get the internally linked input socket for the case when the node is muted. */
+  NodeInternallyLinkedInputFunction internally_linked_input = nullptr;
+
+  /**
+   * Read and write the content of the node storage. Writing the storage struct itself is handled
+   * by generic code by reading and writing bNodeType::storagename.
+   */
+  NodeBlendWriteFunction blend_write_storage_content = nullptr;
+  NodeBlendDataReadFunction blend_data_read_storage_content = nullptr;
+
   /**
    * "Abstract" evaluation of the node. It tells the caller which parts of the inputs affect which
    * parts of the outputs.
@@ -396,6 +416,8 @@ struct bNodeType {
 
   /** True when the node cannot be muted. */
   bool no_muting = false;
+  /** Some nodes should ignore the inferred visibility for improved UX. */
+  bool ignore_inferred_input_socket_visibility = false;
   /** True when the node still works but it's usage is discouraged. */
   const char *deprecation_notice = nullptr;
 
@@ -530,7 +552,7 @@ Span<bNodeTreeType *> node_tree_types_get();
  * In that case the update_typeinfo function will set type-info on registration
  * and do necessary updates.
  */
-void node_tree_set_type(const bContext *C, bNodeTree &ntree);
+void node_tree_set_type(bNodeTree &ntree);
 
 bNodeTree *node_tree_add_tree(Main *bmain, StringRef name, StringRef idname);
 
@@ -606,13 +628,21 @@ void node_register_alias(bNodeType &nt, StringRef alias);
 Span<bNodeType *> node_types_get();
 
 bNodeSocketType *node_socket_type_find(StringRef idname);
+bNodeSocketType *node_socket_type_find_static(int type, int subtype = 0);
 void node_register_socket_type(bNodeSocketType &stype);
 void node_unregister_socket_type(bNodeSocketType &stype);
 bool node_socket_is_registered(const bNodeSocket &sock);
 StringRefNull node_socket_type_label(const bNodeSocketType &stype);
 
-std::optional<StringRefNull> node_static_socket_type(int type, int subtype);
-std::optional<StringRefNull> node_static_socket_interface_type_new(int type, int subtype);
+/* The optional dimensions argument can be provided for types that support multiple possible
+ * dimensions like Vector. It is expected to be in the range [2, 4] and if not provided, 3 will be
+ * assumed. */
+std::optional<StringRefNull> node_static_socket_type(int type,
+                                                     int subtype,
+                                                     std::optional<int> dimensions = std::nullopt);
+std::optional<StringRefNull> node_static_socket_interface_type_new(
+    int type, int subtype, std::optional<int> dimensions = std::nullopt);
+
 std::optional<StringRefNull> node_static_socket_label(int type, int subtype);
 
 Span<bNodeSocketType *> node_socket_types_get();
@@ -720,16 +750,6 @@ bNode *node_get_active_texture(bNodeTree &ntree);
 int node_socket_link_limit(const bNodeSocket &sock);
 
 /**
- * Node Instance Hash.
- */
-struct bNodeInstanceHash {
-  /** XXX should be made a direct member, #GHash allocation needs to support it */
-  GHash *ghash;
-};
-
-using bNodeInstanceValueFP = void (*)(void *value);
-
-/**
  * Magic number for initial hash key.
  */
 extern const bNodeInstanceKey NODE_INSTANCE_KEY_BASE;
@@ -738,23 +758,6 @@ extern const bNodeInstanceKey NODE_INSTANCE_KEY_NONE;
 bNodeInstanceKey node_instance_key(bNodeInstanceKey parent_key,
                                    const bNodeTree *ntree,
                                    const bNode *node);
-
-bNodeInstanceHash *node_instance_hash_new(StringRefNull info);
-void node_instance_hash_free(bNodeInstanceHash *hash, bNodeInstanceValueFP valfreefp);
-void node_instance_hash_insert(bNodeInstanceHash *hash, bNodeInstanceKey key, void *value);
-void *node_instance_hash_lookup(bNodeInstanceHash *hash, bNodeInstanceKey key);
-int node_instance_hash_remove(bNodeInstanceHash *hash,
-                              bNodeInstanceKey key,
-                              bNodeInstanceValueFP valfreefp);
-void node_instance_hash_clear(bNodeInstanceHash *hash, bNodeInstanceValueFP valfreefp);
-void *node_instance_hash_pop(bNodeInstanceHash *hash, bNodeInstanceKey key);
-int node_instance_hash_haskey(bNodeInstanceHash *hash, bNodeInstanceKey key);
-int node_instance_hash_size(bNodeInstanceHash *hash);
-
-void node_instance_hash_clear_tags(bNodeInstanceHash *hash);
-void node_instance_hash_tag(bNodeInstanceHash *hash, void *value);
-bool node_instance_hash_tag_key(bNodeInstanceHash *hash, bNodeInstanceKey key);
-void node_instance_hash_remove_untagged(bNodeInstanceHash *hash, bNodeInstanceValueFP valfreefp);
 
 /** \} */
 
@@ -919,8 +922,6 @@ void node_tree_local_merge(Main *bmain, bNodeTree *localtree, bNodeTree *ntree);
  */
 void node_tree_blend_read_data(BlendDataReader *reader, ID *owner_id, bNodeTree *ntree);
 
-bool node_type_is_undefined(const bNode &node);
-
 bool node_is_static_socket_type(const bNodeSocketType &stype);
 
 StringRefNull node_socket_sub_type_label(int subtype);
@@ -936,6 +937,8 @@ void node_modify_socket_type(bNodeTree &ntree,
  * \note Goes over entire tree.
  */
 void node_unlink_node(bNodeTree &ntree, bNode &node);
+
+void node_unlink_attached(bNodeTree *ntree, const bNode *parent);
 
 /**
  * Rebuild the `node_by_id` runtime vector set. Call after removing a node if not handled
@@ -1082,58 +1085,23 @@ bool node_declaration_ensure_on_outdated_node(bNodeTree &ntree, bNode &node);
  */
 void node_socket_declarations_update(bNode *node);
 
-using bNodeInstanceHashIterator = GHashIterator;
-
-BLI_INLINE bNodeInstanceHashIterator *node_instance_hash_iterator_new(bNodeInstanceHash *hash)
-{
-  return BLI_ghashIterator_new(hash->ghash);
-}
-
-BLI_INLINE void node_instance_hash_iterator_init(bNodeInstanceHashIterator *iter,
-                                                 bNodeInstanceHash *hash)
-{
-  BLI_ghashIterator_init(iter, hash->ghash);
-}
-
-BLI_INLINE void node_instance_hash_iterator_free(bNodeInstanceHashIterator *iter)
-{
-  BLI_ghashIterator_free(iter);
-}
-
-BLI_INLINE bNodeInstanceKey node_instance_hash_iterator_get_key(bNodeInstanceHashIterator *iter)
-{
-  return *(bNodeInstanceKey *)BLI_ghashIterator_getKey(iter);
-}
-
-BLI_INLINE void *node_instance_hash_iterator_get_value(bNodeInstanceHashIterator *iter)
-{
-  return BLI_ghashIterator_getValue(iter);
-}
-
-BLI_INLINE void node_instance_hash_iterator_step(bNodeInstanceHashIterator *iter)
-{
-  BLI_ghashIterator_step(iter);
-}
-
-BLI_INLINE bool node_instance_hash_iterator_done(bNodeInstanceHashIterator *iter)
-{
-  return BLI_ghashIterator_done(iter);
-}
-
-#define NODE_INSTANCE_HASH_ITER(iter_, hash_) \
-  for (blender::bke::node_instance_hash_iterator_init(&iter_, hash_); \
-       blender::bke::node_instance_hash_iterator_done(&iter_) == false; \
-       blender::bke::node_instance_hash_iterator_step(&iter_))
-
 /* Node Previews */
 bool node_preview_used(const bNode &node);
 
-bNodePreview *node_preview_verify(
-    bNodeInstanceHash *previews, bNodeInstanceKey key, int xsize, int ysize, bool create);
+struct bNodePreview {
+  ImBuf *ibuf = nullptr;
 
-bNodePreview *node_preview_copy(bNodePreview *preview);
+  bNodePreview() = default;
+  bNodePreview(const bNodePreview &other);
+  bNodePreview(bNodePreview &&other);
+  ~bNodePreview();
+};
 
-void node_preview_free(bNodePreview *preview);
+bNodePreview *node_preview_verify(Map<bNodeInstanceKey, bNodePreview> &previews,
+                                  bNodeInstanceKey key,
+                                  int xsize,
+                                  int ysize,
+                                  bool create);
 
 void node_preview_init_tree(bNodeTree *ntree, int xsize, int ysize);
 
@@ -1145,18 +1113,18 @@ void node_preview_merge_tree(bNodeTree *to_ntree, bNodeTree *from_ntree, bool re
 /** \name Node Type Access
  * \{ */
 
-void nodeLabel(const bNodeTree &ntree, const bNode &node, char *label, int label_maxncpy);
+std::string node_label(const bNodeTree &ntree, const bNode &node);
 
 /**
  * Get node socket label if it is set.
  */
-StringRefNull nodeSocketLabel(const bNodeSocket &sock);
+StringRefNull node_socket_label(const bNodeSocket &sock);
 
 /**
  * Get node socket short label if it is set.
  * It is used when grouping sockets under panels, to avoid redundancy in the label.
  */
-std::optional<StringRefNull> nodeSocketShortLabel(const bNodeSocket &sock);
+std::optional<StringRefNull> node_socket_short_label(const bNodeSocket &sock);
 
 /**
  * Initialize a new node type struct with default values and callbacks.
@@ -1263,4 +1231,4 @@ inline bool bNodeType::is_type(const StringRef query_idname) const
 constexpr int NODE_DEFAULT_MAX_WIDTH = 700;
 constexpr int GROUP_NODE_DEFAULT_WIDTH = 140;
 constexpr int GROUP_NODE_MAX_WIDTH = NODE_DEFAULT_MAX_WIDTH;
-constexpr int GROUP_NODE_MIN_WIDTH = 40;
+constexpr int GROUP_NODE_MIN_WIDTH = 60;

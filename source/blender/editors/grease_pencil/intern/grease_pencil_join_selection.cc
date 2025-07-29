@@ -9,6 +9,7 @@
 #include "BKE_attribute.hh"
 #include "BKE_context.hh"
 #include "BKE_grease_pencil.hh"
+#include "BKE_report.hh"
 
 #include "DNA_scene_types.h"
 
@@ -33,9 +34,8 @@ namespace {
  * All the points belonging to a `PointsRange` are contiguous
  */
 struct PointsRange {
-  bke::CurvesGeometry *owning_curves;
+  bke::greasepencil::Drawing *from_drawing;
   IndexRange range;
-  bool belongs_to_active_layer;
 };
 
 enum class ActionOnNextRange { Nothing, ReverseExisting, ReverseAddition, ReverseBoth };
@@ -50,7 +50,6 @@ enum class ActiveLayerBehavior { JoinAndCopySelection, JoinSelection };
  */
 Vector<PointsRange> retrieve_selection_ranges(Object &object,
                                               const Span<MutableDrawingInfo> drawings,
-                                              const int active_layer_index,
                                               int64_t &r_total_points_selected,
                                               IndexMaskMemory &memory)
 {
@@ -66,7 +65,6 @@ Vector<PointsRange> retrieve_selection_ranges(Object &object,
     r_total_points_selected += points_selection.size();
 
     const Vector<IndexRange> initial_ranges = points_selection.to_ranges();
-    const bool is_active_layer = info.layer_index == active_layer_index;
 
     /**
      * Splitting the source selection by ranges doesn't take into account the strokes,
@@ -77,8 +75,7 @@ Vector<PointsRange> retrieve_selection_ranges(Object &object,
     const Array<int> points_map = info.drawing.strokes().point_to_curve_map();
     for (const IndexRange initial_range : initial_ranges) {
       if (points_map[initial_range.first()] == points_map[initial_range.last()]) {
-        selected_ranges.append(
-            {&info.drawing.strokes_for_write(), initial_range, is_active_layer});
+        selected_ranges.append({&info.drawing, initial_range});
         continue;
       }
 
@@ -87,7 +84,7 @@ Vector<PointsRange> retrieve_selection_ranges(Object &object,
       for (const int64_t index : initial_range.drop_front(1)) {
         const int current_curve = points_map[index];
         if (previous_curve != current_curve) {
-          selected_ranges.append({&info.drawing.strokes_for_write(), range, is_active_layer});
+          selected_ranges.append({&info.drawing, range});
           range = {index, 1};
           previous_curve = current_curve;
         }
@@ -96,7 +93,7 @@ Vector<PointsRange> retrieve_selection_ranges(Object &object,
         }
       }
 
-      selected_ranges.append({&info.drawing.strokes_for_write(), range, is_active_layer});
+      selected_ranges.append({&info.drawing, range});
     }
   }
 
@@ -107,6 +104,17 @@ template<typename T> void reverse_point_data(const IndexRange point_range, Mutab
 {
   data.slice(point_range.first(), point_range.size()).reverse();
 }
+
+template<typename T>
+void swap_handle_attributes(MutableSpan<T> handles_left, MutableSpan<T> handles_right)
+{
+  BLI_assert(handles_left.size() == handles_right.size());
+  threading::parallel_for(handles_left.index_range(), 8192, [&](const IndexRange range) {
+    for (const int point : range) {
+      std::swap(handles_left[point], handles_right[point]);
+    }
+  });
+};
 
 /**
  * Change on \dst_curves the direction of \a points_to_reverse (switch the start and end) without
@@ -120,7 +128,7 @@ void reverse_points_of(bke::CurvesGeometry &dst_curves, const IndexRange points_
     if (iter.domain != bke::AttrDomain::Point) {
       return;
     }
-    if (iter.data_type == CD_PROP_STRING) {
+    if (iter.data_type == bke::AttrType::String) {
       return;
     }
 
@@ -131,6 +139,35 @@ void reverse_points_of(bke::CurvesGeometry &dst_curves, const IndexRange points_
     });
     attribute.finish();
   });
+
+  /* Also needs to swap left/right bezier handles if handle attributes exist. */
+  if (attributes.contains("handle_left") && attributes.contains("handle_right")) {
+    MutableSpan<float3> handles_left = dst_curves.handle_positions_left_for_write().slice(
+        points_to_reverse);
+    MutableSpan<float3> handles_right = dst_curves.handle_positions_right_for_write().slice(
+        points_to_reverse);
+    swap_handle_attributes<float3>(handles_left, handles_right);
+  }
+  if (attributes.contains(".selection_handle_left") &&
+      attributes.contains(".selection_handle_right"))
+  {
+    bke::SpanAttributeWriter<bool> writer_left = attributes.lookup_for_write_span<bool>(
+        ".selection_handle_left");
+    bke::SpanAttributeWriter<bool> writer_right = attributes.lookup_for_write_span<bool>(
+        ".selection_handle_right");
+    const MutableSpan<bool> selection_left = writer_left.span.slice(points_to_reverse);
+    const MutableSpan<bool> selection_right = writer_right.span.slice(points_to_reverse);
+    swap_handle_attributes<bool>(selection_left, selection_right);
+    writer_left.finish();
+    writer_right.finish();
+  }
+  if (attributes.contains("handle_type_left") && attributes.contains("handle_type_right")) {
+    MutableSpan<int8_t> types_left = dst_curves.handle_types_left_for_write().slice(
+        points_to_reverse);
+    MutableSpan<int8_t> types_right = dst_curves.handle_types_right_for_write().slice(
+        points_to_reverse);
+    swap_handle_attributes<int8_t>(types_left, types_right);
+  }
 }
 
 void apply_action(ActionOnNextRange action,
@@ -183,7 +220,7 @@ int64_t compute_closest_range_to(PointsRange &range,
                                  ActionOnNextRange &r_action)
 {
   auto get_range_begin_end = [](const PointsRange &points_range) -> std::pair<float3, float3> {
-    const Span<float3> current_range_positions = points_range.owning_curves->positions();
+    const Span<float3> current_range_positions = points_range.from_drawing->strokes().positions();
     const float3 range_begin = current_range_positions[points_range.range.first()];
     const float3 range_end = current_range_positions[points_range.range.last()];
 
@@ -251,7 +288,7 @@ void copy_range_to_dst(const PointsRange &points_range,
   OffsetIndices<int> src_offsets{src_raw_offsets};
   OffsetIndices<int> dst_offsets{dst_raw_offsets};
 
-  copy_attributes_group_to_group(points_range.owning_curves->attributes(),
+  copy_attributes_group_to_group(points_range.from_drawing->strokes().attributes(),
                                  bke::AttrDomain::Point,
                                  {},
                                  {},
@@ -262,7 +299,8 @@ void copy_range_to_dst(const PointsRange &points_range,
 }
 
 PointsRange copy_point_attributes(MutableSpan<PointsRange> selected_ranges,
-                                  bke::CurvesGeometry &dst_curves)
+                                  bke::CurvesGeometry &dst_curves,
+                                  bke::greasepencil::Drawing &dst_drawing)
 {
   /* The algorithm for joining the points goes as follows:
    * 1. Pick the first range of the selected ranges of points, which will be the working range
@@ -277,7 +315,7 @@ PointsRange copy_point_attributes(MutableSpan<PointsRange> selected_ranges,
    */
 
   const PointsRange &first_range = selected_ranges.first();
-  PointsRange working_range = {&dst_curves, {0, first_range.range.size()}, true};
+  PointsRange working_range = {&dst_drawing, {0, first_range.range.size()}};
 
   int next_point_index = 0;
   copy_range_to_dst(first_range, next_point_index, dst_curves);
@@ -297,7 +335,9 @@ PointsRange copy_point_attributes(MutableSpan<PointsRange> selected_ranges,
   return working_range;
 }
 
-void copy_curve_attributes(Span<PointsRange> ranges_selected, bke::CurvesGeometry &dst_curves)
+void copy_curve_attributes(Span<PointsRange> ranges_selected,
+                           bke::CurvesGeometry &dst_curves,
+                           bke::greasepencil::Drawing &dst_drawing)
 {
   /* The decision of which stroke use to copy the curve attributes is a bit arbitrary, since the
    * original selection may embrace several strokes. The criteria is as follows:
@@ -312,14 +352,14 @@ void copy_curve_attributes(Span<PointsRange> ranges_selected, bke::CurvesGeometr
 
   auto src_range = [&]() -> const PointsRange & {
     const auto *it = std::find_if(
-        ranges_selected.begin(), ranges_selected.end(), [](const PointsRange &range) {
-          return range.belongs_to_active_layer;
+        ranges_selected.begin(), ranges_selected.end(), [dst_drawing](const PointsRange &range) {
+          return range.from_drawing == &dst_drawing;
         });
 
     return it != ranges_selected.end() ? *it : ranges_selected.first();
   }();
 
-  const bke::CurvesGeometry &src_curves = *src_range.owning_curves;
+  const bke::CurvesGeometry &src_curves = src_range.from_drawing->strokes();
   const Array<int> points_map = src_curves.point_to_curve_map();
   const int first_selected_curve = points_map[src_range.range.first()];
 
@@ -344,7 +384,7 @@ void copy_curve_attributes(Span<PointsRange> ranges_selected, bke::CurvesGeometr
 void clear_selection_attribute(Span<PointsRange> ranges_selected)
 {
   for (const PointsRange &range : ranges_selected) {
-    bke::CurvesGeometry &curves = *range.owning_curves;
+    bke::CurvesGeometry &curves = range.from_drawing->strokes_for_write();
     bke::MutableAttributeAccessor attributes = curves.attributes_for_write();
     if (bke::GSpanAttributeWriter selection = attributes.lookup_for_write_span(".selection")) {
       ed::curves::fill_selection_false(selection.span);
@@ -353,26 +393,24 @@ void clear_selection_attribute(Span<PointsRange> ranges_selected)
   }
 }
 
-void remove_selected_points_in_active_layer(Span<PointsRange> ranges_selected,
-                                            bke::CurvesGeometry &dst_curves)
+void remove_selected_points(Span<PointsRange> ranges_selected)
 {
-  IndexMaskMemory memory;
-  Vector<int64_t> mask_content;
+  /* Removing points from a drawing invalidates subsequent ranges for the same drawing.
+   * Combine all ranges for the same drawings first to prevent removing the wrong points. */
+  using RangesMap = Map<bke::greasepencil::Drawing *, Vector<IndexMask>>;
+  RangesMap ranges_by_drawing;
   for (const PointsRange &points_range : ranges_selected) {
-    if (!points_range.belongs_to_active_layer) {
-      continue;
-    }
-
-    Array<int64_t> range_content(points_range.range.size());
-    IndexMask(points_range.range).to_indices(range_content.as_mutable_span());
-    mask_content.extend(range_content);
+    BLI_assert(points_range.from_drawing != nullptr);
+    Vector<IndexMask> &ranges = ranges_by_drawing.lookup_or_add(points_range.from_drawing, {});
+    ranges.append(points_range.range);
   }
 
-  /* remove_points requires the indices in the mask to be sorted */
-  std::sort(mask_content.begin(), mask_content.end());
-  IndexMask mask = IndexMask::from_indices(mask_content.as_span(), memory);
-
-  dst_curves.remove_points(mask, {});
+  for (const RangesMap::Item &item : ranges_by_drawing.items()) {
+    bke::CurvesGeometry &dst_curves = item.key->strokes_for_write();
+    IndexMaskMemory memory;
+    const IndexMask combined_mask = IndexMask::from_union(item.value, memory);
+    dst_curves.remove_points(combined_mask, {});
+  }
 }
 
 void append_strokes_from(bke::CurvesGeometry &&other, bke::CurvesGeometry &dst)
@@ -423,7 +461,7 @@ void append_strokes_from(bke::CurvesGeometry &&other, bke::CurvesGeometry &dst)
  * This operator builds a new stroke from the points/curves selected. It makes a copy of all the
  * selected points and joins them in a single stroke, which is added to the active layer.
  */
-int grease_pencil_join_selection_exec(bContext *C, wmOperator *op)
+wmOperatorStatus grease_pencil_join_selection_exec(bContext *C, wmOperator *op)
 {
   using namespace bke::greasepencil;
 
@@ -433,6 +471,7 @@ int grease_pencil_join_selection_exec(bContext *C, wmOperator *op)
       scene->toolsettings, object);
   GreasePencil &grease_pencil = *static_cast<GreasePencil *>(object->data);
   if (!grease_pencil.has_active_layer()) {
+    BKE_report(op->reports, RPT_ERROR, "No active layer");
     return OPERATOR_CANCELLED;
   }
 
@@ -440,12 +479,7 @@ int grease_pencil_join_selection_exec(bContext *C, wmOperator *op)
       RNA_enum_get(op->ptr, "type"));
   const Layer &active_layer = *grease_pencil.get_active_layer();
 
-  const std::optional<int> opt_layer_index = grease_pencil.get_layer_index(active_layer);
-  BLI_assert(opt_layer_index.has_value());
-  const int active_layer_index = *opt_layer_index;
-
-  Drawing *dst_drawing = grease_pencil.get_editable_drawing_at(*grease_pencil.get_active_layer(),
-                                                               scene->r.cfra);
+  Drawing *dst_drawing = grease_pencil.get_editable_drawing_at(active_layer, scene->r.cfra);
   if (dst_drawing == nullptr) {
     return OPERATOR_CANCELLED;
   }
@@ -455,7 +489,7 @@ int grease_pencil_join_selection_exec(bContext *C, wmOperator *op)
   const Vector<MutableDrawingInfo> editable_drawings = retrieve_editable_drawings(*scene,
                                                                                   grease_pencil);
   Vector<PointsRange> ranges_selected = retrieve_selection_ranges(
-      *object, editable_drawings, active_layer_index, selected_points_count, memory);
+      *object, editable_drawings, selected_points_count, memory);
   if (ranges_selected.size() <= 1) {
     /* Nothing to join */
     return OPERATOR_FINISHED;
@@ -465,8 +499,9 @@ int grease_pencil_join_selection_exec(bContext *C, wmOperator *op)
    * Once it gets stable, it is appended all at once to the destination curves */
   bke::CurvesGeometry tmp_curves(selected_points_count, 1);
 
-  const PointsRange working_range = copy_point_attributes(ranges_selected, tmp_curves);
-  copy_curve_attributes(ranges_selected, tmp_curves);
+  const PointsRange working_range = copy_point_attributes(
+      ranges_selected, tmp_curves, *dst_drawing);
+  copy_curve_attributes(ranges_selected, tmp_curves, *dst_drawing);
 
   clear_selection_attribute(ranges_selected);
 
@@ -475,13 +510,13 @@ int grease_pencil_join_selection_exec(bContext *C, wmOperator *op)
 
   bke::CurvesGeometry &dst_curves = dst_drawing->strokes_for_write();
   if (active_layer_behavior == ActiveLayerBehavior::JoinSelection) {
-    remove_selected_points_in_active_layer(ranges_selected, dst_curves);
+    remove_selected_points(ranges_selected);
   }
 
   append_strokes_from(std::move(tmp_curves), dst_curves);
 
   bke::GSpanAttributeWriter selection = ed::curves::ensure_selection_attribute(
-      dst_curves, selection_domain, CD_PROP_BOOL);
+      dst_curves, selection_domain, bke::AttrType::Bool);
 
   if (selection_domain == bke::AttrDomain::Curve) {
     ed::curves::fill_selection_true(selection.span.take_back(tmp_curves.curves_num()));

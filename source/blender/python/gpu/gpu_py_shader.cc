@@ -13,12 +13,13 @@
 
 #include "BLI_utildefines.h"
 
+#include "GPU_context.hh"
 #include "GPU_shader.hh"
 #include "GPU_texture.hh"
 #include "GPU_uniform_buffer.hh"
 
 #include "../generic/py_capi_utils.hh"
-#include "../generic/python_compat.hh"
+#include "../generic/python_compat.hh" /* IWYU pragma: keep. */
 #include "../generic/python_utildefines.hh"
 
 #include "../mathutils/mathutils.hh"
@@ -58,7 +59,13 @@
   "   :Uniforms: vec2 viewportSize, float lineWidth\n" \
   "``POLYLINE_UNIFORM_COLOR``\n" \
   "   :Attributes: vec3 pos\n" \
-  "   :Uniforms: vec2 viewportSize, float lineWidth\n"
+  "   :Uniforms: vec2 viewportSize, float lineWidth\n" \
+  "``POINT_FLAT_COLOR``\n" \
+  "   :Attributes: vec3 pos, vec4 color\n" \
+  "   :Uniforms: float size\n" \
+  "``POINT_UNIFORM_COLOR``\n" \
+  "   :Attributes: vec3 pos\n" \
+  "   :Uniforms: vec4 color, float size\n"
 
 static const PyC_StringEnumItems pygpu_shader_builtin_items[] = {
     {GPU_SHADER_3D_FLAT_COLOR, "FLAT_COLOR"},
@@ -69,6 +76,8 @@ static const PyC_StringEnumItems pygpu_shader_builtin_items[] = {
     {GPU_SHADER_3D_POLYLINE_FLAT_COLOR, "POLYLINE_FLAT_COLOR"},
     {GPU_SHADER_3D_POLYLINE_SMOOTH_COLOR, "POLYLINE_SMOOTH_COLOR"},
     {GPU_SHADER_3D_POLYLINE_UNIFORM_COLOR, "POLYLINE_UNIFORM_COLOR"},
+    {GPU_SHADER_3D_POINT_FLAT_COLOR, "POINT_FLAT_COLOR"},
+    {GPU_SHADER_3D_POINT_UNIFORM_COLOR, "POINT_UNIFORM_COLOR"},
     {0, nullptr},
 };
 
@@ -96,70 +105,6 @@ static int pygpu_shader_uniform_location_get(GPUShader *shader,
 /* -------------------------------------------------------------------- */
 /** \name Shader Type
  * \{ */
-
-static std::optional<blender::StringRefNull> c_str_to_stringref_opt(const char *str)
-{
-  if (!str) {
-    return std::nullopt;
-  }
-  return blender::StringRefNull(str);
-}
-
-static PyObject *pygpu_shader__tp_new(PyTypeObject * /*type*/, PyObject *args, PyObject *kwds)
-{
-  BPYGPU_IS_INIT_OR_ERROR_OBJ;
-
-  struct {
-    const char *vertexcode;
-    const char *fragcode;
-    const char *geocode;
-    const char *libcode;
-    const char *defines;
-    const char *name;
-  } params = {nullptr};
-
-  static const char *_keywords[] = {
-      "vertexcode", "fragcode", "geocode", "libcode", "defines", "name", nullptr};
-  static _PyArg_Parser _parser = {
-      PY_ARG_PARSER_HEAD_COMPAT()
-      "s"  /* `vertexcode` */
-      "s"  /* `fragcode` */
-      "|$" /* Optional keyword only arguments. */
-      "s"  /* `geocode` */
-      "s"  /* `libcode` */
-      "s"  /* `defines` */
-      "s"  /* `name` */
-      ":GPUShader.__new__",
-      _keywords,
-      nullptr,
-  };
-  if (!_PyArg_ParseTupleAndKeywordsFast(args,
-                                        kwds,
-                                        &_parser,
-                                        &params.vertexcode,
-                                        &params.fragcode,
-                                        &params.geocode,
-                                        &params.libcode,
-                                        &params.defines,
-                                        &params.name))
-  {
-    return nullptr;
-  }
-
-  GPUShader *shader = GPU_shader_create_from_python(c_str_to_stringref_opt(params.vertexcode),
-                                                    c_str_to_stringref_opt(params.fragcode),
-                                                    c_str_to_stringref_opt(params.geocode),
-                                                    c_str_to_stringref_opt(params.libcode),
-                                                    c_str_to_stringref_opt(params.defines),
-                                                    c_str_to_stringref_opt(params.name));
-
-  if (shader == nullptr) {
-    PyErr_SetString(PyExc_Exception, "Shader Compile Error, see console for more details");
-    return nullptr;
-  }
-
-  return BPyGPUShader_CreatePyObject(shader, false);
-}
 
 PyDoc_STRVAR(
     /* Wrap. */
@@ -690,10 +635,10 @@ static PyObject *pygpu_shader_format_calc(BPyGPUShader *self, PyObject * /*arg*/
 
     /* WORKAROUND: Special case for POLYLINE shader. */
     if (GPU_shader_get_ssbo_binding(self->shader, "pos") >= 0) {
-      GPU_vertformat_attr_add(&ret->fmt, "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
+      GPU_vertformat_attr_add(&ret->fmt, "pos", blender::gpu::VertAttrType::SFLOAT_32_32_32);
     }
     if (GPU_shader_get_ssbo_binding(self->shader, "color") >= 0) {
-      GPU_vertformat_attr_add(&ret->fmt, "color", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
+      GPU_vertformat_attr_add(&ret->fmt, "color", blender::gpu::VertAttrType::SFLOAT_32_32_32_32);
     }
   }
   else {
@@ -734,7 +679,9 @@ static PyObject *pygpu_shader_attrs_info_get(BPyGPUShader *self, PyObject * /*ar
         continue;
       }
 
-      type = STREQ(name, "pos") ? int(Type::VEC3) : STREQ(name, "color") ? int(Type::VEC4) : -1;
+      type = STREQ(name, "pos")   ? int(Type::float3_t) :
+             STREQ(name, "color") ? int(Type::float4_t) :
+                                    -1;
       PyObject *py_type;
       if (type != -1) {
         py_type = PyUnicode_InternFromString(
@@ -778,9 +725,14 @@ static PyObject *pygpu_shader_attrs_info_get(BPyGPUShader *self, PyObject * /*ar
   return ret;
 }
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic push
-#  pragma GCC diagnostic ignored "-Wcast-function-type"
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wcast-function-type"
+#  else
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wcast-function-type"
+#  endif
 #endif
 
 static PyMethodDef pygpu_shader__tp_methods[] = {
@@ -837,8 +789,12 @@ static PyMethodDef pygpu_shader__tp_methods[] = {
     {nullptr, nullptr, 0, nullptr},
 };
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic pop
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic pop
+#  else
+#    pragma GCC diagnostic pop
+#  endif
 #endif
 
 PyDoc_STRVAR(
@@ -856,11 +812,14 @@ PyDoc_STRVAR(
     /* Wrap. */
     pygpu_shader_program_doc,
     "The name of the program object for use by the OpenGL API (read-only).\n"
+    "This is deprecated and will always return -1.\n"
     "\n"
     ":type: int");
-static PyObject *pygpu_shader_program_get(BPyGPUShader *self, void * /*closure*/)
+static PyObject *pygpu_shader_program_get(BPyGPUShader * /*self*/, void * /*closure*/)
 {
-  return PyLong_FromLong(GPU_shader_get_program(self->shader));
+  PyErr_WarnEx(
+      PyExc_DeprecationWarning, "'program' is deprecated. No valid handle will be returned.", 1);
+  return PyLong_FromLong(-1);
 }
 
 static PyGetSetDef pygpu_shader__tp_getseters[] = {
@@ -881,39 +840,6 @@ static void pygpu_shader__tp_dealloc(BPyGPUShader *self)
   Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-PyDoc_STRVAR(
-    /* Wrap. */
-    pygpu_shader__tp_doc,
-    ".. class:: GPUShader(vertexcode, fragcode, geocode=None, libcode=None, defines=None, "
-    "name='pyGPUShader')\n"
-    "\n"
-    "   GPUShader combines multiple GLSL shaders into a program used for drawing.\n"
-    "   It must contain at least a vertex and fragment shaders.\n"
-    "\n"
-    "   The GLSL ``#version`` directive is automatically included at the top of shaders,\n"
-    "   and set to 330. Some preprocessor directives are automatically added according to\n"
-    "   the Operating System or availability: ``GPU_ATI``, ``GPU_NVIDIA`` and ``GPU_INTEL``.\n"
-    "\n"
-    "   The following extensions are enabled by default if supported by the GPU:\n"
-    "   ``GL_ARB_texture_gather``, ``GL_ARB_texture_cube_map_array``\n"
-    "   and ``GL_ARB_shader_draw_parameters``.\n"
-    "\n"
-    "   For drawing user interface elements and gizmos, use\n"
-    "   ``fragOutput = blender_srgb_to_framebuffer_space(fragOutput)``\n"
-    "   to transform the output sRGB colors to the frame-buffer color-space.\n"
-    "\n"
-    "   :arg vertexcode: Vertex shader code.\n"
-    "   :type vertexcode: str\n"
-    "   :arg fragcode: Fragment shader code.\n"
-    "   :type value: str\n"
-    "   :arg geocode: Geometry shader code.\n"
-    "   :type value: str\n"
-    "   :arg libcode: Code with functions and presets to be shared between shaders.\n"
-    "   :type value: str\n"
-    "   :arg defines: Preprocessor directives.\n"
-    "   :type value: str\n"
-    "   :arg name: Name of shader code, for debugging purposes.\n"
-    "   :type value: str\n");
 PyTypeObject BPyGPUShader_Type = {
     /*ob_base*/ PyVarObject_HEAD_INIT(nullptr, 0)
     /*tp_name*/ "GPUShader",
@@ -935,7 +861,7 @@ PyTypeObject BPyGPUShader_Type = {
     /*tp_setattro*/ nullptr,
     /*tp_as_buffer*/ nullptr,
     /*tp_flags*/ Py_TPFLAGS_DEFAULT,
-    /*tp_doc*/ pygpu_shader__tp_doc,
+    /*tp_doc*/ nullptr,
     /*tp_traverse*/ nullptr,
     /*tp_clear*/ nullptr,
     /*tp_richcompare*/ nullptr,
@@ -952,7 +878,7 @@ PyTypeObject BPyGPUShader_Type = {
     /*tp_dictoffset*/ 0,
     /*tp_init*/ nullptr,
     /*tp_alloc*/ nullptr,
-    /*tp_new*/ pygpu_shader__tp_new,
+    /*tp_new*/ nullptr,
     /*tp_free*/ nullptr,
     /*tp_is_gc*/ nullptr,
     /*tp_bases*/ nullptr,
@@ -1054,7 +980,7 @@ PyDoc_STRVAR(
     "   Create shader from a GPUShaderCreateInfo.\n"
     "\n"
     "   :arg shader_info: GPUShaderCreateInfo\n"
-    "   :type shader_info: :class:`bpy.types.GPUShaderCreateInfo`\n"
+    "   :type shader_info: :class:`gpu.types.GPUShaderCreateInfo`\n"
     "   :return: Shader object corresponding to the given name.\n"
     "   :rtype: :class:`gpu.types.GPUShader`\n");
 static PyObject *pygpu_shader_create_from_info(BPyGPUShader * /*self*/, BPyGPUShaderCreateInfo *o)
@@ -1081,9 +1007,14 @@ static PyObject *pygpu_shader_create_from_info(BPyGPUShader * /*self*/, BPyGPUSh
   return BPyGPUShader_CreatePyObject(shader, false);
 }
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic push
-#  pragma GCC diagnostic ignored "-Wcast-function-type"
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wcast-function-type"
+#  else
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wcast-function-type"
+#  endif
 #endif
 
 static PyMethodDef pygpu_shader_module__tp_methods[] = {
@@ -1099,8 +1030,12 @@ static PyMethodDef pygpu_shader_module__tp_methods[] = {
     {nullptr, nullptr, 0, nullptr},
 };
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic pop
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic pop
+#  else
+#    pragma GCC diagnostic pop
+#  endif
 #endif
 
 PyDoc_STRVAR(

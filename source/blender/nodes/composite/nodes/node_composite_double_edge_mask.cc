@@ -6,7 +6,7 @@
  * \ingroup cmpnodes
  */
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "COM_algorithm_jump_flooding.hh"
@@ -25,13 +25,16 @@ static void cmp_node_double_edge_mask_declare(NodeDeclarationBuilder &b)
       .default_value(0.8f)
       .min(0.0f)
       .max(1.0f)
-      .compositor_domain_priority(1);
+      .compositor_domain_priority(1)
+      .structure_type(StructureType::Dynamic);
   b.add_input<decl::Float>("Outer Mask")
       .default_value(0.8f)
       .min(0.0f)
       .max(1.0f)
-      .compositor_domain_priority(0);
-  b.add_output<decl::Float>("Mask");
+      .compositor_domain_priority(0)
+      .structure_type(StructureType::Dynamic);
+
+  b.add_output<decl::Float>("Mask").structure_type(StructureType::Dynamic);
 }
 
 static void node_composit_buts_double_edge_mask(uiLayout *layout,
@@ -40,12 +43,12 @@ static void node_composit_buts_double_edge_mask(uiLayout *layout,
 {
   uiLayout *col;
 
-  col = uiLayoutColumn(layout, false);
+  col = &layout->column(false);
 
-  uiItemL(col, IFACE_("Inner Edge:"), ICON_NONE);
-  uiItemR(col, ptr, "inner_mode", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
-  uiItemL(col, IFACE_("Buffer Edge:"), ICON_NONE);
-  uiItemR(col, ptr, "edge_mode", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  col->label(IFACE_("Inner Edge:"), ICON_NONE);
+  col->prop(ptr, "inner_mode", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  col->label(IFACE_("Buffer Edge:"), ICON_NONE);
+  col->prop(ptr, "edge_mode", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
 }
 
 using namespace blender::compositor;
@@ -314,7 +317,7 @@ static NodeOperation *get_compositor_operation(Context &context, DNode node)
 
 }  // namespace blender::nodes::node_composite_double_edge_mask_cc
 
-void register_node_type_cmp_doubleedgemask()
+static void register_node_type_cmp_doubleedgemask()
 {
   namespace file_ns = blender::nodes::node_composite_double_edge_mask_cc;
 
@@ -323,11 +326,13 @@ void register_node_type_cmp_doubleedgemask()
   cmp_node_type_base(&ntype, "CompositorNodeDoubleEdgeMask", CMP_NODE_DOUBLEEDGEMASK);
   ntype.ui_name = "Double Edge Mask";
   ntype.ui_description = "Create a gradient between two masks";
-  ntype.enum_name_legacy = "DOUBLE_EDGE_MASK";
+  ntype.enum_name_legacy = "DOUBLEEDGEMASK";
   ntype.nclass = NODE_CLASS_MATTE;
   ntype.declare = file_ns::cmp_node_double_edge_mask_declare;
   ntype.draw_buttons = file_ns::node_composit_buts_double_edge_mask;
   ntype.get_compositor_operation = file_ns::get_compositor_operation;
+  blender::bke::node_type_size(ntype, 145, 140, NODE_DEFAULT_MAX_WIDTH);
 
   blender::bke::node_register_type(ntype);
 }
+NOD_REGISTER_NODE(register_node_type_cmp_doubleedgemask)

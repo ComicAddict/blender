@@ -26,6 +26,7 @@
 #include "BKE_outliner_treehash.hh"
 #include "BKE_screen.hh"
 
+#include "ED_outliner.hh"
 #include "ED_screen.hh"
 
 #include "UI_interface.hh"
@@ -167,7 +168,7 @@ void outliner_free_tree_element(TreeElement *element, ListBase *parent_subtree)
   outliner_free_tree(&element->subtree);
 
   if (element->flag & TE_FREE_NAME) {
-    MEM_freeN((void *)element->name);
+    MEM_freeN(element->name);
   }
   element->abstract_element = nullptr;
   MEM_delete(element);
@@ -248,7 +249,7 @@ TreeElement *AbstractTreeDisplay::add_element(ListBase *lb,
    * on file read. */
   /* FIXME: This is may be an arbitrary void pointer that is cast to an ID pointer. Could be a
    * temporary stack pointer even. Often works reliably enough at runtime, and file reading handles
-   * cases where data can't be reconstructed just fine (pointer is null`ed). This is still
+   * cases where data can't be reconstructed just fine (pointer is null'ed). This is still
    * completely type unsafe and error-prone. */
   ID *persistent_dataptr = owner_id ? owner_id : static_cast<ID *>(create_data);
 
@@ -305,6 +306,9 @@ TreeElement *AbstractTreeDisplay::add_element(ListBase *lb,
     /* pass */
   }
   else if (ELEM(type, TSE_ANIM_DATA, TSE_NLA, TSE_NLA_TRACK, TSE_DRIVER_BASE)) {
+    /* pass */
+  }
+  else if (ELEM(type, TSE_ACTION_SLOT)) {
     /* pass */
   }
   else if (ELEM(type, TSE_GP_LAYER, TSE_GREASE_PENCIL_NODE)) {
@@ -567,8 +571,7 @@ static void outliner_sort(ListBase *lb)
     int totelem = BLI_listbase_count(lb);
 
     if (totelem > 1) {
-      tTreeSort *tear = static_cast<tTreeSort *>(
-          MEM_mallocN(totelem * sizeof(tTreeSort), "tree sort array"));
+      tTreeSort *tear = MEM_malloc_arrayN<tTreeSort>(totelem, "tree sort array");
       tTreeSort *tp = tear;
       int skip = 0;
 
@@ -634,8 +637,7 @@ static void outliner_collections_children_sort(ListBase *lb)
     int totelem = BLI_listbase_count(lb);
 
     if (totelem > 1) {
-      tTreeSort *tear = static_cast<tTreeSort *>(
-          MEM_mallocN(totelem * sizeof(tTreeSort), "tree sort array"));
+      tTreeSort *tear = MEM_malloc_arrayN<tTreeSort>(totelem, "tree sort array");
       tTreeSort *tp = tear;
 
       LISTBASE_FOREACH (TreeElement *, te, lb) {
@@ -829,7 +831,7 @@ static int outliner_exclude_filter_get(const SpaceOutliner *space_outliner)
 {
   int exclude_filter = space_outliner->filter & ~SO_FILTER_OB_STATE;
 
-  if (space_outliner->search_string[0] != 0) {
+  if ((space_outliner->search_string[0] != 0) && ED_outliner_support_searching(space_outliner)) {
     exclude_filter |= SO_FILTER_SEARCH;
   }
   else {
@@ -1106,7 +1108,7 @@ static void outliner_filter_tree(SpaceOutliner *space_outliner,
                                  ViewLayer *view_layer)
 {
   char search_buff[sizeof(SpaceOutliner::search_string) + 2];
-  char *search_string;
+  const char *search_string;
 
   const int exclude_filter = outliner_exclude_filter_get(space_outliner);
 
@@ -1151,7 +1153,9 @@ void outliner_build_tree(Main *mainvar,
   /* Are we looking for something - we want to tag parents to filter child matches
    * - NOT in data-blocks view - searching all data-blocks takes way too long to be useful
    * - this variable is only set once per tree build */
-  if (space_outliner->search_string[0] != 0 && space_outliner->outlinevis != SO_DATA_API) {
+  if (space_outliner->search_string[0] != 0 && space_outliner->outlinevis != SO_DATA_API &&
+      ED_outliner_support_searching(space_outliner))
+  {
     space_outliner->search_flags |= SO_SEARCH_RECURSIVE;
   }
   else {

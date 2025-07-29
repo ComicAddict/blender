@@ -8,7 +8,7 @@
 
 #include "RNA_enum_types.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 namespace blender::nodes::node_geo_gizmo_linear_cc {
@@ -25,14 +25,14 @@ static void node_declare(NodeDeclarationBuilder &b)
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
 {
-  NodeGeometryLinearGizmo *storage = MEM_cnew<NodeGeometryLinearGizmo>(__func__);
+  NodeGeometryLinearGizmo *storage = MEM_callocN<NodeGeometryLinearGizmo>(__func__);
   node->storage = storage;
 }
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "color_id", UI_ITEM_NONE, "", ICON_NONE);
-  uiItemR(layout, ptr, "draw_style", UI_ITEM_NONE, "", ICON_NONE);
+  layout->prop(ptr, "color_id", UI_ITEM_NONE, "", ICON_NONE);
+  layout->prop(ptr, "draw_style", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_rna(StructRNA *srna)

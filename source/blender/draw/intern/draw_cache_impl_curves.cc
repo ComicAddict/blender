@@ -18,7 +18,7 @@
 #include "BLI_math_vector.hh"
 #include "BLI_math_vector_types.hh"
 #include "BLI_span.hh"
-#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 #include "BLI_task.hh"
 #include "BLI_utildefines.h"
 
@@ -94,13 +94,6 @@ struct CurvesBatchCache {
 
   /* Whether the cache is invalid. */
   bool is_dirty;
-
-  /**
-   * The draw cache extraction is currently not multi-threaded for multiple objects, but if it was,
-   * some locking would be necessary because multiple objects can use the same curves data with
-   * different materials, etc. This is a placeholder to make multi-threading easier in the future.
-   */
-  std::mutex render_mutex;
 };
 
 static bool batch_cache_is_dirty(const Curves &curves)
@@ -134,7 +127,7 @@ static void discard_attributes(CurvesEvalCache &eval_cache)
     GPU_VERTBUF_DISCARD_SAFE(eval_cache.final.attributes_buf[j]);
   }
 
-  drw_attributes_clear(&eval_cache.final.attr_used);
+  eval_cache.final.attr_used.clear();
 }
 
 static void clear_edit_data(CurvesBatchCache *cache)
@@ -238,14 +231,14 @@ static void create_points_position_time_vbo(const bke::CurvesGeometry &curves,
                                             CurvesEvalCache &cache)
 {
   GPUVertFormat format = {0};
-  GPU_vertformat_attr_add(&format, "posTime", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
+  GPU_vertformat_attr_add(&format, "posTime", gpu::VertAttrType::SFLOAT_32_32_32_32);
 
   cache.proc_point_buf = GPU_vertbuf_create_with_format_ex(
       format, GPU_USAGE_STATIC | GPU_USAGE_FLAG_BUFFER_TEXTURE_ONLY);
   GPU_vertbuf_data_alloc(*cache.proc_point_buf, cache.points_num);
 
   GPUVertFormat length_format = {0};
-  GPU_vertformat_attr_add(&length_format, "hairLength", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
+  GPU_vertformat_attr_add(&length_format, "hairLength", blender::gpu::VertAttrType::SFLOAT_32);
 
   cache.proc_length_buf = GPU_vertbuf_create_with_format_ex(
       length_format, GPU_USAGE_STATIC | GPU_USAGE_FLAG_BUFFER_TEXTURE_ONLY);
@@ -264,140 +257,161 @@ static uint32_t bezier_data_value(int8_t handle_type, bool is_active)
          (is_active ? EDIT_CURVES_ACTIVE_HANDLE : 0);
 }
 
-static void create_edit_points_position_and_data(
-    const bke::CurvesGeometry &curves,
-    const IndexMask bezier_curves,
-    const OffsetIndices<int> bezier_dst_offsets,
-    const bke::crazyspace::GeometryDeformation deformation,
-    CurvesBatchCache &cache)
+static int handles_and_points_num(const int points_num, const OffsetIndices<int> bezier_offsets)
 {
-  static const GPUVertFormat format_pos = GPU_vertformat_from_attribute(
-      "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
-  /* GPU_COMP_U32 is used instead of GPU_COMP_U8 because depending on running hardware stride might
-   * still be 4. Thus adding complexity to the code and still sparing no memory. */
-  static const GPUVertFormat format_data = GPU_vertformat_from_attribute(
-      "data", GPU_COMP_U32, 1, GPU_FETCH_INT);
-
-  Span<float3> deformed_positions = deformation.positions;
-  const int bezier_point_count = bezier_dst_offsets.total_size();
-  const int size = deformed_positions.size() + bezier_point_count * 2;
-  GPU_vertbuf_init_with_format(*cache.edit_points_pos, format_pos);
-  GPU_vertbuf_data_alloc(*cache.edit_points_pos, size);
-
-  GPU_vertbuf_init_with_format(*cache.edit_points_data, format_data);
-  GPU_vertbuf_data_alloc(*cache.edit_points_data, size);
-
-  MutableSpan<float3> pos_dst = cache.edit_points_pos->data<float3>();
-  pos_dst.take_front(deformed_positions.size()).copy_from(deformed_positions);
-
-  MutableSpan<uint32_t> data_dst = cache.edit_points_data->data<uint32_t>();
-
-  MutableSpan<uint32_t> handle_data_left(data_dst.data() + deformed_positions.size(),
-                                         bezier_point_count);
-  MutableSpan<uint32_t> handle_data_right(
-      data_dst.data() + deformed_positions.size() + bezier_point_count, bezier_point_count);
-
-  const Span<float3> left_handle_positions = curves.handle_positions_left();
-  const Span<float3> right_handle_positions = curves.handle_positions_right();
-  const VArray<int8_t> left_handle_types = curves.handle_types_left();
-  const VArray<int8_t> right_handle_types = curves.handle_types_right();
-  const OffsetIndices<int> points_by_curve = curves.points_by_curve();
-
-  const VArray<bool> selection_attr = *curves.attributes().lookup_or_default<bool>(
-      ".selection", bke::AttrDomain::Point, true);
-
-  auto handle_other_curves = [&](const uint32_t fill_value, const bool mark_active) {
-    return [&, fill_value, mark_active](const IndexMask &selection) {
-      selection.foreach_index(GrainSize(256), [&](const int curve_i) {
-        const IndexRange points = points_by_curve[curve_i];
-        bool is_active = false;
-        if (mark_active) {
-          is_active = array_utils::count_booleans(selection_attr, points) > 0;
-        }
-        uint32_t data_value = fill_value | (is_active ? EDIT_CURVES_ACTIVE_HANDLE : 0u);
-        data_dst.slice(points).fill(data_value);
-      });
-    };
-  };
-
-  bke::curves::foreach_curve_by_type(
-      curves.curve_types(),
-      curves.curve_type_counts(),
-      curves.curves_range(),
-      handle_other_curves(0, false),
-      handle_other_curves(0, false),
-      [&](const IndexMask &selection) {
-        const VArray<bool> selection_left = *curves.attributes().lookup_or_default<bool>(
-            ".selection_handle_left", bke::AttrDomain::Point, true);
-        const VArray<bool> selection_right = *curves.attributes().lookup_or_default<bool>(
-            ".selection_handle_right", bke::AttrDomain::Point, true);
-
-        selection.foreach_index(GrainSize(256), [&](const int src_i, const int64_t dst_i) {
-          for (const int point : points_by_curve[src_i]) {
-            const int point_in_curve = point - points_by_curve[src_i].start();
-            const int dst_index = bezier_dst_offsets[dst_i].start() + point_in_curve;
-
-            data_dst[point] = EDIT_CURVES_BEZIER_KNOT;
-            bool is_active = selection_attr[point] || selection_left[point] ||
-                             selection_right[point];
-            handle_data_left[dst_index] = bezier_data_value(left_handle_types[point], is_active);
-            handle_data_right[dst_index] = bezier_data_value(right_handle_types[point], is_active);
-          }
-        });
-      },
-      handle_other_curves(EDIT_CURVES_NURBS_CONTROL_POINT, true));
-
-  if (!bezier_point_count) {
-    return;
-  }
-
-  MutableSpan<float3> left_handles(pos_dst.data() + deformed_positions.size(), bezier_point_count);
-  MutableSpan<float3> right_handles(
-      pos_dst.data() + deformed_positions.size() + bezier_point_count, bezier_point_count);
-
-  /* TODO: Use deformed left_handle_positions and left_handle_positions. */
-  array_utils::gather_group_to_group(
-      points_by_curve, bezier_dst_offsets, bezier_curves, left_handle_positions, left_handles);
-  array_utils::gather_group_to_group(
-      points_by_curve, bezier_dst_offsets, bezier_curves, right_handle_positions, right_handles);
+  return points_num + bezier_offsets.total_size() * 2;
 }
 
-static void create_edit_points_selection(const bke::CurvesGeometry &curves,
-                                         const IndexMask bezier_curves,
-                                         const OffsetIndices<int> bezier_dst_offsets,
-                                         CurvesBatchCache &cache)
+static IndexRange handle_range_left(const int points_num, const OffsetIndices<int> bezier_offsets)
+{
+  return IndexRange(points_num, bezier_offsets.total_size());
+}
+
+static IndexRange handle_range_right(const int points_num, const OffsetIndices<int> bezier_offsets)
+{
+  return IndexRange(points_num + bezier_offsets.total_size(), bezier_offsets.total_size());
+}
+
+static void extract_edit_data(const OffsetIndices<int> points_by_curve,
+                              const IndexMask &curve_selection,
+                              const VArray<bool> &selection_attr,
+                              const bool mark_active,
+                              const uint32_t fill_value,
+                              MutableSpan<uint32_t> data)
+{
+  curve_selection.foreach_index(GrainSize(256), [&](const int curve) {
+    const IndexRange points = points_by_curve[curve];
+    bool is_active = false;
+    if (mark_active) {
+      is_active = array_utils::count_booleans(selection_attr, points) > 0;
+    }
+    uint32_t data_value = fill_value | (is_active ? EDIT_CURVES_ACTIVE_HANDLE : 0u);
+    data.slice(points).fill(data_value);
+  });
+}
+
+static void create_edit_points_data(const OffsetIndices<int> points_by_curve,
+                                    const IndexMask &catmull_rom_curves,
+                                    const IndexMask &poly_curves,
+                                    const IndexMask &bezier_curves,
+                                    const IndexMask &nurbs_curves,
+                                    const OffsetIndices<int> bezier_offsets,
+                                    const bke::CurvesGeometry &curves,
+                                    gpu::VertBuf &vbo)
+{
+  const int points_num = points_by_curve.total_size();
+  const bke::AttributeAccessor attributes = curves.attributes();
+  const VArray selection = *attributes.lookup_or_default<bool>(
+      ".selection", bke::AttrDomain::Point, true);
+
+  static const GPUVertFormat format = GPU_vertformat_from_attribute("data",
+                                                                    gpu::VertAttrType::UINT_32);
+  GPU_vertbuf_init_with_format(vbo, format);
+  GPU_vertbuf_data_alloc(vbo, handles_and_points_num(points_num, bezier_offsets));
+  MutableSpan<uint32_t> data = vbo.data<uint32_t>();
+
+  extract_edit_data(points_by_curve, catmull_rom_curves, selection, false, 0, data);
+
+  extract_edit_data(points_by_curve, poly_curves, selection, false, 0, data);
+
+  if (!bezier_curves.is_empty()) {
+    const VArray<int8_t> type_right = curves.handle_types_left();
+    const VArray<int8_t> types_left = curves.handle_types_right();
+    const VArray selection_left = *attributes.lookup_or_default<bool>(
+        ".selection_handle_left", bke::AttrDomain::Point, true);
+    const VArray selection_right = *attributes.lookup_or_default<bool>(
+        ".selection_handle_right", bke::AttrDomain::Point, true);
+
+    MutableSpan data_left = data.slice(handle_range_left(points_num, bezier_offsets));
+    MutableSpan data_right = data.slice(handle_range_right(points_num, bezier_offsets));
+
+    bezier_curves.foreach_index(GrainSize(256), [&](const int curve, const int64_t pos) {
+      const IndexRange points = points_by_curve[curve];
+      const IndexRange bezier_range = bezier_offsets[pos];
+      for (const int i : points.index_range()) {
+        const int point = points[i];
+        data[point] = EDIT_CURVES_BEZIER_KNOT;
+
+        const bool selected = selection[point] || selection_left[point] || selection_right[point];
+        const int bezier_point = bezier_range[i];
+        data_left[bezier_point] = bezier_data_value(type_right[point], selected);
+        data_right[bezier_point] = bezier_data_value(types_left[point], selected);
+      }
+    });
+  }
+
+  extract_edit_data(
+      points_by_curve, nurbs_curves, selection, true, EDIT_CURVES_NURBS_CONTROL_POINT, data);
+}
+
+static void create_edit_points_position(const bke::CurvesGeometry &curves,
+                                        const OffsetIndices<int> points_by_curve,
+                                        const IndexMask &bezier_curves,
+                                        const OffsetIndices<int> bezier_offsets,
+                                        const bke::crazyspace::GeometryDeformation deformation,
+                                        gpu::VertBuf &vbo)
+{
+  const Span<float3> positions = deformation.positions;
+  const int points_num = positions.size();
+
+  static const GPUVertFormat format = GPU_vertformat_from_attribute(
+      "pos", gpu::VertAttrType::SFLOAT_32_32_32);
+  GPU_vertbuf_init_with_format(vbo, format);
+  GPU_vertbuf_data_alloc(vbo, handles_and_points_num(points_num, bezier_offsets));
+
+  MutableSpan<float3> data = vbo.data<float3>();
+  data.take_front(positions.size()).copy_from(positions);
+
+  /* TODO: Use deformed left_handle_positions and left_handle_positions. */
+  array_utils::gather_group_to_group(points_by_curve,
+                                     bezier_offsets,
+                                     bezier_curves,
+                                     curves.handle_positions_left(),
+                                     data.slice(handle_range_left(points_num, bezier_offsets)));
+  array_utils::gather_group_to_group(points_by_curve,
+                                     bezier_offsets,
+                                     bezier_curves,
+                                     curves.handle_positions_right(),
+                                     data.slice(handle_range_right(points_num, bezier_offsets)));
+}
+
+static void create_edit_points_selection(const OffsetIndices<int> points_by_curve,
+                                         const IndexMask &bezier_curves,
+                                         const OffsetIndices<int> bezier_offsets,
+                                         const bke::AttributeAccessor attributes,
+                                         gpu::VertBuf &vbo)
 {
   static const GPUVertFormat format_data = GPU_vertformat_from_attribute(
-      "selection", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
+      "selection", gpu::VertAttrType::SFLOAT_32);
 
-  const int bezier_point_count = bezier_dst_offsets.total_size();
-  const int vert_count = curves.points_num() + bezier_point_count * 2;
-  GPU_vertbuf_init_with_format(*cache.edit_points_selection, format_data);
-  GPU_vertbuf_data_alloc(*cache.edit_points_selection, vert_count);
-  MutableSpan<float> data = cache.edit_points_selection->data<float>();
+  const int points_num = points_by_curve.total_size();
+  GPU_vertbuf_init_with_format(vbo, format_data);
+  GPU_vertbuf_data_alloc(vbo, handles_and_points_num(points_num, bezier_offsets));
+  MutableSpan<float> data = vbo.data<float>();
 
-  const VArray<float> attribute = *curves.attributes().lookup_or_default<float>(
+  const VArray attribute = *attributes.lookup_or_default<float>(
       ".selection", bke::AttrDomain::Point, 1.0f);
-  attribute.materialize(data.slice(0, curves.points_num()));
+  attribute.materialize(data.take_front(points_num));
 
-  if (!bezier_point_count) {
+  if (bezier_curves.is_empty()) {
     return;
   }
 
-  const VArray<float> attribute_left = *curves.attributes().lookup_or_default<float>(
+  const VArray selection_left = *attributes.lookup_or_default<float>(
       ".selection_handle_left", bke::AttrDomain::Point, 1.0f);
-  const VArray<float> attribute_right = *curves.attributes().lookup_or_default<float>(
+  const VArray selection_right = *attributes.lookup_or_default<float>(
       ".selection_handle_right", bke::AttrDomain::Point, 1.0f);
 
-  const OffsetIndices<int> points_by_curve = curves.points_by_curve();
-
-  IndexRange dst_range = IndexRange::from_begin_size(curves.points_num(), bezier_point_count);
-  array_utils::gather_group_to_group(
-      points_by_curve, bezier_dst_offsets, bezier_curves, attribute_left, data.slice(dst_range));
-
-  dst_range = dst_range.shift(bezier_point_count);
-  array_utils::gather_group_to_group(
-      points_by_curve, bezier_dst_offsets, bezier_curves, attribute_right, data.slice(dst_range));
+  array_utils::gather_group_to_group(points_by_curve,
+                                     bezier_offsets,
+                                     bezier_curves,
+                                     selection_left,
+                                     data.slice(handle_range_left(points_num, bezier_offsets)));
+  array_utils::gather_group_to_group(points_by_curve,
+                                     bezier_offsets,
+                                     bezier_curves,
+                                     selection_right,
+                                     data.slice(handle_range_right(points_num, bezier_offsets)));
 }
 
 static void create_lines_ibo_no_cyclic(const OffsetIndices<int> points_by_curve,
@@ -460,58 +474,88 @@ static void create_lines_ibo_with_cyclic(const OffsetIndices<int> points_by_curv
   }
 }
 
-static void calc_edit_handles_ibo(const bke::CurvesGeometry &curves,
-                                  const IndexMask bezier_curves,
-                                  const OffsetIndices<int> bezier_offsets,
-                                  const IndexMask other_curves,
-                                  CurvesBatchCache &cache)
+static void extract_curve_lines(const OffsetIndices<int> points_by_curve,
+                                const VArray<bool> &cyclic,
+                                const IndexMask &selection,
+                                const int cyclic_segment_offset,
+                                MutableSpan<uint2> lines)
 {
-  const int bezier_point_count = bezier_offsets.total_size();
-  /* Left and right handle will be appended for each Bezier point. */
-  const int vert_len = curves.points_num() + 2 * bezier_point_count;
-  /* For each point has 2 lines from 2 points. */
-  const int index_len_for_bezier_handles = 4 * bezier_point_count;
-  const VArray<bool> cyclic = curves.cyclic();
-  /* For curves like NURBS each control point except last generates two point line.
-   * If one point curves or two point cyclic curves are present, not all builder's buffer space
-   * will be used. */
-  const int index_len_for_other_handles = (curves.points_num() - bezier_point_count -
-                                           other_curves.size()) *
-                                              2 +
-                                          array_utils::count_booleans(cyclic, other_curves) * 2;
-  const int index_len = index_len_for_other_handles + index_len_for_bezier_handles;
-  /* Use two index buffer builders for the same underlying memory. */
-  GPUIndexBufBuilder elb, right_elb;
-  GPU_indexbuf_init_ex(&elb, GPU_PRIM_LINES, index_len, vert_len);
-  memcpy(&right_elb, &elb, sizeof(elb));
-  right_elb.index_len = 2 * bezier_point_count;
-
-  const OffsetIndices points_by_curve = curves.points_by_curve();
-
-  bezier_curves.foreach_index([&](const int64_t src_i, const int64_t dst_i) {
-    IndexRange bezier_points = points_by_curve[src_i];
-    const int index_shift = curves.points_num() - bezier_points.first() +
-                            bezier_offsets[dst_i].first();
-    for (const int point : bezier_points) {
-      const int point_left_i = index_shift + point;
-      GPU_indexbuf_add_line_verts(&elb, point_left_i, point);
-      GPU_indexbuf_add_line_verts(&right_elb, point_left_i + bezier_point_count, point);
+  selection.foreach_index(GrainSize(512), [&](const int curve) {
+    const IndexRange points = points_by_curve[curve];
+    MutableSpan<uint2> curve_lines = lines.slice(points.start() + cyclic_segment_offset,
+                                                 points.size() + 1);
+    for (const int i : IndexRange(points.size() - 1)) {
+      const int point = points[i];
+      curve_lines[i] = uint2(point, point + 1);
+    }
+    if (cyclic[curve]) {
+      curve_lines.last() = uint2(points.first(), points.last());
+    }
+    else {
+      curve_lines.last() = uint2(points.last(), points.last());
     }
   });
-  other_curves.foreach_index([&](const int64_t src_i) {
-    IndexRange curve_points = points_by_curve[src_i];
-    if (curve_points.size() <= 1) {
-      return;
-    }
-    for (const int point : curve_points.drop_back(1)) {
-      GPU_indexbuf_add_line_verts(&right_elb, point, point + 1);
-    }
-    if (cyclic[src_i] && curve_points.size() > 2) {
-      GPU_indexbuf_add_line_verts(&right_elb, curve_points.first(), curve_points.last());
-    }
-  });
-  GPU_indexbuf_join(&elb, &right_elb);
-  GPU_indexbuf_build_in_place(&elb, cache.edit_handles_ibo);
+}
+
+static void calc_edit_handles_ibo(const OffsetIndices<int> points_by_curve,
+                                  const IndexMask &catmull_rom_curves,
+                                  const IndexMask &poly_curves,
+                                  const IndexMask &bezier_curves,
+                                  const IndexMask &nurbs_curves,
+                                  const OffsetIndices<int> bezier_offsets,
+                                  const VArray<bool> &cyclic,
+                                  gpu::IndexBuf &ibo)
+{
+  const int curves_num = points_by_curve.size();
+  const int points_num = points_by_curve.total_size();
+  const int non_bezier_points_num = points_num - bezier_offsets.total_size();
+  const int non_bezier_curves_num = curves_num - bezier_curves.size();
+
+  int lines_num = 0;
+  /* Lines for all non-cyclic non-Bezier segments. */
+  lines_num += non_bezier_points_num;
+  /* Lines for all potential non-Bezier cyclic segments. */
+  lines_num += non_bezier_curves_num;
+  /* Lines for all Bezier handles. */
+  lines_num += bezier_offsets.total_size() * 2;
+
+  GPUIndexBufBuilder builder;
+  GPU_indexbuf_init(
+      &builder, GPU_PRIM_LINES, lines_num, handles_and_points_num(points_num, bezier_offsets));
+  MutableSpan<uint2> lines = GPU_indexbuf_get_data(&builder).cast<uint2>();
+
+  int cyclic_segment_offset = 0;
+  extract_curve_lines(points_by_curve, cyclic, catmull_rom_curves, cyclic_segment_offset, lines);
+  cyclic_segment_offset += catmull_rom_curves.size();
+
+  extract_curve_lines(points_by_curve, cyclic, poly_curves, cyclic_segment_offset, lines);
+  cyclic_segment_offset += catmull_rom_curves.size();
+
+  if (!bezier_curves.is_empty()) {
+    const IndexRange handles_left = handle_range_left(points_num, bezier_offsets);
+    const IndexRange handles_right = handle_range_right(points_num, bezier_offsets);
+
+    MutableSpan lines_left = lines.slice(
+        handle_range_left(non_bezier_points_num, bezier_offsets).shift(non_bezier_curves_num));
+    MutableSpan lines_right = lines.slice(
+        handle_range_right(non_bezier_points_num, bezier_offsets).shift(non_bezier_curves_num));
+
+    bezier_curves.foreach_index(GrainSize(512), [&](const int curve, const int pos) {
+      const IndexRange points = points_by_curve[curve];
+      const IndexRange bezier_point_range = bezier_offsets[pos];
+      for (const int i : points.index_range()) {
+        const int point = points[i];
+        const int bezier_point = bezier_point_range[i];
+        lines_left[bezier_point] = uint2(handles_left[bezier_point], point);
+        lines_right[bezier_point] = uint2(handles_right[bezier_point], point);
+      }
+    });
+  }
+
+  extract_curve_lines(points_by_curve, cyclic, nurbs_curves, cyclic_segment_offset, lines);
+
+  GPU_indexbuf_build_in_place_ex(
+      &builder, 0, handles_and_points_num(points_num, bezier_offsets), false, &ibo);
 }
 
 static void alloc_final_attribute_vbo(CurvesEvalCache &cache,
@@ -528,61 +572,60 @@ static void alloc_final_attribute_vbo(CurvesEvalCache &cache,
                          cache.final.resolution * cache.curves_num);
 }
 
-static void ensure_control_point_attribute(const Curves &curves,
-                                           CurvesEvalCache &cache,
-                                           const DRW_AttributeRequest &request,
-                                           const int index,
-                                           const GPUVertFormat &format)
+static gpu::VertBufPtr ensure_control_point_attribute(const Curves &curves_id,
+                                                      const StringRef name,
+                                                      const GPUVertFormat &format,
+                                                      bool &r_is_point_domain)
 {
-  if (cache.proc_attributes_buf[index] != nullptr) {
-    return;
-  }
+  gpu::VertBufPtr vbo = gpu::VertBufPtr(GPU_vertbuf_create_with_format_ex(
+      format, GPU_USAGE_STATIC | GPU_USAGE_FLAG_BUFFER_TEXTURE_ONLY));
 
-  GPU_VERTBUF_DISCARD_SAFE(cache.proc_attributes_buf[index]);
-
-  cache.proc_attributes_buf[index] = GPU_vertbuf_create_with_format_ex(
-      format, GPU_USAGE_STATIC | GPU_USAGE_FLAG_BUFFER_TEXTURE_ONLY);
-  gpu::VertBuf &attr_vbo = *cache.proc_attributes_buf[index];
-
-  GPU_vertbuf_data_alloc(attr_vbo,
-                         request.domain == bke::AttrDomain::Point ? curves.geometry.point_num :
-                                                                    curves.geometry.curve_num);
-
-  const bke::AttributeAccessor attributes = curves.geometry.wrap().attributes();
+  const bke::CurvesGeometry &curves = curves_id.geometry.wrap();
+  const bke::AttributeAccessor attributes = curves.wrap().attributes();
 
   /* TODO(@kevindietrich): float4 is used for scalar attributes as the implicit conversion done
-   * by OpenGL to vec4 for a scalar `s` will produce a `vec4(s, 0, 0, 1)`. However, following
-   * the Blender convention, it should be `vec4(s, s, s, 1)`. This could be resolved using a
+   * by OpenGL to float4 for a scalar `s` will produce a `float4(s, 0, 0, 1)`. However, following
+   * the Blender convention, it should be `float4(s, s, s, 1)`. This could be resolved using a
    * similar texture state swizzle to map the attribute correctly as for volume attributes, so we
    * can control the conversion ourselves. */
-  bke::AttributeReader<ColorGeometry4f> attribute = attributes.lookup_or_default<ColorGeometry4f>(
-      request.attribute_name, request.domain, {0.0f, 0.0f, 0.0f, 1.0f});
+  const bke::AttributeReader<ColorGeometry4f> attribute = attributes.lookup<ColorGeometry4f>(name);
+  if (!attribute) {
+    GPU_vertbuf_data_alloc(*vbo, curves.curves_num());
+    vbo->data<ColorGeometry4f>().fill({0.0f, 0.0f, 0.0f, 1.0f});
+    r_is_point_domain = false;
+    return vbo;
+  }
 
-  MutableSpan<ColorGeometry4f> vbo_span = attr_vbo.data<ColorGeometry4f>();
-
-  attribute.varray.materialize(vbo_span);
+  r_is_point_domain = attribute.domain == bke::AttrDomain::Point;
+  GPU_vertbuf_data_alloc(*vbo, r_is_point_domain ? curves.points_num() : curves.curves_num());
+  attribute.varray.materialize(vbo->data<ColorGeometry4f>());
+  return vbo;
 }
 
 static void ensure_final_attribute(const Curves &curves,
-                                   CurvesEvalCache &cache,
-                                   const DRW_AttributeRequest &request,
-                                   const int index)
+                                   const StringRef name,
+                                   const int index,
+                                   CurvesEvalCache &cache)
 {
   char sampler_name[32];
-  drw_curves_get_attribute_sampler_name(request.attribute_name, sampler_name);
+  drw_curves_get_attribute_sampler_name(name, sampler_name);
 
   GPUVertFormat format = {0};
-  /* All attributes use vec4, see comment below. */
-  GPU_vertformat_attr_add(&format, sampler_name, GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
+  /* All attributes use float4, see comment below. */
+  GPU_vertformat_attr_add(&format, sampler_name, blender::gpu::VertAttrType::SFLOAT_32_32_32_32);
 
-  ensure_control_point_attribute(curves, cache, request, index, format);
+  if (!cache.proc_attributes_buf[index]) {
+    gpu::VertBufPtr vbo = ensure_control_point_attribute(
+        curves, name, format, cache.proc_attributes_point_domain[index]);
+    cache.proc_attributes_buf[index] = vbo.release();
+  }
 
   /* Existing final data may have been for a different attribute (with a different name or domain),
    * free the data. */
   GPU_VERTBUF_DISCARD_SAFE(cache.final.attributes_buf[index]);
 
   /* Ensure final data for points. */
-  if (request.domain == bke::AttrDomain::Point) {
+  if (cache.proc_attributes_point_domain[index]) {
     alloc_final_attribute_vbo(cache, format, index, sampler_name);
   }
 }
@@ -595,7 +638,7 @@ static void fill_curve_offsets_vbos(const OffsetIndices<int> points_by_curve,
     const IndexRange points = points_by_curve[i];
 
     *(uint *)GPU_vertbuf_raw_step(&data_step) = points.start();
-    *(ushort *)GPU_vertbuf_raw_step(&seg_step) = points.size() - 1;
+    *(uint *)GPU_vertbuf_raw_step(&seg_step) = points.size() - 1;
   }
 }
 
@@ -605,10 +648,11 @@ static void create_curve_offsets_vbos(const OffsetIndices<int> points_by_curve,
   GPUVertBufRaw data_step, seg_step;
 
   GPUVertFormat format_data = {0};
-  uint data_id = GPU_vertformat_attr_add(&format_data, "data", GPU_COMP_U32, 1, GPU_FETCH_INT);
+  uint data_id = GPU_vertformat_attr_add(
+      &format_data, "data", blender::gpu::VertAttrType::UINT_32);
 
   GPUVertFormat format_seg = {0};
-  uint seg_id = GPU_vertformat_attr_add(&format_seg, "data", GPU_COMP_U16, 1, GPU_FETCH_INT);
+  uint seg_id = GPU_vertformat_attr_add(&format_seg, "data", blender::gpu::VertAttrType::UINT_32);
 
   /* Curve Data. */
   cache.proc_strand_buf = GPU_vertbuf_create_with_format_ex(
@@ -628,7 +672,7 @@ static void alloc_final_points_vbo(CurvesEvalCache &cache)
 {
   /* Same format as proc_point_buf. */
   GPUVertFormat format = {0};
-  GPU_vertformat_attr_add(&format, "pos", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
+  GPU_vertformat_attr_add(&format, "pos", gpu::VertAttrType::SFLOAT_32_32_32_32);
 
   cache.final.proc_buf = GPU_vertbuf_create_with_format_ex(
       format, GPU_USAGE_DEVICE_ONLY | GPU_USAGE_FLAG_BUFFER_TEXTURE_ONLY);
@@ -666,8 +710,8 @@ static void calc_final_indices(const bke::CurvesGeometry &curves,
     verts_per_curve = (cache.final.resolution - 1) * verts_per_segment;
   }
 
-  static const GPUVertFormat format = GPU_vertformat_from_attribute(
-      "dummy", GPU_COMP_U32, 1, GPU_FETCH_INT_TO_FLOAT_UNIT);
+  static const GPUVertFormat format = GPU_vertformat_from_attribute("dummy",
+                                                                    gpu::VertAttrType::UINT_32);
 
   gpu::VertBuf *vbo = GPU_vertbuf_create_with_format(format);
   GPU_vertbuf_data_alloc(*vbo, 1);
@@ -681,121 +725,39 @@ static void calc_final_indices(const bke::CurvesGeometry &curves,
   cache.final.proc_hairs = GPU_batch_create_ex(prim_type, vbo, ibo, owns_flag);
 }
 
+static std::optional<StringRef> get_first_uv_name(const bke::AttributeAccessor &attributes)
+{
+  std::optional<StringRef> name;
+  attributes.foreach_attribute([&](const bke::AttributeIter &iter) {
+    if (iter.data_type == bke::AttrType::Float2) {
+      name = iter.name;
+      iter.stop();
+    }
+  });
+  return name;
+}
+
 static bool ensure_attributes(const Curves &curves,
                               CurvesBatchCache &cache,
                               const GPUMaterial *gpu_material)
 {
-  const CustomData &cd_curve = curves.geometry.curve_data;
-  const CustomData &cd_point = curves.geometry.point_data;
+  const bke::AttributeAccessor attributes = curves.geometry.wrap().attributes();
   CurvesEvalFinalCache &final_cache = cache.eval_cache.final;
 
   if (gpu_material) {
-    /* The following code should be kept in sync with `mesh_cd_calc_used_gpu_layers`. */
-    DRW_Attributes attrs_needed;
-    drw_attributes_clear(&attrs_needed);
+    VectorSet<std::string> attrs_needed;
     ListBase gpu_attrs = GPU_material_attributes(gpu_material);
-    LISTBASE_FOREACH (const GPUMaterialAttribute *, gpu_attr, &gpu_attrs) {
-      const char *name = gpu_attr->name;
-      eCustomDataType type = static_cast<eCustomDataType>(gpu_attr->type);
-      int layer = -1;
-      std::optional<bke::AttrDomain> domain;
-
-      if (gpu_attr->type == CD_AUTO_FROM_NAME) {
-        /* We need to deduce what exact layer is used.
-         *
-         * We do it based on the specified name.
-         */
-        if (name[0] != '\0') {
-          layer = CustomData_get_named_layer(&cd_curve, CD_PROP_FLOAT2, name);
-          type = CD_MTFACE;
-          domain = bke::AttrDomain::Curve;
-
-          if (layer == -1) {
-            /* Try to match a generic attribute, we use the first attribute domain with a
-             * matching name. */
-            if (drw_custom_data_match_attribute(cd_point, name, &layer, &type)) {
-              domain = bke::AttrDomain::Point;
-            }
-            else if (drw_custom_data_match_attribute(cd_curve, name, &layer, &type)) {
-              domain = bke::AttrDomain::Curve;
-            }
-            else {
-              domain.reset();
-              layer = -1;
-            }
-          }
-
-          if (layer == -1) {
-            continue;
-          }
-        }
-        else {
-          /* Fall back to the UV layer, which matches old behavior. */
-          type = CD_MTFACE;
+    LISTBASE_FOREACH (GPUMaterialAttribute *, gpu_attr, &gpu_attrs) {
+      StringRef name = gpu_attr->name;
+      if (name.is_empty()) {
+        if (std::optional<StringRef> uv_name = get_first_uv_name(attributes)) {
+          drw_attributes_add_request(&attrs_needed, *uv_name);
         }
       }
-      else {
-        if (drw_custom_data_match_attribute(cd_curve, name, &layer, &type)) {
-          domain = bke::AttrDomain::Curve;
-        }
-        else if (drw_custom_data_match_attribute(cd_point, name, &layer, &type)) {
-          domain = bke::AttrDomain::Point;
-        }
+      if (!attributes.contains(name)) {
+        continue;
       }
-
-      switch (type) {
-        case CD_MTFACE: {
-          if (layer == -1) {
-            layer = (name[0] != '\0') ?
-                        CustomData_get_named_layer(&cd_curve, CD_PROP_FLOAT2, name) :
-                        CustomData_get_render_layer(&cd_curve, CD_PROP_FLOAT2);
-            if (layer != -1) {
-              domain = bke::AttrDomain::Curve;
-            }
-          }
-          if (layer == -1) {
-            layer = (name[0] != '\0') ?
-                        CustomData_get_named_layer(&cd_point, CD_PROP_FLOAT2, name) :
-                        CustomData_get_render_layer(&cd_point, CD_PROP_FLOAT2);
-            if (layer != -1) {
-              domain = bke::AttrDomain::Point;
-            }
-          }
-
-          if (layer != -1 && name[0] == '\0' && domain.has_value()) {
-            name = CustomData_get_layer_name(
-                domain == bke::AttrDomain::Curve ? &cd_curve : &cd_point, CD_PROP_FLOAT2, layer);
-          }
-
-          if (layer != -1 && domain.has_value()) {
-            drw_attributes_add_request(&attrs_needed, name, CD_PROP_FLOAT2, layer, *domain);
-          }
-          break;
-        }
-
-        case CD_TANGENT:
-        case CD_ORCO:
-          break;
-
-        case CD_PROP_BYTE_COLOR:
-        case CD_PROP_COLOR:
-        case CD_PROP_QUATERNION:
-        case CD_PROP_FLOAT3:
-        case CD_PROP_BOOL:
-        case CD_PROP_INT8:
-        case CD_PROP_INT32:
-        case CD_PROP_INT16_2D:
-        case CD_PROP_INT32_2D:
-        case CD_PROP_FLOAT:
-        case CD_PROP_FLOAT2: {
-          if (layer != -1 && domain.has_value()) {
-            drw_attributes_add_request(&attrs_needed, name, type, layer, *domain);
-          }
-          break;
-        }
-        default:
-          break;
-      }
+      drw_attributes_add_request(&attrs_needed, name);
     }
 
     if (!drw_attributes_overlap(&final_cache.attr_used, &attrs_needed)) {
@@ -804,60 +766,49 @@ static bool ensure_attributes(const Curves &curves,
         GPU_VERTBUF_DISCARD_SAFE(final_cache.attributes_buf[i]);
         GPU_VERTBUF_DISCARD_SAFE(cache.eval_cache.proc_attributes_buf[i]);
       }
-      drw_attributes_merge(&final_cache.attr_used, &attrs_needed, cache.render_mutex);
+      drw_attributes_merge(&final_cache.attr_used, &attrs_needed);
     }
-    drw_attributes_merge(&final_cache.attr_used_over_time, &attrs_needed, cache.render_mutex);
+    drw_attributes_merge(&final_cache.attr_used_over_time, &attrs_needed);
   }
 
   bool need_tf_update = false;
 
-  for (const int i : IndexRange(final_cache.attr_used.num_requests)) {
-    const DRW_AttributeRequest &request = final_cache.attr_used.requests[i];
-
+  for (const int i : final_cache.attr_used.index_range()) {
     if (cache.eval_cache.final.attributes_buf[i] != nullptr) {
       continue;
     }
 
-    if (request.domain == bke::AttrDomain::Point) {
+    ensure_final_attribute(curves, final_cache.attr_used[i], i, cache.eval_cache);
+    if (cache.eval_cache.proc_attributes_point_domain[i]) {
       need_tf_update = true;
     }
-
-    ensure_final_attribute(curves, cache.eval_cache, request, i);
   }
 
   return need_tf_update;
 }
 
-static void request_attribute(Curves &curves, const char *name)
+static void request_attribute(Curves &curves, const StringRef name)
 {
   CurvesBatchCache &cache = get_batch_cache(curves);
   CurvesEvalFinalCache &final_cache = cache.eval_cache.final;
 
-  DRW_Attributes attributes{};
+  VectorSet<std::string> attributes{};
 
   bke::CurvesGeometry &curves_geometry = curves.geometry.wrap();
-  std::optional<bke::AttributeMetaData> meta_data = curves_geometry.attributes().lookup_meta_data(
-      name);
-  if (!meta_data) {
+  if (!curves_geometry.attributes().contains(name)) {
     return;
   }
-  const bke::AttrDomain domain = meta_data->domain;
-  const eCustomDataType type = meta_data->data_type;
-  const CustomData &custom_data = domain == bke::AttrDomain::Point ? curves.geometry.point_data :
-                                                                     curves.geometry.curve_data;
+  drw_attributes_add_request(&attributes, name);
 
-  drw_attributes_add_request(
-      &attributes, name, type, CustomData_get_named_layer(&custom_data, type, name), domain);
-
-  drw_attributes_merge(&final_cache.attr_used, &attributes, cache.render_mutex);
+  drw_attributes_merge(&final_cache.attr_used, &attributes);
 }
 
-void drw_curves_get_attribute_sampler_name(const char *layer_name, char r_sampler_name[32])
+void drw_curves_get_attribute_sampler_name(const StringRef layer_name, char r_sampler_name[32])
 {
   char attr_safe_name[GPU_MAX_SAFE_ATTR_NAME];
   GPU_vertformat_safe_attr_name(layer_name, attr_safe_name, GPU_MAX_SAFE_ATTR_NAME);
   /* Attributes use auto-name. */
-  BLI_snprintf(r_sampler_name, 32, "a%s", attr_safe_name);
+  BLI_snprintf_utf8(r_sampler_name, 32, "a%s", attr_safe_name);
 }
 
 bool curves_ensure_procedural_data(Curves *curves_id,
@@ -963,7 +914,7 @@ void DRW_curves_batch_cache_free_old(Curves *curves, int ctime)
     do_discard = true;
   }
 
-  drw_attributes_clear(&final_cache.attr_used_over_time);
+  final_cache.attr_used_over_time.clear();
 
   if (do_discard) {
     discard_attributes(cache->eval_cache);
@@ -995,7 +946,7 @@ gpu::Batch *DRW_curves_batch_cache_get_edit_curves_lines(Curves *curves)
 }
 
 gpu::VertBuf **DRW_curves_texture_for_evaluated_attribute(Curves *curves,
-                                                          const char *name,
+                                                          const StringRef name,
                                                           bool *r_is_point_domain)
 {
   CurvesBatchCache &cache = get_batch_cache(*curves);
@@ -1004,8 +955,8 @@ gpu::VertBuf **DRW_curves_texture_for_evaluated_attribute(Curves *curves,
   request_attribute(*curves, name);
 
   int request_i = -1;
-  for (const int i : IndexRange(final_cache.attr_used.num_requests)) {
-    if (STREQ(final_cache.attr_used.requests[i].attribute_name, name)) {
+  for (const int i : final_cache.attr_used.index_range()) {
+    if (final_cache.attr_used[i] == name) {
       request_i = i;
       break;
     }
@@ -1014,17 +965,12 @@ gpu::VertBuf **DRW_curves_texture_for_evaluated_attribute(Curves *curves,
     *r_is_point_domain = false;
     return nullptr;
   }
-  switch (final_cache.attr_used.requests[request_i].domain) {
-    case bke::AttrDomain::Point:
-      *r_is_point_domain = true;
-      return &final_cache.attributes_buf[request_i];
-    case bke::AttrDomain::Curve:
-      *r_is_point_domain = false;
-      return &cache.eval_cache.proc_attributes_buf[request_i];
-    default:
-      BLI_assert_unreachable();
-      return nullptr;
+  if (cache.eval_cache.proc_attributes_point_domain[request_i]) {
+    *r_is_point_domain = true;
+    return &final_cache.attributes_buf[request_i];
   }
+  *r_is_point_domain = false;
+  return &cache.eval_cache.proc_attributes_buf[request_i];
 }
 
 static void create_edit_points_position_vbo(
@@ -1033,7 +979,7 @@ static void create_edit_points_position_vbo(
     CurvesBatchCache &cache)
 {
   static const GPUVertFormat format = GPU_vertformat_from_attribute(
-      "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
+      "pos", gpu::VertAttrType::SFLOAT_32_32_32);
 
   /* TODO: Deform curves using deformations. */
   const Span<float3> positions = curves.evaluated_positions();
@@ -1044,15 +990,15 @@ static void create_edit_points_position_vbo(
 
 void DRW_curves_batch_cache_create_requested(Object *ob)
 {
-  Curves *curves_id = static_cast<Curves *>(ob->data);
-  Object *ob_orig = DEG_get_original_object(ob);
+  Curves &curves_id = DRW_object_get_data_for_drawing<Curves>(*ob);
+  Object *ob_orig = DEG_get_original(ob);
   if (ob_orig == nullptr) {
     return;
   }
-  const Curves *curves_orig_id = static_cast<Curves *>(ob_orig->data);
+  const Curves &curves_orig_id = DRW_object_get_data_for_drawing<Curves>(*ob_orig);
 
-  draw::CurvesBatchCache &cache = draw::get_batch_cache(*curves_id);
-  const bke::CurvesGeometry &curves_orig = curves_orig_id->geometry.wrap();
+  draw::CurvesBatchCache &cache = draw::get_batch_cache(curves_id);
+  const bke::CurvesGeometry &curves_orig = curves_orig_id.geometry.wrap();
 
   bool is_edit_data_needed = false;
 
@@ -1081,13 +1027,16 @@ void DRW_curves_batch_cache_create_requested(Object *ob)
     DRW_ibo_request(cache.edit_curves_lines, &cache.edit_curves_lines_ibo);
   }
 
+  const OffsetIndices<int> points_by_curve = curves_orig.points_by_curve();
+  const VArray<bool> cyclic = curves_orig.cyclic();
+
   const bke::crazyspace::GeometryDeformation deformation =
       is_edit_data_needed || DRW_vbo_requested(cache.edit_curves_lines_pos) ?
           bke::crazyspace::get_evaluated_curves_deformation(ob, *ob_orig) :
           bke::crazyspace::GeometryDeformation();
 
   if (DRW_ibo_requested(cache.sculpt_cage_ibo)) {
-    create_lines_ibo_no_cyclic(curves_orig.points_by_curve(), *cache.sculpt_cage_ibo);
+    create_lines_ibo_no_cyclic(points_by_curve, *cache.sculpt_cage_ibo);
   }
 
   if (DRW_vbo_requested(cache.edit_curves_lines_pos)) {
@@ -1095,35 +1044,64 @@ void DRW_curves_batch_cache_create_requested(Object *ob)
   }
 
   if (DRW_ibo_requested(cache.edit_curves_lines_ibo)) {
-    create_lines_ibo_with_cyclic(curves_orig.evaluated_points_by_curve(),
-                                 curves_orig.cyclic(),
-                                 *cache.edit_curves_lines_ibo);
+    create_lines_ibo_with_cyclic(
+        curves_orig.evaluated_points_by_curve(), cyclic, *cache.edit_curves_lines_ibo);
   }
 
   if (!is_edit_data_needed) {
     return;
   }
 
+  const IndexRange curves_range = curves_orig.curves_range();
+  const VArray<int8_t> curve_types = curves_orig.curve_types();
+  const std::array<int, CURVE_TYPES_NUM> type_counts = curves_orig.curve_type_counts();
+  const bke::AttributeAccessor attributes = curves_orig.attributes();
+
   IndexMaskMemory memory;
-  const IndexMask bezier_curves = bke::curves::indices_for_type(curves_orig.curve_types(),
-                                                                curves_orig.curve_type_counts(),
-                                                                CURVE_TYPE_BEZIER,
-                                                                curves_orig.curves_range(),
-                                                                memory);
+  const IndexMask catmull_rom_curves = bke::curves::indices_for_type(
+      curve_types, type_counts, CURVE_TYPE_CATMULL_ROM, curves_range, memory);
+  const IndexMask poly_curves = bke::curves::indices_for_type(
+      curve_types, type_counts, CURVE_TYPE_POLY, curves_range, memory);
+  const IndexMask bezier_curves = bke::curves::indices_for_type(
+      curve_types, type_counts, CURVE_TYPE_BEZIER, curves_range, memory);
+  const IndexMask nurbs_curves = bke::curves::indices_for_type(
+      curve_types, type_counts, CURVE_TYPE_NURBS, curves_range, memory);
+
   Array<int> bezier_point_offset_data(bezier_curves.size() + 1);
   const OffsetIndices<int> bezier_offsets = offset_indices::gather_selected_offsets(
-      curves_orig.points_by_curve(), bezier_curves, bezier_point_offset_data);
+      points_by_curve, bezier_curves, bezier_point_offset_data);
 
   if (DRW_vbo_requested(cache.edit_points_pos)) {
-    create_edit_points_position_and_data(
-        curves_orig, bezier_curves, bezier_offsets, deformation, cache);
+    create_edit_points_position(curves_orig,
+                                points_by_curve,
+                                bezier_curves,
+                                bezier_offsets,
+                                deformation,
+                                *cache.edit_points_pos);
+  }
+  if (DRW_vbo_requested(cache.edit_points_data)) {
+    create_edit_points_data(points_by_curve,
+                            catmull_rom_curves,
+                            poly_curves,
+                            bezier_curves,
+                            nurbs_curves,
+                            bezier_offsets,
+                            curves_orig,
+                            *cache.edit_points_data);
   }
   if (DRW_vbo_requested(cache.edit_points_selection)) {
-    create_edit_points_selection(curves_orig, bezier_curves, bezier_offsets, cache);
+    create_edit_points_selection(
+        points_by_curve, bezier_curves, bezier_offsets, attributes, *cache.edit_points_selection);
   }
   if (DRW_ibo_requested(cache.edit_handles_ibo)) {
-    const IndexMask other_curves = bezier_curves.complement(curves_orig.curves_range(), memory);
-    calc_edit_handles_ibo(curves_orig, bezier_curves, bezier_offsets, other_curves, cache);
+    calc_edit_handles_ibo(points_by_curve,
+                          catmull_rom_curves,
+                          poly_curves,
+                          bezier_curves,
+                          nurbs_curves,
+                          bezier_offsets,
+                          cyclic,
+                          *cache.edit_handles_ibo);
   }
 }
 

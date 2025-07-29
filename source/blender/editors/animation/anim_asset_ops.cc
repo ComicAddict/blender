@@ -37,7 +37,7 @@
 
 #include "ANIM_action.hh"
 #include "ANIM_action_iterators.hh"
-#include "ANIM_bone_collections.hh"
+#include "ANIM_armature.hh"
 #include "ANIM_keyframing.hh"
 #include "ANIM_pose.hh"
 #include "ANIM_rna.hh"
@@ -122,9 +122,22 @@ static blender::animrig::Action &extract_pose(Main &bmain,
     BLI_assert(pose_object->pose);
     Slot &slot = action.slot_add_for_id(pose_object->id);
     const bArmature *armature = static_cast<bArmature *>(pose_object->data);
+
+    Set<RNAPath> existing_paths;
+    if (pose_object->adt && pose_object->adt->action &&
+        pose_object->adt->slot_handle != Slot::unassigned)
+    {
+      Action &pose_object_action = pose_object->adt->action->wrap();
+      const slot_handle_t pose_object_slot = pose_object->adt->slot_handle;
+      foreach_fcurve_in_action_slot(pose_object_action, pose_object_slot, [&](FCurve &fcurve) {
+        RNAPath existing_path = {fcurve.rna_path, std::nullopt, fcurve.array_index};
+        existing_paths.add(existing_path);
+      });
+    }
+
     LISTBASE_FOREACH (bPoseChannel *, pose_bone, &pose_object->pose->chanbase) {
       if (!(pose_bone->bone->flag & BONE_SELECTED) ||
-          !ANIM_bone_is_visible(armature, pose_bone->bone))
+          !blender::animrig::bone_is_visible(armature, pose_bone->bone))
       {
         continue;
       }
@@ -147,6 +160,12 @@ static blender::animrig::Action &extract_pose(Main &bmain,
           continue;
         }
         for (const int i : values.index_range()) {
+          if (RNA_property_is_idprop(resolved_property) &&
+              !existing_paths.contains({rna_path_id_to_prop.value(), std::nullopt, i}))
+          {
+            /* Skipping custom properties without animation. */
+            continue;
+          }
           strip_data.keyframe_insert(
               &bmain, slot, {rna_path_id_to_prop.value(), i}, {1, values[i]}, key_settings);
         }
@@ -156,10 +175,12 @@ static blender::animrig::Action &extract_pose(Main &bmain,
   return action;
 }
 
-/* Check that the newly created asset is visible SOMEWHERE in Blender. If not already visible,
+/**
+ * Check that the newly created asset is visible SOMEWHERE in Blender. If not already visible,
  * open the asset shelf on the current 3D view. The reason for not always doing that is that it
  * might be annoying in case you have 2 3D viewports open, but you want the asset shelf on only one
- * of them, or you work out of the asset browser.*/
+ * of them, or you work out of the asset browser.
+ */
 static void ensure_asset_ui_visible(bContext &C)
 {
   ScrArea *current_area = CTX_wm_area(&C);
@@ -223,10 +244,10 @@ static blender::Vector<Object *> get_selected_pose_objects(bContext *C)
   return selected_pose_objects;
 }
 
-static int create_pose_asset_local(bContext *C,
-                                   wmOperator *op,
-                                   const StringRefNull name,
-                                   const AssetLibraryReference lib_ref)
+static wmOperatorStatus create_pose_asset_local(bContext *C,
+                                                wmOperator *op,
+                                                const StringRefNull name,
+                                                const AssetLibraryReference lib_ref)
 {
   blender::Vector<Object *> selected_pose_objects = get_selected_pose_objects(C);
 
@@ -244,22 +265,23 @@ static int create_pose_asset_local(bContext *C,
   BKE_id_rename(*bmain, pose_action.id, name);
 
   /* Add asset to catalog. */
-  char catalog_path[MAX_NAME];
-  RNA_string_get(op->ptr, "catalog_path", catalog_path);
+  char catalog_path_c[MAX_NAME];
+  RNA_string_get(op->ptr, "catalog_path", catalog_path_c);
 
   AssetMetaData &meta_data = *pose_action.id.asset_data;
   asset_system::AssetLibrary *library = AS_asset_library_load(bmain, lib_ref);
   /* NOTE(@ChrisLend): I don't know if a local library can fail to load.
    * Just being defensive here. */
   BLI_assert(library);
-  if (catalog_path[0] && library) {
-    const asset_system::AssetCatalog &catalog = asset::library_ensure_catalogs_in_path(
-        *library, catalog_path);
+  if (catalog_path_c[0] && library) {
+    const asset_system::AssetCatalogPath catalog_path(catalog_path_c);
+    asset_system::AssetCatalog &catalog = asset::library_ensure_catalogs_in_path(*library,
+                                                                                 catalog_path);
     BKE_asset_metadata_catalog_id_set(&meta_data, catalog.catalog_id, catalog.simple_name.c_str());
   }
 
   ensure_asset_ui_visible(*C);
-  asset::shelf::show_catalog_in_visible_shelves(*C, catalog_path);
+  asset::shelf::show_catalog_in_visible_shelves(*C, catalog_path_c);
 
   asset::refresh_asset_library(C, lib_ref);
 
@@ -268,10 +290,10 @@ static int create_pose_asset_local(bContext *C,
   return OPERATOR_FINISHED;
 }
 
-static int create_pose_asset_user_library(bContext *C,
-                                          wmOperator *op,
-                                          const char name[MAX_NAME],
-                                          const AssetLibraryReference lib_ref)
+static wmOperatorStatus create_pose_asset_user_library(bContext *C,
+                                                       wmOperator *op,
+                                                       const char name[MAX_NAME],
+                                                       const AssetLibraryReference lib_ref)
 {
   BLI_assert(lib_ref.type == ASSET_LIBRARY_CUSTOM);
   Main *bmain = CTX_data_main(C);
@@ -303,11 +325,12 @@ static int create_pose_asset_user_library(bContext *C,
   }
 
   /* Add asset to catalog. */
-  char catalog_path[MAX_NAME];
-  RNA_string_get(op->ptr, "catalog_path", catalog_path);
+  char catalog_path_c[MAX_NAME];
+  RNA_string_get(op->ptr, "catalog_path", catalog_path_c);
 
   AssetMetaData &meta_data = *pose_action.id.asset_data;
-  if (catalog_path[0]) {
+  if (catalog_path_c[0]) {
+    const asset_system::AssetCatalogPath catalog_path(catalog_path_c);
     const asset_system::AssetCatalog &catalog = asset::library_ensure_catalogs_in_path(
         *library, catalog_path);
     BKE_asset_metadata_catalog_id_set(&meta_data, catalog.catalog_id, catalog.simple_name.c_str());
@@ -319,7 +342,7 @@ static int create_pose_asset_user_library(bContext *C,
 
   library->catalog_service().write_to_disk(*final_full_asset_filepath);
   ensure_asset_ui_visible(*C);
-  asset::shelf::show_catalog_in_visible_shelves(*C, catalog_path);
+  asset::shelf::show_catalog_in_visible_shelves(*C, catalog_path_c);
 
   BKE_id_free(bmain, &pose_action.id);
 
@@ -330,7 +353,7 @@ static int create_pose_asset_user_library(bContext *C,
   return OPERATOR_FINISHED;
 }
 
-static int pose_asset_create_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus pose_asset_create_exec(bContext *C, wmOperator *op)
 {
   char name[MAX_NAME] = "";
   PropertyRNA *name_prop = RNA_struct_find_property(op->ptr, "pose_name");
@@ -363,7 +386,9 @@ static int pose_asset_create_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-static int pose_asset_create_invoke(bContext *C, wmOperator *op, const wmEvent * /*event*/)
+static wmOperatorStatus pose_asset_create_invoke(bContext *C,
+                                                 wmOperator *op,
+                                                 const wmEvent * /*event*/)
 {
   /* If the library isn't saved from the operator's last execution, use the first library. */
   if (!RNA_struct_property_is_set_ex(op->ptr, "asset_library_reference", false)) {
@@ -428,7 +453,7 @@ void POSELIB_OT_create_pose_asset(wmOperatorType *ot)
                          false,
                          "Activate New Action",
                          "This property is deprecated and will be removed in the future");
-  RNA_def_property_flag(prop, PropertyFlag(PROP_HIDDEN | PROP_SKIP_SAVE));
+  RNA_def_property_flag(prop, PROP_HIDDEN | PROP_SKIP_SAVE);
 }
 
 enum AssetModifyMode {
@@ -492,7 +517,7 @@ static Vector<PathValue> generate_path_values(Object &pose_object)
   const bArmature *armature = static_cast<bArmature *>(pose_object.data);
   LISTBASE_FOREACH (bPoseChannel *, pose_bone, &pose_object.pose->chanbase) {
     if (!(pose_bone->bone->flag & BONE_SELECTED) ||
-        !ANIM_bone_is_visible(armature, pose_bone->bone))
+        !blender::animrig::bone_is_visible(armature, pose_bone->bone))
     {
       continue;
     }
@@ -630,10 +655,13 @@ static void update_pose_action_from_scene(Main *bmain,
   }
 }
 
-static int pose_asset_modify_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus pose_asset_modify_exec(bContext *C, wmOperator *op)
 {
   bAction *action = get_action_of_selected_asset(C);
   BLI_assert_msg(action, "Poll should have checked action exists");
+  /* Get asset now. Asset browser might get tagged for refreshing through operations below, and not
+   * allow querying items from context until refreshed, see #140781. */
+  const asset_system::AssetRepresentation *asset = CTX_wm_asset(C);
 
   Main *bmain = CTX_data_main(C);
   Object *pose_object = CTX_data_active_object(C);
@@ -651,7 +679,7 @@ static int pose_asset_modify_exec(bContext *C, wmOperator *op)
     bke::asset_edit_id_save(*bmain, action->id, *op->reports);
   }
 
-  asset::refresh_asset_library_from_asset(C, *CTX_wm_asset(C));
+  asset::refresh_asset_library_from_asset(C, *asset);
   WM_main_add_notifier(NC_ASSET | ND_ASSET_LIST | NA_EDITED, nullptr);
 
   return OPERATOR_FINISHED;
@@ -741,7 +769,7 @@ static bool pose_asset_delete_poll(bContext *C)
   return true;
 }
 
-static int pose_asset_delete_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus pose_asset_delete_exec(bContext *C, wmOperator *op)
 {
   bAction *action = get_action_of_selected_asset(C);
   if (!action) {
@@ -766,7 +794,9 @@ static int pose_asset_delete_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-static int pose_asset_delete_invoke(bContext *C, wmOperator *op, const wmEvent * /*event*/)
+static wmOperatorStatus pose_asset_delete_invoke(bContext *C,
+                                                 wmOperator *op,
+                                                 const wmEvent * /*event*/)
 {
   bAction *action = get_action_of_selected_asset(C);
 

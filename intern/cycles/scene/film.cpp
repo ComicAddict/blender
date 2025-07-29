@@ -14,6 +14,7 @@
 #include "scene/stats.h"
 #include "scene/tables.h"
 
+#include "util/log.h"
 #include "util/math.h"
 #include "util/math_cdf.h"
 #include "util/time.h"
@@ -119,6 +120,8 @@ NODE_DEFINE(Film)
   SOCKET_INT(cryptomatte_depth, "Cryptomatte Depth", 0);
 
   SOCKET_BOOLEAN(use_approximate_shadow_catcher, "Use Approximate Shadow Catcher", false);
+
+  SOCKET_BOOLEAN(use_sample_count, "Use Sample Count Pass", false);
 
   return type;
 }
@@ -468,7 +471,7 @@ bool Film::update_lightgroups(Scene *scene)
   return false;
 }
 
-void Film::update_passes(Scene *scene, bool add_sample_count_pass)
+void Film::update_passes(Scene *scene)
 {
   const Background *background = scene->background;
   const BakeManager *bake_manager = scene->bake_manager.get();
@@ -561,7 +564,8 @@ void Film::update_passes(Scene *scene, bool add_sample_count_pass)
     }
   }
 
-  if (add_sample_count_pass) {
+  /* Add sample count pass for tiled rendering. */
+  if (use_sample_count) {
     if (!Pass::contains(scene->passes, PASS_SAMPLE_COUNT)) {
       add_auto_pass(scene, PASS_SAMPLE_COUNT);
     }
@@ -595,10 +599,10 @@ void Film::update_passes(Scene *scene, bool add_sample_count_pass)
   tag_modified();
 
   /* Debug logging. */
-  if (VLOG_INFO_IS_ON) {
-    VLOG_INFO << "Effective scene passes:";
+  if (LOG_IS_ON(LOG_LEVEL_INFO)) {
+    LOG_INFO << "Effective scene passes:";
     for (const Pass *pass : scene->passes) {
-      VLOG_INFO << "- " << *pass;
+      LOG_INFO << "- " << *pass;
     }
   }
 }

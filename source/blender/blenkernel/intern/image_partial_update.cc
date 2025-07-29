@@ -9,8 +9,8 @@
  * image that are changed. These areas are organized in chunks. Changes that happen over time are
  * organized in changesets.
  *
- * A common use case is to update #GPUTexture for drawing where only that part is uploaded that
- * only changed.
+ * A common use case is to update #blender::gpu::Texture for drawing where only that part is
+ * uploaded that only changed.
  *
  * Usage:
  *
@@ -459,12 +459,12 @@ struct PartialUpdateRegisterImpl {
 
 static PartialUpdateRegister *image_partial_update_register_ensure(Image *image)
 {
-  if (image->runtime.partial_update_register == nullptr) {
+  if (image->runtime->partial_update_register == nullptr) {
     PartialUpdateRegisterImpl *partial_update_register = MEM_new<PartialUpdateRegisterImpl>(
         __func__);
-    image->runtime.partial_update_register = wrap(partial_update_register);
+    image->runtime->partial_update_register = wrap(partial_update_register);
   }
-  return image->runtime.partial_update_register;
+  return image->runtime->partial_update_register;
 }
 
 ePartialUpdateCollectResult BKE_image_partial_update_collect_changes(Image *image,
@@ -567,11 +567,11 @@ void BKE_image_partial_update_free(PartialUpdateUser *user)
 void BKE_image_partial_update_register_free(Image *image)
 {
   PartialUpdateRegisterImpl *partial_update_register = unwrap(
-      image->runtime.partial_update_register);
+      image->runtime->partial_update_register);
   if (partial_update_register) {
     MEM_delete<PartialUpdateRegisterImpl>(partial_update_register);
   }
-  image->runtime.partial_update_register = nullptr;
+  image->runtime->partial_update_register = nullptr;
 }
 
 void BKE_image_partial_update_mark_region(Image *image,

@@ -36,7 +36,9 @@ struct PoseChannelBackup {
 
   bPoseChannel olddata; /* Backup of pose channel. */
   IDProperty *oldprops; /* Backup copy (needs freeing) of pose channel's ID properties. */
-  const Object *owner;  /* The object to which this pose channel belongs. */
+  /* Backup copy (needs freeing) of pose channel's system IDProperties. */
+  IDProperty *old_system_properties;
+  const Object *owner; /* The object to which this pose channel belongs. */
 };
 
 struct PoseBackup {
@@ -76,14 +78,16 @@ static void pose_backup_create(const Object *ob,
       return;
     }
 
-    PoseChannelBackup *chan_bak = static_cast<PoseChannelBackup *>(
-        MEM_callocN(sizeof(*chan_bak), "PoseChannelBackup"));
+    PoseChannelBackup *chan_bak = MEM_callocN<PoseChannelBackup>("PoseChannelBackup");
     chan_bak->pchan = pchan;
     chan_bak->olddata = blender::dna::shallow_copy(*chan_bak->pchan);
     chan_bak->owner = ob;
 
     if (pchan->prop) {
       chan_bak->oldprops = IDP_CopyProperty(pchan->prop);
+    }
+    if (pchan->system_properties) {
+      chan_bak->old_system_properties = IDP_CopyProperty(pchan->system_properties);
     }
 
     BLI_addtail(&pose_backup.backups, chan_bak);
@@ -125,7 +129,7 @@ static blender::Set<bPoseChannel *> armature_find_selected_pose_bones(
 PoseBackup *BKE_pose_backup_create_all_bones(blender::Span<Object *> objects,
                                              const bAction *action)
 {
-  PoseBackup *pose_backup = static_cast<PoseBackup *>(MEM_callocN(sizeof(*pose_backup), __func__));
+  PoseBackup *pose_backup = MEM_callocN<PoseBackup>(__func__);
   pose_backup->backups = {nullptr, nullptr};
   pose_backup->is_bone_selection_relevant = false;
   for (Object *ob : objects) {
@@ -137,7 +141,7 @@ PoseBackup *BKE_pose_backup_create_all_bones(blender::Span<Object *> objects,
 PoseBackup *BKE_pose_backup_create_selected_bones(blender::Span<Object *> objects,
                                                   const bAction *action)
 {
-  PoseBackup *pose_backup = static_cast<PoseBackup *>(MEM_callocN(sizeof(*pose_backup), __func__));
+  PoseBackup *pose_backup = MEM_callocN<PoseBackup>(__func__);
   pose_backup->backups = {nullptr, nullptr};
   blender::Set<bPoseChannel *> selected_bones = armature_find_selected_pose_bones(objects);
   pose_backup->is_bone_selection_relevant = !selected_bones.is_empty();
@@ -164,6 +168,9 @@ void BKE_pose_backup_restore(const PoseBackup *pbd)
     if (chan_bak->oldprops) {
       IDP_SyncGroupValues(chan_bak->pchan->prop, chan_bak->oldprops);
     }
+    if (chan_bak->old_system_properties) {
+      IDP_SyncGroupValues(chan_bak->pchan->system_properties, chan_bak->old_system_properties);
+    }
 
     /* TODO: constraints settings aren't restored yet,
      * even though these could change (though not that likely) */
@@ -172,9 +179,16 @@ void BKE_pose_backup_restore(const PoseBackup *pbd)
 
 void BKE_pose_backup_free(PoseBackup *pbd)
 {
+  if (!pbd) {
+    /* Can happen if initialization was aborted. */
+    return;
+  }
   LISTBASE_FOREACH_MUTABLE (PoseChannelBackup *, chan_bak, &pbd->backups) {
     if (chan_bak->oldprops) {
       IDP_FreeProperty(chan_bak->oldprops);
+    }
+    if (chan_bak->old_system_properties) {
+      IDP_FreeProperty(chan_bak->old_system_properties);
     }
     BLI_freelinkN(&pbd->backups, chan_bak);
   }

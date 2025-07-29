@@ -25,16 +25,27 @@
 /* File name of the default fixed-pitch font. */
 #define BLF_DEFAULT_MONOSPACED_FONT "DejaVuSansMono.woff2"
 
-struct ColorManagedDisplay;
 struct ListBase;
 struct ResultBLF;
 struct rcti;
+
+namespace blender::ocio {
+class Display;
+}  // namespace blender::ocio
+using ColorManagedDisplay = blender::ocio::Display;
 
 enum class FontShadowType {
   None = 0,
   Blur3x3 = 3,
   Blur5x5 = 5,
   Outline = 6,
+};
+
+enum class BLFWrapMode : int {
+  Minimal = 0,            /* Only on ASCII space and line feed. Legacy and invariant. */
+  Typographical = 1 << 0, /* Multilingual, informed by Unicode Standard Annex #14. */
+  Path = 1 << 1,          /* Wrap on file path separators, space, underscores. */
+  HardLimit = 1 << 2,     /* Line break at limit. */
 };
 
 int BLF_init();
@@ -309,11 +320,12 @@ int BLF_glyph_advance(int fontid, const char *str);
  */
 void BLF_rotation(int fontid, float angle);
 void BLF_clipping(int fontid, int xmin, int ymin, int xmax, int ymax);
-void BLF_wordwrap(int fontid, int wrap_width);
+void BLF_wordwrap(int fontid, int wrap_width, BLFWrapMode mode = BLFWrapMode::Minimal);
 
 blender::Vector<blender::StringRef> BLF_string_wrap(int fontid,
                                                     blender::StringRef str,
-                                                    const int max_pixel_width);
+                                                    const int max_pixel_width,
+                                                    BLFWrapMode mode = BLFWrapMode::Minimal);
 
 void BLF_enable(int fontid, int option);
 void BLF_disable(int fontid, int option);
@@ -341,8 +353,31 @@ void BLF_shadow_offset(int fontid, int x, int y);
  * The image is assumed to have 4 color channels (RGBA) per pixel.
  * When done, call this function with null buffer pointers.
  */
-void BLF_buffer(
-    int fontid, float *fbuf, unsigned char *cbuf, int w, int h, ColorManagedDisplay *display);
+void BLF_buffer(int fontid,
+                float *fbuf,
+                unsigned char *cbuf,
+                int w,
+                int h,
+                const ColorManagedDisplay *display);
+
+/**
+ * Opaque structure used to push/pop values set by the #BLF_buffer function.
+ */
+struct BLFBufferState;
+/**
+ * Store the current buffer state.
+ * This state *must* be popped with #BLF_buffer_state_pop.
+ */
+BLFBufferState *BLF_buffer_state_push(int fontid);
+/**
+ * Pop the state (restoring the state when #BLF_buffer_state_push was called).
+ */
+void BLF_buffer_state_pop(BLFBufferState *buffer_state);
+/**
+ * Free the state, only use in the rare case pop is not called
+ * (if the font itself is unloaded after pushing for example).
+ */
+void BLF_buffer_state_free(BLFBufferState *buffer_state);
 
 /**
  * Set the color to be used for text.
@@ -361,7 +396,7 @@ void BLF_draw_buffer(int fontid, const char *str, size_t str_len, ResultBLF *r_i
 /**
  * This function is used for generating thumbnail previews.
  *
- * \note called from a thread, so it bypasses the normal BLF_* api (which isn't thread-safe).
+ * \note called from a thread, so it bypasses the normal BLF_* API (which isn't thread-safe).
  */
 bool BLF_thumb_preview(const char *filepath, unsigned char *buf, int w, int h, int channels)
     ATTR_NONNULL();

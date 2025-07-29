@@ -19,7 +19,7 @@
 
 #include "NOD_rna_define.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "GEO_randomize.hh"
@@ -34,7 +34,8 @@ static void node_declare(NodeDeclarationBuilder &b)
 {
   b.add_input<decl::Geometry>("Volume")
       .supported_type(GeometryComponent::Type::Volume)
-      .translation_context(BLT_I18NCONTEXT_ID_ID);
+      .translation_context(BLT_I18NCONTEXT_ID_ID)
+      .description("Volume with fog grids that points are scattered in");
   auto &density = b.add_input<decl::Float>("Density")
                       .default_value(1.0f)
                       .min(0.0f)
@@ -70,12 +71,12 @@ static void node_declare(NodeDeclarationBuilder &b)
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "mode", UI_ITEM_NONE, "", ICON_NONE);
+  layout->prop(ptr, "mode", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
 {
-  NodeGeometryDistributePointsInVolume *data = MEM_cnew<NodeGeometryDistributePointsInVolume>(
+  NodeGeometryDistributePointsInVolume *data = MEM_callocN<NodeGeometryDistributePointsInVolume>(
       __func__);
   data->mode = GEO_NODE_DISTRIBUTE_POINTS_IN_VOLUME_DENSITY_RANDOM;
   node->storage = data;
@@ -284,7 +285,7 @@ static void node_register()
   static blender::bke::bNodeType ntype;
   geo_node_type_base(
       &ntype, "GeometryNodeDistributePointsInVolume", GEO_NODE_DISTRIBUTE_POINTS_IN_VOLUME);
-  ntype.ui_name = "Distribute Points in Volume",
+  ntype.ui_name = "Distribute Points in Volume";
   ntype.ui_description = "Generate points inside a volume";
   ntype.enum_name_legacy = "DISTRIBUTE_POINTS_IN_VOLUME";
   ntype.nclass = NODE_CLASS_GEOMETRY;

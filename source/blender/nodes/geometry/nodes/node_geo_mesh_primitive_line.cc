@@ -10,7 +10,7 @@
 
 #include "RNA_access.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "GEO_mesh_primitive_line.hh"
@@ -46,17 +46,17 @@ static void node_declare(NodeDeclarationBuilder &b)
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiLayoutSetPropSep(layout, true);
-  uiLayoutSetPropDecorate(layout, false);
-  uiItemR(layout, ptr, "mode", UI_ITEM_NONE, "", ICON_NONE);
+  layout->use_property_split_set(true);
+  layout->use_property_decorate_set(false);
+  layout->prop(ptr, "mode", UI_ITEM_NONE, "", ICON_NONE);
   if (RNA_enum_get(ptr, "mode") == GEO_NODE_MESH_LINE_MODE_END_POINTS) {
-    uiItemR(layout, ptr, "count_mode", UI_ITEM_NONE, "", ICON_NONE);
+    layout->prop(ptr, "count_mode", UI_ITEM_NONE, "", ICON_NONE);
   }
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
 {
-  NodeGeometryMeshLine *node_storage = MEM_cnew<NodeGeometryMeshLine>(__func__);
+  NodeGeometryMeshLine *node_storage = MEM_callocN<NodeGeometryMeshLine>(__func__);
 
   node_storage->mode = GEO_NODE_MESH_LINE_MODE_OFFSET;
   node_storage->count_mode = GEO_NODE_MESH_LINE_COUNT_TOTAL;

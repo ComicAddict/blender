@@ -25,7 +25,7 @@
 
 #include "RNA_access.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 #include "UI_tree_view.hh"
 
@@ -288,7 +288,7 @@ void AssetCatalogTreeViewItem::build_row(uiLayout &row)
   PointerRNA *props;
 
   props = UI_but_extra_operator_icon_add(
-      (uiBut *)view_item_but, "ASSET_OT_catalog_new", WM_OP_INVOKE_DEFAULT, ICON_ADD);
+      (uiBut *)view_item_but, "ASSET_OT_catalog_new", wm::OpCallContext::InvokeDefault, ICON_ADD);
   RNA_string_set(props, "parent_path", catalog_item_.catalog_path().c_str());
 }
 
@@ -296,26 +296,20 @@ void AssetCatalogTreeViewItem::build_context_menu(bContext &C, uiLayout &column)
 {
   PointerRNA props;
 
-  uiItemFullO(&column,
-              "ASSET_OT_catalog_new",
-              IFACE_("New Catalog"),
-              ICON_NONE,
-              nullptr,
-              WM_OP_INVOKE_DEFAULT,
-              UI_ITEM_NONE,
-              &props);
+  props = column.op("ASSET_OT_catalog_new",
+                    IFACE_("New Catalog"),
+                    ICON_NONE,
+                    wm::OpCallContext::InvokeDefault,
+                    UI_ITEM_NONE);
   RNA_string_set(&props, "parent_path", catalog_item_.catalog_path().c_str());
 
-  uiItemFullO(&column,
-              "ASSET_OT_catalog_delete",
-              IFACE_("Delete Catalog"),
-              ICON_NONE,
-              nullptr,
-              WM_OP_INVOKE_DEFAULT,
-              UI_ITEM_NONE,
-              &props);
+  props = column.op("ASSET_OT_catalog_delete",
+                    IFACE_("Delete Catalog"),
+                    ICON_NONE,
+                    wm::OpCallContext::InvokeDefault,
+                    UI_ITEM_NONE);
   RNA_string_set(&props, "catalog_id", catalog_item_.get_catalog_id().str().c_str());
-  uiItemO(&column, IFACE_("Rename"), ICON_NONE, "UI_OT_view_item_rename");
+  column.op("UI_OT_view_item_rename", IFACE_("Rename"), ICON_NONE);
 
   /* Doesn't actually exist right now, but could be defined in Python. Reason that this isn't done
    * in Python yet is that catalogs are not exposed in BPY, and we'd somehow pass the clicked on
@@ -579,12 +573,12 @@ void AssetCatalogTreeViewAllItem::build_row(uiLayout &row)
 
   UI_but_extra_operator_icon_add(reinterpret_cast<uiBut *>(this->view_item_button()),
                                  "ASSET_OT_catalogs_save",
-                                 WM_OP_INVOKE_DEFAULT,
+                                 wm::OpCallContext::InvokeDefault,
                                  ICON_FILE_TICK);
 
   props = UI_but_extra_operator_icon_add(reinterpret_cast<uiBut *>(this->view_item_button()),
                                          "ASSET_OT_catalog_new",
-                                         WM_OP_INVOKE_DEFAULT,
+                                         wm::OpCallContext::InvokeDefault,
                                          ICON_ADD);
   /* No parent path to use the root level. */
   RNA_string_set(props, "parent_path", nullptr);
@@ -762,9 +756,9 @@ void file_create_asset_catalog_tree_view_in_layout(const bContext *C,
                                                    SpaceFile *space_file,
                                                    FileAssetSelectParams *params)
 {
-  uiBlock *block = uiLayoutGetBlock(layout);
+  uiBlock *block = layout->block();
 
-  UI_block_layout_set_current(block, layout);
+  ui::block_layout_set_current(block, layout);
 
   ui::AbstractTreeView *tree_view = UI_block_add_view(
       *block,

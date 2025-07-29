@@ -12,10 +12,9 @@
 
 #include "DNA_meshdata_types.h"
 
-#include "BLI_buffer.h"
-#include "BLI_math_base.h"
 #include "BLI_math_geom.h"
 #include "BLI_math_vector.h"
+#include "BLI_vector.hh"
 
 #include "BKE_customdata.hh"
 
@@ -644,7 +643,7 @@ static void calc_solidify_normals(BMesh *bm)
   int i;
 
   /* can't use BM_edge_face_count because we need to count only marked faces */
-  int *edge_face_count = static_cast<int *>(MEM_callocN(sizeof(int) * bm->totedge, __func__));
+  int *edge_face_count = MEM_calloc_arrayN<int>(bm->totedge, __func__);
 
   BM_ITER_MESH (v, &viter, bm, BM_VERTS_OF_MESH) {
     BM_elem_flag_enable(v, BM_ELEM_TAG);
@@ -785,13 +784,12 @@ static void solidify_add_thickness(BMesh *bm, const float dist)
   BMVert *v;
   BMLoop *l;
   BMIter iter, loopIter;
-  float *vert_angles = static_cast<float *>(
-      MEM_callocN(sizeof(float) * bm->totvert * 2, "solidify")); /* 2 in 1 */
+  float *vert_angles = MEM_calloc_arrayN<float>(size_t(bm->totvert) * 2, "solidify"); /* 2 in 1 */
   float *vert_accum = vert_angles + bm->totvert;
   int i, index;
 
-  BLI_buffer_declare_static(float, face_angles_buf, BLI_BUFFER_NOP, BM_DEFAULT_NGON_STACK_SIZE);
-  BLI_buffer_declare_static(float *, verts_buf, BLI_BUFFER_NOP, BM_DEFAULT_NGON_STACK_SIZE);
+  blender::Vector<float, BM_DEFAULT_NGON_STACK_SIZE> face_angles;
+  blender::Vector<float *, BM_DEFAULT_NGON_STACK_SIZE> verts;
 
   BM_mesh_elem_index_ensure(bm, BM_VERT);
 
@@ -799,15 +797,15 @@ static void solidify_add_thickness(BMesh *bm, const float dist)
     if (BMO_face_flag_test(bm, f, FACE_MARK)) {
 
       /* array for passing verts to angle_poly_v3 */
-      float *face_angles = BLI_buffer_reinit_data(&face_angles_buf, float, f->len);
+      face_angles.resize(f->len);
       /* array for receiving angles from angle_poly_v3 */
-      float **verts = BLI_buffer_reinit_data(&verts_buf, float *, f->len);
+      verts.resize(f->len);
 
       BM_ITER_ELEM_INDEX (l, &loopIter, f, BM_LOOPS_OF_FACE, i) {
         verts[i] = l->v->co;
       }
 
-      angle_poly_v3(face_angles, (const float **)verts, f->len);
+      angle_poly_v3(face_angles.data(), (const float **)verts.data(), f->len);
 
       i = 0;
       BM_ITER_ELEM (l, &loopIter, f, BM_LOOPS_OF_FACE) {
@@ -819,9 +817,6 @@ static void solidify_add_thickness(BMesh *bm, const float dist)
       }
     }
   }
-
-  BLI_buffer_free(&face_angles_buf);
-  BLI_buffer_free(&verts_buf);
 
   BM_ITER_MESH (v, &iter, bm, BM_VERTS_OF_MESH) {
     index = BM_elem_index_get(v);

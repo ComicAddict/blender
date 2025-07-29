@@ -51,7 +51,7 @@ static void view3d_copybuffer_filepath_get(char filepath[FILE_MAX], size_t filep
 /** \name Viewport Copy Operator
  * \{ */
 
-static int view3d_copybuffer_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus view3d_copybuffer_exec(bContext *C, wmOperator *op)
 {
   using namespace blender::bke::blendfile;
 
@@ -90,7 +90,7 @@ static void VIEW3D_OT_copybuffer(wmOperatorType *ot)
   ot->idname = "VIEW3D_OT_copybuffer";
   ot->description = "Copy the selected objects to the internal clipboard";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = view3d_copybuffer_exec;
   ot->poll = ED_operator_scene;
 }
@@ -101,7 +101,7 @@ static void VIEW3D_OT_copybuffer(wmOperatorType *ot)
 /** \name Viewport Paste Operator
  * \{ */
 
-static int view3d_pastebuffer_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus view3d_pastebuffer_exec(bContext *C, wmOperator *op)
 {
   char filepath[FILE_MAX];
   short flag = 0;
@@ -137,7 +137,7 @@ static void VIEW3D_OT_pastebuffer(wmOperatorType *ot)
   ot->idname = "VIEW3D_OT_pastebuffer";
   ot->description = "Paste objects from the internal clipboard";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = view3d_pastebuffer_exec;
   ot->poll = ED_operator_scene_editable;
 

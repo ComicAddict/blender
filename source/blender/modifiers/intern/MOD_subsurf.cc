@@ -9,9 +9,10 @@
 #include <cstddef>
 #include <cstring>
 
+#include <fmt/format.h>
+
 #include "MEM_guardedalloc.h"
 
-#include "BLI_string.h"
 #include "BLI_utildefines.h"
 
 #include "BLT_translation.hh"
@@ -24,8 +25,10 @@
 
 #include "BKE_context.hh"
 #include "BKE_editmesh.hh"
+#include "BKE_global.hh"
 #include "BKE_mesh.hh"
 #include "BKE_mesh_types.hh"
+#include "BKE_mesh_wrapper.hh"
 #include "BKE_scene.hh"
 #include "BKE_subdiv.hh"
 #include "BKE_subdiv_ccg.hh"
@@ -33,7 +36,7 @@
 #include "BKE_subdiv_mesh.hh"
 #include "BKE_subdiv_modifier.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "RE_engine.h"
@@ -176,17 +179,35 @@ static Mesh *subdiv_as_ccg(SubsurfModifierData *smd,
 static void subdiv_cache_mesh_wrapper_settings(const ModifierEvalContext *ctx,
                                                Mesh *mesh,
                                                SubsurfModifierData *smd,
-                                               SubsurfRuntimeData *runtime_data)
+                                               SubsurfRuntimeData *runtime_data,
+                                               const bool has_gpu_subdiv)
 {
   blender::bke::subdiv::ToMeshSettings mesh_settings;
   subdiv_mesh_settings_init(&mesh_settings, smd, ctx);
 
-  runtime_data->has_gpu_subdiv = true;
+  runtime_data->has_gpu_subdiv = has_gpu_subdiv;
   runtime_data->resolution = mesh_settings.resolution;
   runtime_data->use_optimal_display = mesh_settings.use_optimal_display;
   runtime_data->use_loop_normals = (smd->flags & eSubsurfModifierFlag_UseCustomNormals);
 
   mesh->runtime->subsurf_runtime_data = runtime_data;
+}
+
+static ModifierData *modifier_get_last_enabled_for_mode(const Scene *scene,
+                                                        const Object *ob,
+                                                        int required_mode)
+{
+  ModifierData *md = static_cast<ModifierData *>(ob->modifiers.last);
+
+  while (md) {
+    if (BKE_modifier_is_enabled(scene, md, required_mode)) {
+      break;
+    }
+
+    md = md->prev;
+  }
+
+  return md;
 }
 
 /* Modifier itself. */
@@ -219,14 +240,33 @@ static Mesh *modify_mesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh 
    */
   if ((ctx->flag & MOD_APPLY_TO_ORIGINAL) == 0) {
     Scene *scene = DEG_get_evaluated_scene(ctx->depsgraph);
-    const bool is_render_mode = (ctx->flag & MOD_APPLY_RENDER) != 0;
+
     /* Same check as in `DRW_mesh_batch_cache_create_requested` to keep both code coherent. The
      * difference is that here we do not check for the final edit mesh pointer as it is not yet
      * assigned at this stage of modifier stack evaluation. */
+    const bool is_render_mode = (ctx->flag & MOD_APPLY_RENDER) != 0;
     const bool is_editmode = (mesh->runtime->edit_mesh != nullptr);
     const int required_mode = BKE_subsurf_modifier_eval_required_mode(is_render_mode, is_editmode);
-    if (BKE_subsurf_modifier_can_do_gpu_subdiv(scene, ctx->object, mesh, smd, required_mode)) {
-      subdiv_cache_mesh_wrapper_settings(ctx, mesh, smd, runtime_data);
+
+    /* Check if we are the last modifier in the stack. */
+    ModifierData *md = modifier_get_last_enabled_for_mode(scene, ctx->object, required_mode);
+    if (md == (const ModifierData *)smd) {
+      const bool has_gpu_subdiv = BKE_subsurf_modifier_can_do_gpu_subdiv(smd, mesh);
+      subdiv_cache_mesh_wrapper_settings(ctx, mesh, smd, runtime_data, has_gpu_subdiv);
+
+      /* Delay for:
+       * - Background mode: Not sure if we are going to use the tessellated mesh.
+       * - Render: Engine might do its own subdivision and not need this.
+       * - GPU subdivision support: Might only need to display and not access tessellated mesh.
+       *
+       * If we can't delay, we still create the wrapper so external renderers can get the base
+       * mesh. But we tessellate immediately to take advantage of better parallellization
+       * as part of multithreaded depsgraph evaluation. */
+      const bool delay = G.background || is_render_mode || has_gpu_subdiv;
+      if (!delay) {
+        BKE_mesh_wrapper_ensure_subdivision(mesh);
+      }
+
       return result;
     }
   }
@@ -313,11 +353,6 @@ static bool get_show_adaptive_options(const bContext *C, Panel *panel)
     return false;
   }
 
-  /* Don't show adaptive options if regular subdivision used. */
-  if (!RNA_boolean_get(ptr, "use_limit_surface")) {
-    return false;
-  }
-
   /* Don't show adaptive options if the cycles experimental feature set is disabled. */
   Scene *scene = CTX_data_scene(C);
   if (!BKE_scene_uses_cycles_experimental_features(scene)) {
@@ -347,49 +382,24 @@ static void panel_draw(const bContext *C, Panel *panel)
     cycles_ptr = RNA_pointer_get(&scene_ptr, "cycles");
     ob_cycles_ptr = RNA_pointer_get(&ob_ptr, "cycles");
     if (!RNA_pointer_is_null(&ob_cycles_ptr)) {
-      ob_use_adaptive_subdivision = RNA_boolean_get(&ob_cycles_ptr, "use_adaptive_subdivision");
       show_adaptive_options = get_show_adaptive_options(C, panel);
+      ob_use_adaptive_subdivision = show_adaptive_options &&
+                                    RNA_boolean_get(&ob_cycles_ptr, "use_adaptive_subdivision");
     }
   }
 #else
   UNUSED_VARS(C);
 #endif
 
-  uiItemR(layout, ptr, "subdivision_type", UI_ITEM_R_EXPAND, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "subdivision_type", UI_ITEM_R_EXPAND, std::nullopt, ICON_NONE);
 
-  uiLayoutSetPropSep(layout, true);
+  layout->use_property_split_set(true);
 
-  if (show_adaptive_options) {
-    uiItemR(layout,
-            &ob_cycles_ptr,
-            "use_adaptive_subdivision",
-            UI_ITEM_NONE,
-            IFACE_("Adaptive Subdivision"),
-            ICON_NONE);
-  }
-  if (ob_use_adaptive_subdivision && show_adaptive_options) {
-    uiItemR(layout, &ob_cycles_ptr, "dicing_rate", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-    float render = std::max(RNA_float_get(&cycles_ptr, "dicing_rate") *
-                                RNA_float_get(&ob_cycles_ptr, "dicing_rate"),
-                            0.1f);
-    float preview = std::max(RNA_float_get(&cycles_ptr, "preview_dicing_rate") *
-                                 RNA_float_get(&ob_cycles_ptr, "dicing_rate"),
-                             0.1f);
-    char output[256];
-    SNPRINTF(output, RPT_("Final Scale: Render %.2f px, Viewport %.2f px"), render, preview);
-    uiItemL(layout, output, ICON_NONE);
+  uiLayout *col = &layout->column(true);
+  col->prop(ptr, "levels", UI_ITEM_NONE, IFACE_("Levels Viewport"), ICON_NONE);
+  col->prop(ptr, "render_levels", UI_ITEM_NONE, IFACE_("Render"), ICON_NONE);
 
-    uiItemS(layout);
-
-    uiItemR(layout, ptr, "levels", UI_ITEM_NONE, IFACE_("Levels Viewport"), ICON_NONE);
-  }
-  else {
-    uiLayout *col = uiLayoutColumn(layout, true);
-    uiItemR(col, ptr, "levels", UI_ITEM_NONE, IFACE_("Levels Viewport"), ICON_NONE);
-    uiItemR(col, ptr, "render_levels", UI_ITEM_NONE, IFACE_("Render"), ICON_NONE);
-  }
-
-  uiItemR(layout, ptr, "show_only_control_edges", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "show_only_control_edges", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
   Depsgraph *depsgraph = CTX_data_depsgraph_pointer(C);
   SubsurfModifierData *smd = static_cast<SubsurfModifierData *>(ptr->data);
@@ -397,69 +407,74 @@ static void panel_draw(const bContext *C, Panel *panel)
   if (ob->type == OB_MESH && BKE_subsurf_modifier_force_disable_gpu_evaluation_for_mesh(
                                  smd, static_cast<const Mesh *>(ob->data)))
   {
-    uiItemL(layout,
-            RPT_("Sharp edges or custom normals detected, disabling GPU subdivision"),
-            ICON_INFO);
+    layout->label(RPT_("Sharp edges or custom normals detected, disabling GPU subdivision"),
+                  ICON_INFO);
   }
-  else if (Object *ob_eval = DEG_get_evaluated_object(depsgraph, ob)) {
+  else if (Object *ob_eval = DEG_get_evaluated(depsgraph, ob)) {
     if (ModifierData *md_eval = BKE_modifiers_findby_name(ob_eval, smd->modifier.name)) {
       if (md_eval->type == eModifierType_Subsurf) {
         SubsurfRuntimeData *runtime_data = (SubsurfRuntimeData *)md_eval->runtime;
 
         if (runtime_data && runtime_data->used_gpu) {
           if (runtime_data->used_cpu) {
-            uiItemL(layout, RPT_("Using both CPU and GPU subdivision"), ICON_INFO);
+            layout->label(RPT_("Using both CPU and GPU subdivision"), ICON_INFO);
           }
         }
       }
     }
   }
 
-  modifier_panel_end(layout, ptr);
-}
+  if (show_adaptive_options) {
+    PanelLayout adaptive_panel = layout->panel_prop_with_bool_header(
+        C,
+        ptr,
+        "open_adaptive_subdivision_panel",
+        &ob_cycles_ptr,
+        "use_adaptive_subdivision",
+        IFACE_("Adaptive Subdivision"));
+    if (adaptive_panel.body) {
+      adaptive_panel.body->active_set(ob_use_adaptive_subdivision);
+      adaptive_panel.body->prop(
+          &ob_cycles_ptr, "dicing_rate", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
-static void advanced_panel_draw(const bContext *C, Panel *panel)
-{
-  uiLayout *layout = panel->layout;
+      float render = std::max(RNA_float_get(&cycles_ptr, "dicing_rate") *
+                                  RNA_float_get(&ob_cycles_ptr, "dicing_rate"),
+                              0.1f);
+      float preview = std::max(RNA_float_get(&cycles_ptr, "preview_dicing_rate") *
+                                   RNA_float_get(&ob_cycles_ptr, "dicing_rate"),
+                               0.1f);
 
-  PointerRNA ob_ptr;
-  PointerRNA *ptr = modifier_panel_get_property_pointers(panel, &ob_ptr);
-
-  bool ob_use_adaptive_subdivision = false;
-  bool show_adaptive_options = false;
-#ifdef WITH_CYCLES
-  Scene *scene = CTX_data_scene(C);
-  if (BKE_scene_uses_cycles(scene)) {
-    PointerRNA ob_cycles_ptr = RNA_pointer_get(&ob_ptr, "cycles");
-    if (!RNA_pointer_is_null(&ob_cycles_ptr)) {
-      ob_use_adaptive_subdivision = RNA_boolean_get(&ob_cycles_ptr, "use_adaptive_subdivision");
-      show_adaptive_options = get_show_adaptive_options(C, panel);
+      uiLayout *split = &adaptive_panel.body->split(0.4f, false);
+      split->column(true).label("", ICON_NONE);
+      uiLayout *col = &split->column(true);
+      col->label(fmt::format(fmt::runtime(RPT_("Viewport {:.2f} px")), preview), ICON_NONE);
+      col->label(fmt::format(fmt::runtime(RPT_("Render {:.2f} px")), render), ICON_NONE);
     }
   }
-#else
-  UNUSED_VARS(C);
-#endif
 
-  uiLayoutSetPropSep(layout, true);
+  if (uiLayout *advanced_layout = layout->panel_prop(
+          C, ptr, "open_advanced_panel", IFACE_("Advanced")))
+  {
+    advanced_layout->use_property_split_set(true);
 
-  uiLayoutSetActive(layout, !(show_adaptive_options && ob_use_adaptive_subdivision));
-  uiItemR(layout, ptr, "use_limit_surface", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    advanced_layout->prop(ptr, "use_limit_surface", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
-  uiLayout *col = uiLayoutColumn(layout, true);
-  uiLayoutSetActive(col, RNA_boolean_get(ptr, "use_limit_surface"));
-  uiItemR(col, ptr, "quality", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    uiLayout *col = &advanced_layout->column(true);
+    col->active_set(ob_use_adaptive_subdivision || RNA_boolean_get(ptr, "use_limit_surface"));
+    col->prop(ptr, "quality", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
-  uiItemR(layout, ptr, "uv_smooth", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-  uiItemR(layout, ptr, "boundary_smooth", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-  uiItemR(layout, ptr, "use_creases", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-  uiItemR(layout, ptr, "use_custom_normals", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    advanced_layout->prop(ptr, "uv_smooth", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    advanced_layout->prop(ptr, "boundary_smooth", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    advanced_layout->prop(ptr, "use_creases", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    advanced_layout->prop(ptr, "use_custom_normals", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  }
+
+  modifier_error_message_draw(layout, ptr);
 }
 
 static void panel_register(ARegionType *region_type)
 {
-  PanelType *panel_type = modifier_panel_register(region_type, eModifierType_Subsurf, panel_draw);
-  modifier_subpanel_register(
-      region_type, "advanced", "Advanced", nullptr, advanced_panel_draw, panel_type);
+  modifier_panel_register(region_type, eModifierType_Subsurf, panel_draw);
 }
 
 static void blend_read(BlendDataReader * /*reader*/, ModifierData *md)

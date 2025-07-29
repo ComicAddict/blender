@@ -76,7 +76,7 @@ static Vector<rcti> button_section_bounds_calc(const ARegion *region, const bool
       }
 
       for (const std::unique_ptr<uiBut> &but : block->buttons) {
-        if (but->type == UI_BTYPE_SEPR_SPACER) {
+        if (but->type == ButType::SeprSpacer) {
           /* Start a new section. */
           if (has_section_content) {
             finish_section_fn(cur_section_bounds);
@@ -183,15 +183,15 @@ static void ui_draw_button_sections_alignment_separator(const ARegion *region,
   {
     GPUVertFormat *format = immVertexFormat();
     const uint pos = GPU_vertformat_attr_add(
-        format, "pos", GPU_COMP_I32, 2, GPU_FETCH_INT_TO_FLOAT);
+        format, "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
     immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
     immUniformColor4fv(bg_color);
 
     if (align == uiButtonSectionsAlign::Top) {
-      immRecti(pos, 0, region->winy - separator_line_width, region->winx, region->winy);
+      immRectf(pos, 0, region->winy - separator_line_width, region->winx, region->winy);
     }
     else if (align == uiButtonSectionsAlign::Bottom) {
-      immRecti(pos, 0, 0, region->winx, separator_line_width);
+      immRectf(pos, 0, 0, region->winx, separator_line_width);
     }
     else {
       BLI_assert_unreachable();

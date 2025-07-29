@@ -8,12 +8,17 @@
  */
 
 #include "BLI_compiler_attrs.h"
+#include "BLI_mutex.hh"
 
+#include <cstdint>
 #include <optional>
+
+namespace blender::gpu {
+class Texture;
+}  // namespace blender::gpu
 
 struct rcti;
 struct Depsgraph;
-struct GPUTexture;
 struct ID;
 struct ImBuf;
 struct MovieReader;
@@ -26,6 +31,8 @@ struct Library;
 struct ListBase;
 struct Main;
 struct Object;
+struct PartialUpdateRegister;
+struct PartialUpdateUser;
 struct RenderResult;
 struct RenderSlot;
 struct ReportList;
@@ -34,6 +41,28 @@ struct StampData;
 
 #define IMA_MAX_SPACE 64
 #define IMA_UDIM_MAX 2000
+
+namespace blender::bke {
+
+struct ImageRuntime {
+  /* Mutex used to guarantee thread-safe access to the cached ImBuf of the corresponding image ID.
+   */
+  Mutex cache_mutex;
+
+  /** Register containing partial updates. */
+  PartialUpdateRegister *partial_update_register = nullptr;
+  /** Partial update user for GPUTextures stored inside the Image. */
+  PartialUpdateUser *partial_update_user = nullptr;
+
+  /* The image's current update count. See deg::set_id_update_count for more information. */
+  uint64_t update_count = 0;
+
+  /* Compositor viewer might be translated, and that translation will be stored in this runtime
+   * vector by the compositor so that the editor draw code can draw the image translated. */
+  float backdrop_offset[2] = {};
+};
+
+}  // namespace blender::bke
 
 void BKE_image_free_packedfiles(Image *image);
 void BKE_image_free_views(Image *image);
@@ -111,12 +140,14 @@ bool BKE_imbuf_write_as(ImBuf *ibuf,
  * Used by sequencer too.
  */
 MovieReader *openanim(const char *filepath,
-                      int flags,
+                      int ibuf_flags,
                       int streamindex,
+                      bool keep_original_colorspace,
                       char colorspace[IMA_MAX_SPACE]);
 MovieReader *openanim_noload(const char *filepath,
                              int flags,
                              int streamindex,
+                             bool keep_original_colorspace,
                              char colorspace[IMA_MAX_SPACE]);
 
 void BKE_image_tag_time(Image *ima);
@@ -536,7 +567,7 @@ ImBuf *BKE_image_get_first_ibuf(Image *image);
 /**
  * Not to be use directly.
  */
-GPUTexture *BKE_image_create_gpu_texture_from_ibuf(Image *image, ImBuf *ibuf);
+blender::gpu::Texture *BKE_image_create_gpu_texture_from_ibuf(Image *image, ImBuf *ibuf);
 
 /**
  * Ensure that the cached GPU texture inside the image matches the pass, layer, and view of the
@@ -553,7 +584,7 @@ GPUTexture *BKE_image_create_gpu_texture_from_ibuf(Image *image, ImBuf *ibuf);
 void BKE_image_ensure_gpu_texture(Image *image, ImageUser *iuser);
 
 /**
- * Get the #GPUTexture for a given `Image`.
+ * Get the #blender::gpu::Texture for a given `Image`.
  *
  *
  *
@@ -566,28 +597,33 @@ void BKE_image_ensure_gpu_texture(Image *image, ImageUser *iuser);
  * calling BKE_image_ensure_gpu_texture. This is a workaround until image can support a more
  * complete caching system.
  */
-GPUTexture *BKE_image_get_gpu_texture(Image *image, ImageUser *iuser);
+blender::gpu::Texture *BKE_image_get_gpu_texture(Image *image, ImageUser *iuser);
 
 /*
  * Like BKE_image_get_gpu_texture, but can also get render or compositing result.
  */
-GPUTexture *BKE_image_get_gpu_viewer_texture(Image *image, ImageUser *iuser);
+blender::gpu::Texture *BKE_image_get_gpu_viewer_texture(Image *image, ImageUser *iuser);
 
 /*
  * Like BKE_image_get_gpu_texture, but can also return array and tile mapping texture for UDIM
  * tiles as used in material shaders.
  */
 struct ImageGPUTextures {
-  GPUTexture *texture;
-  GPUTexture *tile_mapping;
+  blender::gpu::Texture **texture;
+  blender::gpu::Texture **tile_mapping;
 };
 
 ImageGPUTextures BKE_image_get_gpu_material_texture(Image *image,
                                                     ImageUser *iuser,
                                                     const bool use_tile_mapping);
 
+/* Same as BKE_image_get_gpu_material_texture but will not load the texture if it isn't already. */
+ImageGPUTextures BKE_image_get_gpu_material_texture_try(Image *image,
+                                                        ImageUser *iuser,
+                                                        const bool use_tile_mapping);
+
 /**
- * Is the alpha of the `GPUTexture` for a given image/ibuf premultiplied.
+ * Is the alpha of the `blender::gpu::Texture` for a given image/ibuf premultiplied.
  */
 bool BKE_image_has_gpu_texture_premultiplied_alpha(Image *image, ImBuf *ibuf);
 
@@ -598,9 +634,10 @@ bool BKE_image_has_gpu_texture_premultiplied_alpha(Image *image, ImBuf *ibuf);
 void BKE_image_update_gputexture(Image *ima, ImageUser *iuser, int x, int y, int w, int h);
 
 /**
- * Mark areas on the #GPUTexture that needs to be updated. The areas are marked in chunks.
- * The next time the #GPUTexture is used these tiles will be refreshes. This saves time
- * when writing to the same place multiple times This happens for during foreground rendering.
+ * Mark areas on the #blender::gpu::Texture that needs to be updated. The areas are marked in
+ * chunks. The next time the #blender::gpu::Texture is used these tiles will be refreshes. This
+ * saves time when writing to the same place multiple times This happens for during foreground
+ * rendering.
  */
 void BKE_image_update_gputexture_delayed(
     Image *ima, ImageTile *image_tile, ImBuf *ibuf, int x, int y, int w, int h);

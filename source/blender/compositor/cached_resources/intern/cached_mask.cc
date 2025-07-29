@@ -5,11 +5,8 @@
 #include <cstdint>
 #include <memory>
 
-#include "BLI_array.hh"
 #include "BLI_hash.hh"
 #include "BLI_math_vector_types.hh"
-
-#include "GPU_texture.hh"
 
 #include "BKE_lib_id.hh"
 #include "BKE_mask.h"
@@ -114,7 +111,7 @@ CachedMask::CachedMask(Context &context,
   Vector<MaskRasterHandle *> handles = get_mask_raster_handles(
       mask, size, frame, use_feather, motion_blur_samples, motion_blur_shutter);
 
-  evaluated_mask_ = Array<float>(size.x * size.y);
+  this->result.allocate_texture(size, false, ResultStorageType::CPU);
   parallel_for(size, [&](const int2 texel) {
     /* Compute the coordinates in the [0, 1] range and add 0.5 to evaluate the mask at the
      * center of pixels. */
@@ -126,7 +123,7 @@ CachedMask::CachedMask(Context &context,
     for (MaskRasterHandle *handle : handles) {
       mask_value += BKE_maskrasterize_handle_sample(handle, coordinates);
     }
-    evaluated_mask_[texel.y * size.x + texel.x] = mask_value / handles.size();
+    this->result.store_pixel(texel, mask_value / handles.size());
   });
 
   for (MaskRasterHandle *handle : handles) {
@@ -134,14 +131,9 @@ CachedMask::CachedMask(Context &context,
   }
 
   if (context.use_gpu()) {
-    this->result.allocate_texture(Domain(size), false);
-    GPU_texture_update(this->result, GPU_DATA_FLOAT, evaluated_mask_.data());
-
-    /* CPU-side data no longer needed, so free it. */
-    evaluated_mask_ = Array<float>();
-  }
-  else {
-    this->result.wrap_external(evaluated_mask_.data(), size);
+    const Result gpu_result = this->result.upload_to_gpu(false);
+    this->result.release();
+    this->result = gpu_result;
   }
 }
 
@@ -161,6 +153,7 @@ void CachedMaskContainer::reset()
     cached_masks_for_id.remove_if([](auto item) { return !item.value->needed; });
   }
   map_.remove_if([](auto item) { return item.value.is_empty(); });
+  update_counts_.remove_if([&](auto item) { return !map_.contains(item.key); });
 
   /* Second, reset the needed status of the remaining cached masks to false to ready them to track
    * their needed status for the next evaluation. */
@@ -186,8 +179,10 @@ Result &CachedMaskContainer::get(Context &context,
   const std::string id_key = std::string(mask->id.name) + library_key;
   auto &cached_masks_for_id = map_.lookup_or_add_default(id_key);
 
-  /* Invalidate the cache for that mask ID if it was changed and reset the recalculate flag. */
-  if (context.query_id_recalc_flag(reinterpret_cast<ID *>(mask)) & ID_RECALC_ALL) {
+  /* Invalidate the cache for that mask if it was changed since it was cached. */
+  if (!cached_masks_for_id.is_empty() &&
+      mask->runtime.last_update != update_counts_.lookup(id_key))
+  {
     cached_masks_for_id.clear();
   }
 
@@ -201,6 +196,9 @@ Result &CachedMaskContainer::get(Context &context,
                                         motion_blur_samples,
                                         motion_blur_shutter);
   });
+
+  /* Store the current update count to later compare to and check if the mask changed. */
+  update_counts_.add_overwrite(id_key, mask->runtime.last_update);
 
   cached_mask.needed = true;
   return cached_mask.result;

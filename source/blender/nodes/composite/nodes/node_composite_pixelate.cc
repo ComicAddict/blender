@@ -14,7 +14,6 @@
 #include "COM_node_operation.hh"
 #include "COM_utilities.hh"
 
-#include "UI_interface.hh"
 #include "UI_resources.hh"
 
 #include "node_composite_util.hh"
@@ -25,18 +24,11 @@ namespace blender::nodes::node_composite_pixelate_cc {
 
 static void cmp_node_pixelate_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Color>("Color").compositor_domain_priority(0);
-  b.add_output<decl::Color>("Color");
-}
+  b.add_input<decl::Color>("Color").structure_type(StructureType::Dynamic);
+  b.add_input<decl::Int>("Size").default_value(1).min(1).description(
+      "The number of pixels that correspond to the same output pixel");
 
-static void node_composit_init_pixelate(bNodeTree * /*ntree*/, bNode *node)
-{
-  node->custom1 = 1;
-}
-
-static void node_composit_buts_pixelate(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
-{
-  uiItemR(layout, ptr, "pixel_size", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+  b.add_output<decl::Color>("Color").structure_type(StructureType::Dynamic);
 }
 
 using namespace blender::compositor;
@@ -47,11 +39,11 @@ class PixelateOperation : public NodeOperation {
 
   void execute() override
   {
-    Result &input_image = get_input("Color");
-    Result &output_image = get_result("Color");
-    const int pixel_size = get_pixel_size();
+    const Result &input_image = this->get_input("Color");
+    const int pixel_size = this->get_pixel_size();
     if (input_image.is_single_value() || pixel_size == 1) {
-      input_image.pass_through(output_image);
+      Result &output_image = this->get_result("Color");
+      output_image.share_data(input_image);
       return;
     }
 
@@ -115,7 +107,7 @@ class PixelateOperation : public NodeOperation {
 
   float get_pixel_size()
   {
-    return bnode().custom1;
+    return math::max(1, this->get_input("Size").get_single_value_default(1));
   }
 };
 
@@ -126,7 +118,7 @@ static NodeOperation *get_compositor_operation(Context &context, DNode node)
 
 }  // namespace blender::nodes::node_composite_pixelate_cc
 
-void register_node_type_cmp_pixelate()
+static void register_node_type_cmp_pixelate()
 {
   namespace file_ns = blender::nodes::node_composite_pixelate_cc;
 
@@ -140,9 +132,8 @@ void register_node_type_cmp_pixelate()
   ntype.enum_name_legacy = "PIXELATE";
   ntype.nclass = NODE_CLASS_OP_FILTER;
   ntype.declare = file_ns::cmp_node_pixelate_declare;
-  ntype.draw_buttons = file_ns::node_composit_buts_pixelate;
-  ntype.initfunc = file_ns::node_composit_init_pixelate;
   ntype.get_compositor_operation = file_ns::get_compositor_operation;
 
   blender::bke::node_register_type(ntype);
 }
+NOD_REGISTER_NODE(register_node_type_cmp_pixelate)

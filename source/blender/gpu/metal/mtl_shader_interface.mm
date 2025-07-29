@@ -282,10 +282,10 @@ void MTLShaderInterface::map_builtins()
       BLI_assert(uni->location >= 0);
       if (uni->location >= 0) {
         builtins_[u] = uni->location;
-        MTL_LOG_INFO("Mapped builtin uniform '%s' NB: '%s' to location: %d",
-                     builtin_uniform_name((GPUUniformBuiltin)u),
-                     get_name_at_offset(uni->name_offset),
-                     uni->location);
+        MTL_LOG_DEBUG("Mapped builtin uniform '%s' NB: '%s' to location: %d",
+                      builtin_uniform_name((GPUUniformBuiltin)u),
+                      get_name_at_offset(uni->name_offset),
+                      uni->location);
       }
     }
   }
@@ -298,9 +298,9 @@ void MTLShaderInterface::map_builtins()
       BLI_assert(uni->location >= 0);
       if (uni->location >= 0) {
         builtin_blocks_[u] = uni->binding;
-        MTL_LOG_INFO("Mapped builtin uniform block '%s' to location %d",
-                     builtin_uniform_block_name((GPUUniformBlockBuiltin)u),
-                     uni->location);
+        MTL_LOG_DEBUG("Mapped builtin uniform block '%s' to location %d",
+                      builtin_uniform_block_name((GPUUniformBlockBuiltin)u),
+                      uni->location);
       }
     }
   }
@@ -325,7 +325,7 @@ void MTLShaderInterface::prepare_common_shader_inputs(const shader::ShaderCreate
   /* Calculate total inputs and allocate #ShaderInput array. */
   /* NOTE: We use the existing `name_buffer_` allocated for internal input structs. */
   int input_tot_len = attr_len_ + ubo_len_ + uniform_len_ + ssbo_len_ + constant_len_;
-  inputs_ = (ShaderInput *)MEM_callocN(sizeof(ShaderInput) * input_tot_len, __func__);
+  inputs_ = MEM_calloc_arrayN<ShaderInput>(input_tot_len, __func__);
   ShaderInput *current_input = inputs_;
 
   /* Attributes. */

@@ -79,12 +79,27 @@ using Alembic::AbcMaterial::IMaterial;
 
 using namespace blender::io::alembic;
 
-BLI_INLINE ArchiveReader *archive_from_handle(CacheArchiveHandle *handle)
+struct AlembicArchiveData {
+  ArchiveReader *archive_reader = nullptr;
+  ImportSettings *settings = nullptr;
+
+  AlembicArchiveData() = default;
+  ~AlembicArchiveData()
+  {
+    delete archive_reader;
+    delete settings;
+  }
+
+  AlembicArchiveData(const AlembicArchiveData &) = delete;
+  AlembicArchiveData &operator==(const AlembicArchiveData &) = delete;
+};
+
+BLI_INLINE AlembicArchiveData *archive_from_handle(CacheArchiveHandle *handle)
 {
-  return reinterpret_cast<ArchiveReader *>(handle);
+  return reinterpret_cast<AlembicArchiveData *>(handle);
 }
 
-BLI_INLINE CacheArchiveHandle *handle_from_archive(ArchiveReader *archive)
+BLI_INLINE CacheArchiveHandle *handle_from_archive(AlembicArchiveData *archive)
 {
   return reinterpret_cast<CacheArchiveHandle *>(archive);
 }
@@ -94,7 +109,7 @@ BLI_INLINE CacheArchiveHandle *handle_from_archive(ArchiveReader *archive)
  */
 static void add_object_path(ListBase *object_paths, const IObject &object)
 {
-  CacheObjectPath *abc_path = MEM_cnew<CacheObjectPath>("CacheObjectPath");
+  CacheObjectPath *abc_path = MEM_callocN<CacheObjectPath>("CacheObjectPath");
   STRNCPY(abc_path->path, object.getFullName().c_str());
   BLI_addtail(object_paths, abc_path);
 }
@@ -181,7 +196,11 @@ CacheArchiveHandle *ABC_create_handle(const Main *bmain,
     gather_objects_paths(archive->getTop(), object_paths);
   }
 
-  return handle_from_archive(archive);
+  AlembicArchiveData *archive_data = new AlembicArchiveData();
+  archive_data->archive_reader = archive;
+  archive_data->settings = new ImportSettings();
+
+  return handle_from_archive(archive_data);
 }
 
 void ABC_free_handle(CacheArchiveHandle *handle)
@@ -700,7 +719,8 @@ static void import_endjob(void *user_data)
       data->import_ok = !data->was_cancelled;
       break;
     case ABC_ARCHIVE_FAIL:
-      WM_report(RPT_ERROR, "Could not open Alembic archive for reading, see console for detail");
+      WM_global_report(RPT_ERROR,
+                       "Could not open Alembic archive for reading, see console for detail");
       break;
   }
 
@@ -887,8 +907,12 @@ CacheReader *CacheReader_open_alembic_object(CacheArchiveHandle *handle,
     return reader;
   }
 
-  ArchiveReader *archive = archive_from_handle(handle);
+  AlembicArchiveData *archive_data = archive_from_handle(handle);
+  if (!archive_data) {
+    return reader;
+  }
 
+  ArchiveReader *archive = archive_data->archive_reader;
   if (!archive || !archive->valid()) {
     return reader;
   }
@@ -900,10 +924,11 @@ CacheReader *CacheReader_open_alembic_object(CacheArchiveHandle *handle,
     ABC_CacheReader_free(reader);
   }
 
-  ImportSettings settings;
-  settings.is_sequence = is_sequence;
-  settings.blender_archive_version_prior_44 = archive->is_blender_archive_version_prior_44();
-  AbcObjectReader *abc_reader = create_reader(iobject, settings);
+  archive_data->settings->is_sequence = is_sequence;
+  archive_data->settings->blender_archive_version_prior_44 =
+      archive->is_blender_archive_version_prior_44();
+
+  AbcObjectReader *abc_reader = create_reader(iobject, *archive_data->settings);
   if (abc_reader == nullptr) {
     /* This object is not supported */
     return nullptr;

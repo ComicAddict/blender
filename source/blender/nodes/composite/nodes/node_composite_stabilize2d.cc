@@ -13,6 +13,7 @@
 #include "BLI_math_vector_types.hh"
 
 #include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "DNA_movieclip_types.h"
@@ -36,8 +37,11 @@ static void cmp_node_stabilize2d_declare(NodeDeclarationBuilder &b)
   b.add_input<decl::Color>("Image")
       .default_value({0.8f, 0.8f, 0.8f, 1.0f})
       .compositor_realization_mode(CompositorInputRealizationMode::None)
-      .compositor_domain_priority(0);
-  b.add_output<decl::Color>("Image");
+      .structure_type(StructureType::Dynamic);
+  b.add_input<decl::Bool>("Invert").default_value(false).description(
+      "Invert stabilization to reintroduce motion to the image");
+
+  b.add_output<decl::Color>("Image").structure_type(StructureType::Dynamic);
 }
 
 static void init(const bContext *C, PointerRNA *ptr)
@@ -62,8 +66,7 @@ static void node_composit_buts_stabilize2d(uiLayout *layout, bContext *C, Pointe
     return;
   }
 
-  uiItemR(layout, ptr, "filter_type", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
-  uiItemR(layout, ptr, "invert", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "filter_type", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
 }
 
 using namespace blender::compositor;
@@ -74,12 +77,12 @@ class Stabilize2DOperation : public NodeOperation {
 
   void execute() override
   {
-    Result &input = this->get_input("Image");
+    const Result &input = this->get_input("Image");
     Result &output = this->get_result("Image");
 
     MovieClip *movie_clip = get_movie_clip();
     if (input.is_single_value() || !movie_clip) {
-      input.pass_through(output);
+      output.share_data(input);
       return;
     }
 
@@ -99,7 +102,7 @@ class Stabilize2DOperation : public NodeOperation {
       transformation = math::invert(transformation);
     }
 
-    input.pass_through(output);
+    output.share_data(input);
     output.transform(transformation);
     output.get_realization_options().interpolation = this->get_interpolation();
   }
@@ -111,6 +114,7 @@ class Stabilize2DOperation : public NodeOperation {
         return Interpolation::Nearest;
       case CMP_NODE_INTERPOLATION_BILINEAR:
         return Interpolation::Bilinear;
+      case CMP_NODE_INTERPOLATION_ANISOTROPIC:
       case CMP_NODE_INTERPOLATION_BICUBIC:
         return Interpolation::Bicubic;
     }
@@ -121,7 +125,7 @@ class Stabilize2DOperation : public NodeOperation {
 
   bool do_inverse_stabilization()
   {
-    return bnode().custom2 & CMP_NODE_STABILIZE_FLAG_INVERSE;
+    return this->get_input("Invert").get_single_value_default(false);
   }
 
   MovieClip *get_movie_clip()
@@ -137,7 +141,7 @@ static NodeOperation *get_compositor_operation(Context &context, DNode node)
 
 }  // namespace blender::nodes::node_composite_stabilize2d_cc
 
-void register_node_type_cmp_stabilize2d()
+static void register_node_type_cmp_stabilize2d()
 {
   namespace file_ns = blender::nodes::node_composite_stabilize2d_cc;
 
@@ -155,3 +159,4 @@ void register_node_type_cmp_stabilize2d()
 
   blender::bke::node_register_type(ntype);
 }
+NOD_REGISTER_NODE(register_node_type_cmp_stabilize2d)

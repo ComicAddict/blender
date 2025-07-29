@@ -130,8 +130,7 @@ static void rna_Image_pack(
   BKE_image_free_packedfiles(image);
 
   if (data) {
-    char *data_dup = static_cast<char *>(
-        MEM_mallocN(sizeof(*data_dup) * (size_t)data_len, __func__));
+    char *data_dup = MEM_malloc_arrayN<char>(size_t(data_len), __func__);
     memcpy(data_dup, data, size_t(data_len));
     BKE_image_packfiles_from_mem(reports, image, data_dup, size_t(data_len));
   }
@@ -182,7 +181,7 @@ static void rna_Image_update(Image *image, ReportList *reports)
   }
 
   if (ibuf->byte_buffer.data) {
-    IMB_rect_from_float(ibuf);
+    IMB_byte_from_float(ibuf);
   }
 
   ibuf->userflags |= IB_DISPLAY_BUFFER_INVALID;
@@ -224,7 +223,7 @@ static int rna_Image_gl_load(
     BKE_image_multilayer_index(image->rr, &iuser);
   }
 
-  GPUTexture *tex = BKE_image_get_gpu_texture(image, &iuser);
+  blender::gpu::Texture *tex = BKE_image_get_gpu_texture(image, &iuser);
 
   if (tex == nullptr) {
     BKE_reportf(reports, RPT_ERROR, "Failed to load image texture '%s'", image->id.name + 2);

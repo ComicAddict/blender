@@ -82,7 +82,6 @@ def create_argparse():
     parser.add_argument("--outdir", required=True)
     parser.add_argument("--oiiotool", required=True)
     parser.add_argument('--batch', default=False, action='store_true')
-    parser.add_argument('--fail-silently', default=False, action='store_true')
     parser.add_argument('--gpu-backend')
     return parser
 
@@ -95,7 +94,7 @@ def main():
     if args.gpu_backend == "vulkan":
         report.set_compare_engine('workbench', 'opengl')
     else:
-        report.set_compare_engine('eevee_next', 'opengl')
+        report.set_compare_engine('eevee', 'opengl')
     report.set_pixelated(True)
     report.set_reference_dir("workbench_renders")
 
@@ -103,7 +102,7 @@ def main():
     if test_dir_name.startswith('hair') and platform.system() == "Darwin":
         report.set_fail_threshold(0.050)
 
-    ok = report.run(args.testdir, args.blender, get_arguments, batch=args.batch, fail_silently=args.fail_silently)
+    ok = report.run(args.testdir, args.blender, get_arguments, batch=args.batch)
 
     sys.exit(not ok)
 

@@ -21,12 +21,14 @@
 #include "DNA_scene_types.h"
 #include "DNA_screen_types.h"
 #include "DNA_space_types.h"
+#include "DNA_windowmanager_types.h"
 
 #include "BLI_fileops.h"
 #include "BLI_function_ref.hh"
 #include "BLI_listbase.h"
 #include "BLI_path_utils.hh"
 #include "BLI_string.h"
+#include "BLI_string_utf8.h"
 #include "BLI_system.h"
 #include "BLI_time.h"
 #include "BLI_utildefines.h"
@@ -233,19 +235,25 @@ struct ReuseOldBMainData {
   Main *new_bmain;
   Main *old_bmain;
 
-  /** Data generated and used by calling WM code to handle keeping WM and UI IDs as best as
+  /**
+   * Data generated and used by calling WM code to handle keeping WM and UI IDs as best as
    * possible across file reading.
    *
-   * \note May be null in undo (memfile) case. */
+   * \note May be null in undo (memfile) case.
+   */
   BlendFileReadWMSetupData *wm_setup_data;
 
-  /** Storage for all remapping rules (old_id -> new_id) required by the preservation of old IDs
-   * into the new Main. */
+  /**
+   * Storage for all remapping rules (old_id -> new_id) required by the preservation of old IDs
+   * into the new Main.
+   */
   id::IDRemapper *remapper;
   bool is_libraries_remapped;
 
-  /** Used to find matching IDs by name/lib in new main, to remap ID usages of data ported over
-   * from old main. */
+  /**
+   * Used to find matching IDs by name/lib in new main, to remap ID usages of data ported over
+   * from old main.
+   */
   IDNameLib_Map *id_map;
 };
 
@@ -353,12 +361,31 @@ static bool reuse_bmain_move_id(ReuseOldBMainData *reuse_data,
 
   /* Move from one list to another, and ensure name is valid. */
   BLI_remlink_safe(old_lb, id);
-  BKE_main_namemap_remove_id(*old_bmain, *id);
+
+  /* In case the ID is linked and its library ID is re-used from the old Main, it is not possible
+   * to handle name_map (and ensure name uniqueness).
+   * This is because IDs are moved one by one from old Main's lists to new ones, while the re-used
+   * library's name_map would be built only from IDs in the new list, leading to incomplete/invalid
+   * states.
+   * Currently, such name uniqueness checks should not be needed, as no new name would be expected
+   * in the re-used library. Should this prove to be wrong at some point, the name check will have
+   * to happen at the end of #reuse_editable_asset_bmain_data_for_blendfile, in a separate loop
+   * over Main IDs.
+   */
+  const bool handle_name_map_updates = !ID_IS_LINKED(id) || id->lib != lib;
+  if (handle_name_map_updates) {
+    BKE_main_namemap_remove_id(*old_bmain, *id);
+  }
 
   id->lib = lib;
   BLI_addtail(new_lb, id);
-  BKE_id_new_name_validate(
-      *new_bmain, *new_lb, *id, nullptr, IDNewNameMode::RenameExistingNever, true);
+  if (handle_name_map_updates) {
+    BKE_id_new_name_validate(
+        *new_bmain, *new_lb, *id, nullptr, IDNewNameMode::RenameExistingNever, true);
+  }
+  else {
+    id_sort_by_name(new_lb, id, nullptr);
+  }
   BKE_lib_libblock_session_uid_renew(id);
 
   /* Remap to itself, to avoid re-processing this ID again. */
@@ -380,6 +407,10 @@ static Library *reuse_bmain_data_dependencies_new_library_get(ReuseOldBMainData 
        * There should be no filepath conflicts, as #reuse_bmain_data_remapper_ensure has
        * already remapped existing libraries with matching filepath. */
       reuse_bmain_move_id(reuse_data, &old_lib->id, nullptr, false);
+      /* Clear the name_map of the library, as not all of its IDs are guaranteed reused. The name
+       * map cannot be used/kept in valid state while some IDs are moved from old to new main. See
+       * also #reuse_bmain_move_id code. */
+      BKE_main_namemap_destroy(&old_lib->runtime->name_map);
       return old_lib;
     }
     case ID_REMAP_RESULT_SOURCE_NOT_MAPPABLE: {
@@ -541,7 +572,7 @@ static void unpin_file_local_grease_pencil_brush_materials(const ReuseOldBMainDa
 }
 
 /**
- * Does a complete replacement of data in `new_bmain` by data from `old_bmain. Original new data
+ * Does a complete replacement of data in `new_bmain` by data from `old_bmain`. Original new data
  * are moved to the `old_bmain`, and will be freed together with it.
  *
  * WARNING: Currently only expects to work on local data, won't work properly if some of the IDs of
@@ -868,7 +899,7 @@ static void wm_data_consistency_ensure(wmWindowManager *curwm,
       win->scene = cur_scene;
     }
     if (BKE_view_layer_find(win->scene, win->view_layer_name) == nullptr) {
-      STRNCPY(win->view_layer_name, cur_view_layer->name);
+      STRNCPY_UTF8(win->view_layer_name, cur_view_layer->name);
     }
 
     view3d_data_consistency_ensure(win, win->scene, cur_view_layer);
@@ -930,9 +961,11 @@ static void setup_app_data(bContext *C,
     mode = LOAD_UI;
   }
 
-  /* Free all render results, without this stale data gets displayed after loading files */
+  /* Free all render results and interactive compositor renders, without this stale data gets
+   * displayed after loading files */
   if (mode != LOAD_UNDO) {
     RE_FreeAllRenderResults();
+    RE_FreeInteractiveCompositorRenders();
   }
 
   /* Only make file-paths compatible when loading for real (not undo). */
@@ -1177,6 +1210,9 @@ static void setup_app_data(bContext *C,
     STRNCPY(bmain->filepath, bfd->filepath);
   }
 
+  /* Set the loaded .blend file path for crash recovery. */
+  STRNCPY(G.filepath_last_blend, bmain->filepath);
+
   /* Base-flags, groups, make depsgraph, etc. */
   /* first handle case if other windows have different scenes visible. */
   if (mode == LOAD_UI) {
@@ -1215,6 +1251,7 @@ static void setup_app_data(bContext *C,
 
     BKE_lib_override_library_main_resync(
         bmain,
+        nullptr,
         curscene,
         bfd->cur_view_layer ? bfd->cur_view_layer : BKE_view_layer_default_view(curscene),
         reports);
@@ -1310,15 +1347,15 @@ void BKE_blendfile_read_setup_undo(bContext *C,
   BKE_blendfile_read_setup_readfile(C, bfd, params, nullptr, reports, false, nullptr);
 }
 
+static CLG_LogRef LOG_BLEND = {"blend"};
+
 BlendFileData *BKE_blendfile_read(const char *filepath,
                                   const BlendFileReadParams *params,
                                   BlendFileReadReport *reports)
 {
   /* Don't print startup file loading. */
   if (params->is_startup == false) {
-    if (!G.quiet) {
-      printf("Read blend: \"%s\"\n", filepath);
-    }
+    CLOG_INFO_NOCHECK(&LOG_BLEND, "Read blend: \"%s\"", filepath);
   }
 
   BlendFileData *bfd = BLO_read_from_file(filepath, eBLOReadSkip(params->skip_flags), reports);
@@ -1405,7 +1442,7 @@ void BKE_blendfile_read_make_empty(bContext *C)
  *
  *   The preferences are merged by using some from the app-template and other settings from the
  *   regular preferences (add-ons from the app-template for example are used),
- *   undo-memory uses the regular preferences (for e.g.).
+ *   undo-memory uses the regular preferences (for example).
  *
  * - Writing preferences is performed for both the app-template & regular preferences.
  *
@@ -1464,7 +1501,7 @@ UserDef *BKE_blendfile_userdef_read_from_memory(const void *file_buf,
 
 UserDef *BKE_blendfile_userdef_from_defaults()
 {
-  UserDef *userdef = static_cast<UserDef *>(MEM_callocN(sizeof(UserDef), __func__));
+  UserDef *userdef = MEM_callocN<UserDef>(__func__);
   *userdef = blender::dna::shallow_copy(U_default);
 
   /* Add-ons. */
@@ -1481,14 +1518,14 @@ UserDef *BKE_blendfile_userdef_from_defaults()
     };
     for (int i = 0; i < ARRAY_SIZE(addons); i++) {
       bAddon *addon = BKE_addon_new();
-      STRNCPY(addon->module, addons[i]);
+      STRNCPY_UTF8(addon->module, addons[i]);
       BLI_addtail(&userdef->addons, addon);
     }
   }
 
   /* Theme. */
   {
-    bTheme *btheme = static_cast<bTheme *>(MEM_mallocN(sizeof(*btheme), __func__));
+    bTheme *btheme = MEM_mallocN<bTheme>(__func__);
     memcpy(btheme, &U_theme_default, sizeof(*btheme));
 
     BLI_addtail(&userdef->themes, btheme);
@@ -1551,7 +1588,7 @@ UserDef *BKE_blendfile_userdef_from_defaults()
 
 bool BKE_blendfile_userdef_write(const char *filepath, ReportList *reports)
 {
-  Main *mainb = MEM_cnew<Main>("empty main");
+  Main *mainb = MEM_new<Main>(__func__);
   bool ok = false;
 
   BlendFileWriteParams params{};
@@ -1561,7 +1598,7 @@ bool BKE_blendfile_userdef_write(const char *filepath, ReportList *reports)
     ok = true;
   }
 
-  MEM_freeN(mainb);
+  MEM_delete(mainb);
 
   return ok;
 }
@@ -1597,9 +1634,7 @@ bool BKE_blendfile_userdef_write_all(ReportList *reports)
   if (cfgdir) {
     bool ok_write;
     BLI_path_join(filepath, sizeof(filepath), cfgdir->c_str(), BLENDER_USERPREF_FILE);
-    if (!G.quiet) {
-      printf("Writing userprefs: \"%s\" ", filepath);
-    }
+    CLOG_INFO_NOCHECK(&LOG_BLEND, "Writing user preferences: \"%s\" ", filepath);
     if (use_template_userpref) {
       ok_write = BKE_blendfile_userdef_write_app_template(filepath, reports);
     }
@@ -1608,15 +1643,10 @@ bool BKE_blendfile_userdef_write_all(ReportList *reports)
     }
 
     if (ok_write) {
-      if (!G.quiet) {
-        printf("ok\n");
-      }
       BKE_report(reports, RPT_INFO, "Preferences saved");
     }
     else {
-      if (!G.quiet) {
-        printf("fail\n");
-      }
+      CLOG_WARN(&LOG_BLEND, "Failed to write user preferences");
       ok = false;
       BKE_report(reports, RPT_ERROR, "Saving preferences failed");
     }
@@ -1631,18 +1661,11 @@ bool BKE_blendfile_userdef_write_all(ReportList *reports)
       /* Also save app-template preferences. */
       BLI_path_join(filepath, sizeof(filepath), cfgdir->c_str(), BLENDER_USERPREF_FILE);
 
-      if (!G.quiet) {
-        printf("Writing userprefs app-template: \"%s\" ", filepath);
-      }
+      CLOG_INFO_NOCHECK(&LOG_BLEND, "Writing user preferences app-template: \"%s\" ", filepath);
       if (BKE_blendfile_userdef_write(filepath, reports) != 0) {
-        if (!G.quiet) {
-          printf("ok\n");
-        }
       }
       else {
-        if (!G.quiet) {
-          printf("fail\n");
-        }
+        CLOG_WARN(&LOG_BLEND, "Failed to write user preferences");
         ok = false;
       }
     }
@@ -1682,7 +1705,7 @@ WorkspaceConfigFileData *BKE_blendfile_workspace_config_read(const char *filepat
   }
 
   if (bfd) {
-    workspace_config = MEM_cnew<WorkspaceConfigFileData>(__func__);
+    workspace_config = MEM_callocN<WorkspaceConfigFileData>(__func__);
     workspace_config->main = bfd->main;
 
     /* Only 2.80+ files have actual workspaces, don't try to use screens
@@ -1709,14 +1732,13 @@ void BKE_blendfile_workspace_config_data_free(WorkspaceConfigFileData *workspace
 /** \name Blend File Write (Partial)
  * \{ */
 
-static CLG_LogRef LOG_PARTIALWRITE = {"bke.blendfile.partial_write"};
+static CLG_LogRef LOG_PARTIALWRITE = {"blend.partial_write"};
 
 namespace blender::bke::blendfile {
 
 PartialWriteContext::PartialWriteContext(StringRefNull reference_root_filepath)
     : reference_root_filepath_(reference_root_filepath)
 {
-  BKE_main_init(this->bmain);
   if (!reference_root_filepath_.empty()) {
     STRNCPY(this->bmain.filepath, reference_root_filepath_.c_str());
   }
@@ -1730,9 +1752,6 @@ PartialWriteContext::PartialWriteContext(StringRefNull reference_root_filepath)
 PartialWriteContext::~PartialWriteContext()
 {
   BKE_main_idmap_destroy(matching_uid_map_);
-
-  BLI_assert(this->bmain.next == nullptr);
-  BKE_main_destroy(this->bmain);
 };
 
 void PartialWriteContext::preempt_session_uid(ID *ctx_id, uint session_uid)
@@ -1761,9 +1780,8 @@ void PartialWriteContext::preempt_session_uid(ID *ctx_id, uint session_uid)
   matching_ctx_id = BKE_main_idmap_lookup_uid(this->bmain.id_map, session_uid);
   BLI_assert(matching_ctx_id != ctx_id);
   if (matching_ctx_id) {
-    CLOG_INFO(&LOG_PARTIALWRITE,
-              3,
-              "Non-matching IDs sharing the same session UID in the partial write context.");
+    CLOG_DEBUG(&LOG_PARTIALWRITE,
+               "Non-matching IDs sharing the same session UID in the partial write context.");
     BKE_main_idmap_remove_id(this->bmain.id_map, matching_ctx_id);
     /* FIXME: Allow #BKE_lib_libblock_session_uid_renew to work with temp IDs? */
     matching_ctx_id->tag &= ~ID_TAG_TEMP_MAIN;
@@ -2079,10 +2097,9 @@ void PartialWriteContext::remove_unused(const bool clear_extra_user)
   }
   BKE_lib_query_unused_ids_tag(&this->bmain, ID_TAG_DOIT, parameters);
 
-  CLOG_INFO(&LOG_PARTIALWRITE,
-            3,
-            "Removing %d unused IDs from current partial write context",
-            parameters.num_total[INDEX_ID_NULL]);
+  CLOG_DEBUG(&LOG_PARTIALWRITE,
+             "Removing %d unused IDs from current partial write context",
+             parameters.num_total[INDEX_ID_NULL]);
   ID *id_iter;
   FOREACH_MAIN_ID_BEGIN (&this->bmain, id_iter) {
     if ((id_iter->tag & ID_TAG_DOIT) != 0) {

@@ -37,8 +37,6 @@ class Context {
   StateManager *state_manager = nullptr;
   Immediate *imm = nullptr;
 
-  ShaderCompiler *compiler = nullptr;
-
   /**
    * All 4 window frame-buffers.
    * None of them are valid in an off-screen context.
@@ -75,6 +73,10 @@ class Context {
 
   /** Texture pool used to recycle temporary texture (or render target) memory. */
   TexturePool *texture_pool = nullptr;
+
+  /** Global state to avoid setting the srgb builtin uniform for every shader bind. */
+  int shader_builtin_srgb_transform = 0;
+  bool shader_builtin_srgb_is_dirty = false;
 
  protected:
   /** Thread on which this context is active. */
@@ -149,9 +151,11 @@ class Context {
   }
 
  protected:
-  /* Derived classes should call this from the destructor, as freeing framebuffers may need the
-   * derived context to be valid. */
-  void free_framebuffers();
+  /**
+   * Derived classes should call this from the destructor,
+   * as freeing textures and frame-buffers may need the derived context to be valid.
+   */
+  void free_resources();
 };
 
 /* Syntactic sugar. */

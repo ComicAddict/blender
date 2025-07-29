@@ -10,10 +10,17 @@
 
 #include <typeinfo>
 
+#ifdef _WIN32
+#  include "BLI_winstuff.h"
+#endif
+
 #ifdef __APPLE__
 #  include <MoltenVK/vk_mvk_moltenvk.h>
 #else
 #  include <vulkan/vulkan.h>
+#  ifdef _WIN32
+#    include <vulkan/vulkan_win32.h>
+#  endif
 #endif
 
 #include "vk_mem_alloc.h"
@@ -48,10 +55,10 @@ enum class VKImageViewArrayed {
   ARRAYED,
 };
 
-VkImageAspectFlags to_vk_image_aspect_flag_bits(const eGPUTextureFormat format);
+VkImageAspectFlags to_vk_image_aspect_flag_bits(const TextureFormat format);
 VkImageAspectFlags to_vk_image_aspect_flag_bits(const eGPUFrameBufferBits buffers);
-VkFormat to_vk_format(const eGPUTextureFormat format);
-eGPUTextureFormat to_gpu_format(const VkFormat format);
+VkFormat to_vk_format(const TextureFormat format);
+TextureFormat to_gpu_format(const VkFormat format);
 VkFormat to_vk_format(const GPUVertCompType type,
                       const uint32_t size,
                       const GPUVertFetchMode fetch_mode);

@@ -58,7 +58,9 @@ class GreasePencilExporter {
 
   /* Camera projection matrix, only available with an active camera. */
   std::optional<float4x4> camera_persmat_;
-  blender::Bounds<float2> render_rect_;
+  blender::Bounds<float2> camera_rect_;
+  float2 camera_fac_;
+  blender::Bounds<float2> screen_rect_;
 
  public:
   GreasePencilExporter(const IOContext &context, const ExportParams &params);
@@ -90,6 +92,8 @@ class GreasePencilExporter {
                                WriteStrokeFn stroke_fn);
 
   float2 project_to_screen(const float4x4 &transform, const float3 &position) const;
+
+  bool is_selected_frame(const GreasePencil &grease_pencil, int frame_number) const;
 };
 
 }  // namespace blender::io::grease_pencil

@@ -75,6 +75,7 @@ void ED_add_action_group_channel(ChannelDrawList *channel_list,
                                  int saction_flag);
 /* Layered Action Summary. */
 void ED_add_action_layered_channel(ChannelDrawList *channel_list,
+                                   bAnimContext *ac,
                                    bAnimListElem *ale,
                                    bAction *action,
                                    const float ypos,
@@ -82,6 +83,7 @@ void ED_add_action_layered_channel(ChannelDrawList *channel_list,
                                    int saction_flag);
 /* Action Slot summary. */
 void ED_add_action_slot_channel(ChannelDrawList *channel_list,
+                                bAnimContext *ac,
                                 bAnimListElem *ale,
                                 blender::animrig::Action &action,
                                 blender::animrig::Slot &slot,
@@ -127,7 +129,7 @@ void ED_add_grease_pencil_cels_channel(ChannelDrawList *channel_list,
 /* Grease Pencil layer group channels */
 void ED_add_grease_pencil_layer_group_channel(ChannelDrawList *channel_list,
                                               bDopeSheet *ads,
-                                              const GreasePencilLayerTreeGroup *layer,
+                                              const GreasePencilLayerTreeGroup *layer_group,
                                               float ypos,
                                               float yscale_fac,
                                               int saction_flag);

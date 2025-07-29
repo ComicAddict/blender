@@ -20,6 +20,7 @@
 #include "BLI_index_mask.hh"
 #include "BLI_listbase.h"
 #include "BLI_math_matrix.h"
+#include "BLI_math_vector.h"
 #include "BLI_task.h"
 
 #include "BKE_ccg.hh"
@@ -216,7 +217,7 @@ static void multires_mdisps_subdivide_hidden(MDisps *md, const int new_level)
 
 Mesh *BKE_multires_create_mesh(Depsgraph *depsgraph, Object *object, MultiresModifierData *mmd)
 {
-  Object *object_eval = DEG_get_evaluated_object(depsgraph, object);
+  Object *object_eval = DEG_get_evaluated(depsgraph, object);
   Scene *scene_eval = DEG_get_evaluated_scene(depsgraph);
   Mesh *deformed_mesh = blender::bke::mesh_get_eval_deform(
       depsgraph, scene_eval, object_eval, &CD_MASK_BAREMESH);
@@ -238,7 +239,7 @@ blender::Array<blender::float3> BKE_multires_create_deformed_base_mesh_vert_coor
     Depsgraph *depsgraph, Object *object, MultiresModifierData *mmd)
 {
   Scene *scene_eval = DEG_get_evaluated_scene(depsgraph);
-  Object *object_eval = DEG_get_evaluated_object(depsgraph, object);
+  Object *object_eval = DEG_get_evaluated(depsgraph, object);
 
   Object object_for_eval = blender::dna::shallow_copy(*object_eval);
   blender::bke::ObjectRuntime runtime = *object_eval->runtime;
@@ -376,7 +377,7 @@ void multires_mark_as_modified(Depsgraph *depsgraph,
    * do an actual update.
    *
    * In a longer term maybe special dependency graph tag can help sanitizing this a bit. */
-  Object *object_eval = DEG_get_evaluated_object(depsgraph, object);
+  Object *object_eval = DEG_get_evaluated(depsgraph, object);
   Mesh *mesh = static_cast<Mesh *>(object_eval->data);
   SubdivCCG *subdiv_ccg = mesh->runtime->subdiv_ccg.get();
   if (subdiv_ccg == nullptr) {
@@ -539,8 +540,7 @@ static void multires_reallocate_mdisps(const int totloop, MDisps *mdisps, const 
   /* reallocate displacements to be filled in */
   for (int i = 0; i < totloop; i++) {
     const int totdisp = multires_grid_tot[lvl];
-    float(*disps)[3] = static_cast<float(*)[3]>(
-        MEM_calloc_arrayN(totdisp, sizeof(float[3]), __func__));
+    float(*disps)[3] = MEM_calloc_arrayN<float[3]>(totdisp, __func__);
 
     if (mdisps[i].disps) {
       MEM_freeN(mdisps[i].disps);
@@ -583,42 +583,13 @@ static void multires_copy_grid(float (*gridA)[3],
   }
 }
 
-static void multires_copy_dm_grid(CCGElem *gridA, CCGElem *gridB, CCGKey *keyA, CCGKey *keyB)
-{
-  int x, y, j, skip;
-
-  if (keyA->grid_size > keyB->grid_size) {
-    skip = (keyA->grid_size - 1) / (keyB->grid_size - 1);
-
-    for (j = 0, y = 0; y < keyB->grid_size; y++) {
-      for (x = 0; x < keyB->grid_size; x++, j++) {
-        memcpy(CCG_elem_offset_co(*keyA, gridA, y * skip * keyA->grid_size + x * skip),
-               CCG_elem_offset_co(*keyB, gridB, j),
-               keyA->elem_size);
-      }
-    }
-  }
-  else {
-    skip = (keyB->grid_size - 1) / (keyA->grid_size - 1);
-
-    for (j = 0, y = 0; y < keyA->grid_size; y++) {
-      for (x = 0; x < keyA->grid_size; x++, j++) {
-        memcpy(CCG_elem_offset_co(*keyA, gridA, j),
-               CCG_elem_offset_co(*keyB, gridB, y * skip * keyB->grid_size + x * skip),
-               keyA->elem_size);
-      }
-    }
-  }
-}
-
 /* Reallocate gpm->data at a lower resolution and copy values over
  * from the original high-resolution data */
 static void multires_grid_paint_mask_downsample(GridPaintMask *gpm, const int level)
 {
   if (level < gpm->level) {
     const int gridsize = BKE_ccg_gridsize(level);
-    float *data = static_cast<float *>(
-        MEM_calloc_arrayN(square_i(gridsize), sizeof(float), __func__));
+    float *data = MEM_calloc_arrayN<float>(size_t(square_i(gridsize)), __func__);
 
     for (int y = 0; y < gridsize; y++) {
       for (int x = 0; x < gridsize; x++) {
@@ -659,8 +630,7 @@ static void multires_del_higher(MultiresModifierData *mmd, Object *ob, const int
           MDisps *mdisp = &mdisps[corner];
           const int totdisp = multires_grid_tot[lvl];
 
-          float(*disps)[3] = static_cast<float(*)[3]>(
-              MEM_calloc_arrayN(totdisp, sizeof(float[3]), "multires disps"));
+          float(*disps)[3] = MEM_calloc_arrayN<float[3]>(totdisp, "multires disps");
 
           if (mdisp->disps != nullptr) {
             float(*ndisps)[3] = disps;
@@ -715,29 +685,6 @@ void multiresModifier_del_levels(MultiresModifierData *mmd,
   }
 
   multires_set_tot_level(ob, mmd, lvl);
-}
-
-static DerivedMesh *multires_dm_create_local(Scene *scene,
-                                             Object *ob,
-                                             DerivedMesh *dm,
-                                             const int lvl,
-                                             const int totlvl,
-                                             const bool alloc_paint_mask,
-                                             MultiresFlags flags)
-{
-  MultiresModifierData mmd{};
-
-  mmd.lvl = lvl;
-  mmd.sculptlvl = lvl;
-  mmd.renderlvl = lvl;
-  mmd.totlvl = totlvl;
-
-  flags |= MultiresFlags::UseLocalMMD;
-  if (alloc_paint_mask) {
-    flags |= MultiresFlags::AllocPaintMask;
-  }
-
-  return multires_make_derived_from_derived(dm, &mmd, scene, ob, flags);
 }
 
 static DerivedMesh *subsurf_dm_create_local(Scene *scene,
@@ -874,8 +821,7 @@ static void multires_disp_run_cb(void *__restrict userdata,
       if (gpm->data) {
         MEM_freeN(gpm->data);
       }
-      gpm->data = static_cast<float *>(
-          MEM_calloc_arrayN(key.grid_area, sizeof(float), "gpm.data"));
+      gpm->data = MEM_calloc_arrayN<float>(key.grid_area, "gpm.data");
     }
 
     for (int y = 0; y < gridSize; y++) {
@@ -1025,157 +971,6 @@ static void multiresModifier_disp_run(DerivedMesh *dm,
   }
 }
 
-void multires_modifier_update_mdisps(DerivedMesh *dm, Scene *scene)
-{
-  CCGDerivedMesh *ccgdm = reinterpret_cast<CCGDerivedMesh *>(dm);
-
-  Object *ob = ccgdm->multires.ob;
-  Mesh *mesh = static_cast<Mesh *>(ccgdm->multires.ob->data);
-  MultiresModifierData *mmd = ccgdm->multires.mmd;
-  multires_set_tot_mdisps(mesh, mmd->totlvl);
-  multiresModifier_ensure_external_read(mesh, mmd);
-
-  if (CustomData_has_layer(&mesh->corner_data, CD_MDISPS)) {
-    const int lvl = ccgdm->multires.lvl;
-    const int totlvl = ccgdm->multires.totlvl;
-
-    if (lvl < totlvl) {
-      CCGKey highGridKey, lowGridKey;
-      const bool has_mask = CustomData_has_layer(&mesh->corner_data, CD_GRID_PAINT_MASK);
-
-      /* Create subsurf DM from original mesh at high level. */
-      /* TODO: use mesh_deform_eval when sculpting on deformed mesh. */
-      DerivedMesh *cddm = CDDM_from_mesh(mesh);
-      DM_set_only_copy(cddm, &CD_MASK_BAREMESH);
-
-      DerivedMesh *highdm = subsurf_dm_create_local(scene,
-                                                    ob,
-                                                    cddm,
-                                                    totlvl,
-                                                    false,
-                                                    false,
-                                                    mmd->uv_smooth == SUBSURF_UV_SMOOTH_NONE,
-                                                    has_mask,
-                                                    false,
-                                                    SUBSURF_IGNORE_SIMPLIFY);
-      CCGSubSurf *ss = reinterpret_cast<CCGDerivedMesh *>(highdm)->ss;
-
-      /* create multires DM from original mesh and displacements */
-      DerivedMesh *lowdm = multires_dm_create_local(
-          scene, ob, cddm, lvl, totlvl, has_mask, MultiresFlags::IgnoreSimplify);
-      cddm->release(cddm);
-
-      /* gather grid data */
-      const int numGrids = highdm->getNumGrids(highdm);
-      const int highGridSize = highdm->getGridSize(highdm);
-      CCGElem **highGridData = highdm->getGridData(highdm);
-      highdm->getGridKey(highdm, &highGridKey);
-      const int lowGridSize = lowdm->getGridSize(lowdm);
-      CCGElem **lowGridData = lowdm->getGridData(lowdm);
-      lowdm->getGridKey(lowdm, &lowGridKey);
-      CCGElem **gridData = dm->getGridData(dm);
-
-      BLI_assert(highGridKey.elem_size == lowGridKey.elem_size);
-
-      CCGElem **subGridData = static_cast<CCGElem **>(
-          MEM_calloc_arrayN(numGrids, sizeof(CCGElem *), "subGridData*"));
-      CCGElem *diffGrid = static_cast<CCGElem *>(
-          MEM_calloc_arrayN(lowGridKey.elem_size, lowGridSize * lowGridSize, "diff"));
-
-      for (int i = 0; i < numGrids; i++) {
-        /* backup subsurf grids */
-        subGridData[i] = static_cast<CCGElem *>(
-            MEM_calloc_arrayN(highGridKey.elem_size, highGridSize * highGridSize, "subGridData"));
-        memcpy(
-            subGridData[i], highGridData[i], highGridKey.elem_size * highGridSize * highGridSize);
-
-        /* write difference of subsurf and displaced low level into high subsurf */
-        for (int j = 0; j < lowGridSize * lowGridSize; j++) {
-          sub_v4_v4v4(CCG_elem_offset_co(lowGridKey, diffGrid, j),
-                      CCG_elem_offset_co(lowGridKey, gridData[i], j),
-                      CCG_elem_offset_co(lowGridKey, lowGridData[i], j));
-        }
-
-        multires_copy_dm_grid(highGridData[i], diffGrid, &highGridKey, &lowGridKey);
-      }
-
-      /* lower level dm no longer needed at this point */
-      MEM_freeN(static_cast<void *>(diffGrid));
-      lowdm->release(lowdm);
-
-      /* subsurf higher levels again with difference of coordinates */
-      ccgSubSurf_updateFromFaces(ss, lvl, nullptr, 0);
-      ccgSubSurf_updateLevels(ss, lvl, nullptr, 0);
-
-      /* add to displacements */
-      multiresModifier_disp_run(
-          highdm, mesh, nullptr, ADD_DISPLACEMENTS, subGridData, mmd->totlvl);
-
-      /* free */
-      highdm->release(highdm);
-      for (int i = 0; i < numGrids; i++) {
-        MEM_freeN(static_cast<void *>(subGridData[i]));
-      }
-      MEM_freeN(subGridData);
-    }
-    else {
-      const bool has_mask = CustomData_has_layer(&mesh->corner_data, CD_GRID_PAINT_MASK);
-
-      /* TODO: use mesh_deform_eval when sculpting on deformed mesh. */
-      DerivedMesh *cddm = CDDM_from_mesh(mesh);
-      DM_set_only_copy(cddm, &CD_MASK_BAREMESH);
-
-      DerivedMesh *subdm = subsurf_dm_create_local(scene,
-                                                   ob,
-                                                   cddm,
-                                                   mmd->totlvl,
-                                                   false,
-                                                   false,
-                                                   mmd->uv_smooth == SUBSURF_UV_SMOOTH_NONE,
-                                                   has_mask,
-                                                   false,
-                                                   SUBSURF_IGNORE_SIMPLIFY);
-      cddm->release(cddm);
-
-      multiresModifier_disp_run(
-          dm, mesh, nullptr, CALC_DISPLACEMENTS, subdm->getGridData(subdm), mmd->totlvl);
-
-      subdm->release(subdm);
-    }
-  }
-}
-
-void multires_modifier_update_hidden(DerivedMesh *dm)
-{
-  CCGDerivedMesh *ccgdm = reinterpret_cast<CCGDerivedMesh *>(dm);
-  BLI_bitmap **grid_hidden = ccgdm->gridHidden;
-  Mesh *mesh = static_cast<Mesh *>(ccgdm->multires.ob->data);
-  MDisps *mdisps = static_cast<MDisps *>(
-      CustomData_get_layer_for_write(&mesh->corner_data, CD_MDISPS, mesh->corners_num));
-  const int totlvl = ccgdm->multires.totlvl;
-  const int lvl = ccgdm->multires.lvl;
-
-  if (mdisps) {
-    for (int i = 0; i < mesh->corners_num; i++) {
-      MDisps *md = &mdisps[i];
-      BLI_bitmap *gh = grid_hidden[i];
-
-      if (!gh && md->hidden) {
-        MEM_freeN(md->hidden);
-        md->hidden = nullptr;
-      }
-      else if (gh) {
-        gh = multires_mdisps_upsample_hidden(gh, lvl, totlvl, md->hidden);
-        if (md->hidden) {
-          MEM_freeN(md->hidden);
-        }
-
-        md->hidden = gh;
-      }
-    }
-  }
-}
-
 void multires_stitch_grids(Object *ob)
 {
   using namespace blender;
@@ -1240,12 +1035,11 @@ DerivedMesh *multires_make_derived_from_derived(DerivedMesh *dm,
   CCGKey key;
   result->getGridKey(result, &key);
 
-  CCGElem **subGridData = static_cast<CCGElem **>(
-      MEM_malloc_arrayN(numGrids, sizeof(CCGElem *), "subGridData*"));
+  CCGElem **subGridData = MEM_malloc_arrayN<CCGElem *>(size_t(numGrids), "subGridData*");
 
   for (int i = 0; i < numGrids; i++) {
     subGridData[i] = static_cast<CCGElem *>(
-        MEM_malloc_arrayN(key.elem_size, gridSize * gridSize, "subGridData"));
+        MEM_malloc_arrayN(gridSize * gridSize, key.elem_size, "subGridData"));
     memcpy(subGridData[i], gridData[i], key.elem_size * gridSize * gridSize);
   }
 
@@ -1459,8 +1253,7 @@ void multires_topology_changed(Mesh *mesh)
     if (!mdisp->totdisp || !mdisp->disps) {
       if (grid) {
         mdisp->totdisp = grid;
-        mdisp->disps = static_cast<float(*)[3]>(
-            MEM_calloc_arrayN(mdisp->totdisp, sizeof(float[3]), "mdisp topology"));
+        mdisp->disps = MEM_calloc_arrayN<float[3]>(mdisp->totdisp, "mdisp topology");
       }
 
       continue;

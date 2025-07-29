@@ -35,7 +35,7 @@
 
 namespace blender::locale {
 
-static CLG_LogRef LOG = {"translation.messages"};
+static CLG_LogRef LOG = {"translation"};
 
 /* Upper/lower case, intentionally restricted to ASCII. */
 
@@ -111,8 +111,20 @@ class Info {
       if (GetLocaleInfoA(LOCALE_USER_DEFAULT, LOCALE_SISO639LANGNAME, buf, sizeof(buf)) != 0) {
         locale_name = buf;
         if (GetLocaleInfoA(LOCALE_USER_DEFAULT, LOCALE_SISO3166CTRYNAME, buf, sizeof(buf)) != 0) {
-          locale_name += "_";
-          locale_name += buf;
+          std::string region = buf;
+          if (locale_name == "zh") {
+            if (region == "TW" || region == "HK" || region == "MO") {
+              /* Traditional for Taiwan, Hong Kong, Macau. */
+              locale_name += "_HANT";
+            }
+            else {
+              /* Simplified for all other areas. */
+              locale_name += "_HANS";
+            }
+          }
+          else {
+            locale_name += "_" + region;
+          }
         }
       }
     }
@@ -539,7 +551,7 @@ class MOMessages {
       return false;
     }
 
-    /* Only support UTF-8 encoded files, as created by our msgfmt tool. */
+    /* Only support UTF8 encoded files, as created by our msgfmt tool. */
     const std::string mo_encoding = extract(mo.value(0), "charset=", " \r\n;");
     if (mo_encoding.empty()) {
       error_ = "Invalid mo-format, encoding is not specified";
@@ -549,6 +561,8 @@ class MOMessages {
       error_ = "supported mo-format, encoding must be UTF-8";
       return false;
     }
+
+    CLOG_INFO(&LOG, "Load messages from \"%s\"", filepath.c_str());
 
     /* Create context + key to translated string mapping. */
     for (size_t i = 0; i < mo.size(); i++) {
@@ -589,7 +603,7 @@ void init(const StringRef locale_full_name,
   global_full_name = info.to_full_name();
 
   if (global_messages->error().empty()) {
-    CLOG_INFO(&LOG, 2, "Locale %s used for translation", global_full_name.c_str());
+    CLOG_INFO(&LOG, "Locale %s used for translation", global_full_name.c_str());
   }
   else {
     CLOG_ERROR(&LOG, "Locale %s: %s", global_full_name.c_str(), global_messages->error().c_str());

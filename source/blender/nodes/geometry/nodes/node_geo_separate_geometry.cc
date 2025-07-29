@@ -4,7 +4,7 @@
 
 #include "NOD_rna_define.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "RNA_enum_types.hh"
@@ -19,7 +19,7 @@ NODE_STORAGE_FUNCS(NodeGeometrySeparateGeometry)
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Geometry>("Geometry");
+  b.add_input<decl::Geometry>("Geometry").description("Geometry to split into two parts");
   b.add_input<decl::Bool>("Selection")
       .default_value(true)
       .hide_value()
@@ -35,12 +35,12 @@ static void node_declare(NodeDeclarationBuilder &b)
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "domain", UI_ITEM_NONE, "", ICON_NONE);
+  layout->prop(ptr, "domain", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
 {
-  NodeGeometrySeparateGeometry *data = MEM_cnew<NodeGeometrySeparateGeometry>(__func__);
+  NodeGeometrySeparateGeometry *data = MEM_callocN<NodeGeometrySeparateGeometry>(__func__);
   data->domain = int8_t(AttrDomain::Point);
   node->storage = data;
 }

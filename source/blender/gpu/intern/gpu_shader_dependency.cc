@@ -19,6 +19,7 @@
 #include "BLI_map.hh"
 #include "BLI_string_ref.hh"
 
+#include "gpu_capabilities_private.hh"
 #include "gpu_material_library.hh"
 #include "gpu_shader_create_info.hh"
 #include "gpu_shader_dependency_private.hh"
@@ -31,12 +32,14 @@
 #include "../glsl_preprocess/glsl_preprocess.hh"
 
 extern "C" {
-#define SHADER_SOURCE(datatoc, filename, filepath) extern char datatoc[];
+#define SHADER_SOURCE(filename_underscore, filename, filepath) \
+  extern char datatoc_##filename_underscore[];
 #include "glsl_compositor_source_list.h"
 #include "glsl_draw_source_list.h"
 #include "glsl_gpu_source_list.h"
-#ifdef WITH_OCIO
-#  include "glsl_ocio_source_list.h"
+#include "glsl_ocio_source_list.h"
+#ifdef WITH_OPENSUBDIV
+#  include "glsl_osd_source_list.h"
 #endif
 #undef SHADER_SOURCE
 }
@@ -44,23 +47,31 @@ extern "C" {
 namespace blender::gpu {
 
 using GPUPrintFormatMap = Map<uint32_t, shader::PrintfFormat>;
-using GPUSourceDictionnary = Map<StringRef, struct GPUSource *>;
+using GPUSourceDictionnary = Map<StringRef, GPUSource *>;
 using GPUFunctionDictionnary = Map<StringRef, GPUFunction *>;
 
 struct GPUSource {
   StringRefNull fullpath;
   StringRefNull filename;
   StringRefNull source;
+  std::string patched_source;
   Vector<StringRef> dependencies_names;
   Vector<GPUSource *> dependencies;
   bool dependencies_init = false;
   shader::BuiltinBits builtins = shader::BuiltinBits::NONE;
+  /* True if this file content is supposed to be generated at runtime. */
+  bool generated = false;
+  int d[sizeof(shader::ShaderCreateInfo::dependencies_generated)];
 
-  shader::BuiltinBits parse_builtin_bit(StringRef builtin)
+  /* NOTE: The next few functions are needed to keep isolation of the preprocessor.
+   * Eventually, this should be revisited and the preprocessor should output
+   * GPU structures. */
+
+  shader::BuiltinBits convert_builtin_bit(shader::metadata::Builtin builtin)
   {
     using namespace blender::gpu::shader;
     using namespace blender::gpu::shader::metadata;
-    switch (Builtin(std::stoull(builtin))) {
+    switch (builtin) {
       case Builtin::FragCoord:
         return BuiltinBits::FRAG_COORD;
       case Builtin::FrontFacing:
@@ -100,15 +111,17 @@ struct GPUSource {
 #else
         return BuiltinBits::NONE;
 #endif
+      case Builtin::runtime_generated:
+        return BuiltinBits::RUNTIME_GENERATED;
     }
     BLI_assert_unreachable();
     return BuiltinBits::NONE;
   }
 
-  GPUFunctionQual parse_qualifier(StringRef qualifier)
+  GPUFunctionQual convert_qualifier(shader::metadata::Qualifier qualifier)
   {
     using namespace blender::gpu::shader;
-    switch (metadata::Qualifier(std::stoull(qualifier))) {
+    switch (qualifier) {
       case metadata::Qualifier::in:
         return FUNCTION_QUAL_IN;
       case metadata::Qualifier::out:
@@ -120,21 +133,21 @@ struct GPUSource {
     return FUNCTION_QUAL_IN;
   }
 
-  eGPUType parse_type(StringRef type)
+  eGPUType convert_type(shader::metadata::Type type)
   {
     using namespace blender::gpu::shader;
-    switch (metadata::Type(std::stoull(type))) {
-      case metadata::Type::vec1:
+    switch (type) {
+      case metadata::Type::float1:
         return GPU_FLOAT;
-      case metadata::Type::vec2:
+      case metadata::Type::float2:
         return GPU_VEC2;
-      case metadata::Type::vec3:
+      case metadata::Type::float3:
         return GPU_VEC3;
-      case metadata::Type::vec4:
+      case metadata::Type::float4:
         return GPU_VEC4;
-      case metadata::Type::mat3:
+      case metadata::Type::float3x3:
         return GPU_MAT3;
-      case metadata::Type::mat4:
+      case metadata::Type::float4x4:
         return GPU_MAT4;
       case metadata::Type::sampler1DArray:
         return GPU_TEX1D_ARRAY;
@@ -151,170 +164,99 @@ struct GPUSource {
     return GPU_NONE;
   }
 
-  StringRef split_on(StringRef &data, char token)
-  {
-    /* Assume lines are terminated by `\n`. */
-    int64_t pos = data.find(token);
-    if (pos == StringRef::not_found) {
-      StringRef line = data;
-      data = data.substr(0, 0);
-      return line;
-    }
-    StringRef line = data.substr(0, pos);
-    data = data.substr(pos + 1);
-    return line;
-  }
-
-  StringRef pop_line(StringRef &data)
-  {
-    /* Assume lines are terminated by `\n`. */
-    return split_on(data, '\n');
-  }
-
-  StringRef pop_token(StringRef &data)
-  {
-    /* Assumes tokens are split by spaces. */
-    return split_on(data, ' ');
-  }
-
-  GPUSource(const char *path,
-            const char *file,
-            const char *datatoc,
-            GPUFunctionDictionnary *g_functions,
-            GPUPrintFormatMap *g_formats)
+  GPUSource(
+      const char *path,
+      const char *file,
+      const char *datatoc,
+      GPUFunctionDictionnary *g_functions,
+      GPUPrintFormatMap *g_formats,
+      std::function<void(GPUSource &, GPUFunctionDictionnary *, GPUPrintFormatMap *)> metadata_fn)
       : fullpath(path), filename(file), source(datatoc)
   {
-    /* Extract metadata string. */
-    int64_t sta = source.rfind("//__blender_metadata_sta");
-    int64_t end = source.rfind("//__blender_metadata_end");
-    StringRef metadata = source.substr(sta, end - sta);
-    pop_line(metadata);
-
-    /* Non-library files contains functions with unsupported argument types.
-     * Also Non-library files are not supposed to be referenced for GPU node-tree. */
-    const bool do_parse_function = is_from_material_library();
-
-    StringRef line;
-    while ((line = pop_line(metadata)).is_empty() == false) {
-      using namespace blender::gpu::shader;
-      /* Skip comment start. */
-      pop_token(line);
-
-      StringRef identifier = pop_token(line);
-      switch (uint64_t(std::stoull(identifier))) {
-        case Preprocessor::hash("function"):
-          if (do_parse_function) {
-            parse_function(line, g_functions);
-          }
-          break;
-        case Preprocessor::hash("string"):
-          parse_string(line, g_formats);
-          break;
-        case Preprocessor::hash("builtin"):
-          parse_builtin(line);
-          break;
-        case Preprocessor::hash("dependency"):
-          parse_dependency(line);
-          break;
-        default:
-          BLI_assert_unreachable();
-          break;
-      }
-    }
+    metadata_fn(*this, g_functions, g_formats);
   };
 
-  void parse_builtin(StringRef line)
+  void add_builtin(shader::metadata::Builtin builtin)
   {
-    builtins |= parse_builtin_bit(pop_token(line));
+    builtins |= convert_builtin_bit(builtin);
   }
 
-  void parse_dependency(StringRef line)
+  void add_dependency(StringRef line)
   {
     dependencies_names.append(line);
   }
 
-  void parse_string(StringRef line, GPUPrintFormatMap *format_map)
+  void add_printf_format(uint32_t format_hash, std::string format, GPUPrintFormatMap *format_map)
   {
     /* TODO(fclem): Move this to gpu log. */
-    auto add_format = [&](uint32_t format_hash, std::string format) {
-      if (format_map->contains(format_hash)) {
-        if (format_map->lookup(format_hash).format_str != format) {
-          print_error(format, 0, "printf format hash collision.");
-        }
-        else {
-          /* The format map already have the same format. */
-        }
+    if (format_map->contains(format_hash)) {
+      if (format_map->lookup(format_hash).format_str != format) {
+        print_error(format, 0, "printf format hash collision.");
       }
       else {
-        shader::PrintfFormat fmt;
-        /* Save for hash collision comparison. */
-        fmt.format_str = format;
-
-        /* Escape characters replacement. Do the most common ones. */
-        format = std::regex_replace(format, std::regex(R"(\\n)"), "\n");
-        format = std::regex_replace(format, std::regex(R"(\\v)"), "\v");
-        format = std::regex_replace(format, std::regex(R"(\\t)"), "\t");
-        format = std::regex_replace(format, std::regex(R"(\\')"), "\'");
-        format = std::regex_replace(format, std::regex(R"(\\")"), "\"");
-        format = std::regex_replace(format, std::regex(R"(\\\\)"), "\\");
-
-        shader::PrintfFormat::Block::ArgumentType type =
-            shader::PrintfFormat::Block::ArgumentType::NONE;
-        int64_t start = 0, end = 0;
-        while ((end = format.find_first_of('%', start + 1)) != -1) {
-          /* Add the previous block without the newly found % character. */
-          fmt.format_blocks.append({type, format.substr(start, end - start)});
-          /* Format type of the next block. */
-          /* TODO(fclem): This doesn't support advance formats like `%3.2f`. */
-          switch (format[end + 1]) {
-            case 'x':
-            case 'u':
-              type = shader::PrintfFormat::Block::ArgumentType::UINT;
-              break;
-            case 'd':
-              type = shader::PrintfFormat::Block::ArgumentType::INT;
-              break;
-            case 'f':
-              type = shader::PrintfFormat::Block::ArgumentType::FLOAT;
-              break;
-            default:
-              BLI_assert_msg(0, "Printing format unsupported");
-              break;
-          }
-          /* Start of the next block. */
-          start = end;
-        }
-        fmt.format_blocks.append({type, format.substr(start, format.size() - start)});
-
-        format_map->add(format_hash, fmt);
+        /* The format map already have the same format. */
       }
-    };
+    }
+    else {
+      shader::PrintfFormat fmt;
+      /* Save for hash collision comparison. */
+      fmt.format_str = format;
 
-    StringRef hash = pop_token(line);
-    StringRef string = line;
-    add_format(uint32_t(std::stoul(hash)), string);
+      /* Escape characters replacement. Do the most common ones. */
+      format = std::regex_replace(format, std::regex(R"(\\n)"), "\n");
+      format = std::regex_replace(format, std::regex(R"(\\v)"), "\v");
+      format = std::regex_replace(format, std::regex(R"(\\t)"), "\t");
+      format = std::regex_replace(format, std::regex(R"(\\')"), "\'");
+      format = std::regex_replace(format, std::regex(R"(\\")"), "\"");
+      format = std::regex_replace(format, std::regex(R"(\\\\)"), "\\");
+
+      shader::PrintfFormat::Block::ArgumentType type =
+          shader::PrintfFormat::Block::ArgumentType::NONE;
+      int64_t start = 0, end = 0;
+      while ((end = format.find_first_of('%', start + 1)) != -1) {
+        /* Add the previous block without the newly found % character. */
+        fmt.format_blocks.append({type, format.substr(start, end - start)});
+        /* Format type of the next block. */
+        /* TODO(fclem): This doesn't support advance formats like `%3.2f`. */
+        switch (format[end + 1]) {
+          case 'x':
+          case 'u':
+            type = shader::PrintfFormat::Block::ArgumentType::UINT;
+            break;
+          case 'd':
+            type = shader::PrintfFormat::Block::ArgumentType::INT;
+            break;
+          case 'f':
+            type = shader::PrintfFormat::Block::ArgumentType::FLOAT;
+            break;
+          default:
+            BLI_assert_msg(0, "Printing format unsupported");
+            break;
+        }
+        /* Start of the next block. */
+        start = end;
+      }
+      fmt.format_blocks.append({type, format.substr(start, format.size() - start)});
+
+      format_map->add(format_hash, fmt);
+    }
   }
 
-  void parse_function(StringRef line, GPUFunctionDictionnary *g_functions)
+  void add_function(StringRefNull name,
+                    Span<shader::metadata::ArgumentFormat> arguments,
+                    GPUFunctionDictionnary *g_functions)
   {
-    StringRef name = pop_token(line);
-
     GPUFunction *func = MEM_new<GPUFunction>(__func__);
     name.copy_utf8_truncated(func->name, sizeof(func->name));
     func->source = reinterpret_cast<void *>(this);
     func->totparam = 0;
-    while (true) {
-      StringRef arg_qual = pop_token(line);
-      StringRef arg_type = pop_token(line);
-      if (arg_qual.is_empty()) {
-        break;
-      }
+    for (auto arg : arguments) {
       if (func->totparam >= ARRAY_SIZE(func->paramtype)) {
         print_error(source, source.find(name), "Too many parameters in function");
         break;
       }
-      func->paramqual[func->totparam] = parse_qualifier(arg_qual);
-      func->paramtype[func->totparam] = parse_type(arg_type);
+      func->paramqual[func->totparam] = convert_qualifier(arg.qualifier);
+      func->paramtype[func->totparam] = convert_type(arg.type);
       func->totparam++;
     }
 
@@ -360,8 +302,7 @@ struct GPUSource {
   }
 
   /* Return 1 one error. */
-  int init_dependencies(const GPUSourceDictionnary &dict,
-                        const GPUFunctionDictionnary &g_functions)
+  int init_dependencies(const GPUSourceDictionnary &dict)
   {
     if (this->dependencies_init) {
       return 0;
@@ -374,7 +315,7 @@ struct GPUSource {
       dependencies.append_non_duplicates(dict.lookup("gpu_shader_print_lib.glsl"));
     }
     if ((builtins & BuiltinBits::USE_DEBUG_DRAW) == BuiltinBits::USE_DEBUG_DRAW) {
-      dependencies.append_non_duplicates(dict.lookup("common_debug_draw_lib.glsl"));
+      dependencies.append_non_duplicates(dict.lookup("draw_debug_draw_lib.glsl"));
     }
 
     for (auto dependency_name : dependencies_names) {
@@ -386,7 +327,7 @@ struct GPUSource {
       }
 
       /* Recursive. */
-      int result = dependency_source->init_dependencies(dict, g_functions);
+      int result = dependency_source->init_dependencies(dict);
       if (result != 0) {
         return 1;
       }
@@ -400,13 +341,61 @@ struct GPUSource {
     return 0;
   }
 
+  void source_get(Vector<StringRefNull> &result,
+                  const shader::GeneratedSourceList &generated_sources,
+                  const GPUSourceDictionnary &dict) const
+  {
+    /* Check if this file was already included. */
+    for (const StringRefNull &source_content : result) {
+      /* Yes, compare pointer instead of string for speed.
+       * Each source is guaranteed to be unique and non-moving during the building process. */
+      if (source_content.c_str() == this->source.c_str()) {
+        /* Already included. */
+        return;
+      }
+    }
+
+    if (!bool(this->builtins & shader::BuiltinBits::RUNTIME_GENERATED)) {
+      result.append(this->source);
+      return;
+    }
+
+    /* Linear lookup since we won't have more than a few per shaders.
+     * Also avoid the complexity of a Map in info creation. */
+    for (const shader::GeneratedSource &generated_src : generated_sources) {
+      if (generated_src.filename == this->filename) {
+        /* Include dependencies before the generated file. */
+        for (auto dependency_name : generated_src.dependencies) {
+          BLI_assert_msg(dependency_name != this->filename, "Recursive include");
+
+          GPUSource *dependency_source = dict.lookup_default(dependency_name, nullptr);
+          if (dependency_source == nullptr) {
+            /* Will certainly fail compilation. But avoid crashing the application. */
+            std::cerr << "Generated dependency not found : " + dependency_name << std::endl;
+            return;
+          }
+          dependency_source->build(result, generated_sources, dict);
+        }
+
+        result.append(generated_src.content);
+        return;
+      }
+    }
+
+    std::cerr << "warn: Generated source not provided. Using fallback for : " << this->filename
+              << std::endl;
+    result.append(this->source);
+  }
+
   /* Returns the final string with all includes done. */
-  void build(Vector<StringRefNull> &result) const
+  void build(Vector<StringRefNull> &result,
+             const shader::GeneratedSourceList &generated_sources,
+             const GPUSourceDictionnary &dict) const
   {
     for (auto *dep : dependencies) {
-      result.append(dep->source);
+      dep->source_get(result, generated_sources, dict);
     }
-    result.append(source);
+    source_get(result, generated_sources, dict);
   }
 
   shader::BuiltinBits builtins_get() const
@@ -427,6 +416,18 @@ struct GPUSource {
   }
 };
 
+namespace shader {
+
+#include "glsl_compositor_metadata_list.hh"
+#include "glsl_draw_metadata_list.hh"
+#include "glsl_gpu_metadata_list.hh"
+#include "glsl_ocio_metadata_list.hh"
+#ifdef WITH_OPENSUBDIV
+#  include "glsl_osd_metadata_list.hh"
+#endif
+
+}  // namespace shader
+
 }  // namespace blender::gpu
 
 using namespace blender::gpu;
@@ -442,30 +443,38 @@ void gpu_shader_dependency_init()
   g_sources = new GPUSourceDictionnary();
   g_functions = new GPUFunctionDictionnary();
 
-#define SHADER_SOURCE(datatoc, filename, filepath) \
-  g_sources->add_new(filename, new GPUSource(filepath, filename, datatoc, g_functions, g_formats));
+#define SHADER_SOURCE(filename_underscore, filename, filepath) \
+  g_sources->add_new(filename, \
+                     new GPUSource(filepath, \
+                                   filename, \
+                                   datatoc_##filename_underscore, \
+                                   g_functions, \
+                                   g_formats, \
+                                   blender::gpu::shader::metadata_##filename_underscore));
+
 #include "glsl_compositor_source_list.h"
 #include "glsl_draw_source_list.h"
 #include "glsl_gpu_source_list.h"
-#ifdef WITH_OCIO
-#  include "glsl_ocio_source_list.h"
+#include "glsl_ocio_source_list.h"
+#ifdef WITH_OPENSUBDIV
+#  include "glsl_osd_source_list.h"
 #endif
 #undef SHADER_SOURCE
 #ifdef WITH_OPENSUBDIV
   const blender::StringRefNull patch_basis_source = openSubdiv_getGLSLPatchBasisSource();
-  static std::string osd_patch_basis_glsl =
-      "//__blender_metadata_sta\n//__blender_metadata_end\n" + patch_basis_source;
-  g_sources->add_new("osd_patch_basis.glsl",
-                     new GPUSource("osd_patch_basis.glsl",
-                                   "osd_patch_basis.glsl",
-                                   osd_patch_basis_glsl.c_str(),
-                                   g_functions,
-                                   g_formats));
+  g_sources->add_new(
+      "osd_patch_basis.glsl",
+      new GPUSource("osd_patch_basis.glsl",
+                    "osd_patch_basis.glsl",
+                    patch_basis_source.c_str(),
+                    g_functions,
+                    g_formats,
+                    [](GPUSource &, GPUFunctionDictionnary *, GPUPrintFormatMap *) {}));
 #endif
 
   int errors = 0;
   for (auto *value : g_sources->values()) {
-    errors += value->init_dependencies(*g_sources, *g_functions);
+    errors += value->init_dependencies(*g_sources);
   }
   BLI_assert_msg(errors == 0, "Dependency errors detected: Aborting");
   UNUSED_VARS_NDEBUG(errors);
@@ -484,6 +493,18 @@ void gpu_shader_dependency_init()
     }
   }
 #endif
+
+  if (GCaps.line_directive_workaround) {
+    for (auto *value : g_sources->values()) {
+      value->patched_source = value->source;
+      value->source = value->patched_source.c_str();
+      size_t start_pos = 0;
+      while ((start_pos = value->patched_source.find("#line ", start_pos)) != std::string::npos) {
+        value->patched_source[start_pos] = '/';
+        value->patched_source[start_pos + 1] = '/';
+      }
+    }
+  }
 }
 
 void gpu_shader_dependency_exit()
@@ -546,14 +567,14 @@ BuiltinBits gpu_shader_dependency_get_builtins(const StringRefNull shader_source
 }
 
 Vector<StringRefNull> gpu_shader_dependency_get_resolved_source(
-    const StringRefNull shader_source_name)
+    const StringRefNull shader_source_name, const shader::GeneratedSourceList &generated_sources)
 {
   Vector<StringRefNull> result;
   GPUSource *src = g_sources->lookup_default(shader_source_name, nullptr);
   if (src == nullptr) {
     std::cerr << "Error source not found : " << shader_source_name << std::endl;
   }
-  src->build(result);
+  src->build(result, generated_sources, *g_sources);
   return result;
 }
 

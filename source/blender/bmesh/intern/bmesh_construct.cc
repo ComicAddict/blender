@@ -421,7 +421,7 @@ static BMFace *bm_mesh_copy_new_face(BMesh *bm_new,
   CustomData_bmesh_copy_block(bm_new->pdata, face_map, f->head.data, &f_new->head.data);
   copy_v3_v3(f_new->no, f->no);
   f_new->mat_nr = f->mat_nr;
-  f_new->head.hflag = f->head.hflag; /* low level! don't do this for normal api use */
+  f_new->head.hflag = f->head.hflag; /* Low level! don't do this for normal API use. */
 
   j = 0;
   l_iter = l_first = BM_FACE_FIRST_LOOP(f_new);
@@ -572,19 +572,16 @@ BMesh *BM_mesh_copy(BMesh *bm_old)
   const BMCustomDataCopyMap loop_map = CustomData_bmesh_copy_map_calc(bm_old->ldata,
                                                                       bm_new->ldata);
 
-  vtable = static_cast<BMVert **>(
-      MEM_mallocN(sizeof(BMVert *) * bm_old->totvert, "BM_mesh_copy vtable"));
-  etable = static_cast<BMEdge **>(
-      MEM_mallocN(sizeof(BMEdge *) * bm_old->totedge, "BM_mesh_copy etable"));
-  ftable = static_cast<BMFace **>(
-      MEM_mallocN(sizeof(BMFace *) * bm_old->totface, "BM_mesh_copy ftable"));
+  vtable = MEM_malloc_arrayN<BMVert *>(bm_old->totvert, "BM_mesh_copy vtable");
+  etable = MEM_malloc_arrayN<BMEdge *>(bm_old->totedge, "BM_mesh_copy etable");
+  ftable = MEM_malloc_arrayN<BMFace *>(bm_old->totface, "BM_mesh_copy ftable");
 
   BM_ITER_MESH_INDEX (v, &iter, bm_old, BM_VERTS_OF_MESH, i) {
     /* copy between meshes so can't use 'example' argument */
     v_new = BM_vert_create(bm_new, v->co, nullptr, BM_CREATE_SKIP_CD);
     CustomData_bmesh_copy_block(bm_new->vdata, vert_map, v->head.data, &v_new->head.data);
     copy_v3_v3(v_new->no, v->no);
-    v_new->head.hflag = v->head.hflag; /* low level! don't do this for normal api use */
+    v_new->head.hflag = v->head.hflag; /* Low level! don't do this for normal API use. */
     vtable[i] = v_new;
     BM_elem_index_set(v, i);     /* set_inline */
     BM_elem_index_set(v_new, i); /* set_inline */
@@ -603,7 +600,7 @@ BMesh *BM_mesh_copy(BMesh *bm_old)
                            BM_CREATE_SKIP_CD);
 
     CustomData_bmesh_copy_block(bm_new->edata, edge_map, e->head.data, &e_new->head.data);
-    e_new->head.hflag = e->head.hflag; /* low level! don't do this for normal api use */
+    e_new->head.hflag = e->head.hflag; /* Low level! don't do this for normal API use. */
     etable[i] = e_new;
     BM_elem_index_set(e, i);     /* set_inline */
     BM_elem_index_set(e_new, i); /* set_inline */
@@ -628,7 +625,7 @@ BMesh *BM_mesh_copy(BMesh *bm_old)
   bm_old->elem_index_dirty &= ~BM_FACE;
   bm_new->elem_index_dirty &= ~BM_FACE;
 
-  /* low level! don't do this for normal api use */
+  /* Low level! don't do this for normal API use. */
   bm_new->totvertsel = bm_old->totvertsel;
   bm_new->totedgesel = bm_old->totedgesel;
   bm_new->totfacesel = bm_old->totfacesel;

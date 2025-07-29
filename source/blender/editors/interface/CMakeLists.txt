@@ -55,7 +55,6 @@ set(SRC
   interface_string_search.cc
   interface_style.cc
   templates/interface_template_asset_shelf_popover.cc
-  templates/interface_template_asset_view.cc
   templates/interface_template_attribute_search.cc
   templates/interface_template_bone_collection_tree.cc
   templates/interface_template_cache_file.cc
@@ -67,6 +66,7 @@ set(SRC
   templates/interface_template_curve_mapping.cc
   templates/interface_template_curve_profile.cc
   templates/interface_template_event.cc
+  templates/interface_template_grease_pencil_layer_search.cc
   templates/interface_template_grease_pencil_layer_tree.cc
   templates/interface_template_icon.cc
   templates/interface_template_id.cc

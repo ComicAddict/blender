@@ -9,7 +9,7 @@
 #include "node_shader_util.hh"
 #include "node_util.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 namespace blender::nodes::node_shader_vector_transform_cc {
@@ -26,19 +26,15 @@ static void node_declare(NodeDeclarationBuilder &b)
 
 static void node_shader_buts_vect_transform(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout,
-          ptr,
-          "vector_type",
-          UI_ITEM_R_SPLIT_EMPTY_NAME | UI_ITEM_R_EXPAND,
-          std::nullopt,
-          ICON_NONE);
-  uiItemR(layout, ptr, "convert_from", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
-  uiItemR(layout, ptr, "convert_to", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  layout->prop(
+      ptr, "vector_type", UI_ITEM_R_SPLIT_EMPTY_NAME | UI_ITEM_R_EXPAND, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "convert_from", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  layout->prop(ptr, "convert_to", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
 }
 
 static void node_shader_init_vect_transform(bNodeTree * /*ntree*/, bNode *node)
 {
-  NodeShaderVectTransform *vect = MEM_cnew<NodeShaderVectTransform>("NodeShaderVectTransform");
+  NodeShaderVectTransform *vect = MEM_callocN<NodeShaderVectTransform>("NodeShaderVectTransform");
 
   /* Convert World into Object Space per default */
   vect->convert_to = 1;
@@ -103,7 +99,7 @@ static int gpu_shader_vect_transform(GPUMaterial *mat,
     inputlink = in[0].link;
   }
   else {
-    inputlink = GPU_constant(in[0].vec);
+    inputlink = GPU_uniform(in[0].vec);
   }
 
   const bool is_direction = (nodeprop->type != SHD_VECT_TRANSFORM_TYPE_POINT);

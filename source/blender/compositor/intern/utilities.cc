@@ -2,6 +2,8 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
+#include <optional>
+
 #include "BLI_assert.h"
 #include "BLI_math_vector.hh"
 #include "BLI_math_vector_types.hh"
@@ -22,6 +24,11 @@ namespace blender::compositor {
 using namespace nodes::derived_node_tree_types;
 using TargetSocketPathInfo = DOutputSocket::TargetSocketPathInfo;
 
+bool is_socket_available(const bNodeSocket *socket)
+{
+  return socket->is_available() && StringRef(socket->idname) != "NodeSocketVirtual";
+}
+
 DSocket get_input_origin_socket(DInputSocket input)
 {
   /* The input is unlinked. Return the socket itself. */
@@ -32,6 +39,13 @@ DSocket get_input_origin_socket(DInputSocket input)
   /* Only a single origin socket is guaranteed to exist. */
   DSocket socket;
   input.foreach_origin_socket([&](const DSocket origin) { socket = origin; });
+
+  /* The origin socket might be null if it is an output of a group node whose group has no Group
+   * Output node. The input is thus considered to be unlinked logically. */
+  if (!socket) {
+    return input;
+  }
+
   return socket;
 }
 
@@ -51,24 +65,47 @@ DOutputSocket get_output_linked_to_input(DInputSocket input)
   return DOutputSocket(origin);
 }
 
-ResultType get_node_socket_result_type(const bNodeSocket *socket)
+ResultType socket_data_type_to_result_type(const eNodeSocketDatatype data_type,
+                                           const std::optional<int> dimensions)
 {
-  switch (socket->type) {
+  switch (data_type) {
     case SOCK_FLOAT:
       return ResultType::Float;
     case SOCK_INT:
       return ResultType::Int;
+    case SOCK_BOOLEAN:
+      return ResultType::Bool;
     case SOCK_VECTOR:
-      /* Vector sockets can also be ResultType::Float4 or ResultType::Float2, but the
-       * developer is expected to define that manually since there is no way to distinguish them
-       * from the socket. */
-      return ResultType::Float3;
+      switch (dimensions.value_or(3)) {
+        case 2:
+          return ResultType::Float2;
+        case 3:
+          return ResultType::Float3;
+        case 4:
+          return ResultType::Float4;
+        default:
+          BLI_assert_unreachable();
+          return ResultType::Float;
+      }
     case SOCK_RGBA:
       return ResultType::Color;
+    case SOCK_MENU:
+      return ResultType::Menu;
     default:
       BLI_assert_unreachable();
       return ResultType::Float;
   }
+}
+
+ResultType get_node_socket_result_type(const bNodeSocket *socket)
+{
+  const eNodeSocketDatatype socket_type = static_cast<eNodeSocketDatatype>(socket->type);
+  if (socket_type == SOCK_VECTOR) {
+    return socket_data_type_to_result_type(
+        socket_type, socket->default_value_typed<bNodeSocketValueVector>()->dimensions);
+  }
+
+  return socket_data_type_to_result_type(socket_type);
 }
 
 bool is_output_linked_to_node_conditioned(DOutputSocket output, FunctionRef<bool(DNode)> condition)
@@ -107,22 +144,49 @@ bool is_pixel_node(DNode node)
   return node->typeinfo->gpu_fn && node->typeinfo->build_multi_function;
 }
 
+static ImplicitInput get_implicit_input(const nodes::SocketDeclaration *socket_declaration)
+{
+  /* We only support implicit textures coordinates, though this can be expanded in the future. */
+  if (socket_declaration->input_field_type == nodes::InputSocketFieldType::Implicit) {
+    return ImplicitInput::TextureCoordinates;
+  }
+  return ImplicitInput::None;
+}
+
+static int get_domain_priority(const bNodeSocket *input,
+                               const nodes::SocketDeclaration *socket_declaration)
+{
+  /* Negative priority means no priority is set and we fall back to the index, that is, we
+   * prioritize inputs according to their order. */
+  if (socket_declaration->compositor_domain_priority() < 0) {
+    return input->index();
+  }
+  return socket_declaration->compositor_domain_priority();
+}
+
 InputDescriptor input_descriptor_from_input_socket(const bNodeSocket *socket)
 {
   using namespace nodes;
   InputDescriptor input_descriptor;
   input_descriptor.type = get_node_socket_result_type(socket);
-  const NodeDeclaration *node_declaration = socket->owner_node().declaration();
+
+  /* Default to the index of the input as its domain priority in case the node does not have a
+   * declaration. */
+  input_descriptor.domain_priority = socket->index();
+
   /* Not every node has a declaration, in which case we assume the default values for the rest of
    * the properties. */
+  const NodeDeclaration *node_declaration = socket->owner_node().declaration();
   if (!node_declaration) {
     return input_descriptor;
   }
   const SocketDeclaration *socket_declaration = node_declaration->inputs[socket->index()];
-  input_descriptor.domain_priority = socket_declaration->compositor_domain_priority();
-  input_descriptor.expects_single_value = socket_declaration->compositor_expects_single_value();
+  input_descriptor.domain_priority = get_domain_priority(socket, socket_declaration);
+  input_descriptor.expects_single_value = socket_declaration->structure_type ==
+                                          StructureType::Single;
   input_descriptor.realization_mode = static_cast<InputRealizationMode>(
       socket_declaration->compositor_realization_mode());
+  input_descriptor.implicit_input = get_implicit_input(socket_declaration);
 
   return input_descriptor;
 }
@@ -143,7 +207,7 @@ bool is_node_preview_needed(const DNode &node)
     return false;
   }
 
-  if (node->flag & NODE_HIDDEN) {
+  if (node->flag & NODE_COLLAPSED) {
     return false;
   }
 
@@ -164,6 +228,10 @@ DOutputSocket find_preview_output_socket(const DNode &node)
   }
 
   for (const bNodeSocket *output : node->output_sockets()) {
+    if (!is_socket_available(output)) {
+      continue;
+    }
+
     if (output->is_logically_linked()) {
       return DOutputSocket(node.context(), output);
     }

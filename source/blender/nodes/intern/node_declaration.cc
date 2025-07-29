@@ -5,7 +5,10 @@
 #include "NOD_node_declaration.hh"
 #include "NOD_socket_declarations.hh"
 #include "NOD_socket_declarations_geometry.hh"
+#include "NOD_socket_usage_inference.hh"
 
+#include "BLI_assert.h"
+#include "BLI_listbase.h"
 #include "BLI_utildefines.h"
 
 #include "BKE_geometry_fields.hh"
@@ -37,7 +40,7 @@ void build_node_declaration(const bke::bNodeType &typeinfo,
 void NodeDeclarationBuilder::build_remaining_anonymous_attribute_relations()
 {
   auto is_data_socket_decl = [](const SocketDeclaration *socket_decl) {
-    return dynamic_cast<const decl::Geometry *>(socket_decl);
+    return ELEM(socket_decl->socket_type, SOCK_GEOMETRY, SOCK_BUNDLE, SOCK_CLOSURE);
   };
 
   Vector<int> geometry_inputs;
@@ -93,6 +96,14 @@ void NodeDeclarationBuilder::build_remaining_anonymous_attribute_relations()
 void NodeDeclarationBuilder::finalize()
 {
   this->build_remaining_anonymous_attribute_relations();
+  if (is_function_node_) {
+    for (SocketDeclaration *socket_decl : declaration_.inputs) {
+      socket_decl->structure_type = StructureType::Dynamic;
+    }
+    for (SocketDeclaration *socket_decl : declaration_.outputs) {
+      socket_decl->structure_type = StructureType::Dynamic;
+    }
+  }
 #ifndef NDEBUG
   declaration_.assert_valid();
 #endif
@@ -353,6 +364,12 @@ static bool socket_type_to_static_decl_type(const eNodeSocketDatatype socket_typ
     case SOCK_MENU:
       fn(TypeTag<decl::Menu>());
       return true;
+    case SOCK_BUNDLE:
+      fn(TypeTag<decl::Bundle>());
+      return true;
+    case SOCK_CLOSURE:
+      fn(TypeTag<decl::Closure>());
+      return true;
     default:
       return false;
   }
@@ -515,6 +532,7 @@ BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::supports_field()
 {
   BLI_assert(this->is_input());
   decl_base_->input_field_type = InputSocketFieldType::IsSupported;
+  this->structure_type(StructureType::Field);
   return *this;
 }
 
@@ -525,6 +543,7 @@ BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::dependent_field(
   this->reference_pass(input_dependencies);
   decl_base_->output_field_dependency = OutputFieldDependency::ForPartiallyDependentField(
       std::move(input_dependencies));
+  this->structure_type(StructureType::Dynamic);
   return *this;
 }
 
@@ -588,6 +607,7 @@ BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::field_on(const Span<
       relations.available_relations.append(relation);
     }
   }
+  this->structure_type(StructureType::Field);
   return *this;
 }
 
@@ -634,6 +654,13 @@ BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::is_default_link_sock
   return *this;
 }
 
+BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::default_input_type(
+    const NodeDefaultInputType value)
+{
+  decl_base_->default_input_type = value;
+  return *this;
+}
+
 BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::field_on_all()
 {
   if (this->is_input()) {
@@ -643,6 +670,7 @@ BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::field_on_all()
     this->field_source();
   }
   field_on_all_ = true;
+  this->structure_type(StructureType::Field);
   return *this;
 }
 
@@ -650,31 +678,36 @@ BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::field_source()
 {
   BLI_assert(this->is_output());
   decl_base_->output_field_dependency = OutputFieldDependency::ForFieldSource();
+  this->structure_type(StructureType::Field);
   return *this;
 }
 
-BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::implicit_field(ImplicitInputValueFn fn)
+BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::implicit_field(
+    const NodeDefaultInputType default_input_type)
 {
   BLI_assert(this->is_input());
   this->hide_value();
+  this->structure_type(StructureType::Dynamic);
   decl_base_->input_field_type = InputSocketFieldType::Implicit;
-  decl_base_->implicit_input_fn = std::make_unique<ImplicitInputValueFn>(std::move(fn));
+  decl_base_->default_input_type = default_input_type;
   return *this;
 }
 
 BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::implicit_field_on_all(
-    ImplicitInputValueFn fn)
+    const NodeDefaultInputType default_input_type)
 {
-  this->implicit_field(fn);
+  this->implicit_field(default_input_type);
   field_on_all_ = true;
+  this->structure_type(StructureType::Field);
   return *this;
 }
 
 BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::implicit_field_on(
-    ImplicitInputValueFn fn, const Span<int> input_indices)
+    const NodeDefaultInputType default_input_type, const Span<int> input_indices)
 {
   this->field_on(input_indices);
-  this->implicit_field(fn);
+  this->implicit_field(default_input_type);
+  this->structure_type(StructureType::Field);
   return *this;
 }
 
@@ -682,6 +715,7 @@ BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::dependent_field()
 {
   BLI_assert(this->is_output());
   decl_base_->output_field_dependency = OutputFieldDependency::ForDependentField();
+  this->structure_type(StructureType::Dynamic);
   this->reference_pass_all();
   return *this;
 }
@@ -705,6 +739,14 @@ BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::propagate_all()
   return *this;
 }
 
+BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::propagate_all_instance_attributes()
+{
+  /* We can't distinguish between actually propagating everything or just instance attributes
+   * currently. It's still nice to be more explicit at the node declaration level. */
+  this->propagate_all();
+  return *this;
+}
+
 BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::compositor_realization_mode(
     CompositorInputRealizationMode value)
 {
@@ -715,14 +757,8 @@ BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::compositor_realizati
 BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::compositor_domain_priority(
     int priority)
 {
+  BLI_assert(priority >= 0);
   decl_base_->compositor_domain_priority_ = priority;
-  return *this;
-}
-
-BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::compositor_expects_single_value(
-    bool value)
-{
-  decl_base_->compositor_expects_single_value_ = value;
   return *this;
 }
 
@@ -733,9 +769,74 @@ BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::make_available(
   return *this;
 }
 
+BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::custom_draw(CustomSocketDrawFn fn)
+{
+  decl_base_->custom_draw_fn = std::make_unique<CustomSocketDrawFn>(std::move(fn));
+  return *this;
+}
+
+BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::usage_inference(
+    InputSocketUsageInferenceFn fn)
+{
+  decl_base_->usage_inference_fn = std::make_unique<InputSocketUsageInferenceFn>(std::move(fn));
+  return *this;
+}
+
+static const bNodeSocket &find_single_menu_input(const bNode &node)
+{
+#ifndef NDEBUG
+  int menu_input_count = 0;
+  /* Topology cache may not be available here and this function may be called while doing tree
+   * modifications. */
+  LISTBASE_FOREACH (bNodeSocket *, socket, &node.inputs) {
+    if (socket->type == SOCK_MENU) {
+      menu_input_count++;
+    }
+  }
+  BLI_assert(menu_input_count == 1);
+#endif
+
+  LISTBASE_FOREACH (bNodeSocket *, socket, &node.inputs) {
+    if (!socket->is_available()) {
+      continue;
+    }
+    if (socket->type != SOCK_MENU) {
+      continue;
+    }
+    return *socket;
+  }
+  BLI_assert_unreachable();
+  return node.input_socket(0);
+}
+
+BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::usage_by_single_menu(
+    const int menu_value)
+{
+  this->make_available([menu_value](bNode &node) {
+    bNodeSocket &socket = const_cast<bNodeSocket &>(find_single_menu_input(node));
+    bNodeSocketValueMenu *value = socket.default_value_typed<bNodeSocketValueMenu>();
+    value->value = menu_value;
+  });
+  this->usage_inference([menu_value](const socket_usage_inference::InputSocketUsageParams &params)
+                            -> std::optional<bool> {
+    const bNodeSocket &socket = find_single_menu_input(params.node);
+    return params.menu_input_may_be(socket.identifier, menu_value);
+  });
+  return *this;
+}
+
 BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::align_with_previous(const bool value)
 {
   decl_base_->align_with_previous_socket = value;
+  return *this;
+}
+
+BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::structure_type(
+    const StructureType structure_type)
+{
+  BLI_assert(NodeSocketInterfaceStructureType(structure_type) !=
+             NODE_INTERFACE_SOCKET_STRUCTURE_TYPE_AUTO);
+  decl_base_->structure_type = structure_type;
   return *this;
 }
 
@@ -762,6 +863,12 @@ BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::socket_name_ptr(
 BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::panel_toggle(const bool value)
 {
   decl_base_->is_panel_toggle = value;
+  return *this;
+}
+
+BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::is_layer_name(const bool value)
+{
+  decl_base_->is_layer_name = value;
   return *this;
 }
 
@@ -819,11 +926,6 @@ int SocketDeclaration::compositor_domain_priority() const
   return compositor_domain_priority_;
 }
 
-bool SocketDeclaration::compositor_expects_single_value() const
-{
-  return compositor_expects_single_value_;
-}
-
 void SocketDeclaration::make_available(bNode &node) const
 {
   if (make_available_fn_) {
@@ -837,6 +939,13 @@ PanelDeclarationBuilder &PanelDeclarationBuilder::description(std::string value)
   return *this;
 }
 
+PanelDeclarationBuilder &PanelDeclarationBuilder::translation_context(
+    std::optional<std::string> value)
+{
+  decl_->translation_context = value;
+  return *this;
+}
+
 PanelDeclarationBuilder &PanelDeclarationBuilder::default_closed(bool closed)
 {
   decl_->default_collapsed = closed;
@@ -845,34 +954,92 @@ PanelDeclarationBuilder &PanelDeclarationBuilder::default_closed(bool closed)
 
 namespace implicit_field_inputs {
 
-void position(const bNode & /*node*/, void *r_value)
+static void position(const bNode & /*node*/, void *r_value)
 {
-  new (r_value) bke::SocketValueVariant(bke::AttributeFieldInput::Create<float3>("position"));
+  bke::SocketValueVariant::ConstructIn(r_value,
+                                       bke::AttributeFieldInput::from<float3>("position"));
 }
 
-void normal(const bNode & /*node*/, void *r_value)
+static void normal(const bNode & /*node*/, void *r_value)
 {
-  new (r_value)
-      bke::SocketValueVariant(fn::Field<float3>(std::make_shared<bke::NormalFieldInput>()));
+  bke::SocketValueVariant::ConstructIn(
+      r_value, fn::Field<float3>(std::make_shared<bke::NormalFieldInput>()));
 }
 
-void index(const bNode & /*node*/, void *r_value)
+static void index(const bNode & /*node*/, void *r_value)
 {
-  new (r_value) bke::SocketValueVariant(fn::Field<int>(std::make_shared<fn::IndexFieldInput>()));
+  bke::SocketValueVariant::ConstructIn(r_value,
+                                       fn::Field<int>(std::make_shared<fn::IndexFieldInput>()));
 }
 
-void id_or_index(const bNode & /*node*/, void *r_value)
+static void id_or_index(const bNode & /*node*/, void *r_value)
 {
-  new (r_value)
-      bke::SocketValueVariant(fn::Field<int>(std::make_shared<bke::IDAttributeFieldInput>()));
+  bke::SocketValueVariant::ConstructIn(
+      r_value, fn::Field<int>(std::make_shared<bke::IDAttributeFieldInput>()));
 }
 
-void instance_transform(const bNode & /*node*/, void *r_value)
+static void instance_transform(const bNode & /*node*/, void *r_value)
 {
-  new (r_value)
-      bke::SocketValueVariant(bke::AttributeFieldInput::Create<float4x4>("instance_transform"));
+  bke::SocketValueVariant::ConstructIn(
+      r_value, bke::AttributeFieldInput::from<float4x4>("instance_transform"));
+}
+
+static void handle_left(const bNode & /*node*/, void *r_value)
+{
+  bke::SocketValueVariant::ConstructIn(r_value,
+                                       bke::AttributeFieldInput::from<float3>("handle_left"));
+}
+
+static void handle_right(const bNode & /*node*/, void *r_value)
+{
+  bke::SocketValueVariant::ConstructIn(r_value,
+                                       bke::AttributeFieldInput::from<float3>("handle_right"));
 }
 
 }  // namespace implicit_field_inputs
+
+std::optional<ImplicitInputValueFn> get_implicit_input_value_fn(const NodeDefaultInputType type)
+{
+  switch (type) {
+    case NODE_DEFAULT_INPUT_VALUE:
+      return std::nullopt;
+    case NODE_DEFAULT_INPUT_INDEX_FIELD:
+      return std::make_optional(implicit_field_inputs::index);
+    case NODE_DEFAULT_INPUT_ID_INDEX_FIELD:
+      return std::make_optional(implicit_field_inputs::id_or_index);
+    case NODE_DEFAULT_INPUT_NORMAL_FIELD:
+      return std::make_optional(implicit_field_inputs::normal);
+    case NODE_DEFAULT_INPUT_POSITION_FIELD:
+      return std::make_optional(implicit_field_inputs::position);
+    case NODE_DEFAULT_INPUT_INSTANCE_TRANSFORM_FIELD:
+      return std::make_optional(implicit_field_inputs::instance_transform);
+    case NODE_DEFAULT_INPUT_HANDLE_LEFT_FIELD:
+      return std::make_optional(implicit_field_inputs::handle_left);
+    case NODE_DEFAULT_INPUT_HANDLE_RIGHT_FIELD:
+      return std::make_optional(implicit_field_inputs::handle_right);
+  }
+  return std::nullopt;
+}
+
+bool socket_type_supports_default_input_type(const bke::bNodeSocketType &socket_type,
+                                             const NodeDefaultInputType input_type)
+{
+  const eNodeSocketDatatype stype = socket_type.type;
+  switch (input_type) {
+    case NODE_DEFAULT_INPUT_VALUE:
+      return true;
+    case NODE_DEFAULT_INPUT_ID_INDEX_FIELD:
+    case NODE_DEFAULT_INPUT_INDEX_FIELD:
+      return stype == SOCK_INT;
+    case NODE_DEFAULT_INPUT_NORMAL_FIELD:
+    case NODE_DEFAULT_INPUT_POSITION_FIELD:
+    case NODE_DEFAULT_INPUT_HANDLE_LEFT_FIELD:
+    case NODE_DEFAULT_INPUT_HANDLE_RIGHT_FIELD:
+      return stype == SOCK_VECTOR;
+    case NODE_DEFAULT_INPUT_INSTANCE_TRANSFORM_FIELD:
+      return stype == SOCK_MATRIX;
+  }
+  return false;
+}
 
 }  // namespace blender::nodes

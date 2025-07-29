@@ -28,8 +28,6 @@ SVMShaderManager::SVMShaderManager() = default;
 
 SVMShaderManager::~SVMShaderManager() = default;
 
-void SVMShaderManager::reset(Scene * /*scene*/) {}
-
 void SVMShaderManager::device_update_shader(Scene *scene,
                                             Shader *shader,
                                             Progress &progress,
@@ -45,9 +43,9 @@ void SVMShaderManager::device_update_shader(Scene *scene,
   compiler.background = (shader == scene->background->get_shader(scene));
   compiler.compile(shader, *svm_nodes, 0, &summary);
 
-  VLOG_WORK << "Compilation summary:\n"
-            << "Shader name: " << shader->name << "\n"
-            << summary.full_report();
+  LOG_WORK << "Compilation summary:\n"
+           << "Shader name: " << shader->name << "\n"
+           << summary.full_report();
 }
 
 void SVMShaderManager::device_update_specific(Device *device,
@@ -67,7 +65,7 @@ void SVMShaderManager::device_update_specific(Device *device,
 
   const int num_shaders = scene->shaders.size();
 
-  VLOG_INFO << "Total " << num_shaders << " shaders.";
+  LOG_INFO << "Total " << num_shaders << " shaders.";
 
   const double start_time = time_dt();
 
@@ -134,14 +132,12 @@ void SVMShaderManager::device_update_specific(Device *device,
     return;
   }
 
-  dscene->svm_nodes.copy_to_device();
-
   device_update_common(device, dscene, scene, progress);
 
   update_flags = UPDATE_NONE;
 
-  VLOG_INFO << "Shader manager updated " << num_shaders << " shaders in " << time_dt() - start_time
-            << " seconds.";
+  LOG_INFO << "Shader manager updated " << num_shaders << " shaders in " << time_dt() - start_time
+           << " seconds.";
 }
 
 void SVMShaderManager::device_free(Device *device, DeviceScene *dscene, Scene *scene)
@@ -221,9 +217,8 @@ int SVMCompiler::stack_find_offset(const int size)
 
   if (!compile_failed) {
     compile_failed = true;
-    fprintf(stderr,
-            "Cycles: out of SVM stack space, shader \"%s\" too big.\n",
-            current_shader->name.c_str());
+    LOG_ERROR << "Shader graph: out of SVM stack space, shader \"" << current_shader->name
+              << "\" too big.";
   }
 
   return 0;
@@ -500,7 +495,7 @@ void SVMCompiler::generate_closure_node(ShaderNode *node, CompilerState *state)
 {
   /* Skip generating closure that are not supported or needed for a particular
    * type of shader. For example a BSDF in a volume shader. */
-  const int node_feature = node->get_feature();
+  const uint node_feature = node->get_feature();
   if ((state->node_feature_mask & node_feature) != node_feature) {
     return;
   }
@@ -985,7 +980,7 @@ string SVMCompiler::Summary::full_report() const
   report += string_printf("Generate:            %f\n",
                           time_generate_surface + time_generate_bump + time_generate_volume +
                               time_generate_displacement);
-  report += string_printf("Total:               %f\n", time_total);
+  report += string_printf("Total:               %f", time_total);
 
   return report;
 }

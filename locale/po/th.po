@@ -1,17 +1,18 @@
 
 msgid ""
 msgstr ""
-"Project-Id-Version: Blender 4.4.0 Beta (b'63c460d93d55')\n"
+"Project-Id-Version: Blender 5.0.0 Alpha (b'a775d58b2e0e')\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-02-24 09:56+0000\n"
-"PO-Revision-Date: 2019-12-08 17:40+0700\n"
-"Last-Translator: gongpha <gongpha@gmail.com>\n"
-"Language-Team: Thai Translation Team <gongpha@gmail.com>\n"
+"POT-Creation-Date: 2025-07-21 08:48+0000\n"
+"PO-Revision-Date: 2025-04-14 08:42+0000\n"
+"Last-Translator: Anonymous <noreply@weblate.org>\n"
+"Language-Team: Thai <https://translate.blender.org/projects/blender-ui/ui/th/>\n"
 "Language: th\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"X-Generator: Poedit 2.2.4"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Generator: Weblate 5.10.1"
 
 
 msgid "Name"
@@ -397,6 +398,22 @@ msgid "In Range"
 msgstr "ในระยะ"
 
 
+msgid "Opacity"
+msgstr "ความทึบแสง"
+
+
+msgid "Frames"
+msgstr "เฟรม"
+
+
+msgid "Info"
+msgstr "ข้อมูล"
+
+
+msgid "Default"
+msgstr "ค่าเริ่มต้น"
+
+
 msgid "Height"
 msgstr "สูง"
 
@@ -439,10 +456,6 @@ msgstr "ตัวแก้ไขข้อความ"
 
 msgid "Python Console"
 msgstr "คอนโซล Python"
-
-
-msgid "Info"
-msgstr "ข้อมูล"
 
 
 msgid "Top Bar"
@@ -629,6 +642,10 @@ msgid "Volume"
 msgstr "ปริมาตร"
 
 
+msgid "Wire"
+msgstr "เส้น"
+
+
 msgid "Head"
 msgstr "หัว"
 
@@ -672,10 +689,6 @@ msgstr "สีจุดยอด"
 
 msgid "All"
 msgstr "ทั้งหมด"
-
-
-msgid "Opacity"
-msgstr "ความทึบแสง"
 
 
 msgid "Stretch"
@@ -824,10 +837,6 @@ msgstr "กลับค่า Y"
 
 msgid "Invert Z"
 msgstr "กลับค่า Z"
-
-
-msgid "Default"
-msgstr "ค่าเริ่มต้น"
 
 
 msgid "Camera"
@@ -1166,10 +1175,6 @@ msgid "Use"
 msgstr "ใช้"
 
 
-msgid "Frames"
-msgstr "เฟรม"
-
-
 msgid "Grid"
 msgstr "ตาราง"
 
@@ -1186,16 +1191,16 @@ msgid "Tools"
 msgstr "เครื่องมือ"
 
 
-msgid "Translation"
-msgstr "แปลภาษา"
-
-
 msgid "Reverse"
 msgstr "ย้อนกลับ"
 
 
 msgid "Repeat"
 msgstr "ทำซ้ำ"
+
+
+msgid "Translation"
+msgstr "แปลภาษา"
 
 
 msgid "Red Green Blue"
@@ -1217,10 +1222,6 @@ msgstr "ผู้ใช้"
 
 msgid "Layers"
 msgstr "ชั้น"
-
-
-msgid "Wire"
-msgstr "เส้น"
 
 
 msgid "Add Alpha"
@@ -1693,10 +1694,6 @@ msgid "Filter Size"
 msgstr "ขนาดของตัวกรอง"
 
 
-msgid "Area"
-msgstr "พื้นที่"
-
-
 msgid "Repeat X"
 msgstr "ซ้ำ X"
 
@@ -1864,12 +1861,24 @@ msgid "Mask"
 msgstr "หน้ากาก"
 
 
-msgid "Mirror"
-msgstr "กระจกสะท้อน"
+msgid "Pivot Point"
+msgstr "จุดหมุน"
 
 
 msgid "Snap"
 msgstr "ยึดติด"
+
+
+msgid "Proportional Editing Falloff"
+msgstr "แก้ไข"
+
+
+msgid "Mask Edit"
+msgstr "การแก้ไขหน้ากาก"
+
+
+msgid "Mirror"
+msgstr "กระจกสะท้อน"
 
 
 msgid "Local View"
@@ -1936,18 +1945,6 @@ msgid "Text"
 msgstr "ช้อความ"
 
 
-msgid "Pivot Point"
-msgstr "จุดหมุน"
-
-
-msgid "Proportional Editing Falloff"
-msgstr "แก้ไข"
-
-
-msgid "Mask Edit"
-msgstr "การแก้ไขหน้ากาก"
-
-
 msgid "Zoom"
 msgstr "ซูม"
 
@@ -1962,6 +1959,11 @@ msgstr "ไฟล์"
 
 msgid "UV"
 msgstr "UV"
+
+
+msgctxt "Operator"
+msgid "Mirror"
+msgstr "กระจกสะท้อน"
 
 
 msgid "Math"
@@ -2240,24 +2242,16 @@ msgid "Total"
 msgstr "รวม"
 
 
+msgid "Starting"
+msgstr "กำลังเริ่มต้น"
+
+
 msgid "Outputs"
 msgstr "ผลลัพธ์"
 
 
 msgid "YCbCr"
 msgstr "YCbCr"
-
-
-msgid "High"
-msgstr "สูง"
-
-
-msgid "Low"
-msgstr "ต่ำ"
-
-
-msgid "S"
-msgstr "S"
 
 
 msgid "To"
@@ -2268,12 +2262,16 @@ msgid "RGB Curves"
 msgstr "เส้นโค้ง RGB"
 
 
+msgid "High"
+msgstr "สูง"
+
+
 msgid "High quality"
 msgstr "คุณภาพสูง"
 
 
-msgid "Rotate 45"
-msgstr "หมุน 45"
+msgid "Low"
+msgstr "ต่ำ"
 
 
 msgid "Red Channel"
@@ -2286,10 +2284,6 @@ msgstr "RGB ไปยัง BW"
 
 msgid "Rotate"
 msgstr "หมุน"
-
-
-msgid "Ray Length"
-msgstr "ความยาวรังสี"
 
 
 msgid "Translate"
@@ -2546,14 +2540,6 @@ msgstr "คอลเลกชันฉาก"
 
 msgid "Lamp"
 msgstr "แสงไฟ"
-
-
-msgid "Path Mode"
-msgstr "โหมดเส้นทาง"
-
-
-msgid "Match"
-msgstr "จับคู่"
 
 
 msgid "-X Axis"
@@ -2997,11 +2983,6 @@ msgid "Palette"
 msgstr "จานสี"
 
 
-msgctxt "Operator"
-msgid "Mirror"
-msgstr "กระจกสะท้อน"
-
-
 msgid "Axis Lock"
 msgstr "ล็อกแกน"
 
@@ -3206,10 +3187,6 @@ msgid "Remove"
 msgstr "ลบ"
 
 
-msgid "Selection Only"
-msgstr "เลือกเท่านั้น"
-
-
 msgctxt "Operator"
 msgid "Quit Blender"
 msgstr "ออกจาก Blender"
@@ -3253,6 +3230,10 @@ msgstr "หน้าเริ่มต้น"
 
 msgid "Open the splash screen with release info"
 msgstr "เปิดหน้าเริ่มต้นพร้อมกับข้อมูลการปล่อยให้ใช้งาน"
+
+
+msgid "Selection Only"
+msgstr "เลือกเท่านั้น"
 
 
 msgid "Show Brush"
@@ -3604,6 +3585,14 @@ msgid "Pivot around active object"
 msgstr "หมุนรอบ ๆ วัตถุที่กำลังถูกใช้งาน"
 
 
+msgid "Shader Editor"
+msgstr "ตัวแก้ไขเชดเดอร์"
+
+
+msgid "Texture Node Editor"
+msgstr "ตัวแก้ไขโนดพื้นผิว"
+
+
 msgid "Data API"
 msgstr "API ข้อมูล"
 
@@ -3648,6 +3637,10 @@ msgid "3D"
 msgstr "สามมิติ"
 
 
+msgid "Text Info"
+msgstr "ข้อมูลข้อความ"
+
+
 msgctxt "Sequence"
 msgid "Image"
 msgstr "ภาพ"
@@ -3685,8 +3678,8 @@ msgid "Preview Background"
 msgstr "พื้นหลังตัวอย่าง"
 
 
-msgid "Region Text"
-msgstr "ขอบเขตข้อความ"
+msgid "Panel Title"
+msgstr "ชื่อแผง"
 
 
 msgid "Text Cursor"
@@ -4017,6 +4010,10 @@ msgstr "เอนจินเรนเดอร์"
 
 msgid "Calculate"
 msgstr "คำนวณ"
+
+
+msgid "Match"
+msgstr "จับคู่"
 
 
 msgctxt "Operator"
@@ -4422,10 +4419,6 @@ msgid "B"
 msgstr "B"
 
 
-msgid "Panel Title"
-msgstr "ชื่อแผง"
-
-
 msgid "Render Output"
 msgstr "ผลลัพธ์การเรนเดอร์"
 
@@ -4682,10 +4675,6 @@ msgid "Bones"
 msgstr "กระดูก"
 
 
-msgid "Text Info"
-msgstr "ข้อมูลข้อความ"
-
-
 msgid "Origins"
 msgstr "จุดกำเนิด"
 
@@ -4843,6 +4832,10 @@ msgid "Reset Curve"
 msgstr "ตั้งค่าเส้นโค้งใหม่"
 
 
+msgid "S"
+msgstr "S"
+
+
 msgid "Zoom in"
 msgstr "ซูมเข้า"
 
@@ -4972,6 +4965,10 @@ msgstr "เพิ่มเติม..."
 
 msgid "Yesterday"
 msgstr "เมื่อวาน"
+
+
+msgid "Path Mode"
+msgstr "โหมดเส้นทาง"
 
 
 msgid "Rigging"
@@ -5244,16 +5241,12 @@ msgid "Old"
 msgstr "เก่า"
 
 
-msgid "Shader Editor"
-msgstr "ตัวแก้ไขเชดเดอร์"
+msgid "Ray Length"
+msgstr "ความยาวรังสี"
 
 
 msgid "View Distance"
 msgstr "ระยะมุมมอง"
-
-
-msgid "Texture Node Editor"
-msgstr "ตัวแก้ไขโนดพื้นผิว"
 
 
 msgid "%s: incorrect dimensions for partial copy '%s'"
@@ -5290,168 +5283,4 @@ msgstr "ไม่พบ %s '%s'"
 
 msgid "Import-Export"
 msgstr "นำเข้า-ส่งออก"
-
-
-msgid "English (English)"
-msgstr "ภาษาอังกฤษ (English)"
-
-
-msgid "Japanese (日本語)"
-msgstr "ภาษาญี่ปุ่น (日本語)"
-
-
-msgid "Italian (Italiano)"
-msgstr "ภาษาอิตาลี (Italiano)"
-
-
-msgid "German (Deutsch)"
-msgstr "ภาษาเยอรมัน (Deutsch)"
-
-
-msgid "Finnish (Suomi)"
-msgstr "ภาษาฟินแลนด์ (Suomi)"
-
-
-msgid "Swedish (Svenska)"
-msgstr "ภาษาสวีเดน (Svenska)"
-
-
-msgid "French (Français)"
-msgstr "ภาษาฝรั่งเศส (Français)"
-
-
-msgid "Spanish (Español)"
-msgstr "ภาษาสเปน (Español)"
-
-
-msgid "Catalan (Català)"
-msgstr "ภาษากาตาลา (Català)"
-
-
-msgid "Portuguese (Português)"
-msgstr "ภาษาโปรตุเกส (Português)"
-
-
-msgid "Simplified Chinese (简体中文)"
-msgstr "ภาษาจีนตัวย่อ (简体中文)"
-
-
-msgid "Traditional Chinese (繁體中文)"
-msgstr "ภาษาจีนตัวเต็ม (繁體中文)"
-
-
-msgid "Russian (Русский)"
-msgstr "ภาษารัสเซีย (Русский)"
-
-
-msgid "Croatian (Hrvatski)"
-msgstr "ภาษาโครเอเชีย (Hrvatski)"
-
-
-msgid "Serbian (Српски)"
-msgstr "ภาษาเซอร์เบีย (Српски)"
-
-
-msgid "Polish (Polski)"
-msgstr "ภาษาโปแลนด์ (Polski)"
-
-
-msgid "Romanian (Român)"
-msgstr "ภาษาโรมาเนีย (Român)"
-
-
-msgid "Arabic (ﺔﻴﺑﺮﻌﻟﺍ)"
-msgstr "ภาษาอาหรับ (ﺔﻴﺑﺮﻌﻟﺍ)"
-
-
-msgid "Bulgarian (Български)"
-msgstr "ภาษาบัลแกเรีย (Български)"
-
-
-msgid "Greek (Ελληνικά)"
-msgstr "ภาษากรีก (Ελληνικά)"
-
-
-msgid "Nepali (नेपाली)"
-msgstr "ภาษาเนปาล (नेपाली)"
-
-
-msgid "Persian (ﯽﺳﺭﺎﻓ)"
-msgstr "ภาษาเปอร์เซีย (ﯽﺳﺭﺎﻓ)"
-
-
-msgid "Indonesian (Bahasa indonesia)"
-msgstr "ภาษาอินโดนิเซีย (Bahasa indonesia)"
-
-
-msgid "Serbian Latin (Srpski latinica)"
-msgstr "ภาษาเซอร์เบียละติน (Srpski latinica)"
-
-
-msgid "Kyrgyz (Кыргыз тили)"
-msgstr "ภาษาคีร์กีซ (Кыргыз тили)"
-
-
-msgid "Turkish (Türkçe)"
-msgstr "ภาษาตุรกี (Türkçe)"
-
-
-msgid "Hungarian (Magyar)"
-msgstr "ภาษาฮังการี (Magyar)"
-
-
-msgid "Brazilian Portuguese (Português do Brasil)"
-msgstr "ภาษาโปรตุเกสบราซิล (Português do Brasil)"
-
-
-msgid "Hebrew (תירִבְעִ)"
-msgstr "ภาษาฮิบรู (תירִבְעִ)"
-
-
-msgid "Esperanto (Esperanto)"
-msgstr "ภาษาเอสเปรันโต (Esperanto)"
-
-
-msgid "Amharic (አማርኛ)"
-msgstr "ภาษาอามฮารา (አማርኛ)"
-
-
-msgid "Uzbek (Oʻzbek)"
-msgstr "ภาษาอุซเบก (Oʻzbek)"
-
-
-msgid "Uzbek Cyrillic (Ўзбек)"
-msgstr "ภาษาอุซเบกซีริลลิก (Ўзбек)"
-
-
-msgid "Basque (Euskara)"
-msgstr "ภาษาบาสก์ (Euskara)"
-
-
-msgid "Hausa (Hausa)"
-msgstr "ภาษาฮัวซา (Hausa)"
-
-
-msgid "Abkhaz (Аԥсуа бызшәа)"
-msgstr "ภาษาอับคาเซีย (Аԥсуа бызшәа)"
-
-
-msgid "Thai (ภาษาไทย)"
-msgstr "ภาษาไทย"
-
-
-msgid "Slovak (Slovenčina)"
-msgstr "ภาษาสโลวาเกีย (Slovenčina)"
-
-
-msgid "Complete"
-msgstr "สำเร็จ"
-
-
-msgid "In Progress"
-msgstr "อยู่ระหว่างการดำเนินการ"
-
-
-msgid "Starting"
-msgstr "กำลังเริ่มต้น"
 

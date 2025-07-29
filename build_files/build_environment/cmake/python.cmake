@@ -140,8 +140,8 @@ else()
     export ZLIB_LIBS=${LIBDIR}/zlib/lib/${ZLIB_LIBRARY}
   )
 
-  # This patch indludes changes to fix missing -lm for sqlite and and fix the order of
-  # -ldl flags for ssl to avoid link errors.
+  # This patch includes changes to fix missing `-lm` for SQLITE
+  # and fix the order of `-ldl` flags for SSL to avoid link errors.
   if(APPLE)
     set(PYTHON_PATCH
       ${PATCH_CMD} --verbose -p1 -d
@@ -160,9 +160,8 @@ else()
   if(NOT APPLE)
     set(PYTHON_CONFIGURE_EXTRA_ARGS
       ${PYTHON_CONFIGURE_EXTRA_ARGS}
-      # Used on most release Linux builds (Fedora for e.g.),
-      # increases build times noticeably with the benefit of a modest speedup at runtime.
-      --enable-optimizations
+      # We disable optimzations as this flag turns on PGO which leads to non-reproducible builds.
+      --disable-optimizations
       # While LTO is OK when building on the same system, it's incompatible across GCC versions,
       # making it impractical for developers to build against, so keep it disabled.
       # `--with-lto`

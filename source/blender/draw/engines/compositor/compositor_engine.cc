@@ -2,9 +2,9 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
+#include "BLI_bounds.hh"
 #include "BLI_listbase.h"
 #include "BLI_math_vector_types.hh"
-#include "BLI_rect.h"
 #include "BLI_string_ref.hh"
 #include "BLI_utildefines.h"
 
@@ -43,29 +43,29 @@ class Context : public compositor::Context {
   /* A pointer to the info message of the compositor engine. This is a char array of size
    * GPU_INFO_SIZE. The message is cleared prior to updating or evaluating the compositor. */
   char *info_message_;
+  const Scene *scene_;
 
  public:
   Context(char *info_message) : compositor::Context(), info_message_(info_message) {}
 
+  void set_scene(const Scene *scene)
+  {
+    scene_ = scene;
+  }
+
   const Scene &get_scene() const override
   {
-    return *DRW_context_state_get()->scene;
+    return *scene_;
   }
 
   const bNodeTree &get_node_tree() const override
   {
-    return *DRW_context_state_get()->scene->nodetree;
+    return *scene_->compositing_node_group;
   }
 
   bool use_gpu() const override
   {
     return true;
-  }
-
-  eCompositorDenoiseQaulity get_denoise_quality() const override
-  {
-    return static_cast<eCompositorDenoiseQaulity>(
-        this->get_render_data().compositor_denoise_preview_quality);
   }
 
   compositor::OutputTypes needed_outputs() const override
@@ -75,75 +75,66 @@ class Context : public compositor::Context {
 
   /* The viewport compositor does not support viewer outputs, so treat viewers as composite
    * outputs. */
-  bool treat_viewer_as_composite_output() const override
+  bool treat_viewer_as_compositor_output() const override
   {
     return true;
-  }
-
-  const RenderData &get_render_data() const override
-  {
-    return DRW_context_state_get()->scene->r;
-  }
-
-  int2 get_render_size() const override
-  {
-    return int2(DRW_viewport_size_get());
   }
 
   /* We limit the compositing region to the camera region if in camera view, while we use the
    * entire viewport otherwise. We also use the entire viewport when doing viewport rendering since
    * the viewport is already the camera region in that case. */
-  rcti get_compositing_region() const override
+  Bounds<int2> get_compositing_region() const override
   {
-    const int2 viewport_size = int2(DRW_viewport_size_get());
-    const rcti render_region = rcti{0, viewport_size.x, 0, viewport_size.y};
+    const DRWContext *draw_ctx = DRW_context_get();
+    const int2 viewport_size = int2(draw_ctx->viewport_size_get());
+    const Bounds<int2> render_region = Bounds<int2>(int2(0), viewport_size);
 
-    if (DRW_context_state_get()->rv3d->persp != RV3D_CAMOB || DRW_state_is_viewport_image_render())
-    {
+    if (draw_ctx->rv3d->persp != RV3D_CAMOB || draw_ctx->is_viewport_image_render()) {
       return render_region;
     }
 
     rctf camera_border;
-    ED_view3d_calc_camera_border(DRW_context_state_get()->scene,
-                                 DRW_context_state_get()->depsgraph,
-                                 DRW_context_state_get()->region,
-                                 DRW_context_state_get()->v3d,
-                                 DRW_context_state_get()->rv3d,
+    ED_view3d_calc_camera_border(draw_ctx->scene,
+                                 draw_ctx->depsgraph,
+                                 draw_ctx->region,
+                                 draw_ctx->v3d,
+                                 draw_ctx->rv3d,
                                  false,
                                  &camera_border);
 
-    rcti camera_region;
-    BLI_rcti_rctf_copy_floor(&camera_region, &camera_border);
+    const Bounds<int2> camera_region = Bounds<int2>(
+        int2(int(camera_border.xmin), int(camera_border.ymin)),
+        int2(int(camera_border.xmax), int(camera_border.ymax)));
 
-    rcti visible_camera_region;
-    BLI_rcti_isect(&render_region, &camera_region, &visible_camera_region);
-
-    return visible_camera_region;
+    return blender::bounds::intersect(render_region, camera_region)
+        .value_or(Bounds<int2>(int2(0)));
   }
 
-  compositor::Result get_output_result() override
+  compositor::Result get_output() override
   {
     compositor::Result result = this->create_result(compositor::ResultType::Color,
                                                     compositor::ResultPrecision::Half);
-    result.wrap_external(DRW_viewport_texture_list_get()->color);
+    result.wrap_external(DRW_context_get()->viewport_texture_list_get()->color);
     return result;
   }
 
-  compositor::Result get_viewer_output_result(compositor::Domain /*domain*/,
-                                              bool /*is_data*/,
-                                              compositor::ResultPrecision /*precision*/) override
+  compositor::Result get_viewer_output(compositor::Domain /*domain*/,
+                                       bool /*is_data*/,
+                                       compositor::ResultPrecision /*precision*/) override
   {
     compositor::Result result = this->create_result(compositor::ResultType::Color,
                                                     compositor::ResultPrecision::Half);
-    result.wrap_external(DRW_viewport_texture_list_get()->color);
+    result.wrap_external(DRW_context_get()->viewport_texture_list_get()->color);
     return result;
   }
 
-  compositor::Result get_pass(const Scene *scene, int view_layer, const char *pass_name) override
+  compositor::Result get_input(const Scene *scene, int view_layer, const char *name) override
   {
-    if (DEG_get_original_id(const_cast<ID *>(&scene->id)) !=
-        DEG_get_original_id(&DRW_context_state_get()->scene->id))
-    {
+    /* Blender aliases the Image pass name to be the Combined pass, so we return the combined pass
+     * in that case. */
+    const char *pass_name = StringRef(name) == "Image" ? "Combined" : name;
+
+    if (DEG_get_original(scene) != DEG_get_original(scene_)) {
       return compositor::Result(*this);
     }
 
@@ -154,14 +145,14 @@ class Context : public compositor::Context {
     /* The combined pass is a special case where we return the viewport color texture, because it
      * includes Grease Pencil objects since GP is drawn using their own engine. */
     if (STREQ(pass_name, RE_PASSNAME_COMBINED)) {
-      GPUTexture *combined_texture = DRW_viewport_texture_list_get()->color;
+      gpu::Texture *combined_texture = DRW_context_get()->viewport_texture_list_get()->color;
       compositor::Result pass = compositor::Result(*this, GPU_texture_format(combined_texture));
       pass.wrap_external(combined_texture);
       return pass;
     }
 
     /* Return the pass that was written by the engine if such pass was found. */
-    GPUTexture *pass_texture = DRW_viewport_pass_texture_get(pass_name).gpu_texture();
+    gpu::Texture *pass_texture = DRW_viewport_pass_texture_get(pass_name).gpu_texture();
     if (pass_texture) {
       compositor::Result pass = compositor::Result(*this, GPU_texture_format(pass_texture));
       pass.wrap_external(pass_texture);
@@ -174,7 +165,7 @@ class Context : public compositor::Context {
   StringRef get_view_name() const override
   {
     const SceneRenderView *view = static_cast<SceneRenderView *>(
-        BLI_findlink(&get_render_data().views, DRW_context_state_get()->v3d->multiview_eye));
+        BLI_findlink(&get_render_data().views, DRW_context_get()->v3d->multiview_eye));
     return view->name;
   }
 
@@ -195,149 +186,66 @@ class Context : public compositor::Context {
   {
     message.copy_utf8_truncated(info_message_, GPU_INFO_SIZE);
   }
-
-  IDRecalcFlag query_id_recalc_flag(ID *id) const override
-  {
-    DrawEngineType *owner = &draw_engine_compositor_type;
-    DrawData *draw_data = DRW_drawdata_ensure(id, owner, sizeof(DrawData), nullptr, nullptr);
-    IDRecalcFlag recalc_flag = IDRecalcFlag(draw_data->recalc);
-    draw_data->recalc = IDRecalcFlag(0);
-    return recalc_flag;
-  }
 };
 
-class Engine {
+class Instance : public DrawEngine {
  private:
   Context context_;
-  compositor::Evaluator evaluator_;
-  /* Stores the compositing region size at the time the last compositor evaluation happened. See
-   * the update_compositing_region_size method for more information. */
-  int2 last_compositing_region_size_;
 
  public:
-  Engine(char *info_message)
-      : context_(info_message),
-        evaluator_(context_),
-        last_compositing_region_size_(context_.get_compositing_region_size())
+  Instance() : context_(this->info) {}
+
+  StringRefNull name_get() final
   {
+    return "Compositor";
   }
 
-  /* Update the compositing region size and evaluate the compositor. */
-  void draw()
-  {
-    update_compositing_region_size();
-    /* We temporally disable caching of node tree compilation by always resting the evaluator for
-     * now. See pull request #134394 for more information. TODO: This should be cleaned up in the
-     * future. */
-    evaluator_.reset();
-    evaluator_.evaluate();
-  }
+  void init() final{};
+  void begin_sync() final{};
+  void object_sync(blender::draw::ObjectRef & /*ob_ref*/,
+                   blender::draw::Manager & /*manager*/) final{};
+  void end_sync() final{};
 
-  /* If the size of the compositing region changed from the last time the compositor was evaluated,
-   * update the last compositor region size and reset the evaluator. That's because the evaluator
-   * compiles the node tree in a manner that is specifically optimized for the size of the
-   * compositing region. This should be called before evaluating the compositor. */
-  void update_compositing_region_size()
+  void draw(Manager & /*manager*/) final
   {
-    if (last_compositing_region_size_ == context_.get_compositing_region_size()) {
-      return;
+    DRW_submission_start();
+
+#if defined(__APPLE__)
+    if (GPU_backend_get_type() == GPU_BACKEND_METAL) {
+      /* NOTE(Metal): Isolate Compositor compute work in individual command buffer to improve
+       * workload scheduling. When expensive compositor nodes are in the graph, these can stall out
+       * the GPU for extended periods of time and sub-optimally schedule work for execution. */
+      GPU_flush();
+    }
+#endif
+
+    /* Execute Compositor render commands. */
+    {
+      context_.set_scene(DRW_context_get()->scene);
+      compositor::Evaluator evaluator(context_);
+      evaluator.evaluate();
     }
 
-    last_compositing_region_size_ = context_.get_compositing_region_size();
-
-    evaluator_.reset();
-  }
-
-  /* If the compositor node tree changed, reset the evaluator. */
-  void update(const Depsgraph *depsgraph)
-  {
-    if (DEG_id_type_updated(depsgraph, ID_NT)) {
-      evaluator_.reset();
+#if defined(__APPLE__)
+    /* NOTE(Metal): Following previous flush to break command stream, with compositor command
+     * buffers potentially being heavy, we avoid issuing subsequent commands until compositor work
+     * has completed. If subsequent work is prematurely queued up, the subsequent command buffers
+     * will be blocked behind compositor work and may trigger a command buffer time-out error. As a
+     * result, we should wait for compositor work to complete.
+     *
+     * This is not an efficient approach for peak performance, but a catch-all to prevent command
+     * buffer failure, until the offending cases can be resolved. */
+    if (GPU_backend_get_type() == GPU_BACKEND_METAL) {
+      GPU_finish();
     }
+#endif
+    DRW_submission_end();
   }
 };
+
+DrawEngine *Engine::create_instance()
+{
+  return new Instance();
+}
 
 }  // namespace blender::draw::compositor_engine
-
-using namespace blender::draw::compositor_engine;
-
-struct COMPOSITOR_Data {
-  DrawEngineType *engine_type;
-  Engine *instance_data;
-  char info[GPU_INFO_SIZE];
-};
-
-static void compositor_engine_init(void *data)
-{
-  COMPOSITOR_Data *compositor_data = static_cast<COMPOSITOR_Data *>(data);
-
-  if (!compositor_data->instance_data) {
-    compositor_data->instance_data = new Engine(compositor_data->info);
-  }
-}
-
-static void compositor_engine_free(void *instance_data)
-{
-  Engine *engine = static_cast<Engine *>(instance_data);
-  delete engine;
-}
-
-static void compositor_engine_draw(void *data)
-{
-  COMPOSITOR_Data *compositor_data = static_cast<COMPOSITOR_Data *>(data);
-
-#if defined(__APPLE__)
-  if (GPU_backend_get_type() == GPU_BACKEND_METAL) {
-    /* NOTE(Metal): Isolate Compositor compute work in individual command buffer to improve
-     * workload scheduling. When expensive compositor nodes are in the graph, these can stall out
-     * the GPU for extended periods of time and sub-optimally schedule work for execution. */
-    GPU_flush();
-  }
-#endif
-
-  /* Execute Compositor render commands. */
-  compositor_data->instance_data->draw();
-
-#if defined(__APPLE__)
-  /* NOTE(Metal): Following previous flush to break command stream, with compositor command
-   * buffers potentially being heavy, we avoid issuing subsequent commands until compositor work
-   * has completed. If subsequent work is prematurely queued up, the subsequent command buffers
-   * will be blocked behind compositor work and may trigger a command buffer time-out error. As a
-   * result, we should wait for compositor work to complete.
-   *
-   * This is not an efficient approach for peak performance, but a catch-all to prevent command
-   * buffer failure, until the offending cases can be resolved. */
-  if (GPU_backend_get_type() == GPU_BACKEND_METAL) {
-    GPU_finish();
-  }
-#endif
-}
-
-static void compositor_engine_update(void *data)
-{
-  COMPOSITOR_Data *compositor_data = static_cast<COMPOSITOR_Data *>(data);
-
-  /* Clear any info message that was set in a previous update. */
-  compositor_data->info[0] = '\0';
-
-  if (compositor_data->instance_data) {
-    compositor_data->instance_data->update(DRW_context_state_get()->depsgraph);
-  }
-}
-
-DrawEngineType draw_engine_compositor_type = {
-    /*next*/ nullptr,
-    /*prev*/ nullptr,
-    /*idname*/ N_("Compositor"),
-    /*engine_init*/ &compositor_engine_init,
-    /*engine_free*/ nullptr,
-    /*instance_free*/ &compositor_engine_free,
-    /*cache_init*/ nullptr,
-    /*cache_populate*/ nullptr,
-    /*cache_finish*/ nullptr,
-    /*draw_scene*/ &compositor_engine_draw,
-    /*view_update*/ &compositor_engine_update,
-    /*id_update*/ nullptr,
-    /*render_to_image*/ nullptr,
-    /*store_metadata*/ nullptr,
-};

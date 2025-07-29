@@ -10,13 +10,13 @@
 
 #include <atomic>
 #include <cmath>
-#include <mutex>
 
 #include "DNA_vec_types.h"
 
 #include "BLF_api.hh"
 
 #include "BLI_map.hh"
+#include "BLI_mutex.hh"
 #include "BLI_vector.hh"
 
 #include "GPU_texture.hh"
@@ -24,7 +24,6 @@
 
 #include <ft2build.h>
 
-struct ColorManagedDisplay;
 struct FontBLF;
 struct GlyphCacheBLF;
 struct GlyphBLF;
@@ -35,6 +34,11 @@ class VertBuf;
 }  // namespace blender::gpu
 struct GPUVertBufRaw;
 
+namespace blender::ocio {
+class Display;
+}  // namespace blender::ocio
+using ColorManagedDisplay = blender::ocio::Display;
+
 #include FT_MULTIPLE_MASTERS_H /* Variable font support. */
 
 /** Maximum variation axes per font. */
@@ -43,11 +47,11 @@ struct GPUVertBufRaw;
 #define MAKE_DVAR_TAG(a, b, c, d) \
   ((uint32_t(a) << 24u) | (uint32_t(b) << 16u) | (uint32_t(c) << 8u) | (uint32_t(d)))
 
-#define BLF_VARIATION_AXIS_WEIGHT MAKE_DVAR_TAG('w', 'g', 'h', 't')  /* 'wght' weight axis. */
-#define BLF_VARIATION_AXIS_SLANT MAKE_DVAR_TAG('s', 'l', 'n', 't')   /* 'slnt' slant axis. */
-#define BLF_VARIATION_AXIS_WIDTH MAKE_DVAR_TAG('w', 'd', 't', 'h')   /* 'wdth' width axis. */
-#define BLF_VARIATION_AXIS_SPACING MAKE_DVAR_TAG('s', 'p', 'a', 'c') /* 'spac' spacing axis. */
-#define BLF_VARIATION_AXIS_OPTSIZE MAKE_DVAR_TAG('o', 'p', 's', 'z') /* 'opsz' optical size. */
+#define BLF_VARIATION_AXIS_WEIGHT MAKE_DVAR_TAG('w', 'g', 'h', 't')  /* `wght` weight axis. */
+#define BLF_VARIATION_AXIS_SLANT MAKE_DVAR_TAG('s', 'l', 'n', 't')   /* `slnt` slant axis. */
+#define BLF_VARIATION_AXIS_WIDTH MAKE_DVAR_TAG('w', 'd', 't', 'h')   /* `wdth` width axis. */
+#define BLF_VARIATION_AXIS_SPACING MAKE_DVAR_TAG('s', 'p', 'a', 'c') /* `spac` spacing axis. */
+#define BLF_VARIATION_AXIS_OPTSIZE MAKE_DVAR_TAG('o', 'p', 's', 'z') /* `opsz` optical size. */
 
 /* -------------------------------------------------------------------- */
 /** \name Sub-Pixel Offset & Utilities
@@ -123,7 +127,7 @@ extern BatchBLF g_batch;
 
 struct KerningCacheBLF {
   /**
-   * Cache a ascii glyph pairs. Only store the x offset we are interested in,
+   * Cache a ASCII glyph pairs. Only store the x offset we are interested in,
    * instead of the full #FT_Vector since it's not used for drawing at the moment.
    */
   int ascii_table[KERNING_CACHE_TABLE_SIZE][KERNING_CACHE_TABLE_SIZE];
@@ -161,7 +165,7 @@ struct GlyphCacheBLF {
   blender::Map<GlyphCacheKey, std::unique_ptr<GlyphBLF>> glyphs;
 
   /** Texture array, to draw the glyphs. */
-  GPUTexture *texture;
+  blender::gpu::Texture *texture;
   char *bitmap_result;
   int bitmap_len;
   int bitmap_len_landed;
@@ -171,7 +175,7 @@ struct GlyphCacheBLF {
 };
 
 struct GlyphBLF {
-  /** The character, as UTF-32. */
+  /** The character, as UTF32. */
   unsigned int c;
 
   /** Freetype2 index, to speed-up the search. */
@@ -227,7 +231,7 @@ struct FontBufInfoBLF {
   int dims[2];
 
   /** Display device used for color management. */
-  ColorManagedDisplay *display;
+  const ColorManagedDisplay *display;
 
   /** The color, the alphas is get from the glyph! (color is sRGB space). */
   float col_init[4];
@@ -349,6 +353,7 @@ struct FontBLF {
 
   /** The width to wrap the text, see #BLF_WORD_WRAP. */
   int wrap_width;
+  BLFWrapMode wrap_mode;
 
   /** Font size. */
   float size;
@@ -396,5 +401,5 @@ struct FontBLF {
   FontBufInfoBLF buf_info;
 
   /** Mutex lock for glyph cache. */
-  std::mutex glyph_cache_mutex;
+  blender::Mutex glyph_cache_mutex;
 };

@@ -224,7 +224,10 @@ PointerRNA *WM_gizmo_operator_set(wmGizmo *gz,
   return &gzop.ptr;
 }
 
-int WM_gizmo_operator_invoke(bContext *C, wmGizmo *gz, wmGizmoOpElem *gzop, const wmEvent *event)
+wmOperatorStatus WM_gizmo_operator_invoke(bContext *C,
+                                          wmGizmo *gz,
+                                          wmGizmoOpElem *gzop,
+                                          const wmEvent *event)
 {
   if (gz->flag & WM_GIZMO_OPERATOR_TOOL_INIT) {
     /* Merge tool-settings into the gizmo properties. */
@@ -239,7 +242,8 @@ int WM_gizmo_operator_invoke(bContext *C, wmGizmo *gz, wmGizmoOpElem *gzop, cons
                      false);
     }
   }
-  return WM_operator_name_call_ptr(C, gzop->type, WM_OP_INVOKE_DEFAULT, &gzop->ptr, event);
+  return WM_operator_name_call_ptr(
+      C, gzop->type, blender::wm::OpCallContext::InvokeDefault, &gzop->ptr, event);
 }
 
 static void wm_gizmo_set_matrix_rotation_from_z_axis__internal(float matrix[4][4],
@@ -422,7 +426,8 @@ void WM_gizmo_modal_set_from_setup(
   }
   else {
     /* WEAK: but it works. */
-    WM_operator_name_call(C, "GIZMOGROUP_OT_gizmo_tweak", WM_OP_INVOKE_DEFAULT, nullptr, event);
+    WM_operator_name_call(
+        C, "GIZMOGROUP_OT_gizmo_tweak", blender::wm::OpCallContext::InvokeDefault, nullptr, event);
   }
 }
 
@@ -454,7 +459,7 @@ void wm_gizmo_calculate_scale(wmGizmo *gz, const bContext *C)
   if ((gz->parent_gzgroup->type->flag & WM_GIZMOGROUPTYPE_SCALE) == 0) {
     scale *= U.gizmo_size;
     if (rv3d) {
-      /* 'ED_view3d_pixel_size' includes 'U.pixelsize', remove it. */
+      /* #ED_view3d_pixel_size includes #U.pixelsize, remove it. */
       float matrix_world[4][4];
       if (gz->type->matrix_basis_get) {
         float matrix_basis[4][4];
@@ -679,7 +684,7 @@ void WM_gizmo_properties_reset(wmGizmo *gz)
 
       if ((RNA_property_flag(prop) & PROP_SKIP_SAVE) == 0) {
         const char *identifier = RNA_property_identifier(prop);
-        RNA_struct_idprops_unset(gz->ptr, identifier);
+        RNA_struct_system_idprops_unset(gz->ptr, identifier);
       }
     }
     RNA_PROP_END;
@@ -710,6 +715,15 @@ void WM_gizmo_properties_free(PointerRNA *ptr)
 /* -------------------------------------------------------------------- */
 /** \name General Utilities
  * \{ */
+
+bool WM_gizmo_group_is_modal(const wmGizmoGroup *gzgroup)
+{
+  wmGizmo *gz = WM_gizmomap_get_modal(gzgroup->parent_gzmap);
+  if (gz && gz->parent_gzgroup == gzgroup) {
+    return true;
+  }
+  return false;
+}
 
 bool WM_gizmo_context_check_drawstep(const bContext *C, eWM_GizmoFlagMapDrawStep step)
 {

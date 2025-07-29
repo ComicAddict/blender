@@ -140,7 +140,7 @@ static bool raycastMesh(SnapObjectContext *sctx,
   }
 
   BLI_assert(treedata.raycast_callback != nullptr);
-  if (sctx->ret.hit_list) {
+  if (sctx->runtime.hit_list) {
     RayCastAll_Data data;
 
     data.bvhdata = &treedata;
@@ -149,7 +149,7 @@ static bool raycastMesh(SnapObjectContext *sctx,
     data.len_diff = len_diff;
     data.local_scale = local_scale;
     data.ob_uuid = ob_index;
-    data.hit_list = sctx->ret.hit_list;
+    data.hit_list = sctx->runtime.hit_list;
 
     void *hit_last_prev = data.hit_list->last;
     BLI_bvhtree_ray_cast_all(
@@ -379,9 +379,9 @@ eSnapMode snap_polygon_mesh(SnapObjectContext *sctx,
   if (snap_to_flag &
       (SCE_SNAP_TO_EDGE | SCE_SNAP_TO_EDGE_MIDPOINT | SCE_SNAP_TO_EDGE_PERPENDICULAR))
   {
-    /* We return 'Snap to Edge' even if the intent is 'Snap to Edge Midpoitnt' or 'Snap to Edge
-     * Perpendicular'. This avoids complexity. These snap points will be tested in
-     * `snap_edge_points`. */
+    /* We return "Snap to Edge" even if the intent is "Snap to Edge Midpoint" or
+     * "Snap to Edge Perpendicular".
+     * This avoids complexity. These snap points will be tested in `snap_edge_points`. */
     elem = SCE_SNAP_TO_EDGE;
     BLI_assert(nearest2d.edges != nullptr);
     const int *face_edges = &nearest2d.corner_edges[face.start()];

@@ -53,7 +53,6 @@ set(BLENLIB_SRC
   ../../blenlib/intern/BLI_linklist.cc
   ../../blenlib/intern/BLI_memarena.cc
   ../../blenlib/intern/BLI_mempool.cc
-  ../../blenlib/intern/endian_switch.cc
   ../../blenlib/intern/listbase.cc
   ../../blenlib/intern/string.cc
 
@@ -104,12 +103,14 @@ add_custom_command(
     ${CMAKE_CURRENT_BINARY_DIR}/dna.cc
     ${CMAKE_CURRENT_BINARY_DIR}/dna_type_offsets.h
     ${CMAKE_CURRENT_BINARY_DIR}/dna_verify.cc
+    ${CMAKE_CURRENT_BINARY_DIR}/dna_struct_ids.cc
   COMMAND
     ${CMAKE_COMMAND} -E env ${PLATFORM_ENV_BUILD}
     "$<TARGET_FILE:makesdna>"
     ${CMAKE_CURRENT_BINARY_DIR}/dna.cc
     ${CMAKE_CURRENT_BINARY_DIR}/dna_type_offsets.h
     ${CMAKE_CURRENT_BINARY_DIR}/dna_verify.cc
+    ${CMAKE_CURRENT_BINARY_DIR}/dna_struct_ids.cc
     ${CMAKE_SOURCE_DIR}/source/blender/makesdna/
   DEPENDS makesdna
 )
@@ -122,6 +123,7 @@ set(SRC
   dna_genfile.cc
   dna_utils.cc
   ${CMAKE_CURRENT_BINARY_DIR}/dna.cc
+  ${CMAKE_CURRENT_BINARY_DIR}/dna_struct_ids.cc
   ${CMAKE_CURRENT_BINARY_DIR}/dna_verify.cc
   ${SRC_DNA_INC}
 
@@ -132,6 +134,7 @@ set(SRC
 
 set_source_files_properties(
   ${CMAKE_CURRENT_BINARY_DIR}/dna.cc
+  ${CMAKE_CURRENT_BINARY_DIR}/dna_struct_ids.cc
   ${CMAKE_CURRENT_BINARY_DIR}/dna_type_offsets.h
   ${CMAKE_CURRENT_BINARY_DIR}/dna_verify.cc
   PROPERTIES GENERATED TRUE

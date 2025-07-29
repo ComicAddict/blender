@@ -23,6 +23,16 @@ void vk_pipeline_data_copy(VKPipelineData &dst, const VKPipelineData &src)
   }
 }
 
+void vk_pipeline_viewport_set_commands(VKCommandBufferInterface &command_buffer,
+                                       const VKViewportData &viewport_data,
+                                       VKViewportData &r_viewport_state)
+{
+  if (assign_if_different(r_viewport_state, viewport_data)) {
+    command_buffer.set_viewport(viewport_data.viewports);
+    command_buffer.set_scissor(viewport_data.scissors);
+  }
+}
+
 void vk_pipeline_data_build_commands(VKCommandBufferInterface &command_buffer,
                                      const VKPipelineData &pipeline_data,
                                      VKBoundPipeline &r_bound_pipeline,
@@ -43,6 +53,40 @@ void vk_pipeline_data_build_commands(VKCommandBufferInterface &command_buffer,
                                         &r_bound_pipeline.vk_descriptor_set,
                                         0,
                                         nullptr);
+  }
+
+  if (assign_if_different(r_bound_pipeline.descriptor_buffer_device_address,
+                          pipeline_data.descriptor_buffer_device_address) &&
+      r_bound_pipeline.descriptor_buffer_device_address != 0)
+  {
+    r_bound_pipeline.descriptor_buffer_offset = pipeline_data.descriptor_buffer_offset;
+    VkDescriptorBufferBindingInfoEXT descriptor_buffer_binding_info = {
+        VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+        nullptr,
+        r_bound_pipeline.descriptor_buffer_device_address,
+        VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT |
+            VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT};
+    command_buffer.bind_descriptor_buffers(1, &descriptor_buffer_binding_info);
+
+    uint32_t buffer_index = 0;
+    command_buffer.set_descriptor_buffer_offsets(vk_pipeline_bind_point,
+                                                 pipeline_data.vk_pipeline_layout,
+                                                 0,
+                                                 1,
+                                                 &buffer_index,
+                                                 &r_bound_pipeline.descriptor_buffer_offset);
+  }
+  else if (assign_if_different(r_bound_pipeline.descriptor_buffer_offset,
+                               pipeline_data.descriptor_buffer_offset) &&
+           r_bound_pipeline.descriptor_buffer_device_address != 0)
+  {
+    uint32_t buffer_index = 0;
+    command_buffer.set_descriptor_buffer_offsets(vk_pipeline_bind_point,
+                                                 pipeline_data.vk_pipeline_layout,
+                                                 0,
+                                                 1,
+                                                 &buffer_index,
+                                                 &r_bound_pipeline.descriptor_buffer_offset);
   }
 
   if (pipeline_data.push_constants_size) {
@@ -84,6 +128,7 @@ void vk_vertex_buffer_bindings_build_links(VKResourceStateTracker &resources,
                                            VKRenderGraphNodeLinks &node_links,
                                            const VKVertexBufferBindings &vertex_buffers)
 {
+  node_links.inputs.reserve(node_links.inputs.size() + vertex_buffers.buffer_count);
   for (const VkBuffer vk_buffer :
        Span<VkBuffer>(vertex_buffers.buffer, vertex_buffers.buffer_count))
   {

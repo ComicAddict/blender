@@ -13,7 +13,7 @@
 #include "BKE_main.hh"
 
 #include "BLI_listbase.h"
-#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 #include "BLI_time.h"
 
 #include "BLI_timecode.h"
@@ -23,7 +23,7 @@
 
 #include "WM_api.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "interface_intern.hh"
 
 #define B_STOPRENDER 1
@@ -45,7 +45,11 @@ static void do_running_jobs(bContext *C, void * /*arg*/, int event)
       WM_jobs_stop_all_from_owner(CTX_wm_manager(C), CTX_wm_screen(C));
       break;
     case B_STOPANIM:
-      WM_operator_name_call(C, "SCREEN_OT_animation_play", WM_OP_INVOKE_SCREEN, nullptr, nullptr);
+      WM_operator_name_call(C,
+                            "SCREEN_OT_animation_play",
+                            blender::wm::OpCallContext::InvokeScreen,
+                            nullptr,
+                            nullptr);
       break;
     case B_STOPCOMPO:
       WM_jobs_stop_all_from_owner(CTX_wm_manager(C), CTX_data_scene(C));
@@ -108,8 +112,8 @@ void uiTemplateRunningJobs(uiLayout *layout, bContext *C)
   const char *op_name = nullptr;
   const char *op_description = nullptr;
 
-  uiBlock *block = uiLayoutGetBlock(layout);
-  UI_block_layout_set_current(block, layout);
+  uiBlock *block = layout->block();
+  blender::ui::block_layout_set_current(block, layout);
 
   UI_block_func_handle_set(block, do_running_jobs, nullptr);
 
@@ -221,22 +225,22 @@ void uiTemplateRunningJobs(uiLayout *layout, bContext *C)
     const uiFontStyle *fstyle = UI_FSTYLE_WIDGET;
     const bool active = !(G.is_break || WM_jobs_is_stopped(wm, owner));
 
-    uiLayout *row = uiLayoutRow(layout, false);
-    block = uiLayoutGetBlock(row);
+    uiLayout *row = &layout->row(false);
+    block = row->block();
 
     /* get percentage done and set it as the UI text */
     const float progress = WM_jobs_progress(wm, owner);
     char text[8];
-    SNPRINTF(text, "%d%%", int(progress * 100));
+    SNPRINTF_UTF8(text, "%d%%", int(progress * 100));
 
-    const char *name = active ? WM_jobs_name(wm, owner) : "Canceling...";
+    const char *name = active ? RPT_(WM_jobs_name(wm, owner)) : RPT_("Canceling...");
 
     /* job icon as a button */
     if (op_name) {
       uiDefIconButO(block,
-                    UI_BTYPE_BUT,
+                    ButType::But,
                     op_name,
-                    WM_OP_INVOKE_DEFAULT,
+                    blender::wm::OpCallContext::InvokeDefault,
                     icon,
                     0,
                     0,
@@ -248,7 +252,7 @@ void uiTemplateRunningJobs(uiLayout *layout, bContext *C)
     /* job name and icon if not previously set */
     const int textwidth = UI_fontstyle_string_width(fstyle, name);
     uiDefIconTextBut(block,
-                     UI_BTYPE_LABEL,
+                     ButType::Label,
                      0,
                      op_name ? 0 : icon,
                      name,
@@ -257,14 +261,12 @@ void uiTemplateRunningJobs(uiLayout *layout, bContext *C)
                      textwidth + UI_UNIT_X * 1.5f,
                      UI_UNIT_Y,
                      nullptr,
-                     0.0f,
-                     0.0f,
                      "");
 
     /* stick progress bar and cancel button together */
-    row = uiLayoutRow(layout, true);
-    uiLayoutSetActive(row, active);
-    block = uiLayoutGetBlock(row);
+    row = &layout->row(true);
+    row->active_set(active);
+    block = row->block();
 
     {
       ProgressTooltip_Store *tip_arg = static_cast<ProgressTooltip_Store *>(
@@ -272,7 +274,7 @@ void uiTemplateRunningJobs(uiLayout *layout, bContext *C)
       tip_arg->wm = wm;
       tip_arg->owner = owner;
       uiButProgress *but_progress = (uiButProgress *)uiDefIconTextBut(block,
-                                                                      UI_BTYPE_PROGRESS,
+                                                                      ButType::Progress,
                                                                       0,
                                                                       ICON_NONE,
                                                                       text,
@@ -281,8 +283,6 @@ void uiTemplateRunningJobs(uiLayout *layout, bContext *C)
                                                                       UI_UNIT_X * 6.0f,
                                                                       UI_UNIT_Y,
                                                                       nullptr,
-                                                                      0.0f,
-                                                                      0.0f,
                                                                       nullptr);
 
       but_progress->progress_factor = progress;
@@ -291,7 +291,7 @@ void uiTemplateRunningJobs(uiLayout *layout, bContext *C)
 
     if (!wm->runtime->is_interface_locked) {
       uiDefIconTextBut(block,
-                       UI_BTYPE_BUT,
+                       ButType::But,
                        handle_event,
                        ICON_PANEL_CLOSE,
                        "",
@@ -300,15 +300,13 @@ void uiTemplateRunningJobs(uiLayout *layout, bContext *C)
                        UI_UNIT_X,
                        UI_UNIT_Y,
                        nullptr,
-                       0.0f,
-                       0.0f,
                        TIP_("Stop this job"));
     }
   }
 
   if (ED_screen_animation_no_scrub(wm)) {
     uiDefIconTextBut(block,
-                     UI_BTYPE_BUT,
+                     ButType::But,
                      B_STOPANIM,
                      ICON_CANCEL,
                      IFACE_("Anim Player"),
@@ -317,8 +315,6 @@ void uiTemplateRunningJobs(uiLayout *layout, bContext *C)
                      UI_UNIT_X * 5.0f,
                      UI_UNIT_Y,
                      nullptr,
-                     0.0f,
-                     0.0f,
                      TIP_("Stop animation playback"));
   }
 }

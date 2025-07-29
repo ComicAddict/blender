@@ -22,7 +22,7 @@
 
 #include "RNA_access.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 namespace blender::nodes::node_shader_map_range_cc {
@@ -50,20 +50,20 @@ static void sh_node_map_range_declare(NodeDeclarationBuilder &b)
 
 static void node_shader_buts_map_range(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "data_type", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
-  uiItemR(layout, ptr, "interpolation_type", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  layout->prop(ptr, "data_type", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  layout->prop(ptr, "interpolation_type", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
   if (!ELEM(RNA_enum_get(ptr, "interpolation_type"),
             NODE_MAP_RANGE_SMOOTHSTEP,
             NODE_MAP_RANGE_SMOOTHERSTEP))
   {
-    uiItemR(layout, ptr, "clamp", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+    layout->prop(ptr, "clamp", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
   }
 }
 
 static int node_shader_map_range_ui_class(const bNode *node)
 {
   const NodeMapRange &storage = node_storage(*node);
-  const eCustomDataType data_type = static_cast<eCustomDataType>(storage.data_type);
+  const eCustomDataType data_type = eCustomDataType(storage.data_type);
   if (data_type == CD_PROP_FLOAT3) {
     return NODE_CLASS_OP_VECTOR;
   }
@@ -73,7 +73,7 @@ static int node_shader_map_range_ui_class(const bNode *node)
 static void node_shader_update_map_range(bNodeTree *ntree, bNode *node)
 {
   const NodeMapRange &storage = node_storage(*node);
-  const eCustomDataType data_type = static_cast<eCustomDataType>(storage.data_type);
+  const eCustomDataType data_type = eCustomDataType(storage.data_type);
   const int type = (data_type == CD_PROP_FLOAT) ? SOCK_FLOAT : SOCK_VECTOR;
 
   Array<bool> new_input_availability(BLI_listbase_count(&node->inputs));
@@ -106,7 +106,7 @@ static void node_shader_update_map_range(bNodeTree *ntree, bNode *node)
 
 static void node_shader_init_map_range(bNodeTree * /*ntree*/, bNode *node)
 {
-  NodeMapRange *data = MEM_cnew<NodeMapRange>(__func__);
+  NodeMapRange *data = MEM_callocN<NodeMapRange>(__func__);
   data->clamp = 1;
   data->data_type = CD_PROP_FLOAT;
   data->interpolation_type = NODE_MAP_RANGE_LINEAR;

@@ -34,7 +34,7 @@ static void propagate_vert_attributes(Mesh &mesh, const Span<int> new_to_old_ver
     if (meta_data.domain != bke::AttrDomain::Point) {
       continue;
     }
-    if (meta_data.data_type == CD_PROP_STRING) {
+    if (meta_data.data_type == bke::AttrType::String) {
       continue;
     }
     bke::GSpanAttributeWriter attribute = attributes.lookup_for_write_span(id);
@@ -65,7 +65,6 @@ static void propagate_vert_attributes(Mesh &mesh, const Span<int> new_to_old_ver
 
 static void propagate_edge_attributes(Mesh &mesh, const Span<int> new_to_old_edge_map)
 {
-  CustomData_free_layers(&mesh.edge_data, CD_FREESTYLE_EDGE);
   CustomData_realloc(&mesh.edge_data, mesh.edges_num, mesh.edges_num + new_to_old_edge_map.size());
   mesh.edges_num += new_to_old_edge_map.size();
 
@@ -75,7 +74,7 @@ static void propagate_edge_attributes(Mesh &mesh, const Span<int> new_to_old_edg
     if (meta_data.domain != bke::AttrDomain::Edge) {
       continue;
     }
-    if (meta_data.data_type == CD_PROP_STRING) {
+    if (meta_data.data_type == bke::AttrType::String) {
       continue;
     }
     if (id == ".edge_verts") {

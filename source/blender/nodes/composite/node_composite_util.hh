@@ -15,12 +15,13 @@
 
 #include "BKE_node_legacy_types.hh"  // IWYU pragma: export
 
-#include "node_composite_register.hh"  // IWYU pragma: export
-#include "node_util.hh"                // IWYU pragma: export
+#include "node_util.hh"  // IWYU pragma: export
 
 #include "NOD_composite.hh"            // IWYU pragma: export
+#include "NOD_register.hh"             // IWYU pragma: export
 #include "NOD_socket.hh"               // IWYU pragma: export
 #include "NOD_socket_declarations.hh"  // IWYU pragma: export
+#include "NOD_socket_search_link.hh"
 
 #define CMP_SCALE_MAX 12000
 

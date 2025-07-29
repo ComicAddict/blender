@@ -27,6 +27,7 @@
 #include "BLI_multi_value_map.hh"
 #include "BLI_polyfill_2d.h"
 #include "BLI_string.h"
+#include "BLI_string_utf8.h"
 #include "BLI_task.hh"
 #include "BLI_utildefines.h"
 
@@ -136,7 +137,7 @@ static void mesh_calc_edges_mdata(const MVert * /*allvert*/,
     return;
   }
 
-  ed = edsort = (EdgeSort *)MEM_mallocN(totedge * sizeof(EdgeSort), "EdgeSort");
+  ed = edsort = MEM_malloc_arrayN<EdgeSort>(totedge, "EdgeSort");
 
   for (a = totface, mface = allface; a > 0; a--, mface++) {
     to_edgesort(ed++, mface->v1, mface->v2, !mface->v3, mface->edcode & ME_V1V2);
@@ -162,7 +163,7 @@ static void mesh_calc_edges_mdata(const MVert * /*allvert*/,
   }
   totedge_final++;
 
-  edges = (MEdge *)MEM_callocN(sizeof(MEdge) * totedge_final, __func__);
+  edges = MEM_calloc_arrayN<MEdge>(totedge_final, __func__);
 
   for (a = totedge, edge = edges, ed = edsort; a > 1; a--, ed++) {
     /* edge is unique when it differs from next edge, or is last */
@@ -429,8 +430,7 @@ static void bm_corners_to_loops_ex(ID *id,
           MEM_freeN(ld->disps);
         }
 
-        ld->disps = (float(*)[3])MEM_malloc_arrayN(
-            size_t(side_sq), sizeof(float[3]), "converted loop mdisps");
+        ld->disps = MEM_malloc_arrayN<float[3]>(size_t(side_sq), "converted loop mdisps");
         if (fd->disps) {
           memcpy(ld->disps, disps, size_t(side_sq) * sizeof(float[3]));
         }
@@ -601,12 +601,18 @@ static void update_active_fdata_layers(Mesh &mesh, CustomData *fdata_legacy, Cus
   if (CustomData_has_layer(ldata, CD_PROP_BYTE_COLOR)) {
     if (mesh.active_color_attribute != nullptr) {
       act = CustomData_get_named_layer(ldata, CD_PROP_BYTE_COLOR, mesh.active_color_attribute);
-      CustomData_set_layer_active(fdata_legacy, CD_MCOL, act);
+      /* The active color layer may be of #CD_PROP_COLOR type. */
+      if (act != -1) {
+        CustomData_set_layer_active(fdata_legacy, CD_MCOL, act);
+      }
     }
 
     if (mesh.default_color_attribute != nullptr) {
       act = CustomData_get_named_layer(ldata, CD_PROP_BYTE_COLOR, mesh.default_color_attribute);
-      CustomData_set_layer_render(fdata_legacy, CD_MCOL, act);
+      /* The active color layer may be of #CD_PROP_COLOR type. */
+      if (act != -1) {
+        CustomData_set_layer_render(fdata_legacy, CD_MCOL, act);
+      }
     }
 
     act = CustomData_get_clone_layer(ldata, CD_PROP_BYTE_COLOR);
@@ -645,9 +651,6 @@ static bool check_matching_legacy_layer_counts(CustomData *fdata_legacy,
   if (!LAYER_CMP(ldata, CD_NORMAL, fdata_legacy, CD_TESSLOOPNORMAL)) {
     return false;
   }
-  if (!LAYER_CMP(ldata, CD_TANGENT, fdata_legacy, CD_TANGENT)) {
-    return false;
-  }
 
 #  undef LAYER_CMP
 
@@ -678,10 +681,6 @@ static void add_mface_layers(Mesh &mesh, CustomData *fdata_legacy, CustomData *l
     else if (ldata->layers[i].type == CD_NORMAL) {
       CustomData_add_layer_named(
           fdata_legacy, CD_TESSLOOPNORMAL, CD_SET_DEFAULT, total, ldata->layers[i].name);
-    }
-    else if (ldata->layers[i].type == CD_TANGENT) {
-      CustomData_add_layer_named(
-          fdata_legacy, CD_TANGENT, CD_SET_DEFAULT, total, ldata->layers[i].name);
     }
   }
 
@@ -855,7 +854,6 @@ static void mesh_loops_to_tessdata(CustomData *fdata_legacy,
   const int numCol = CustomData_number_of_layers(corner_data, CD_PROP_BYTE_COLOR);
   const bool hasOrigSpace = CustomData_has_layer(corner_data, CD_ORIGSPACE_MLOOP);
   const bool hasLoopNormal = CustomData_has_layer(corner_data, CD_NORMAL);
-  const bool hasLoopTangent = CustomData_has_layer(corner_data, CD_TANGENT);
   int findex, i, j;
   const int *pidx;
   uint(*lidx)[4];
@@ -909,21 +907,6 @@ static void mesh_loops_to_tessdata(CustomData *fdata_legacy,
     for (findex = 0, lidx = loopindices; findex < num_faces; lidx++, findex++, face_normals++) {
       for (j = (mface ? mface[findex].v4 : (*lidx)[3]) ? 4 : 3; j--;) {
         normal_float_to_short_v3((*face_normals)[j], loop_normals[(*lidx)[j]]);
-      }
-    }
-  }
-
-  if (hasLoopTangent) {
-    /* Need to do for all UV maps at some point. */
-    float(*ftangents)[4] = (float(*)[4])CustomData_get_layer(fdata_legacy, CD_TANGENT);
-    const float(*ltangents)[4] = (const float(*)[4])CustomData_get_layer(corner_data, CD_TANGENT);
-
-    for (findex = 0, pidx = polyindices, lidx = loopindices; findex < num_faces;
-         pidx++, lidx++, findex++)
-    {
-      int nverts = (mface ? mface[findex].v4 : (*lidx)[3]) ? 4 : 3;
-      for (j = nverts; j--;) {
-        copy_v4_v4(ftangents[findex * 4 + j], ltangents[(*lidx)[j]]);
       }
     }
   }
@@ -1033,10 +1016,9 @@ static int mesh_tessface_calc(Mesh &mesh,
   /* Allocate the length of `totfaces`, avoid many small reallocation's,
    * if all faces are triangles it will be correct, `quads == 2x` allocations. */
   /* Take care since memory is _not_ zeroed so be sure to initialize each field. */
-  mface_to_poly_map = (int *)MEM_malloc_arrayN(
-      size_t(corner_tris_num), sizeof(*mface_to_poly_map), __func__);
-  mface = (MFace *)MEM_malloc_arrayN(size_t(corner_tris_num), sizeof(*mface), __func__);
-  lindices = (uint(*)[4])MEM_malloc_arrayN(size_t(corner_tris_num), sizeof(*lindices), __func__);
+  mface_to_poly_map = MEM_malloc_arrayN<int>(size_t(corner_tris_num), __func__);
+  mface = MEM_malloc_arrayN<MFace>(size_t(corner_tris_num), __func__);
+  lindices = MEM_malloc_arrayN<uint[4]>(size_t(corner_tris_num), __func__);
 
   mface_index = 0;
   for (poly_index = 0; poly_index < faces_num; poly_index++) {
@@ -1726,21 +1708,18 @@ void BKE_mesh_legacy_convert_uvs_to_generic(Mesh *mesh)
         },
         [](const uint32_t a, const uint32_t b) { return a | b; });
 
-    float2 *coords = static_cast<float2 *>(
-        MEM_malloc_arrayN(mesh->corners_num, sizeof(float2), __func__));
+    float2 *coords = MEM_malloc_arrayN<float2>(size_t(mesh->corners_num), __func__);
     bool *vert_selection = nullptr;
     bool *edge_selection = nullptr;
     bool *pin = nullptr;
     if (needed_boolean_attributes & MLOOPUV_VERTSEL) {
-      vert_selection = static_cast<bool *>(
-          MEM_malloc_arrayN(mesh->corners_num, sizeof(bool), __func__));
+      vert_selection = MEM_malloc_arrayN<bool>(size_t(mesh->corners_num), __func__);
     }
     if (needed_boolean_attributes & MLOOPUV_EDGESEL) {
-      edge_selection = static_cast<bool *>(
-          MEM_malloc_arrayN(mesh->corners_num, sizeof(bool), __func__));
+      edge_selection = MEM_malloc_arrayN<bool>(size_t(mesh->corners_num), __func__);
     }
     if (needed_boolean_attributes & MLOOPUV_PINNED) {
-      pin = static_cast<bool *>(MEM_malloc_arrayN(mesh->corners_num, sizeof(bool), __func__));
+      pin = MEM_malloc_arrayN<bool>(size_t(mesh->corners_num), __func__);
     }
 
     threading::parallel_for(IndexRange(mesh->corners_num), 4096, [&](IndexRange range) {
@@ -2124,7 +2103,7 @@ static bNodeTree *add_auto_smooth_node_tree(Main &bmain, Library *owner_library)
   bNodeTree *group = node_tree_add_in_lib(
       &bmain, owner_library, DATA_("Auto Smooth"), "GeometryNodeTree");
   if (!group->geometry_node_asset_traits) {
-    group->geometry_node_asset_traits = MEM_cnew<GeometryNodeAssetTraits>(__func__);
+    group->geometry_node_asset_traits = MEM_callocN<GeometryNodeAssetTraits>(__func__);
   }
   group->geometry_node_asset_traits->flag |= GEO_NODE_ASSET_MODIFIER;
 
@@ -2330,7 +2309,7 @@ static ModifierData *create_auto_smooth_modifier(
     const float angle)
 {
   auto *md = reinterpret_cast<NodesModifierData *>(BKE_modifier_new(eModifierType_Nodes));
-  STRNCPY(md->modifier.name, DATA_("Auto Smooth"));
+  STRNCPY_UTF8(md->modifier.name, DATA_("Auto Smooth"));
   BKE_modifier_unique_name(&object.modifiers, &md->modifier);
   md->node_group = get_node_group(object.id.lib);
   id_us_plus(&md->node_group->id);
@@ -2461,27 +2440,6 @@ void BKE_main_mesh_legacy_convert_auto_smooth(Main &bmain)
 
 namespace blender::bke {
 
-void mesh_sculpt_mask_to_legacy(MutableSpan<CustomDataLayer> vert_layers)
-{
-  bool changed = false;
-  for (CustomDataLayer &layer : vert_layers) {
-    if (StringRef(layer.name) == ".sculpt_mask") {
-      layer.type = CD_PAINT_MASK;
-      layer.name[0] = '\0';
-      changed = true;
-      break;
-    }
-  }
-  if (!changed) {
-    return;
-  }
-  /* #CustomData expects the layers to be sorted in increasing order based on type. */
-  std::stable_sort(
-      vert_layers.begin(),
-      vert_layers.end(),
-      [](const CustomDataLayer &a, const CustomDataLayer &b) { return a.type < b.type; });
-}
-
 void mesh_sculpt_mask_to_generic(Mesh &mesh)
 {
   if (mesh.attributes().contains(".sculpt_mask")) {
@@ -2509,25 +2467,116 @@ void mesh_sculpt_mask_to_generic(Mesh &mesh)
   }
 }
 
-void mesh_custom_normals_to_legacy(MutableSpan<CustomDataLayer> corner_layers)
+void mesh_freestyle_marks_to_generic(Mesh &mesh)
 {
-  bool changed = false;
-  for (CustomDataLayer &layer : corner_layers) {
-    if (StringRef(layer.name) == "custom_normal" && layer.type == CD_PROP_INT16_2D) {
-      layer.type = CD_CUSTOMLOOPNORMAL;
-      layer.name[0] = '\0';
-      changed = true;
-      break;
+  {
+    void *data = nullptr;
+    const ImplicitSharingInfo *sharing_info = nullptr;
+    for (const int i : IndexRange(mesh.edge_data.totlayer)) {
+      CustomDataLayer &layer = mesh.edge_data.layers[i];
+      if (layer.type == CD_FREESTYLE_EDGE) {
+        data = layer.data;
+        sharing_info = layer.sharing_info;
+        layer.data = nullptr;
+        layer.sharing_info = nullptr;
+        CustomData_free_layer(&mesh.edge_data, CD_FREESTYLE_EDGE, i);
+        break;
+      }
+    }
+    if (data != nullptr) {
+      static_assert(sizeof(FreestyleEdge) == sizeof(bool));
+      static_assert(char(FREESTYLE_EDGE_MARK) == char(true));
+      CustomData_add_layer_named_with_data(
+          &mesh.edge_data, CD_PROP_BOOL, data, mesh.edges_num, "freestyle_edge", sharing_info);
+    }
+    if (sharing_info != nullptr) {
+      sharing_info->remove_user_and_delete_if_last();
     }
   }
-  if (!changed) {
-    return;
+  {
+    void *data = nullptr;
+    const ImplicitSharingInfo *sharing_info = nullptr;
+    for (const int i : IndexRange(mesh.face_data.totlayer)) {
+      CustomDataLayer &layer = mesh.face_data.layers[i];
+      if (layer.type == CD_FREESTYLE_FACE) {
+        data = layer.data;
+        sharing_info = layer.sharing_info;
+        layer.data = nullptr;
+        layer.sharing_info = nullptr;
+        CustomData_free_layer(&mesh.face_data, CD_FREESTYLE_FACE, i);
+        break;
+      }
+    }
+    if (data != nullptr) {
+      static_assert(sizeof(FreestyleFace) == sizeof(bool));
+      static_assert(char(FREESTYLE_FACE_MARK) == char(true));
+      CustomData_add_layer_named_with_data(
+          &mesh.face_data, CD_PROP_BOOL, data, mesh.faces_num, "freestyle_face", sharing_info);
+    }
+    if (sharing_info != nullptr) {
+      sharing_info->remove_user_and_delete_if_last();
+    }
   }
-  /* #CustomData expects the layers to be sorted in increasing order based on type. */
-  std::stable_sort(
-      corner_layers.begin(),
-      corner_layers.end(),
-      [](const CustomDataLayer &a, const CustomDataLayer &b) { return a.type < b.type; });
+}
+
+void mesh_freestyle_marks_to_legacy(AttributeStorage::BlendWriteData &attr_write_data,
+                                    CustomData &edge_data,
+                                    CustomData &face_data,
+                                    Vector<CustomDataLayer, 16> &edge_layers,
+                                    Vector<CustomDataLayer, 16> &face_layers)
+{
+  Array<bool, 64> attrs_to_remove(attr_write_data.attributes.size(), false);
+  for (const int i : attr_write_data.attributes.index_range()) {
+    const ::Attribute &dna_attr = attr_write_data.attributes[i];
+    if (dna_attr.data_type != int8_t(AttrType::Bool)) {
+      continue;
+    }
+    if (dna_attr.storage_type != int8_t(AttrStorageType::Array)) {
+      continue;
+    }
+    if (dna_attr.domain == int8_t(AttrDomain::Edge)) {
+      if (STREQ(dna_attr.name, "freestyle_edge")) {
+        const auto &array_dna = *static_cast<const ::AttributeArray *>(dna_attr.data);
+        static_assert(sizeof(FreestyleEdge) == sizeof(bool));
+        static_assert(char(FREESTYLE_EDGE_MARK) == char(true));
+        CustomDataLayer layer{};
+        layer.type = CD_FREESTYLE_EDGE;
+        layer.data = array_dna.data;
+        layer.sharing_info = array_dna.sharing_info;
+        edge_layers.append(layer);
+        std::stable_sort(
+            edge_layers.begin(),
+            edge_layers.end(),
+            [](const CustomDataLayer &a, const CustomDataLayer &b) { return a.type < b.type; });
+        edge_data.totlayer = edge_layers.size();
+        edge_data.maxlayer = edge_data.totlayer;
+        attrs_to_remove[i] = true;
+      }
+    }
+    else if (dna_attr.domain == int8_t(AttrDomain::Face)) {
+      if (STREQ(dna_attr.name, "freestyle_face")) {
+        const auto &array_dna = *static_cast<const ::AttributeArray *>(dna_attr.data);
+        static_assert(sizeof(FreestyleFace) == sizeof(bool));
+        static_assert(char(FREESTYLE_FACE_MARK) == char(true));
+        CustomDataLayer layer{};
+        layer.type = CD_FREESTYLE_FACE;
+        layer.data = array_dna.data;
+        layer.sharing_info = array_dna.sharing_info;
+        face_layers.append(layer);
+        std::stable_sort(
+            face_layers.begin(),
+            face_layers.end(),
+            [](const CustomDataLayer &a, const CustomDataLayer &b) { return a.type < b.type; });
+        face_data.totlayer = face_layers.size();
+        face_data.maxlayer = face_data.totlayer;
+        attrs_to_remove[i] = true;
+      }
+    }
+  }
+  attr_write_data.attributes.remove_if([&](const ::Attribute &attr) {
+    const int i = &attr - attr_write_data.attributes.begin();
+    return attrs_to_remove[i];
+  });
 }
 
 void mesh_custom_normals_to_generic(Mesh &mesh)

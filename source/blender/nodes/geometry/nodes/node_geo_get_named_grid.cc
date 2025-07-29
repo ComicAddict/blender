@@ -13,14 +13,14 @@
 
 #include "NOD_rna_define.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 namespace blender::nodes::node_geo_get_named_grid_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Geometry>("Volume");
+  b.add_input<decl::Geometry>("Volume").description("Volume to take a named grid out of");
   b.add_input<decl::String>("Name").hide_label();
   b.add_input<decl::Bool>("Remove").default_value(true).translation_context(
       BLT_I18NCONTEXT_OPERATOR_DEFAULT);
@@ -33,14 +33,14 @@ static void node_declare(NodeDeclarationBuilder &b)
     return;
   }
 
-  b.add_output(eNodeSocketDatatype(node->custom1), "Grid");
+  b.add_output(eNodeSocketDatatype(node->custom1), "Grid").structure_type(StructureType::Grid);
 }
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiLayoutSetPropSep(layout, true);
-  uiLayoutSetPropDecorate(layout, false);
-  uiItemR(layout, ptr, "data_type", UI_ITEM_NONE, "", ICON_NONE);
+  layout->use_property_split_set(true);
+  layout->use_property_decorate_set(false);
+  layout->prop(ptr, "data_type", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
@@ -59,7 +59,7 @@ static void node_geo_exec(GeoNodeExecParams params)
       eNodeSocketDatatype(node.custom1));
 
   if (Volume *volume = geometry_set.get_volume_for_write()) {
-    if (const bke::VolumeGridData *grid = BKE_volume_grid_find(volume, grid_name.c_str())) {
+    if (const bke::VolumeGridData *grid = BKE_volume_grid_find(volume, grid_name)) {
       /* Increment user count before removing from volume. */
       grid->add_user();
       if (remove_grid) {

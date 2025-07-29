@@ -14,9 +14,6 @@
 
 #include "BlenderStrokeRenderer.h"
 
-using namespace std;
-using namespace Freestyle;
-
 #include "MEM_guardedalloc.h"
 
 #include "DNA_collection_types.h"
@@ -49,6 +46,9 @@ using namespace Freestyle;
 #include "pipeline.hh"
 
 #include "FRS_freestyle.h"
+
+using namespace std;
+using namespace Freestyle;
 
 FreestyleGlobals g_freestyle;
 
@@ -161,7 +161,7 @@ static void init_view(Render *re)
 
 static char *escape_quotes(char *name)
 {
-  char *s = (char *)MEM_mallocN(strlen(name) * 2 + 1, "escape_quotes");
+  char *s = MEM_malloc_arrayN<char>(strlen(name) * 2 + 1, "escape_quotes");
   char *p = s;
   while (*name) {
     if (*name == '\'') {
@@ -444,7 +444,7 @@ static void prepare(Render *re, ViewLayer *view_layer, Depsgraph *depsgraph)
       controller->setPassDiffuse(rpass_buffer_data, rpass->rectx, rpass->recty);
       diffuse = true;
     }
-    if (STREQ(rpass->name, RE_PASSNAME_Z)) {
+    if (STREQ(rpass->name, RE_PASSNAME_DEPTH)) {
       controller->setPassZ(rpass_buffer_data, rpass->rectx, rpass->recty);
       z = true;
     }
@@ -612,7 +612,7 @@ void FRS_do_stroke_rendering(Render *re, ViewLayer *view_layer)
    * Objects are transformed into camera coordinate system, therefore the camera position
    * is zero and the modelview matrix is the identity matrix. */
   Object *ob_camera_orig = RE_GetCamera(re);
-  Object *ob_camera_eval = DEG_get_evaluated_object(depsgraph, ob_camera_orig);
+  Object *ob_camera_eval = DEG_get_evaluated(depsgraph, ob_camera_orig);
   zero_v3(g_freestyle.viewpoint);
   unit_m4(g_freestyle.mv);
   RE_GetCameraWindow(re, ob_camera_eval, g_freestyle.proj);

@@ -25,75 +25,70 @@ except ModuleNotFoundError:
 ###############################################################################
 
 # The languages defined in Blender.
-LANGUAGES_CATEGORIES = (
-    # Min completeness level, UI English label.
-    (0.95, "Complete"),
-    (0.33, "In Progress"),
-    (-1.0, "Starting"),
-)
 LANGUAGES = (
     # ID, UI English label, ISO code.
-    (0, "Automatic (Automatic)", "DEFAULT"),
-    (1, "English (English)", "en_US"),
-    (2, "Japanese (日本語)", "ja_JP"),
-    (3, "Dutch (Nederlands)", "nl_NL"),
-    (4, "Italian (Italiano)", "it_IT"),
-    (5, "German (Deutsch)", "de_DE"),
-    (6, "Finnish (Suomi)", "fi_FI"),
-    (7, "Swedish (Svenska)", "sv_SE"),
-    (8, "French (Français)", "fr_FR"),
-    (9, "Spanish (Español)", "es"),
-    (10, "Catalan (Català)", "ca_AD"),
-    (11, "Czech (Čeština)", "cs_CZ"),
-    (12, "Portuguese (Português)", "pt_PT"),
-    (13, "Simplified Chinese (简体中文)", "zh_HANS"),
-    (14, "Traditional Chinese (繁體中文)", "zh_HANT"),
-    (15, "Russian (Русский)", "ru_RU"),
-    (16, "Croatian (Hrvatski)", "hr_HR"),
-    (17, "Serbian (Српски)", "sr_RS"),
-    (18, "Ukrainian (Українська)", "uk_UA"),
-    (19, "Polish (Polski)", "pl_PL"),
-    (20, "Romanian (Român)", "ro_RO"),
+    (0, "Automatic", "DEFAULT"),
+    (1, "English (US)", "en_US"),
+    (2, "Japanese - 日本語", "ja_JP"),
+    (3, "Dutch - Nederlands", "nl_NL"),
+    (4, "Italian - Italiano", "it_IT"),
+    (5, "German - Deutsch", "de_DE"),
+    (6, "Finnish - Suomi", "fi_FI"),
+    (7, "Swedish - Svenska", "sv_SE"),
+    (8, "French - Français", "fr_FR"),
+    (9, "Spanish - Español", "es"),
+    (10, "Catalan - Català", "ca_AD"),
+    (11, "Czech - Čeština", "cs_CZ"),
+    (12, "Portuguese (Portugal) - Português europeu", "pt_PT"),
+    (13, "Chinese (Simplified) - 简体中文", "zh_HANS"),
+    (14, "Chinese (Traditional) - 繁體中文", "zh_HANT"),
+    (15, "Russian - Русский", "ru_RU"),
+    (16, "Croatian - Hrvatski", "hr_HR"),
+    (17, "Serbian (Cyrillic) - Српски", "sr_RS"),
+    (18, "Ukrainian - Українська", "uk_UA"),
+    (19, "Polish - Polski", "pl_PL"),
+    (20, "Romanian - Român", "ro_RO"),
     # Using the utf8 flipped form of Arabic (العربية).
-    (21, "Arabic (ﺔﻴﺑﺮﻌﻟﺍ)", "ar_EG"),
-    (22, "Bulgarian (Български)", "bg_BG"),
-    (23, "Greek (Ελληνικά)", "el_GR"),
-    (24, "Korean (한국어)", "ko_KR"),
-    (25, "Nepali (नेपाली)", "ne_NP"),
+    (21, "Arabic - ﺔﻴﺑﺮﻌﻟﺍ", "ar_EG"),
+    (22, "Bulgarian - Български", "bg_BG"),
+    (23, "Greek - Ελληνικά", "el_GR"),
+    (24, "Korean - 한국어", "ko_KR"),
+    (25, "Nepali - नेपाली", "ne_NP"),
     # Using the utf8 flipped form of Persian (فارسی).
-    (26, "Persian (ﯽﺳﺭﺎﻓ)", "fa_IR"),
-    (27, "Indonesian (Bahasa indonesia)", "id_ID"),
-    (28, "Serbian Latin (Srpski latinica)", "sr_RS@latin"),
-    (29, "Kyrgyz (Кыргыз тили)", "ky_KG"),
-    (30, "Turkish (Türkçe)", "tr_TR"),
-    (31, "Hungarian (Magyar)", "hu_HU"),
-    (32, "Brazilian Portuguese (Português do Brasil)", "pt_BR"),
+    (26, "Persian - ﯽﺳﺭﺎﻓ", "fa_IR"),
+    (27, "Indonesian - Bahasa indonesia", "id_ID"),
+    (28, "Serbian (Latin) - Srpski latinica", "sr_RS@latin"),
+    (29, "Kyrgyz - Кыргыз тили", "ky_KG"),
+    (30, "Turkish - Türkçe", "tr_TR"),
+    (31, "Hungarian - Magyar", "hu_HU"),
+    (32, "Portuguese (Brazil) - Português brasileiro", "pt_BR"),
     # Using the utf8 flipped form of Hebrew (עִבְרִית)).
-    (33, "Hebrew (תירִבְעִ)", "he_IL"),
-    (34, "Estonian (Eesti keel)", "et_EE"),
-    (35, "Esperanto (Esperanto)", "eo"),
+    (33, "Hebrew - תירִבְעִ", "he_IL"),
+    (34, "Estonian - Eesti keel", "et_EE"),
+    (35, "Esperanto - Esperanto", "eo"),
     # 36 is free, used to be 'Spanish from Spain' (`es_ES`).
-    (37, "Amharic (አማርኛ)", "am_ET"),
-    (38, "Uzbek (Oʻzbek)", "uz_UZ@latin"),
-    (39, "Uzbek Cyrillic (Ўзбек)", "uz_UZ@cyrillic"),
-    (40, "Hindi (हिन्दी)", "hi_IN"),
-    (41, "Vietnamese (Tiếng Việt)", "vi_VN"),
-    (42, "Basque (Euskara)", "eu_EU"),
-    (43, "Hausa (Hausa)", "ha"),
-    (44, "Kazakh (Қазақша)", "kk_KZ"),
-    (45, "Abkhaz (Аԥсуа бызшәа)", "ab"),
-    (46, "Thai (ภาษาไทย)", "th_TH"),
-    (47, "Slovak (Slovenčina)", "sk_SK"),
-    (48, "Georgian (ქართული)", "ka"),
-    (49, "Tamil (தமிழ்)", "ta"),
-    (50, "Khmer (ខ្មែរ)", "km"),
-    (51, "Swahili (Kiswahili)", "sw"),
-    (52, "Belarusian (беларуску)", "be"),
-    (53, "Danish (Dansk)", "da"),
-    (54, "Slovenian (Slovenščina)", "sl"),
+    (37, "Amharic - አማርኛ", "am_ET"),
+    (38, "Uzbek (Latin) - Oʻzbek", "uz_UZ@latin"),
+    (39, "Uzbek (Cyrillic) - Ўзбек", "uz_UZ@cyrillic"),
+    (40, "Hindi - हिन्दी", "hi_IN"),
+    (41, "Vietnamese - Tiếng Việt", "vi_VN"),
+    (42, "Basque - Euskara", "eu_EU"),
+    (43, "Hausa - Hausa", "ha"),
+    (44, "Kazakh - Қазақша", "kk_KZ"),
+    (45, "Abkhaz - Аԥсуа бызшәа", "ab"),
+    (46, "Thai - ภาษาไทย", "th_TH"),
+    (47, "Slovak - Slovenčina", "sk_SK"),
+    (48, "Georgian - ქართული", "ka"),
+    (49, "Tamil - தமிழ்", "ta"),
+    (50, "Khmer - ខ្មែរ", "km"),
+    (51, "Swahili - Kiswahili", "sw"),
+    (52, "Belarusian - беларуску", "be"),
+    (53, "Danish - Dansk", "da"),
+    (54, "Slovenian - Slovenščina", "sl"),
     # Using the utf8 flipped form of Urdu (اُردُو).
-    (55, "Urdu (وُدرُا)", "ur"),
-    (56, "Lithuanian (Lietuviškai)", "lt"),
+    (55, "Urdu - وُدرُا", "ur"),
+    (56, "Lithuanian - Lietuviškai", "lt"),
+    (57, "English (UK)", "en_GB"),
 )
 
 # Default context, in py (keep in sync with `BLT_translation.hh`)!
@@ -104,7 +99,7 @@ DEFAULT_CONTEXT = "*"
 # Name of language file used by Blender to generate translations' menu.
 LANGUAGES_FILE = "languages"
 
-# The minimum level of completeness for a po file to be imported from
+# The minimum level of completeness for a `.po` file to be imported from
 # the working repository to the Blender one, as a percentage.
 IMPORT_MIN_LEVEL = 0.0
 
@@ -271,6 +266,10 @@ PYGETTEXT_KEYWORDS = (() +
     tuple(("{}\\((?:[^\"',]+,){{2}}\\s*" + _msg_re + r"\s*(?:\)|,)").format(it)
           for it in ("BKE_modifier_set_error",)) +
 
+    # Window manager job names.
+    tuple(("{}\\((?:[^\"',]+,){{3}}\\s*" + _msg_re + r"\s*,").format(it)
+          for it in ("WM_jobs_get",)) +
+
     # Compositor and EEVEE messages.
     # Ends either with `)` (function call close), or `,` when there are extra formatting parameters.
     tuple((r"{}\(\s*" + _msg_re + r"\s*(?:\)|,)").format(it)
@@ -294,23 +293,19 @@ PYGETTEXT_KEYWORDS = (() +
     tuple((r"\.{}\(\s*" + _msg_re + r"\s*\)").format(it)
           for it in ("description", "error_message_add")) +
 
-    # Node socket labels from declarations: context-less names
+    # Node socket panels and labels from declarations: context-less names
     tuple((r"\.{}\(\s*" + _msg_re +
            r"\s*\)(?![^;]*\.translation_context\()[^;]*;").format(it)
-          for it in ("short_label",)) +
+          for it in ("short_label", "add_panel",)) +
 
-    # Node socket labels from declarations: names with contexts
+    # Node socket panels and labels from declarations: names with contexts
     tuple((r"\.{}\(\s*" + _msg_re + r"[^;]*\.translation_context\(\s*" +
            _ctxt_re + r"\s*\)").format(it)
-          for it in ("short_label",)) +
+          for it in ("short_label", "add_panel",)) +
 
     # Dynamic node socket labels
     tuple((r"{}\(\s*[^,]+,\s*" + _msg_re + r"\s*\)").format(it)
           for it in ("node_sock_label",)) +
-
-    # Node panel declarations
-    tuple((r"\.{}\(\s*" + _msg_re + r"\s*\)").format(it)
-          for it in ("add_panel",)) +
 
     # Geometry Nodes field inputs
     ((r"FieldInput\(CPPType::get<.*?>\(\),\s*" + _msg_re + r"\s*\)"),) +
@@ -721,7 +716,7 @@ def _check_valid_data(uid, val):
 class I18nSettings:
     """
     Class allowing persistence of our settings!
-    Saved in JSon format, so settings should be JSon'able objects!
+    Saved in JSON format, so settings should be JSON'able objects!
     """
     _settings = None
 
@@ -768,7 +763,7 @@ class I18nSettings:
             return
         if isinstance(fname, str):
             if not os.path.isfile(fname):
-                # Assume it is already real JSon string...
+                # Assume it is already real JSON string.
                 self.from_json(fname)
                 return
             with open(fname, encoding="utf8") as f:

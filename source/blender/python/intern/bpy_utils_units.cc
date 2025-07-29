@@ -21,7 +21,7 @@
 #include "bpy_utils_units.hh"
 
 #include "../generic/py_capi_utils.hh"
-#include "../generic/python_compat.hh"
+#include "../generic/python_compat.hh" /* IWYU pragma: keep. */
 
 #include "BKE_unit.hh"
 
@@ -212,7 +212,6 @@ static PyObject *bpyunits_to_value(PyObject * /*self*/, PyObject *args, PyObject
   if (!PyC_RunString_AsNumber(nullptr, str, "<bpy_units_api>", &result)) {
     if (PyErr_Occurred()) {
       PyErr_Print();
-      PyErr_Clear();
     }
 
     PyErr_Format(
@@ -249,7 +248,7 @@ PyDoc_STRVAR(
     "one (1.01m).\n"
     "   :type split_unit: bool\n"
     "   :arg compatible_unit: Whether to use keyboard-friendly units (1m2) or nicer "
-    "utf-8 ones (1m²).\n"
+    "UTF8 ones (1m²).\n"
     "   :type compatible_unit: bool\n"
     "   :return: The converted string.\n"
     "   :rtype: str\n"
@@ -308,8 +307,8 @@ static PyObject *bpyunits_to_string(PyObject * /*self*/, PyObject *args, PyObjec
     /* Maximum expected length of string result:
      * - Number itself: precision + decimal dot + up to four 'above dot' digits.
      * - Unit: up to ten chars
-     *   (six currently, let's be conservative, also because we use some utf8 chars).
-     * This can be repeated twice (e.g. 1m20cm), and we add ten more spare chars
+     *   (six currently, let's be conservative, also because we use some UTF8 chars).
+     * This can be repeated twice (e.g. `1m20cm`), and we add ten more spare chars
      * (spaces, trailing '\0'...).
      * So in practice, 64 should be more than enough.
      */
@@ -334,9 +333,14 @@ static PyObject *bpyunits_to_string(PyObject * /*self*/, PyObject *args, PyObjec
   }
 }
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic push
-#  pragma GCC diagnostic ignored "-Wcast-function-type"
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wcast-function-type"
+#  else
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wcast-function-type"
+#  endif
 #endif
 
 static PyMethodDef bpyunits_methods[] = {
@@ -351,8 +355,12 @@ static PyMethodDef bpyunits_methods[] = {
     {nullptr, nullptr, 0, nullptr},
 };
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic pop
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic pop
+#  else
+#    pragma GCC diagnostic pop
+#  endif
 #endif
 
 PyDoc_STRVAR(

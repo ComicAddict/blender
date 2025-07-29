@@ -80,20 +80,23 @@ struct KS_Path *BKE_keyingset_find_path(struct KeyingSet *ks,
                                         int array_index,
                                         int group_mode);
 
-/* Copy all KeyingSets in the given list */
+/** Copy all KeyingSets in the given list. */
 void BKE_keyingsets_copy(struct ListBase *newlist, const struct ListBase *list);
 
-/** Process the ID pointers inside a scene's keyingsets, in see `BKE_lib_query.hh` for details. */
+/**
+ * Process the ID pointers inside a scene's keying-sets, in.
+ * see `BKE_lib_query.hh` for details.
+ */
 void BKE_keyingsets_foreach_id(struct LibraryForeachIDData *data,
                                const struct ListBase *keyingsets);
 
-/* Free the given Keying Set path */
+/** Free the given Keying Set path. */
 void BKE_keyingset_free_path(struct KeyingSet *ks, struct KS_Path *ksp);
 
-/* Free data for KeyingSet but not set itself */
+/** Free data for KeyingSet but not set itself. */
 void BKE_keyingset_free_paths(struct KeyingSet *ks);
 
-/* Free all the KeyingSets in the given list */
+/** Free all the KeyingSets in the given list. */
 void BKE_keyingsets_free(struct ListBase *list);
 
 void BKE_keyingsets_blend_write(struct BlendWriter *writer, struct ListBase *list);
@@ -193,8 +196,8 @@ bool BKE_animdata_driver_path_remove(struct ID *id, const char *prefix);
 /**
  * Remove all drivers from the given struct.
  *
- * \param type needs to be a struct owned by the given ID.
- * \param data the actual struct data, needs to be the data for the StructRNA.
+ * \param type: needs to be a struct owned by the given ID.
+ * \param data: the actual struct data, needs to be the data for the StructRNA.
  *
  * \return true if any driver was removed.
  */
@@ -290,8 +293,14 @@ bool BKE_animsys_rna_path_resolve(struct PointerRNA *ptr,
 bool BKE_animsys_read_from_rna_path(struct PathResolvedRNA *anim_rna, float *r_value);
 /**
  * Write the given value to a setting using RNA, and return success.
+ *
+ * \param force_write: When false, this function will only call the RNA setter when `value` is
+ * different from the property's current value. When true, this function will skip that check and
+ * always call the RNA setter.
  */
-bool BKE_animsys_write_to_rna_path(struct PathResolvedRNA *anim_rna, float value);
+bool BKE_animsys_write_to_rna_path(struct PathResolvedRNA *anim_rna,
+                                   float value,
+                                   bool force_write = false);
 
 /**
  * Evaluation loop for evaluation animation data
@@ -335,14 +344,16 @@ void animsys_evaluate_action(struct PointerRNA *ptr,
                              const struct AnimationEvalContext *anim_eval_context,
                              bool flush_to_original);
 
-/* Evaluate action, and blend the result into the current values (instead of overwriting fully). */
+/**
+ * Evaluate action, and blend the result into the current values (instead of overwriting fully).
+ */
 void animsys_blend_in_action(struct PointerRNA *ptr,
                              struct bAction *act,
                              int32_t action_slot_handle,
                              const AnimationEvalContext *anim_eval_context,
                              float blend_factor);
 
-/* Evaluate Action Group */
+/** Evaluate Action Group. */
 void animsys_evaluate_action_group(struct PointerRNA *ptr,
                                    struct bAction *act,
                                    struct bActionGroup *agrp,
@@ -355,6 +366,7 @@ void animsys_evaluate_action_group(struct PointerRNA *ptr,
 struct Depsgraph;
 
 void BKE_animsys_eval_animdata(struct Depsgraph *depsgraph, struct ID *id);
+void BKE_animsys_eval_driver_unshare(Depsgraph *depsgraph, ID *id);
 void BKE_animsys_eval_driver(struct Depsgraph *depsgraph,
                              struct ID *id,
                              int driver_index,
@@ -363,3 +375,17 @@ void BKE_animsys_eval_driver(struct Depsgraph *depsgraph,
 void BKE_animsys_update_driver_array(struct ID *id);
 
 /* ************************************* */
+
+void BKE_time_markers_blend_write(BlendWriter *writer, ListBase /* TimeMarker */ &markers);
+void BKE_time_markers_blend_read(BlendDataReader *reader, ListBase /* TimeMarker */ &markers);
+
+/**
+ * Copy a list of time markers.
+ *
+ * Note: this is meant to be called in the context of duplicating an ID.
+ *
+ * \param flag: ID copy flags. Corresponds to the `flag` parameter of `BKE_id_copy_ex()`.
+ */
+void BKE_copy_time_markers(ListBase /* TimeMarker */ &markers_dst,
+                           const ListBase /* TimeMarker */ &markers_src,
+                           int flag);

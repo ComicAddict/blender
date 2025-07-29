@@ -21,6 +21,7 @@
 #include "RNA_access.hh"
 
 #include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 
 #include "GPU_texture.hh"
 
@@ -33,8 +34,8 @@ namespace blender::nodes::node_composite_movieclip_cc {
 
 static void cmp_node_movieclip_declare(NodeDeclarationBuilder &b)
 {
-  b.add_output<decl::Color>("Image");
-  b.add_output<decl::Float>("Alpha");
+  b.add_output<decl::Color>("Image").structure_type(StructureType::Dynamic);
+  b.add_output<decl::Float>("Alpha").structure_type(StructureType::Dynamic);
   b.add_output<decl::Float>("Offset X");
   b.add_output<decl::Float>("Offset Y");
   b.add_output<decl::Float>("Scale");
@@ -234,7 +235,7 @@ class MovieClipOperation : public NodeOperation {
     }
 
     /* Create a float buffer from the byte buffer if it exists, if not, return nullptr. */
-    IMB_float_from_rect(movie_clip_buffer);
+    IMB_float_from_byte(movie_clip_buffer);
     if (!movie_clip_buffer->float_buffer.data) {
       return nullptr;
     }
@@ -260,7 +261,7 @@ static NodeOperation *get_compositor_operation(Context &context, DNode node)
 
 }  // namespace blender::nodes::node_composite_movieclip_cc
 
-void register_node_type_cmp_movieclip()
+static void register_node_type_cmp_movieclip()
 {
   namespace file_ns = blender::nodes::node_composite_movieclip_cc;
 
@@ -283,3 +284,4 @@ void register_node_type_cmp_movieclip()
 
   blender::bke::node_register_type(ntype);
 }
+NOD_REGISTER_NODE(register_node_type_cmp_movieclip)

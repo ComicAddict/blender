@@ -54,8 +54,7 @@ static Image *bake_object_image_get(Object *ob, int mat_nr)
 
 static Image **bake_object_image_get_array(Object *ob)
 {
-  Image **image_array = static_cast<Image **>(
-      MEM_mallocN(sizeof(Material *) * ob->totcol, __func__));
+  Image **image_array = MEM_malloc_arrayN<Image *>(ob->totcol, __func__);
   for (int i = 0; i < ob->totcol; i++) {
     image_array[i] = bake_object_image_get(ob, i);
   }
@@ -327,7 +326,7 @@ static void clear_images_poly(Image **ob_image_array, int ob_image_array_len, Cl
   }
 }
 
-static int multiresbake_image_exec_locked(bContext *C, wmOperator *op)
+static wmOperatorStatus multiresbake_image_exec_locked(bContext *C, wmOperator *op)
 {
   Object *ob;
   Scene *scene = CTX_data_scene(C);
@@ -444,7 +443,7 @@ static void init_multiresbake_job(bContext *C, MultiresBakeJob *bkj)
 
     multires_flush_sculpt_updates(ob);
 
-    MultiresBakerJobData *data = MEM_cnew<MultiresBakerJobData>(__func__);
+    MultiresBakerJobData *data = MEM_callocN<MultiresBakerJobData>(__func__);
 
     data->ob_image.array = bake_object_image_get_array(ob);
     data->ob_image.len = ob->totcol;
@@ -549,7 +548,7 @@ static void multiresbake_freejob(void *bkv)
   MEM_freeN(bkj);
 }
 
-static int multiresbake_image_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus multiresbake_image_exec(bContext *C, wmOperator *op)
 {
   Scene *scene = CTX_data_scene(C);
 
@@ -557,7 +556,7 @@ static int multiresbake_image_exec(bContext *C, wmOperator *op)
     return OPERATOR_CANCELLED;
   }
 
-  MultiresBakeJob *bkr = MEM_cnew<MultiresBakeJob>(__func__);
+  MultiresBakeJob *bkr = MEM_callocN<MultiresBakeJob>(__func__);
   init_multiresbake_job(C, bkr);
 
   if (!bkr->data.first) {
@@ -591,7 +590,9 @@ static int multiresbake_image_exec(bContext *C, wmOperator *op)
 /* ****************** render BAKING ********************** */
 
 /** Catch escape key to cancel. */
-static int objects_bake_render_modal(bContext *C, wmOperator * /*op*/, const wmEvent *event)
+static wmOperatorStatus objects_bake_render_modal(bContext *C,
+                                                  wmOperator * /*op*/,
+                                                  const wmEvent *event)
 {
   /* no running blender, remove handler and pass through */
   if (0 == WM_jobs_test(CTX_wm_manager(C), CTX_data_scene(C), WM_JOB_TYPE_OBJECT_BAKE_TEXTURE)) {
@@ -602,6 +603,9 @@ static int objects_bake_render_modal(bContext *C, wmOperator * /*op*/, const wmE
   switch (event->type) {
     case EVT_ESCKEY:
       return OPERATOR_RUNNING_MODAL;
+    default: {
+      break;
+    }
   }
   return OPERATOR_PASS_THROUGH;
 }
@@ -615,10 +619,12 @@ static bool is_multires_bake(Scene *scene)
   return false;
 }
 
-static int objects_bake_render_invoke(bContext *C, wmOperator *op, const wmEvent * /*event*/)
+static wmOperatorStatus objects_bake_render_invoke(bContext *C,
+                                                   wmOperator *op,
+                                                   const wmEvent * /*event*/)
 {
   Scene *scene = CTX_data_scene(C);
-  int result = OPERATOR_CANCELLED;
+  wmOperatorStatus result = OPERATOR_CANCELLED;
 
   result = multiresbake_image_exec(C, op);
 
@@ -627,10 +633,10 @@ static int objects_bake_render_invoke(bContext *C, wmOperator *op, const wmEvent
   return result;
 }
 
-static int bake_image_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus bake_image_exec(bContext *C, wmOperator *op)
 {
   Scene *scene = CTX_data_scene(C);
-  int result = OPERATOR_CANCELLED;
+  wmOperatorStatus result = OPERATOR_CANCELLED;
 
   if (!is_multires_bake(scene)) {
     BLI_assert(0);
@@ -651,7 +657,7 @@ void OBJECT_OT_bake_image(wmOperatorType *ot)
   ot->description = "Bake image textures of selected objects";
   ot->idname = "OBJECT_OT_bake_image";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = bake_image_exec;
   ot->invoke = objects_bake_render_invoke;
   ot->modal = objects_bake_render_modal;

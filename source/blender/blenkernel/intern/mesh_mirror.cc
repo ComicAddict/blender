@@ -209,8 +209,7 @@ Mesh *BKE_mesh_mirror_apply_mirror_on_axis_for_modifier(MirrorModifierData *mmd,
 
   if (do_vtargetmap) {
     /* second half is filled with -1 */
-    *r_vert_merge_map = static_cast<int *>(
-        MEM_malloc_arrayN(src_verts_num, sizeof(int[2]), "MOD_mirror tarmap"));
+    *r_vert_merge_map = MEM_malloc_arrayN<int>(2 * size_t(src_verts_num), "MOD_mirror tarmap");
 
     vtmap_a = *r_vert_merge_map;
     vtmap_b = *r_vert_merge_map + src_verts_num;
@@ -389,7 +388,7 @@ Mesh *BKE_mesh_mirror_apply_mirror_on_axis_for_modifier(MirrorModifierData *mmd,
     }
   }
 
-  /* handle custom split normals */
+  /* handle custom normals */
   bke::MutableAttributeAccessor attributes = result->attributes_for_write();
   bke::GAttributeWriter custom_normals = attributes.lookup_for_write("custom_normal");
   if (ob->type == OB_MESH && custom_normals && custom_normals.domain == bke::AttrDomain::Corner &&
@@ -409,12 +408,11 @@ Mesh *BKE_mesh_mirror_apply_mirror_on_axis_for_modifier(MirrorModifierData *mmd,
     const VArraySpan sharp_edges = *attributes.lookup<bool>("sharp_edge", AttrDomain::Edge);
     const VArraySpan sharp_faces = *attributes.lookup<bool>("sharp_face", AttrDomain::Face);
     blender::bke::mesh::normals_calc_corners(result->vert_positions(),
-                                             result_edges,
                                              result_faces,
                                              result_corner_verts,
                                              result_corner_edges,
-                                             result->corner_to_face_map(),
-                                             result->face_normals(),
+                                             result->vert_to_face_map(),
+                                             result->face_normals_true(),
                                              sharp_edges,
                                              sharp_faces,
                                              clnors,
@@ -447,7 +445,7 @@ Mesh *BKE_mesh_mirror_apply_mirror_on_axis_for_modifier(MirrorModifierData *mmd,
 
   /* handle vgroup stuff */
   if (BKE_object_supports_vertex_groups(ob)) {
-    if ((mmd->flag & MOD_MIR_VGROUP) && CustomData_has_layer(&result->vert_data, CD_MDEFORMVERT)) {
+    if ((mmd->flag & MOD_MIR_VGROUP) && !result->deform_verts().is_empty()) {
       MDeformVert *dvert = result->deform_verts_for_write().data() + src_verts_num;
       int flip_map_len = 0;
       int *flip_map = BKE_object_defgroup_flip_map(ob, false, &flip_map_len);

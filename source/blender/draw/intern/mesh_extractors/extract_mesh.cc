@@ -24,7 +24,7 @@ namespace blender::draw {
 
 void mesh_render_data_face_flag(const MeshRenderData &mr,
                                 const BMFace *efa,
-                                const BMUVOffsets offsets,
+                                const BMUVOffsets &offsets,
                                 EditLoopData &eattr)
 {
   if (efa == mr.efa_act) {
@@ -37,15 +37,13 @@ void mesh_render_data_face_flag(const MeshRenderData &mr,
   if (efa == mr.efa_act_uv) {
     eattr.v_flag |= VFLAG_FACE_UV_ACTIVE;
   }
-  if ((offsets.uv != -1) && uvedit_face_select_test_ex(mr.toolsettings, (BMFace *)efa, offsets)) {
+  if ((offsets.uv != -1) && uvedit_face_select_test_ex(mr.toolsettings, efa, offsets)) {
     eattr.v_flag |= VFLAG_FACE_UV_SELECT;
   }
 
 #ifdef WITH_FREESTYLE
   if (mr.freestyle_face_ofs != -1) {
-    const FreestyleFace *ffa = (const FreestyleFace *)BM_ELEM_CD_GET_VOID_P(efa,
-                                                                            mr.freestyle_face_ofs);
-    if (ffa->flag & FREESTYLE_FACE_MARK) {
+    if (BM_ELEM_CD_GET_BOOL(efa, mr.freestyle_face_ofs)) {
       eattr.v_flag |= VFLAG_FACE_FREESTYLE;
     }
   }
@@ -54,7 +52,7 @@ void mesh_render_data_face_flag(const MeshRenderData &mr,
 
 void mesh_render_data_loop_flag(const MeshRenderData &mr,
                                 const BMLoop *l,
-                                const BMUVOffsets offsets,
+                                const BMUVOffsets &offsets,
                                 EditLoopData &eattr)
 {
   if (offsets.uv == -1) {
@@ -70,7 +68,7 @@ void mesh_render_data_loop_flag(const MeshRenderData &mr,
 
 void mesh_render_data_loop_edge_flag(const MeshRenderData &mr,
                                      const BMLoop *l,
-                                     const BMUVOffsets offsets,
+                                     const BMUVOffsets &offsets,
                                      EditLoopData &eattr)
 {
   if (offsets.uv == -1) {

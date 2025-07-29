@@ -16,11 +16,12 @@
 #ifdef WITH_PYTHON_MODULE
 #  include "pylifecycle.h" /* For `Py_Version`. */
 #endif
+#include "../generic/python_compat.hh" /* IWYU pragma: keep. */
 
 #include "CLG_log.h"
 
 #include "BLI_path_utils.hh"
-#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 #include "BLI_threads.h"
 #include "BLI_utildefines.h"
 
@@ -57,7 +58,6 @@
 
 /* `inittab` initialization functions. */
 #include "../bmesh/bmesh_py_api.hh"
-#include "../generic/bgl.hh"
 #include "../generic/bl_math_py_api.hh"
 #include "../generic/blf_py_api.hh"
 #include "../generic/idprop_py_api.hh"
@@ -145,7 +145,7 @@ void bpy_context_clear(bContext * /*C*/, const PyGILState_STATE *gilstate)
   }
   else if (py_call_level == 0) {
     /* NOTE: Unfortunately calling classes currently won't store the context.
-     * Can't set nullptr because of this - but this is very flaky still. */
+     * Can't set nullptr because of this - but this is very unreliable still. */
 #if 0
     BPY_context_set(nullptr);
 #endif
@@ -188,9 +188,27 @@ void BPY_context_dict_clear_members_array(void **dict_p,
    * while supported it's good to avoid for low level functions like this that run often. */
   for (uint i = 0; i < context_members_len; i++) {
     PyObject *key = PyUnicode_FromString(context_members[i]);
-    PyObject *item = _PyDict_Pop(dict, key, Py_None);
-    Py_DECREF(key);
+    PyObject *item;
+
+#if PY_VERSION_HEX >= 0x030d0000
+    switch (PyDict_Pop(dict, key, &item)) {
+      case 1: {
+        Py_DECREF(item);
+        break;
+      }
+      case -1: {
+        /* Not expected, but allow for an error. */
+        BLI_assert(false);
+        PyErr_Clear();
+        break;
+      }
+    }
+#else /* Remove when Python 3.12 support is dropped. */
+    item = _PyDict_Pop(dict, key, Py_None);
     Py_DECREF(item);
+#endif
+
+    Py_DECREF(key);
   }
 
   if (use_gil) {
@@ -272,7 +290,6 @@ static _inittab bpy_internal_modules[] = {
     {"mathutils.kdtree", PyInit_mathutils_kdtree},
 #endif
     {"_bpy_path", BPyInit__bpy_path},
-    {"bgl", BPyInit_bgl},
     {"blf", BPyInit_blf},
     {"bl_math", BPyInit_bl_math},
     {"imbuf", BPyInit_imbuf},
@@ -330,9 +347,8 @@ void BPY_python_start(bContext *C, int argc, const char **argv)
     PyStatus status;
 
     /* To narrow down reports where the systems Python is inexplicably used, see: #98131. */
-    CLOG_INFO(
+    CLOG_DEBUG(
         BPY_LOG_INTERFACE,
-        2,
         "Initializing %s support for the systems Python environment such as 'PYTHONPATH' and "
         "the user-site directory.",
         py_use_system_env ? "*with*" : "*without*");
@@ -347,14 +363,14 @@ void BPY_python_start(bContext *C, int argc, const char **argv)
       PyPreConfig_InitIsolatedConfig(&preconfig);
     }
 
-    /* Force `utf-8` on all platforms, since this is what's used for Blender's internal strings,
+    /* Force UTF8 on all platforms, since this is what's used for Blender's internal strings,
      * providing consistent encoding behavior across all Blender installations.
      *
      * This also uses the `surrogateescape` error handler ensures any unexpected bytes are escaped
      * instead of raising an error.
      *
      * Without this `sys.getfilesystemencoding()` and `sys.stdout` for example may be set to ASCII
-     * or some other encoding - where printing some `utf-8` values will raise an error.
+     * or some other encoding - where printing some UTF8 values will raise an error.
      *
      * This can cause scripts to fail entirely on some systems.
      *
@@ -385,7 +401,7 @@ void BPY_python_start(bContext *C, int argc, const char **argv)
     }
     else {
       PyConfig_InitIsolatedConfig(&config);
-      /* Python's isolated config disables it's own signal overrides.
+      /* Python's isolated config disables its own signal overrides.
        * While it makes sense not to interfering with other components of the process,
        * the signal handlers are needed for Python's own error handling to work properly.
        * Without this a `SIGPIPE` signal will crash Blender, see: #129657. */
@@ -527,7 +543,6 @@ void BPY_python_start(bContext *C, int argc, const char **argv)
       }
       else {
         PyErr_Print();
-        PyErr_Clear();
       }
       // Py_DECREF(mod); /* Ideally would decref, but in this case we never want to free. */
     }
@@ -649,7 +664,7 @@ void BPY_python_backtrace(FILE *fp)
   fputs("\n# Python backtrace\n", fp);
 
   /* Can happen in rare cases. */
-  if (!_PyThreadState_UncheckedGet()) {
+  if (!PyThreadState_GetUnchecked()) {
     return;
   }
   PyFrameObject *frame = PyEval_GetFrame();
@@ -708,7 +723,7 @@ void BPY_modules_load_user(bContext *C)
       if (!(G.f & G_FLAG_SCRIPT_AUTOEXEC)) {
         if (!(G.f & G_FLAG_SCRIPT_AUTOEXEC_FAIL_QUIET)) {
           G.f |= G_FLAG_SCRIPT_AUTOEXEC_FAIL;
-          SNPRINTF(G.autoexec_fail, RPT_("Text '%s'"), text->id.name + 2);
+          SNPRINTF_UTF8(G.autoexec_fail, RPT_("Text '%s'"), text->id.name + 2);
 
           printf("scripts disabled for \"%s\", skipping '%s'\n",
                  BKE_main_blendfile_path(bmain),
@@ -728,7 +743,7 @@ void BPY_modules_load_user(bContext *C)
   bpy_context_clear(C, &gilstate);
 }
 
-int BPY_context_member_get(bContext *C, const char *member, bContextDataResult *result)
+bool BPY_context_member_get(bContext *C, const char *member, bContextDataResult *result)
 {
   PyGILState_STATE gilstate;
   const bool use_gil = !PyC_IsInterpreterActive();
@@ -762,7 +777,6 @@ int BPY_context_member_get(bContext *C, const char *member, bContextDataResult *
     PyObject *seq_fast = PySequence_Fast(item, "bpy_context_get sequence conversion");
     if (seq_fast == nullptr) {
       PyErr_Print();
-      PyErr_Clear();
     }
     else {
       const int len = PySequence_Fast_GET_SIZE(seq_fast);
@@ -778,7 +792,6 @@ int BPY_context_member_get(bContext *C, const char *member, bContextDataResult *
         }
         else {
           CLOG_INFO(BPY_LOG_CONTEXT,
-                    1,
                     "'%s' list item not a valid type in sequence type '%s'",
                     member,
                     Py_TYPE(item)->tp_name);
@@ -792,14 +805,14 @@ int BPY_context_member_get(bContext *C, const char *member, bContextDataResult *
 
   if (done == false) {
     if (item) {
-      CLOG_INFO(BPY_LOG_CONTEXT, 1, "'%s' not a valid type", member);
+      CLOG_INFO(BPY_LOG_CONTEXT, "'%s' not a valid type", member);
     }
     else {
-      CLOG_INFO(BPY_LOG_CONTEXT, 1, "'%s' not found", member);
+      CLOG_INFO(BPY_LOG_CONTEXT, "'%s' not found", member);
     }
   }
   else {
-    CLOG_INFO(BPY_LOG_CONTEXT, 2, "'%s' found", member);
+    CLOG_DEBUG(BPY_LOG_CONTEXT, "'%s' found", member);
   }
 
   if (use_gil) {

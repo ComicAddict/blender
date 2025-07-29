@@ -24,6 +24,7 @@
 #include "BKE_texture.h"
 
 #include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "RNA_access.hh"
@@ -170,7 +171,7 @@ static void waveModifier_do(WaveModifierData *wmd,
 
   Tex *tex_target = wmd->texture;
   if (mesh != nullptr && tex_target != nullptr) {
-    tex_co = static_cast<float(*)[3]>(MEM_malloc_arrayN(verts_num, sizeof(*tex_co), __func__));
+    tex_co = MEM_malloc_arrayN<float[3]>(size_t(verts_num), __func__);
     MOD_get_texture_coords((MappingInfoModifierData *)wmd, ctx, ob, mesh, vertexCos, tex_co);
 
     MOD_init_texture((MappingInfoModifierData *)wmd, ctx);
@@ -297,41 +298,33 @@ static void panel_draw(const bContext * /*C*/, Panel *panel)
   PointerRNA ob_ptr;
   PointerRNA *ptr = modifier_panel_get_property_pointers(panel, &ob_ptr);
 
-  uiLayoutSetPropSep(layout, true);
+  layout->use_property_split_set(true);
 
-  row = uiLayoutRowWithHeading(layout, true, IFACE_("Motion"));
-  uiItemR(row,
-          ptr,
-          "use_x",
-          UI_ITEM_R_TOGGLE | UI_ITEM_R_FORCE_BLANK_DECORATE,
-          std::nullopt,
-          ICON_NONE);
-  uiItemR(row,
-          ptr,
-          "use_y",
-          UI_ITEM_R_TOGGLE | UI_ITEM_R_FORCE_BLANK_DECORATE,
-          std::nullopt,
-          ICON_NONE);
+  row = &layout->row(true, IFACE_("Motion"));
+  row->prop(
+      ptr, "use_x", UI_ITEM_R_TOGGLE | UI_ITEM_R_FORCE_BLANK_DECORATE, std::nullopt, ICON_NONE);
+  row->prop(
+      ptr, "use_y", UI_ITEM_R_TOGGLE | UI_ITEM_R_FORCE_BLANK_DECORATE, std::nullopt, ICON_NONE);
 
-  uiItemR(layout, ptr, "use_cyclic", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "use_cyclic", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
-  row = uiLayoutRowWithHeading(layout, true, IFACE_("Along Normals"));
-  uiItemR(row, ptr, "use_normal", UI_ITEM_NONE, "", ICON_NONE);
-  sub = uiLayoutRow(row, true);
-  uiLayoutSetActive(sub, RNA_boolean_get(ptr, "use_normal"));
-  uiItemR(sub, ptr, "use_normal_x", UI_ITEM_R_TOGGLE, "X", ICON_NONE);
-  uiItemR(sub, ptr, "use_normal_y", UI_ITEM_R_TOGGLE, "Y", ICON_NONE);
-  uiItemR(sub, ptr, "use_normal_z", UI_ITEM_R_TOGGLE, "Z", ICON_NONE);
+  row = &layout->row(true, IFACE_("Along Normals"));
+  row->prop(ptr, "use_normal", UI_ITEM_NONE, "", ICON_NONE);
+  sub = &row->row(true);
+  sub->active_set(RNA_boolean_get(ptr, "use_normal"));
+  sub->prop(ptr, "use_normal_x", UI_ITEM_R_TOGGLE, "X", ICON_NONE);
+  sub->prop(ptr, "use_normal_y", UI_ITEM_R_TOGGLE, "Y", ICON_NONE);
+  sub->prop(ptr, "use_normal_z", UI_ITEM_R_TOGGLE, "Z", ICON_NONE);
 
-  col = uiLayoutColumn(layout, false);
-  uiItemR(col, ptr, "falloff_radius", UI_ITEM_NONE, IFACE_("Falloff"), ICON_NONE);
-  uiItemR(col, ptr, "height", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
-  uiItemR(col, ptr, "width", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
-  uiItemR(col, ptr, "narrowness", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
+  col = &layout->column(false);
+  col->prop(ptr, "falloff_radius", UI_ITEM_NONE, IFACE_("Falloff"), ICON_NONE);
+  col->prop(ptr, "height", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
+  col->prop(ptr, "width", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
+  col->prop(ptr, "narrowness", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
 
   modifier_vgroup_ui(layout, ptr, &ob_ptr, "vertex_group", "invert_vertex_group", std::nullopt);
 
-  modifier_panel_end(layout, ptr);
+  modifier_error_message_draw(layout, ptr);
 }
 
 static void position_panel_draw(const bContext * /*C*/, Panel *panel)
@@ -341,13 +334,13 @@ static void position_panel_draw(const bContext * /*C*/, Panel *panel)
 
   PointerRNA *ptr = modifier_panel_get_property_pointers(panel, nullptr);
 
-  uiLayoutSetPropSep(layout, true);
+  layout->use_property_split_set(true);
 
-  uiItemR(layout, ptr, "start_position_object", UI_ITEM_NONE, IFACE_("Object"), ICON_NONE);
+  layout->prop(ptr, "start_position_object", UI_ITEM_NONE, IFACE_("Object"), ICON_NONE);
 
-  col = uiLayoutColumn(layout, true);
-  uiItemR(col, ptr, "start_position_x", UI_ITEM_NONE, IFACE_("Start Position X"), ICON_NONE);
-  uiItemR(col, ptr, "start_position_y", UI_ITEM_NONE, "Y", ICON_NONE);
+  col = &layout->column(true);
+  col->prop(ptr, "start_position_x", UI_ITEM_NONE, IFACE_("Start Position X"), ICON_NONE);
+  col->prop(ptr, "start_position_y", UI_ITEM_NONE, "Y", ICON_NONE);
 }
 
 static void time_panel_draw(const bContext * /*C*/, Panel *panel)
@@ -357,13 +350,13 @@ static void time_panel_draw(const bContext * /*C*/, Panel *panel)
 
   PointerRNA *ptr = modifier_panel_get_property_pointers(panel, nullptr);
 
-  uiLayoutSetPropSep(layout, true);
+  layout->use_property_split_set(true);
 
-  col = uiLayoutColumn(layout, false);
-  uiItemR(col, ptr, "time_offset", UI_ITEM_NONE, IFACE_("Offset"), ICON_NONE);
-  uiItemR(col, ptr, "lifetime", UI_ITEM_NONE, IFACE_("Life"), ICON_NONE);
-  uiItemR(col, ptr, "damping_time", UI_ITEM_NONE, IFACE_("Damping"), ICON_NONE);
-  uiItemR(col, ptr, "speed", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
+  col = &layout->column(false);
+  col->prop(ptr, "time_offset", UI_ITEM_NONE, IFACE_("Offset"), ICON_NONE);
+  col->prop(ptr, "lifetime", UI_ITEM_NONE, IFACE_("Life"), ICON_NONE);
+  col->prop(ptr, "damping_time", UI_ITEM_NONE, IFACE_("Damping"), ICON_NONE);
+  col->prop(ptr, "speed", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
 }
 
 static void texture_panel_draw(const bContext *C, Panel *panel)
@@ -378,29 +371,28 @@ static void texture_panel_draw(const bContext *C, Panel *panel)
 
   uiTemplateID(layout, C, ptr, "texture", "texture.new", nullptr, nullptr);
 
-  uiLayoutSetPropSep(layout, true);
+  layout->use_property_split_set(true);
 
-  col = uiLayoutColumn(layout, false);
-  uiItemR(col, ptr, "texture_coords", UI_ITEM_NONE, IFACE_("Coordinates"), ICON_NONE);
+  col = &layout->column(false);
+  col->prop(ptr, "texture_coords", UI_ITEM_NONE, IFACE_("Coordinates"), ICON_NONE);
   if (texture_coords == MOD_DISP_MAP_OBJECT) {
-    uiItemR(col, ptr, "texture_coords_object", UI_ITEM_NONE, IFACE_("Object"), ICON_NONE);
+    col->prop(ptr, "texture_coords_object", UI_ITEM_NONE, IFACE_("Object"), ICON_NONE);
     PointerRNA texture_coords_obj_ptr = RNA_pointer_get(ptr, "texture_coords_object");
     if (!RNA_pointer_is_null(&texture_coords_obj_ptr) &&
         (RNA_enum_get(&texture_coords_obj_ptr, "type") == OB_ARMATURE))
     {
       PointerRNA texture_coords_obj_data_ptr = RNA_pointer_get(&texture_coords_obj_ptr, "data");
-      uiItemPointerR(col,
-                     ptr,
-                     "texture_coords_bone",
-                     &texture_coords_obj_data_ptr,
-                     "bones",
-                     IFACE_("Bone"),
-                     ICON_NONE);
+      col->prop_search(ptr,
+                       "texture_coords_bone",
+                       &texture_coords_obj_data_ptr,
+                       "bones",
+                       IFACE_("Bone"),
+                       ICON_NONE);
     }
   }
   else if (texture_coords == MOD_DISP_MAP_UV && RNA_enum_get(&ob_ptr, "type") == OB_MESH) {
     PointerRNA obj_data_ptr = RNA_pointer_get(&ob_ptr, "data");
-    uiItemPointerR(col, ptr, "uv_layer", &obj_data_ptr, "uv_layers", std::nullopt, ICON_GROUP_UVS);
+    col->prop_search(ptr, "uv_layer", &obj_data_ptr, "uv_layers", std::nullopt, ICON_GROUP_UVS);
   }
 }
 

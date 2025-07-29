@@ -125,7 +125,7 @@ static const char *pygpu_buffer_formatstr(eGPUDataFormat data_format)
       return "I";
     case GPU_DATA_UBYTE:
       return "B";
-    case GPU_DATA_UINT_24_8:
+    case GPU_DATA_UINT_24_8_DEPRECATED:
     case GPU_DATA_10_11_11_REV:
       return "I";
     default:
@@ -151,9 +151,8 @@ static BPyGPUBuffer *pygpu_buffer_make_from_data(PyObject *parent,
   buffer->parent = nullptr;
   buffer->format = format;
   buffer->shape_len = shape_len;
-  buffer->shape = static_cast<Py_ssize_t *>(
-      MEM_mallocN(shape_len * sizeof(*buffer->shape), "BPyGPUBuffer shape"));
-  memcpy(buffer->shape, shape, shape_len * sizeof(*buffer->shape));
+  buffer->shape = MEM_malloc_arrayN<Py_ssize_t>(size_t(shape_len), "BPyGPUBuffer shape");
+  memcpy(buffer->shape, shape, sizeof(*buffer->shape) * size_t(shape_len));
   buffer->buf.as_void = buf;
 
   if (parent) {
@@ -183,7 +182,7 @@ static PyObject *pygpu_buffer__sq_item(BPyGPUBuffer *self, Py_ssize_t i)
       case GPU_DATA_UBYTE:
         return Py_BuildValue(formatstr, self->buf.as_byte[i]);
       case GPU_DATA_UINT:
-      case GPU_DATA_UINT_24_8:
+      case GPU_DATA_UINT_24_8_DEPRECATED:
       case GPU_DATA_10_11_11_REV:
         return Py_BuildValue(formatstr, self->buf.as_uint[i]);
     }
@@ -265,14 +264,13 @@ static int pygpu_buffer_dimensions_set(BPyGPUBuffer *self, PyObject *value, void
     return -1;
   }
 
-  size_t size = shape_len * sizeof(*self->shape);
   if (shape_len != self->shape_len) {
     MEM_freeN(self->shape);
-    self->shape = static_cast<Py_ssize_t *>(MEM_mallocN(size, __func__));
+    self->shape = MEM_malloc_arrayN<Py_ssize_t>(size_t(shape_len), __func__);
   }
 
   self->shape_len = shape_len;
-  memcpy(self->shape, shape, size);
+  memcpy(self->shape, shape, sizeof(*self->shape) * size_t(shape_len));
   return 0;
 }
 
@@ -388,6 +386,9 @@ static PyObject *pygpu_buffer__tp_new(PyTypeObject * /*type*/, PyObject *args, P
   {
     return nullptr;
   }
+  if (pygpu_dataformat.value_found == GPU_DATA_UINT_24_8_DEPRECATED) {
+    PyErr_WarnEx(PyExc_DeprecationWarning, "`UINT_24_8` is deprecated, use `FLOAT` instead", 1);
+  }
 
   if (!pygpu_buffer_pyobj_as_shape(length_ob, shape, &shape_len)) {
     return nullptr;
@@ -482,7 +483,7 @@ static int pygpu_buffer__sq_ass_item(BPyGPUBuffer *self, Py_ssize_t i, PyObject 
     case GPU_DATA_UBYTE:
       return PyArg_Parse(v, "b:Expected ints", &self->buf.as_byte[i]) ? 0 : -1;
     case GPU_DATA_UINT:
-    case GPU_DATA_UINT_24_8:
+    case GPU_DATA_UINT_24_8_DEPRECATED:
     case GPU_DATA_10_11_11_REV:
       return PyArg_Parse(v, "I:Expected unsigned ints", &self->buf.as_uint[i]) ? 0 : -1;
     default:
@@ -558,9 +559,14 @@ static int pygpu_buffer__mp_ass_subscript(BPyGPUBuffer *self, PyObject *item, Py
   return -1;
 }
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic push
-#  pragma GCC diagnostic ignored "-Wcast-function-type"
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wcast-function-type"
+#  else
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wcast-function-type"
+#  endif
 #endif
 
 static PyMethodDef pygpu_buffer__tp_methods[] = {
@@ -571,8 +577,12 @@ static PyMethodDef pygpu_buffer__tp_methods[] = {
     {nullptr, nullptr, 0, nullptr},
 };
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic pop
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic pop
+#  else
+#    pragma GCC diagnostic pop
+#  endif
 #endif
 
 static PyGetSetDef pygpu_buffer_getseters[] = {
@@ -638,8 +648,7 @@ static int pygpu_buffer__bf_getbuffer(BPyGPUBuffer *self, Py_buffer *view, int f
     view->shape = self->shape;
   }
   if (flags & PyBUF_STRIDES) {
-    view->strides = static_cast<Py_ssize_t *>(
-        MEM_mallocN(view->ndim * sizeof(*view->strides), "BPyGPUBuffer strides"));
+    view->strides = MEM_malloc_arrayN<Py_ssize_t>(size_t(view->ndim), "BPyGPUBuffer strides");
     pygpu_buffer_strides_calc(
         eGPUDataFormat(self->format), view->ndim, view->shape, view->strides);
   }
@@ -670,6 +679,7 @@ PyDoc_STRVAR(
     "\n"
     "   :arg format: Format type to interpret the buffer.\n"
     "      Possible values are `FLOAT`, `INT`, `UINT`, `UBYTE`, `UINT_24_8` and `10_11_11_REV`.\n"
+    "      `UINT_24_8` is deprecated, use `FLOAT` instead.\n"
     "   :type format: str\n"
     "   :arg dimensions: Array describing the dimensions.\n"
     "   :type dimensions: int\n"

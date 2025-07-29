@@ -4,8 +4,10 @@
 
 bl_info = {
     'name': 'glTF 2.0 format',
-    'author': 'Julien Duroure, Scurest, Norbert Nopper, Urs Hanselmann, Moritz Becher, Benjamin Schmithüsen, Jim Eckerlein, and many external contributors',
-    "version": (4, 5, 13),
+    # This is now displayed as the maintainer, so show the foundation.
+    # "author": "Julien Duroure, Scurest, Norbert Nopper, Urs Hanselmann, Moritz Becher, Benjamin Schmithüsen, Jim Eckerlein", # Original Authors
+    'author': "Blender Foundation, Khronos Group",
+    "version": (5, 0, 16),
     'blender': (4, 4, 0),
     'location': 'File > Import-Export',
     'description': 'Import-Export as glTF 2.0',
@@ -141,9 +143,8 @@ def get_format_items(scene, context):
               'Exports multiple files, with separate JSON, binary and texture data. '
               'Easiest to edit later'))
 
-    if bpy.context.preferences.addons['io_scene_gltf2'].preferences \
-            and "allow_embedded_format" in bpy.context.preferences.addons['io_scene_gltf2'].preferences \
-            and bpy.context.preferences.addons['io_scene_gltf2'].preferences['allow_embedded_format']:
+    addon_preferences = bpy.context.preferences.addons['io_scene_gltf2'].preferences
+    if addon_preferences and addon_preferences.allow_embedded_format:
         # At initialization, the preferences are not yet loaded
         # The second line check is needed until the PR is merge in Blender, for github CI tests
         items += (('GLTF_EMBEDDED', 'glTF Embedded (.gltf)',
@@ -495,6 +496,9 @@ class ExportGLTF2_Base(ConvertGLTF2_Base):
             ('PLACEHOLDER',
              'Placeholder',
              'Do not export materials, but write multiple primitive groups per mesh, keeping material slot information'),
+            ('VIEWPORT',
+            'Viewport',
+            'Export minimal materials as defined in Viewport display properties'),
             ('NONE',
              'No export',
              'Do not export materials, and combine mesh primitive groups, losing material slot information')),
@@ -1164,8 +1168,12 @@ class ExportGLTF2_Base(ConvertGLTF2_Base):
         else:
             export_settings['gltf_vertex_color_name'] = ""
 
-        export_settings['gltf_unused_textures'] = self.export_unused_textures
-        export_settings['gltf_unused_images'] = self.export_unused_images
+        if self.export_materials == "EXPORT":
+            export_settings['gltf_unused_textures'] = self.export_unused_textures
+            export_settings['gltf_unused_images'] = self.export_unused_images
+        else:
+            export_settings['gltf_unused_textures'] = False
+            export_settings['gltf_unused_images'] = False
 
         export_settings['gltf_visible'] = self.use_visible
         export_settings['gltf_renderable'] = self.use_renderable
@@ -1309,6 +1317,8 @@ class ExportGLTF2_Base(ConvertGLTF2_Base):
         )
 
         export_settings['warning_joint_weight_exceed_already_displayed'] = False
+
+        export_settings['image_names'] = []
 
         user_extensions = []
         pre_export_callbacks = []
@@ -1527,15 +1537,17 @@ def export_panel_data_material(layout, operator):
         if operator.export_image_format in ["AUTO", "JPEG", "WEBP"]:
             col.prop(operator, 'export_image_quality')
         col = body.column()
-        col.active = operator.export_image_format != "WEBP" and not operator.export_materials in ['PLACEHOLDER', 'NONE']
+        col.active = operator.export_image_format != "WEBP" and not operator.export_materials in ['PLACEHOLDER', 'NONE', 'VIEWPORT']
         col.prop(operator, "export_image_add_webp")
         col = body.column()
-        col.active = operator.export_image_format != "WEBP" and not operator.export_materials in ['PLACEHOLDER', 'NONE']
+        col.active = operator.export_image_format != "WEBP" and not operator.export_materials in ['PLACEHOLDER', 'NONE', 'VIEWPORT']
         col.prop(operator, "export_image_webp_fallback")
 
         header, sub_body = body.panel("GLTF_export_data_material_unused", default_closed=True)
         header.label(text="Unused Textures & Images")
+        header.active = operator.export_materials == "EXPORT"
         if sub_body:
+            sub_body.active = operator.export_materials == "EXPORT"
             row = sub_body.row()
             row.prop(operator, 'export_unused_images')
             row = sub_body.row()
@@ -1723,13 +1735,16 @@ def export_panel_animation_armature(layout, operator):
 
 def export_panel_animation_shapekeys(layout, operator):
     header, body = layout.panel("GLTF_export_animation_shapekeys", default_closed=True)
+    header.active = operator.export_animations and operator.export_morph
     header.use_property_split = False
     header.prop(operator, "export_morph_animation", text="")
     header.label(text="Shape Keys Animation")
     if body:
-        body.active = operator.export_animations
+        body.active = operator.export_animations and operator.export_morph
 
-        body.prop(operator, 'export_morph_reset_sk_data')
+        row = body.row()
+        row.active = operator.export_morph_animation
+        row.prop(operator, 'export_morph_reset_sk_data')
 
 
 def export_panel_animation_sampling(layout, operator):
@@ -1837,6 +1852,11 @@ class ImportGLTF2(Operator, ConvertGLTF2_Base, ImportHelper):
 
     filter_glob: StringProperty(default="*.glb;*.gltf", options={'HIDDEN'})
 
+    directory: StringProperty(
+        subtype='DIR_PATH',
+        options={'HIDDEN', 'SKIP_PRESET'},
+    )
+
     files: CollectionProperty(
         name="File Path",
         type=bpy.types.OperatorFileListElement,
@@ -1923,6 +1943,12 @@ class ImportGLTF2(Operator, ConvertGLTF2_Base, ImportHelper):
         default=False,
     )
 
+    import_unused_materials: BoolProperty(
+        name='Import Unused Materials & Images',
+        description='Import materials & Images not assigned to any mesh',
+        default=False,
+    )
+
     import_select_created_objects: BoolProperty(
         name='Select Imported Objects',
         description='Select created objects at the end of the import',
@@ -1936,6 +1962,18 @@ class ImportGLTF2(Operator, ConvertGLTF2_Base, ImportHelper):
         default=True,
     )
 
+    import_scene_as_collection: BoolProperty(
+        name='Import Scene as Collection',
+        description='Import the scene as a collection',
+        default=True,
+    )
+
+    import_merge_material_slots: BoolProperty(
+        name='Merge Material Slot when possible',
+        description='Merge material slots when possible',
+        default=True,
+    )
+
     def draw(self, context):
         operator = self
         layout = self.layout
@@ -1943,9 +1981,9 @@ class ImportGLTF2(Operator, ConvertGLTF2_Base, ImportHelper):
         layout.use_property_split = True
         layout.use_property_decorate = False  # No animation.
 
-        layout.prop(self, 'merge_vertices')
         layout.prop(self, 'import_shading')
         layout.prop(self, 'export_import_convert_lighting_mode')
+        import_mesh_panel(layout, operator)
         import_texture_panel(layout, operator)
         import_bone_panel(layout, operator)
         import_ux_panel(layout, operator)
@@ -1996,9 +2034,8 @@ class ImportGLTF2(Operator, ConvertGLTF2_Base, ImportHelper):
         if self.files:
             # Multiple file import
             ret = {'CANCELLED'}
-            dirname = os.path.dirname(self.filepath)
             for file in self.files:
-                path = os.path.join(dirname, file.name)
+                path = os.path.join(self.directory, file.name)
                 if self.unit_import(path, import_settings) == {'FINISHED'}:
                     ret = {'FINISHED'}
             return ret
@@ -2036,6 +2073,13 @@ class ImportGLTF2(Operator, ConvertGLTF2_Base, ImportHelper):
             return {'CANCELLED'}
 
 
+def import_mesh_panel(layout, operator):
+    header, body = layout.panel("GLTF_import_mesh", default_closed=False)
+    header.label(text="Mesh")
+    if body:
+        body.prop(operator, 'merge_vertices')
+        body.prop(operator, 'import_merge_material_slots')
+
 def import_bone_panel(layout, operator):
     header, body = layout.panel("GLTF_import_bone", default_closed=False)
     header.label(text="Bones & Skin")
@@ -2051,7 +2095,9 @@ def import_ux_panel(layout, operator):
     header, body = layout.panel("GLTF_import_ux", default_closed=False)
     header.label(text="Pipeline")
     if body:
-        body.prop(operator, 'import_select_created_objects')
+        body.prop(operator, 'import_scene_as_collection')
+        if operator.import_scene_as_collection is True:
+            body.prop(operator, 'import_select_created_objects')
         body.prop(operator, 'import_scene_extras')
 
 def import_texture_panel(layout, operator):
@@ -2060,6 +2106,7 @@ def import_texture_panel(layout, operator):
     if body:
         body.prop(operator, 'import_pack_images')
         body.prop(operator, 'import_webp_texture')
+        body.prop(operator, 'import_unused_materials')
 
 
 def import_panel_user_extension(context, layout):
@@ -2068,6 +2115,8 @@ def import_panel_user_extension(context, layout):
 
 
 class GLTF2_filter_action(bpy.types.PropertyGroup):
+    __slots__ = ()
+
     keep: bpy.props.BoolProperty(name="Keep Animation")
     action: bpy.props.PointerProperty(type=bpy.types.Action)
 
@@ -2187,6 +2236,8 @@ def unregister():
     blender_ui.unregister()
     if bpy.context.preferences.addons['io_scene_gltf2'].preferences.KHR_materials_variants_ui is True:
         blender_ui.variant_unregister()
+    if bpy.context.preferences.addons['io_scene_gltf2'].preferences.animation_ui is True:
+        blender_ui.anim_ui_unregister()
 
     for c in classes:
         bpy.utils.unregister_class(c)

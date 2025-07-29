@@ -7,7 +7,7 @@
 #include "BKE_curves.hh"
 #include "BKE_grease_pencil.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "NOD_rna_define.hh"
@@ -20,8 +20,13 @@ NODE_STORAGE_FUNCS(NodeGeometryCurveResample)
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Geometry>("Curve").supported_type(
-      {GeometryComponent::Type::Curve, GeometryComponent::Type::GreasePencil});
+  b.use_custom_socket_order();
+  b.allow_any_socket_order();
+  b.add_default_layout();
+  b.add_input<decl::Geometry>("Curve")
+      .supported_type({GeometryComponent::Type::Curve, GeometryComponent::Type::GreasePencil})
+      .description("Curves to resample");
+  b.add_output<decl::Geometry>("Curve").propagate_all().align_with_previous();
   b.add_input<decl::Bool>("Selection").default_value(true).field_on_all().hide_value();
   auto &count =
       b.add_input<decl::Int>("Count").default_value(10).min(1).max(100000).field_on_all();
@@ -30,7 +35,6 @@ static void node_declare(NodeDeclarationBuilder &b)
                      .min(0.01f)
                      .subtype(PROP_DISTANCE)
                      .field_on_all();
-  b.add_output<decl::Geometry>("Curve").propagate_all();
 
   const bNode *node = b.node_or_null();
   if (node != nullptr) {
@@ -44,17 +48,17 @@ static void node_declare(NodeDeclarationBuilder &b)
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "mode", UI_ITEM_NONE, "", ICON_NONE);
+  layout->prop(ptr, "mode", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_layout_ex(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "keep_last_segment", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "keep_last_segment", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
 {
-  NodeGeometryCurveResample *data = MEM_cnew<NodeGeometryCurveResample>(__func__);
+  NodeGeometryCurveResample *data = MEM_callocN<NodeGeometryCurveResample>(__func__);
 
   data->mode = GEO_NODE_CURVE_RESAMPLE_COUNT;
   data->keep_last_segment = true;
@@ -203,7 +207,7 @@ static void node_rna(StructRNA *srna)
   RNA_def_node_boolean(srna,
                        "keep_last_segment",
                        "Keep Last Segment",
-                       "Don't collapse a curves to single points if they are shorter than the "
+                       "Do not collapse curves to single points if they are shorter than the "
                        "given length. The collapsing behavior exists for compatibility reasons.",
                        NOD_storage_boolean_accessors(keep_last_segment, 1));
 }

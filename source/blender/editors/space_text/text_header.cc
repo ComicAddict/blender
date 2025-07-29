@@ -9,7 +9,7 @@
 #include "DNA_windowmanager_types.h"
 
 #include "BLI_listbase.h"
-#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 
 #include "BKE_context.hh"
 #include "BKE_screen.hh"
@@ -61,7 +61,7 @@ static bool text_properties_poll(bContext *C)
   return (CTX_wm_space_text(C) != nullptr);
 }
 
-static int text_text_search_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus text_text_search_exec(bContext *C, wmOperator * /*op*/)
 {
   ScrArea *area = CTX_wm_area(C);
   ARegion *region = text_has_properties_region(area);
@@ -76,7 +76,7 @@ static int text_text_search_exec(bContext *C, wmOperator * /*op*/)
       if (active_region && active_region->regiontype == RGN_TYPE_WINDOW) {
         const char *sel_start = text->curl->line + std::min(text->curc, text->selc);
         const int sel_len = std::abs(text->curc - text->selc);
-        BLI_strncpy(st->findstr, sel_start, std::min(sel_len + 1, ST_MAX_FIND_STR));
+        BLI_strncpy_utf8(st->findstr, sel_start, std::min(sel_len + 1, ST_MAX_FIND_STR));
       }
     }
 
@@ -113,7 +113,7 @@ void TEXT_OT_start_find(wmOperatorType *ot)
   ot->description = "Start searching text";
   ot->idname = "TEXT_OT_start_find";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = text_text_search_exec;
   ot->poll = text_properties_poll;
 }

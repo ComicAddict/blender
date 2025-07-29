@@ -9,19 +9,25 @@
  *
  * \page MEMPage Guarded memory(de)allocation
  *
- * \section aboutmem c-style guarded memory allocation
+ * \section aboutmem C++-style & C-style guarded memory allocation
  *
- * \subsection memabout About the MEM module
+ * \subsection memabout About the MEM allocator module
  *
- * MEM provides guarded malloc/calloc calls. All memory is enclosed by
- * pads, to detect out-of-bound writes. All blocks are placed in a
- * linked list, so they remain reachable at all times. There is no
- * back-up in case the linked-list related data is lost.
+ * MEM provides guarded memory management. All allocated memory is enclosed by pads, to detect
+ * out-of-bound writes. All blocks are placed in a linked list, so they remain reachable at all
+ * times. There is no back-up in case the linked-list related data is lost.
  *
- * \subsection memissues Known issues with MEM
+ * It provides C++ template versions of the `new`/`delete` operators (#MEM_new and #MEM_delete),
+ * which are the preferred way to create and delete data in new C++ code.
  *
- * There are currently no known issues with MEM. Note that there is a
- * second intern/ module with MEM_ prefix, for use in c++.
+ * It also provides C++ template versions of [cm]alloc and related API, which provides improved
+ * type safety, ensures that the allocated types are trivial, and reduces the casting verbosity by
+ * directly returning a pointer of the expected type. These are the preferred API when C++ code
+ * needs to allocate or free data in a C-compatible way (e.g. because it needs to interact with
+ * other 'legacy' code using C-based memory management).
+ *
+ * Finally, the original C-compatible, type-agnostic allocation API (#MEM_mallocN, #MEM_freeN,
+ * etc.) is kept for a few specific use-cases. Its usage should be avoided as much as possible.
  *
  * \subsection memdependencies Dependencies
  * - `stdlib`
@@ -44,6 +50,19 @@
 extern "C" {
 #endif
 
+/* -------------------------------------------------------------------- */
+/**
+ * \name Untyped Allocation API.
+ *
+ * Defines the 'C-style' part of the API, where memory management is fully untyped (i.e. done with
+ * void pointers and explicit size values).
+ *
+ * This API should usually not be used anymore in C++ code, unless some form of raw memory
+ * management is necessary (e.g. for allocation of various ID types based on their
+ * #IDTypeInfo::struct_size data).
+ *
+ * \{ */
+
 /**
  * Returns the length of the allocated memory segment pointed at
  * by vmemh. If the pointer was not previously allocated by this
@@ -52,7 +71,7 @@ extern "C" {
 extern size_t (*MEM_allocN_len)(const void *vmemh) ATTR_WARN_UNUSED_RESULT;
 
 /**
- * Release memory previously allocated by the C-style and #MEM_cnew functions of this module.
+ * Release memory previously allocated by the C-style functions of this module.
  *
  * It is illegal to call this function with data allocated by #MEM_new.
  */
@@ -69,7 +88,7 @@ extern short (*MEM_testN)(void *vmemh);
  * Duplicates a block of memory, and returns a pointer to the
  * newly allocated block.
  * NULL-safe; will return NULL when receiving a NULL pointer. */
-extern void *(*MEM_dupallocN)(const void *vmemh) /* ATTR_MALLOC */ ATTR_WARN_UNUSED_RESULT;
+void *MEM_dupallocN(const void *vmemh) /* ATTR_MALLOC */ ATTR_WARN_UNUSED_RESULT;
 
 /**
  * Reallocates a block of memory, and returns pointer to the newly
@@ -97,24 +116,24 @@ extern void *(*MEM_recallocN_id)(void *vmemh,
  * memory is cleared. The name must be static, because only a
  * pointer to it is stored!
  */
-extern void *(*MEM_callocN)(size_t len, const char *str) /* ATTR_MALLOC */ ATTR_WARN_UNUSED_RESULT
-    ATTR_ALLOC_SIZE(1) ATTR_NONNULL(2);
+void *MEM_callocN(size_t len, const char *str) ATTR_WARN_UNUSED_RESULT ATTR_ALLOC_SIZE(1)
+    ATTR_NONNULL(2);
 
 /**
  * Allocate a block of memory of size (len * size), with tag name
  * str, aborting in case of integer overflows to prevent vulnerabilities.
  * The memory is cleared. The name must be static, because only a
  * pointer to it is stored! */
-extern void *(*MEM_calloc_arrayN)(size_t len,
-                                  size_t size,
-                                  const char *str) /* ATTR_MALLOC */ ATTR_WARN_UNUSED_RESULT
+void *MEM_calloc_arrayN(size_t len,
+                        size_t size,
+                        const char *str) /* ATTR_MALLOC */ ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1, 2) ATTR_NONNULL(3);
 
 /**
  * Allocate a block of memory of size len, with tag name str. The
  * name must be a static, because only a pointer to it is stored!
  */
-extern void *(*MEM_mallocN)(size_t len, const char *str) /* ATTR_MALLOC */ ATTR_WARN_UNUSED_RESULT
+void *MEM_mallocN(size_t len, const char *str) /* ATTR_MALLOC */ ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1) ATTR_NONNULL(2);
 
 /**
@@ -122,9 +141,9 @@ extern void *(*MEM_mallocN)(size_t len, const char *str) /* ATTR_MALLOC */ ATTR_
  * aborting in case of integer overflow to prevent vulnerabilities. The
  * name must be a static, because only a pointer to it is stored!
  */
-extern void *(*MEM_malloc_arrayN)(size_t len,
-                                  size_t size,
-                                  const char *str) /* ATTR_MALLOC */ ATTR_WARN_UNUSED_RESULT
+void *MEM_malloc_arrayN(size_t len,
+                        size_t size,
+                        const char *str) /* ATTR_MALLOC */ ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1, 2) ATTR_NONNULL(3);
 
 /**
@@ -155,6 +174,36 @@ extern void *(*MEM_calloc_arrayN_aligned)(
     size_t alignment,
     const char *str) /* ATTR_MALLOC */ ATTR_WARN_UNUSED_RESULT ATTR_ALLOC_SIZE(1, 2)
     ATTR_NONNULL(4);
+
+#ifdef __cplusplus
+/** Implicitly uses the templated, type-safe version of #MEM_freeN<T>, unless `v` is `void *`. */
+#  define MEM_SAFE_FREE(v) \
+    do { \
+      if (v) { \
+        MEM_freeN(v); \
+        (v) = nullptr; \
+      } \
+    } while (0)
+#else
+#  define MEM_SAFE_FREE(v) \
+    do { \
+      void **_v = (void **)&(v); \
+      if (*_v) { \
+        MEM_freeN(*_v); \
+        *_v = NULL; \
+      } \
+    } while (0)
+#endif
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/**
+ * \name Various Helpers.
+ *
+ * These functions allow to control the behavior of the guarded allocator, and to retrieve (debug)
+ * information about allocated memory.
+ */
 
 /**
  * Print a list of the names and sizes of all allocated memory
@@ -197,25 +246,6 @@ extern void (*MEM_reset_peak_memory)(void);
 /** Get the peak memory usage in bytes, including `mmap` allocations. */
 extern size_t (*MEM_get_peak_memory)(void) ATTR_WARN_UNUSED_RESULT;
 
-#ifdef __cplusplus
-#  define MEM_SAFE_FREE(v) \
-    do { \
-      if (v) { \
-        MEM_freeN(v); \
-        (v) = nullptr; \
-      } \
-    } while (0)
-#else
-#  define MEM_SAFE_FREE(v) \
-    do { \
-      void **_v = (void **)&(v); \
-      if (*_v) { \
-        MEM_freeN(*_v); \
-        *_v = NULL; \
-      } \
-    } while (0)
-#endif
-
 /** Overhead for lockfree allocator (use to avoid slop-space). */
 #define MEM_SIZE_OVERHEAD sizeof(size_t)
 #define MEM_SIZE_OPTIMAL(size) ((size)-MEM_SIZE_OVERHEAD)
@@ -238,12 +268,6 @@ extern void (*MEM_name_ptr_set)(void *vmemh, const char *str) ATTR_NONNULL();
  * about memory leaks will be printed on exit.
  */
 void MEM_init_memleak_detection(void);
-
-/**
- * Use this if we want to call #exit during argument parsing for example,
- * without having to free all data.
- */
-void MEM_use_memleak_detection(bool enabled);
 
 /**
  * When this has been called and memory leaks have been detected, the process will have an exit
@@ -274,6 +298,8 @@ void MEM_use_lockfree_allocator(void);
  */
 void MEM_use_guarded_allocator(void);
 
+/** \} */
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
@@ -296,6 +322,23 @@ void MEM_use_guarded_allocator(void);
 #  define MEM_MIN_CPP_ALIGNMENT \
     (__STDCPP_DEFAULT_NEW_ALIGNMENT__ < alignof(void *) ? __STDCPP_DEFAULT_NEW_ALIGNMENT__ : \
                                                           alignof(void *))
+
+/* -------------------------------------------------------------------- */
+/**
+ * \name Type-aware allocation & construction API.
+ *
+ * Defines some `new`/`delete`-like helpers, which allocate/free memory using `MEM_guardedalloc`,
+ * and construct/destruct the objects.
+ *
+ * When possible, it is preferred to use these, even on trivial types, as it makes potential
+ * future changes to these types less disruptive, and is overall closer to standard C++ data
+ * creation and destruction.
+ *
+ * However, if the type is trivial, `MEM_[cm]allocN<T>` and related functions can be used to
+ * allocate an object that will be managed by external historic code still using C-style
+ * allocation/duplication/freeing.
+ *
+ * \{ */
 
 /**
  * Allocate new memory for an object of type #T, and construct it.
@@ -325,8 +368,8 @@ inline T *MEM_new(const char *allocation_name, Args &&...args)
  *
  * As with the `delete` C++ operator, passing in `nullptr` is allowed and does nothing.
  *
- * It is illegal to call this function with data allocated by #MEM_cnew or the C-style allocation
- * functions of this module.
+ * It is illegal to call this function with data allocated by the C-style allocation functions of
+ * this module.
  */
 template<typename T> inline void MEM_delete(const T *ptr)
 {
@@ -354,68 +397,7 @@ template<typename T> inline void MEM_delete(const T *ptr)
       } \
     } while (0)
 
-/**
- * Allocate zero-initialized memory for an object of type #T. The constructor of #T is not called,
- * therefore this should only be used with trivial types (like all C types).
- *
- * #MEM_freeN must be used to free a pointer returned by this call. Calling #MEM_delete on it is
- * illegal.
- */
-template<typename T> inline T *MEM_cnew(const char *allocation_name)
-{
-  static_assert(std::is_trivial_v<T>, "For non-trivial types, MEM_new must be used.");
-  return static_cast<T *>(MEM_calloc_arrayN_aligned(1, sizeof(T), alignof(T), allocation_name));
-}
-
-/**
- * Same as MEM_cnew but for arrays, better alternative to #MEM_calloc_arrayN.
- */
-template<typename T> inline T *MEM_cnew_array(const size_t length, const char *allocation_name)
-{
-  static_assert(std::is_trivial_v<T>, "For non-trivial types, MEM_new must be used.");
-  return static_cast<T *>(
-      MEM_calloc_arrayN_aligned(length, sizeof(T), alignof(T), allocation_name));
-}
-
-/**
- * Allocate memory for an object of type #T and memory-copy `other` into it.
- * Only applicable for trivial types.
- *
- * This function works around the problem of copy-constructing DNA structs which contains
- * deprecated fields: some compilers will generate access deprecated field warnings in implicitly
- * defined copy constructors.
- *
- * This is a better alternative to #MEM_dupallocN.
- */
-template<typename T> inline T *MEM_cnew(const char *allocation_name, const T &other)
-{
-  static_assert(std::is_trivial_v<T>, "For non-trivial types, MEM_new must be used.");
-  T *new_object = static_cast<T *>(MEM_mallocN_aligned(sizeof(T), alignof(T), allocation_name));
-  if (new_object) {
-    memcpy(new_object, &other, sizeof(T));
-  }
-  return new_object;
-}
-
-template<typename T> inline void MEM_freeN(T *ptr)
-{
-#  ifdef _MSC_VER
-  /* MSVC considers C-style types using the DNA_DEFINE_CXX_METHODS as non-trivial (more
-   * specifically, non-trivially copyable, likely because the default copy constructors are
-   * deleted). GCC and clang (both on linux, OSX, and clang-cl on Windows on Arm) do not.
-   *
-   * So for now, use a more restricted check on MSVC, should still catch most of actual invalid
-   * cases. */
-  static_assert(std::is_trivially_destructible_v<T>,
-                "For non-trivial types, MEM_delete must be used.");
-#  else
-  static_assert(std::is_trivial_v<T>, "For non-trivial types, MEM_delete must be used.");
-#  endif
-  mem_guarded::internal::mem_freeN_ex(const_cast<void *>(static_cast<const void *>(ptr)),
-                                      mem_guarded::internal::AllocationType::ALLOC_FREE);
-}
-
-/** Allocation functions (for C++ only). */
+/** Define overloaded new/delete operators for C++ types. */
 #  define MEM_CXX_CLASS_ALLOC_FUNCS(_id) \
    public: \
     void *operator new(size_t num_bytes) \
@@ -471,6 +453,142 @@ template<typename T> inline void MEM_freeN(T *ptr)
      * will have the same value. Without this, we get the warning C4291 on windows. \
      */ \
     void operator delete(void * /*ptr_to_free*/, void * /*ptr*/) {}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/**
+ * \name Type-aware allocation API.
+ *
+ * Templated, type-safe versions of C-style allocation & freeing API.
+ *
+ * These functions only allocate or free memory, without any calls to constructors or destructors.
+ *
+ * \note MSVC considers C-style types using the #DNA_DEFINE_CXX_METHODS as non-trivial (more
+ * specifically, non-trivially copyable, likely because the default copy constructors are
+ * deleted by this macro). GCC and clang (both on linux, OSX, and clang-cl on Windows on Arm) do
+ * not. So for now, `MEM_[cm]allocN<T>` and related templates use slightly more relaxed checks on
+ * MSVC. These should still catch most of the real-life invalid cases.
+ *
+ * \{ */
+
+/**
+ * Allocate zero-initialized memory for an object of type #T. The constructor of #T is not called,
+ * therefore this must only be used with trivial types (like all C types).
+ *
+ * When allocating an enforced specific amount of bytes, the C version of this function should be
+ * used instead. While this should be avoided in C++ code, it is still required in some cases, e.g.
+ * for ID allocation based on #IDTypeInfo::struct_size.
+ *
+ * #MEM_freeN must be used to free a pointer returned by this call. Calling #MEM_delete on it is
+ * illegal.
+ */
+template<typename T> inline T *MEM_callocN(const char *allocation_name)
+{
+#  ifdef _MSC_VER
+  static_assert(std::is_trivially_constructible_v<T>,
+                "For non-trivial types, MEM_new must be used.");
+#  else
+  static_assert(std::is_trivial_v<T>, "For non-trivial types, MEM_new must be used.");
+#  endif
+  return static_cast<T *>(MEM_calloc_arrayN_aligned(1, sizeof(T), alignof(T), allocation_name));
+}
+
+/**
+ * Type-safe version of #MEM_calloc_arrayN/#MEM_calloc_array_alignedN.
+ *
+ * It has the same restrictions and limitations as the type-safe version of #MEM_callocN<T>.
+ */
+template<typename T> inline T *MEM_calloc_arrayN(const size_t length, const char *allocation_name)
+{
+#  ifdef _MSC_VER
+  static_assert(std::is_trivially_constructible_v<T>,
+                "For non-trivial types, MEM_new must be used.");
+#  else
+  static_assert(std::is_trivial_v<T>, "For non-trivial types, MEM_new must be used.");
+#  endif
+  return static_cast<T *>(
+      MEM_calloc_arrayN_aligned(length, sizeof(T), alignof(T), allocation_name));
+}
+
+/**
+ * Allocate uninitialized memory for an object of type #T. The constructor of #T is not called,
+ * therefore this must only be used with trivial types (like all C types).
+ *
+ * When allocating an enforced specific amount of bytes, the C version of this function should be
+ * used instead. While this should be avoided in C++ code, it is still required in some cases, e.g.
+ * for ID allocation based on #IDTypeInfo::struct_size.
+ *
+ * #MEM_freeN must be used to free a pointer returned by this call. Calling #MEM_delete on it is
+ * illegal.
+ */
+template<typename T> inline T *MEM_mallocN(const char *allocation_name)
+{
+#  ifdef _MSC_VER
+  static_assert(std::is_trivially_constructible_v<T>,
+                "For non-trivial types, MEM_new must be used.");
+#  else
+  static_assert(std::is_trivial_v<T>, "For non-trivial types, MEM_new must be used.");
+#  endif
+  return static_cast<T *>(MEM_malloc_arrayN_aligned(1, sizeof(T), alignof(T), allocation_name));
+}
+
+/**
+ * Type-safe version of #MEM_malloc_arrayN/#MEM_malloc_array_alignedN.
+ *
+ * It has the same restrictions and limitations as the type-safe version of #MEM_mallocN<T>.
+ */
+template<typename T> inline T *MEM_malloc_arrayN(const size_t length, const char *allocation_name)
+{
+#  ifdef _MSC_VER
+  static_assert(std::is_trivially_constructible_v<T>,
+                "For non-trivial types, MEM_new must be used.");
+#  else
+  static_assert(std::is_trivial_v<T>, "For non-trivial types, MEM_new must be used.");
+#  endif
+  return static_cast<T *>(
+      MEM_malloc_arrayN_aligned(length, sizeof(T), alignof(T), allocation_name));
+}
+
+/**
+ * Allocate memory for an object of type #T and memory-copy `other` into it.
+ * Only applicable for trivial types.
+ *
+ * This function works around the problem of copy-constructing DNA structs which contains
+ * deprecated fields: some compilers will generate access deprecated field warnings in implicitly
+ * defined copy constructors.
+ *
+ * This is a better alternative to the C-style implementation of #MEM_dupallocN, unless the source
+ * is an array or of a non-fully-defined type.
+ */
+template<typename T> inline T *MEM_dupallocN(const char *allocation_name, const T &other)
+{
+#  ifdef _MSC_VER
+  static_assert(std::is_trivially_constructible_v<T>,
+                "For non-trivial types, MEM_new must be used.");
+#  else
+  static_assert(std::is_trivial_v<T>, "For non-trivial types, MEM_new must be used.");
+#  endif
+  T *new_object = static_cast<T *>(MEM_mallocN_aligned(sizeof(T), alignof(T), allocation_name));
+  if (new_object) {
+    memcpy(new_object, &other, sizeof(T));
+  }
+  return new_object;
+}
+
+template<typename T> inline void MEM_freeN(T *ptr)
+{
+#  ifdef _MSC_VER
+  static_assert(std::is_trivially_destructible_v<T>,
+                "For non-trivial types, MEM_delete must be used.");
+#  else
+  static_assert(std::is_trivial_v<T>, "For non-trivial types, MEM_delete must be used.");
+#  endif
+  mem_guarded::internal::mem_freeN_ex(const_cast<void *>(static_cast<const void *>(ptr)),
+                                      mem_guarded::internal::AllocationType::ALLOC_FREE);
+}
+
+/** \} */
 
 /**
  * Construct a T that will only be destructed after leak detection is run.

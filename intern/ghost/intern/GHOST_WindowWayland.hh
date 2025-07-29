@@ -95,13 +95,13 @@ class GHOST_WindowWayland : public GHOST_Window {
 
   GHOST_TSuccess setWindowCursorShape(GHOST_TStandardCursor shape) override;
 
-  GHOST_TSuccess setWindowCustomCursorShape(uint8_t *bitmap,
-                                            uint8_t *mask,
-                                            int sizex,
-                                            int sizey,
-                                            int hotX,
-                                            int hotY,
-                                            bool canInvertColor) override;
+  GHOST_TSuccess setWindowCustomCursorGenerator(GHOST_CursorGenerator *cursor_generator) override;
+
+  GHOST_TSuccess setWindowCustomCursorShape(const uint8_t *bitmap,
+                                            const uint8_t *mask,
+                                            const int size[2],
+                                            const int hot_spot[2],
+                                            bool can_invert_color) override;
   bool getCursorGrabUseSoftwareDisplay() override;
 
   GHOST_TSuccess getCursorBitmap(GHOST_CursorBitmapRef *bitmap) override;
@@ -135,10 +135,6 @@ class GHOST_WindowWayland : public GHOST_Window {
   GHOST_TSuccess invalidate() override;
 
   GHOST_TSuccess setOrder(GHOST_TWindowOrder order) override;
-
-  GHOST_TSuccess beginFullScreen() const override;
-
-  GHOST_TSuccess endFullScreen() const override;
 
   bool isDialog() const override;
 
@@ -200,7 +196,7 @@ class GHOST_WindowWayland : public GHOST_Window {
   void outputs_changed_update_scale_tag();
 
 #ifdef USE_EVENT_BACKGROUND_THREAD
-  const void pending_actions_handle();
+  void pending_actions_handle();
 #endif
 
  private:

@@ -98,8 +98,10 @@ using FCurveConvertCB = void(FCurve &fcurve);
  * converted.
  */
 struct AnimDataFCurveConvertor {
-  /** Source and destination RNA paths (relative to the relevant root paths stored in the owner
-   * #AnimDataConvertor data). */
+  /**
+   * Source and destination RNA paths
+   * (relative to the relevant root paths stored in the owner #AnimDataConvertor data).
+   */
   const char *relative_rna_path_src;
   const char *relative_rna_path_dst;
 
@@ -156,7 +158,7 @@ class AnimDataConvertor {
    * destination ID.
    *
    * \note All paths here are relative the their respective (source or destination) root path.
-   * \note If this array is empty, all FCurves starting with `root_path_source` will be 'rebased'
+   * \note If this array is empty, all FCurves starting with `root_path_source` will be "rebased"
    * on `root_path_dst`.
    */
   const Array<AnimDataFCurveConvertor> fcurve_convertors;
@@ -179,8 +181,10 @@ class AnimDataConvertor {
   blender::Vector<FCurve *> fcurves_from_src_main_action = {};
   blender::Vector<FCurve *> fcurves_from_src_tmp_action = {};
   blender::Vector<FCurve *> fcurves_from_src_drivers = {};
-  /** Generic 'has done something' flag, used to decide whether depsgraph tagging for updates is
-   * needed. */
+  /**
+   * Generic 'has done something' flag, used to decide whether depsgraph tagging for updates is
+   * needed.
+   */
   bool has_changes = false;
 
  public:
@@ -1032,6 +1036,7 @@ static void legacy_gpencil_to_grease_pencil(ConversionData &conversion_data,
   BLI_assert(!grease_pencil.id.properties);
   if (gpd.id.properties) {
     grease_pencil.id.properties = IDP_CopyProperty(gpd.id.properties);
+    grease_pencil.id.system_properties = IDP_CopyProperty(gpd.id.properties);
   }
 
   /** Convert Grease Pencil data flag. */
@@ -1046,8 +1051,7 @@ static void legacy_gpencil_to_grease_pencil(ConversionData &conversion_data,
   int layer_idx = 0;
   LISTBASE_FOREACH_INDEX (bGPDlayer *, gpl, &gpd.layers, layer_idx) {
     /* Create a new layer. */
-    Layer &new_layer = grease_pencil.add_layer(
-        StringRefNull(gpl->info, BLI_strnlen(gpl->info, 128)));
+    Layer &new_layer = grease_pencil.add_layer(StringRefNull(gpl->info, STRNLEN(gpl->info)));
 
     /* Flags. */
     new_layer.set_visible((gpl->flag & GP_LAYER_HIDE) == 0);
@@ -1064,6 +1068,8 @@ static void legacy_gpencil_to_grease_pencil(ConversionData &conversion_data,
     SET_FLAG_FROM_TEST(
         new_layer.base.flag, (gpl->flag & GP_LAYER_USE_MASK) == 0, GP_LAYER_TREE_NODE_HIDE_MASKS);
 
+    /* Copy Dope-sheet channel color. */
+    copy_v3_v3(new_layer.base.color, gpl->color);
     new_layer.blend_mode = int8_t(gpl->blend_mode);
 
     new_layer.parent = gpl->parent;
@@ -1191,7 +1197,7 @@ static bNodeTree *offset_radius_node_tree_add(ConversionData &conversion_data, L
       &conversion_data.bmain, library, OFFSET_RADIUS_NODETREE_NAME, "GeometryNodeTree");
 
   if (!group->geometry_node_asset_traits) {
-    group->geometry_node_asset_traits = MEM_cnew<GeometryNodeAssetTraits>(__func__);
+    group->geometry_node_asset_traits = MEM_callocN<GeometryNodeAssetTraits>(__func__);
   }
   group->geometry_node_asset_traits->flag |= GEO_NODE_ASSET_MODIFIER;
 
@@ -1311,7 +1317,7 @@ static void thickness_factor_to_modifier(ConversionData &conversion_data,
 
   tmd->thickness_fac = thickness_factor;
 
-  STRNCPY(md->name, DATA_("Thickness"));
+  STRNCPY_UTF8(md->name, DATA_("Thickness"));
   BKE_modifier_unique_name(&dst_object.modifiers, md);
 
   BLI_addtail(&dst_object.modifiers, md);
@@ -1429,11 +1435,11 @@ static void layer_adjustments_to_modifiers(ConversionData &conversion_data,
 
       copy_v3_v3(tmd->color, tint_color);
       tmd->factor = tint_factor;
-      STRNCPY(tmd->influence.layer_name, gpl->info);
+      STRNCPY_UTF8(tmd->influence.layer_name, gpl->info);
 
       char modifier_name[MAX_NAME];
-      SNPRINTF(modifier_name, "Tint %s", gpl->info);
-      STRNCPY(md->name, modifier_name);
+      SNPRINTF_UTF8(modifier_name, "Tint %s", gpl->info);
+      STRNCPY_UTF8(md->name, modifier_name);
       BKE_modifier_unique_name(&dst_object.modifiers, md);
 
       BLI_addtail(&dst_object.modifiers, md);
@@ -1486,8 +1492,8 @@ static void layer_adjustments_to_modifiers(ConversionData &conversion_data,
       auto *md = reinterpret_cast<NodesModifierData *>(BKE_modifier_new(eModifierType_Nodes));
 
       char modifier_name[MAX_NAME];
-      SNPRINTF(modifier_name, "Thickness %s", gpl->info);
-      STRNCPY(md->modifier.name, modifier_name);
+      SNPRINTF_UTF8(modifier_name, "Thickness %s", gpl->info);
+      STRNCPY_UTF8(md->modifier.name, modifier_name);
       BKE_modifier_unique_name(&dst_object.modifiers, &md->modifier);
       md->node_group = offset_radius_node_tree;
 
@@ -1769,7 +1775,7 @@ static void legacy_object_modifier_dash(ConversionData &conversion_data,
   md_dash.segment_active_index = legacy_md_dash.segment_active_index;
   md_dash.segments_num = legacy_md_dash.segments_len;
   MEM_SAFE_FREE(md_dash.segments_array);
-  md_dash.segments_array = MEM_cnew_array<GreasePencilDashModifierSegment>(
+  md_dash.segments_array = MEM_calloc_arrayN<GreasePencilDashModifierSegment>(
       legacy_md_dash.segments_len, __func__);
   for (const int i : IndexRange(md_dash.segments_num)) {
     GreasePencilDashModifierSegment &dst_segment = md_dash.segments_array[i];
@@ -2481,7 +2487,7 @@ static void legacy_object_modifier_time(ConversionData &conversion_data,
   md_time.segment_active_index = legacy_md_time.segment_active_index;
   md_time.segments_num = legacy_md_time.segments_len;
   MEM_SAFE_FREE(md_time.segments_array);
-  md_time.segments_array = MEM_cnew_array<GreasePencilTimeModifierSegment>(
+  md_time.segments_array = MEM_calloc_arrayN<GreasePencilTimeModifierSegment>(
       legacy_md_time.segments_len, __func__);
   for (const int i : IndexRange(md_time.segments_num)) {
     GreasePencilTimeModifierSegment &dst_segment = md_time.segments_array[i];

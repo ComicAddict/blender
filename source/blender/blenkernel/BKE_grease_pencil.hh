@@ -76,6 +76,12 @@ class DrawingRuntime {
    * and remove a drawing if it has zero users.
    */
   mutable std::atomic<int> user_count = 1;
+
+  /**
+   * Ensures that the drawing is not deleted and can be used temporarily (e.g. by the transform
+   * code).
+   */
+  mutable bool fake_user = false;
 };
 
 class Drawing : public ::GreasePencilDrawing {
@@ -421,15 +427,25 @@ class LayerRuntime {
    */
   Vector<LayerMask> masks_;
 
-  /* Runtime data used for frame transformations. */
+  /** Runtime data used for frame transformations. */
   LayerTransformData trans_data_;
 
-  /* Whether this layer's visibility is animated (via the ".hide" RNA property). This is only set
-   * when creating a copy of of the owning GreasePencil ID for the depsgraph evaluation. */
-  bool is_visisbility_animated_;
+  /**
+   * Whether this layer's visibility is animated (via the ".hide" RNA property). This is only set
+   * when creating a copy of the owning GreasePencil ID for the depsgraph evaluation.
+   */
+  bool is_visibility_animated_;
+
+  /**
+   * For evaluated layers, the index of the corresponding original layer, or -1 if there is no
+   * original layer that could be mapped to. E.g. when the layer was created during evaluation.
+   *
+   * TODO: Find a way to store this information in #GreasePencilEditHints instead.
+   */
+  int orig_layer_index_ = -1;
 
  public:
-  /* Reset all runtime data. */
+  /** Reset all runtime data. */
   void clear();
 };
 
@@ -641,6 +657,12 @@ class LayerGroupRuntime {
    * Caches all the layer groups in this group in a single pre-ordered vector.
    */
   mutable Vector<LayerGroup *> layer_group_cache_;
+
+  /**
+   * Whether this layer's visibility is animated (via the ".hide" RNA property). This is only set
+   * when creating a copy of the owning GreasePencil ID for the depsgraph evaluation.
+   */
+  bool is_visibility_animated_;
 };
 
 /**
@@ -891,6 +913,13 @@ TREENODE_COMMON_METHODS_FORWARD_IMPL(LayerGroup);
 
 const AttributeAccessorFunctions &get_attribute_accessor_functions();
 
+/**
+ * Renames layers with empty names to "Layer".
+ * \note While original data should not have layers with empty names, we allow layer names to be
+ * empty in evaluated geometry.
+ */
+void ensure_non_empty_layer_names(Main &bmain, GreasePencil &grease_pencil);
+
 }  // namespace greasepencil
 
 class GreasePencilRuntime {
@@ -953,7 +982,7 @@ class GreasePencilEditHints {
 
   /**
    * Array of #GreasePencilDrawingEditHints. There is one edit hint for each evaluated drawing.
-   * \note The index for each element is the layer index.
+   * \note The index for each element is the evaluated layer index.
    */
   std::optional<Array<GreasePencilDrawingEditHints>> drawing_hints;
 };
@@ -1096,6 +1125,10 @@ void BKE_grease_pencil_duplicate_drawing_array(const GreasePencil *grease_pencil
  * \note Used for "move only origins" in object_data_transform.cc.
  */
 int BKE_grease_pencil_stroke_point_count(const GreasePencil &grease_pencil);
+/**
+ * \note Used for "move only origins" in object_data_transform.cc.
+ */
+bool BKE_grease_pencil_has_curve_with_type(const GreasePencil &grease_pencil, CurveType type);
 /**
  * \note Used for "move only origins" in object_data_transform.cc.
  */

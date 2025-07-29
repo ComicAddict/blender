@@ -204,6 +204,7 @@ def fbx_template_def_light(scene, settings, override_defaults=None, nbr_users=0)
         b"CastLight": (True, "p_bool", False),
         b"Color": ((1.0, 1.0, 1.0), "p_color", True),
         b"Intensity": (100.0, "p_number", True),  # Times 100 compared to Blender values...
+        b"Exposure" : (0.0, "p_number", True ),
         b"DecayType": (2, "p_enum", False),  # Quadratic.
         b"DecayStart": (30.0 * gscale, "p_double", False),
         b"CastShadows": (True, "p_bool", False),
@@ -601,12 +602,20 @@ def fbx_data_light_elements(root, lamp, scene_data):
 
     elem_data_single_int32(light, b"GeometryVersion", FBX_GEOMETRY_VERSION)  # Sic...
 
+    intensity = lamp.energy * 100.0 * pow(2.0, lamp.exposure)
+    color = lamp.color.copy()
+    if lamp.use_temperature:
+        temperature_color = lamp.temperature_color
+        color[0] *= temperature_color[0]
+        color[1] *= temperature_color[1]
+        color[2] *= temperature_color[2]
+
     tmpl = elem_props_template_init(scene_data.templates, b"Light")
     props = elem_properties(light)
     elem_props_template_set(tmpl, props, "p_enum", b"LightType", FBX_LIGHT_TYPES[lamp.type])
     elem_props_template_set(tmpl, props, "p_bool", b"CastLight", do_light)
-    elem_props_template_set(tmpl, props, "p_color", b"Color", lamp.color)
-    elem_props_template_set(tmpl, props, "p_number", b"Intensity", lamp.energy * 100.0)
+    elem_props_template_set(tmpl, props, "p_color", b"Color", color)
+    elem_props_template_set(tmpl, props, "p_number", b"Intensity", intensity)
     elem_props_template_set(tmpl, props, "p_enum", b"DecayType", FBX_LIGHT_DECAY_TYPES['INVERSE_SQUARE'])
     elem_props_template_set(tmpl, props, "p_double", b"DecayStart", 25.0 * gscale)  # 25 is old Blender default
     elem_props_template_set(tmpl, props, "p_bool", b"CastShadows", do_shadow)
@@ -1032,7 +1041,7 @@ def fbx_data_mesh_elements(root, me_obj, scene_data, done_meshes):
     # And now, layers!
 
     # Smoothing.
-    if smooth_type in {'FACE', 'EDGE'}:
+    if smooth_type in {'FACE', 'EDGE', 'SMOOTH_GROUP'}:
         ps_fbx_dtype = np.int32
         _map = b""
         if smooth_type == 'FACE':
@@ -1046,6 +1055,10 @@ def fbx_data_mesh_elements(root, me_obj, scene_data, done_meshes):
             else:
                 # The mesh has no "sharp_face" attribute, so every face is smooth.
                 t_ps = np.ones(len(me.polygons), dtype=ps_fbx_dtype)
+            _map = b"ByPolygon"
+        elif smooth_type == 'SMOOTH_GROUP':
+            smoothing_groups = me.calc_smooth_groups(use_bitflags=True, use_boundary_vertices_for_bitflags=True)[0]
+            t_ps = np.asarray(smoothing_groups, dtype=ps_fbx_dtype)
             _map = b"ByPolygon"
         else:  # EDGE
             _map = b"ByEdge"
@@ -1172,8 +1185,7 @@ def fbx_data_mesh_elements(root, me_obj, scene_data, done_meshes):
             #     normal_source = me.polygon_normals
             #     normal_mapping = b"ByPolygon"
             case 'CORNER' | 'FACE':
-                # We have a mix of sharp/smooth edges/faces or custom split normals, so need to get normals from
-                # corners.
+                # We have a mix of sharp/smooth edges/faces or custom normals, so need to get normals from corners.
                 normal_source = me.corner_normals
                 normal_mapping = b"ByPolygonVertex"
             case _:
@@ -1235,13 +1247,12 @@ def fbx_data_mesh_elements(root, me_obj, scene_data, done_meshes):
                     num_loops = len(me.loops)
                     t_ln = np.empty(num_loops * 3, dtype=normal_bl_dtype)
                     # t_lnw = np.zeros(len(me.loops), dtype=np.float64)
-                    uv_names = [uvlayer.name for uvlayer in me.uv_layers]
-                    # Annoying, `me.calc_tangent` errors in case there is no geometry...
-                    if num_loops > 0:
-                        for name in uv_names:
-                            me.calc_tangents(uvmap=name)
                     for idx, uvlayer in enumerate(me.uv_layers):
                         name = uvlayer.name
+                        # Annoying, `me.calc_tangent` errors in case there is no geometry...
+                        if num_loops > 0:
+                            me.calc_tangents(uvmap=name)
+
                         # Loop bitangents (aka binormals).
                         # NOTE: this is not supported by importer currently.
                         me.loops.foreach_get("bitangent", t_ln)
@@ -1503,7 +1514,7 @@ def fbx_data_mesh_elements(root, me_obj, scene_data, done_meshes):
         lay_tan = elem_empty(layer, b"LayerElement")
         elem_data_single_string(lay_tan, b"Type", b"LayerElementTangent")
         elem_data_single_int32(lay_tan, b"TypedIndex", 0)
-    if smooth_type in {'FACE', 'EDGE'}:
+    if smooth_type in {'FACE', 'EDGE', 'SMOOTH_GROUP'}:
         lay_smooth = elem_empty(layer, b"LayerElement")
         elem_data_single_string(lay_smooth, b"Type", b"LayerElementSmoothing")
         elem_data_single_int32(lay_smooth, b"TypedIndex", 0)

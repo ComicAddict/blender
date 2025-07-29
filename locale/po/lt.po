@@ -1,18 +1,18 @@
 
 msgid ""
 msgstr ""
-"Project-Id-Version: Blender 4.4.0 Beta (b'63c460d93d55')\n"
+"Project-Id-Version: Blender 5.0.0 Alpha (b'a775d58b2e0e')\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-02-24 09:56+0000\n"
-"PO-Revision-Date: 2024-11-14 16:56+0000\n"
-"Last-Translator: Aras Pranckevičius <aras@nesnausk.org>\n"
+"POT-Creation-Date: 2025-07-21 08:48+0000\n"
+"PO-Revision-Date: 2025-04-14 08:54+0000\n"
+"Last-Translator: Martynas Žiemys <martynasziemys@gmail.com>\n"
 "Language-Team: Lithuanian <https://translate.blender.org/projects/blender-ui/ui/lt/>\n"
 "Language: lt\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=3; plural=(n % 10 == 1 && (n % 100 < 11 || n % 100 > 19)) ? 0 : ((n % 10 >= 2 && n % 10 <= 9 && (n % 100 < 11 || n % 100 > 19)) ? 1 : 2);\n"
-"X-Generator: Weblate 5.8.3"
+"X-Generator: Weblate 5.10.1"
 
 
 msgid "Valid"
@@ -380,10 +380,6 @@ msgid "Auto"
 msgstr "Automatinis/-iškas"
 
 
-msgid "HIP RT (Experimental)"
-msgstr "„HIP RT“ (Eksperimentinis)"
-
-
 msgid "        Filter by Name"
 msgstr "        Filtruoti pagal pavadinimą"
 
@@ -480,6 +476,30 @@ msgid "Show Frame Numbers"
 msgstr "Rodyti kadrų numerius"
 
 
+msgid "Hide"
+msgstr "Paslėpti"
+
+
+msgid "Opacity"
+msgstr "Neskaidrumas"
+
+
+msgid "Info"
+msgstr "Informacija"
+
+
+msgid "Ruler"
+msgstr "Liniuotė"
+
+
+msgid "Locked"
+msgstr "Užrakinta/-s"
+
+
+msgid "Thickness"
+msgstr "Storis"
+
+
 msgid "Height"
 msgstr "Aukštis"
 
@@ -542,10 +562,6 @@ msgstr "„Python“ konsolė"
 
 msgid "Interactive programmatic console for advanced editing and script development"
 msgstr "Interaktyvi programavimo konsolė išplėstiniam redagavimui ir skriptų vystymui"
-
-
-msgid "Info"
-msgstr "Informacija"
 
 
 msgid "Top Bar"
@@ -965,10 +981,6 @@ msgid "Aligned"
 msgstr "Lygiuotas"
 
 
-msgid "Hide"
-msgstr "Paslėpti"
-
-
 msgid "Weight"
 msgstr "Svoris"
 
@@ -1257,10 +1269,6 @@ msgid "Hardness"
 msgstr "Kietumas"
 
 
-msgid "Thickness"
-msgstr "Storis"
-
-
 msgctxt "Brush"
 msgid "Jitter"
 msgstr "Virpėjimas"
@@ -1290,10 +1298,6 @@ msgstr "Kelias"
 
 msgid "Background Image"
 msgstr "Fono paveikslas"
-
-
-msgid "Opacity"
-msgstr "Neskaidrumas"
 
 
 msgid "MovieClip"
@@ -1522,10 +1526,6 @@ msgstr "Išorėje"
 
 msgid "Bone"
 msgstr "Kaulas"
-
-
-msgid "Script"
-msgstr "Skriptas"
 
 
 msgid "XZ"
@@ -1969,6 +1969,10 @@ msgid "Realtime"
 msgstr "Tikru laiku"
 
 
+msgid "Profile"
+msgstr "Profilis"
+
+
 msgid "Container"
 msgstr "Konteineris"
 
@@ -2097,10 +2101,6 @@ msgstr "Išsaugoti"
 
 msgid "Operator"
 msgstr "Operatorius"
-
-
-msgid "FBX"
-msgstr "„FBX“"
 
 
 msgid "A file viewable in the File Browser"
@@ -2269,14 +2269,6 @@ msgid "Control Mode"
 msgstr "Valdymo/-senos veiksena"
 
 
-msgid "Ruler"
-msgstr "Liniuotė"
-
-
-msgid "Locked"
-msgstr "Užrakinta/-s"
-
-
 msgctxt "Operator"
 msgid "Gizmo"
 msgstr "Manipuliatorius"
@@ -2439,10 +2431,6 @@ msgstr "Trečdaliai"
 
 msgid "Usage"
 msgstr "Naudojimas/Vartojimas"
-
-
-msgid "Profile"
-msgstr "Profilis"
 
 
 msgid "Path"
@@ -2651,6 +2639,10 @@ msgid "Filter"
 msgstr "Filtras"
 
 
+msgid "Script"
+msgstr "Skriptas"
+
+
 msgid "Edit"
 msgstr "Redaguoti"
 
@@ -2811,14 +2803,6 @@ msgstr "Garsas"
 msgctxt "Text"
 msgid "Modified"
 msgstr "Redaguota/-s"
-
-
-msgid "EWA"
-msgstr "„EWA“"
-
-
-msgid "FELINE"
-msgstr "„FELINE“"
 
 
 msgid "fBM"
@@ -3625,10 +3609,6 @@ msgid "View"
 msgstr "Rodymas"
 
 
-msgid "Use Blender Profile"
-msgstr "Naudoti „Blender“ profilį"
-
-
 msgctxt "Operator"
 msgid "Open"
 msgstr "Atidaryti"
@@ -4083,10 +4063,6 @@ msgstr "Vaizdo efektų savybės"
 
 msgid "Display Channel"
 msgstr "Rodomas kanalas"
-
-
-msgid "The channel number shown in the image preview. 0 is the result of all strips combined"
-msgstr "Kanalas, rodomas peržiūros lange. 0 rodo galutinį vaizdą"
 
 
 msgid "View mode to use for displaying sequencer output"
@@ -4733,10 +4709,6 @@ msgid "New"
 msgstr "Nauja/-s/-i"
 
 
-msgid "Close"
-msgstr "Uždaryti"
-
-
 msgid "Blender Data"
 msgstr "„Blender“ duomenys"
 
@@ -4745,13 +4717,13 @@ msgid "Import {} files"
 msgstr "Importuoti „{}“ failus"
 
 
+msgid "Close"
+msgstr "Uždaryti"
+
+
 msgctxt "Object"
 msgid "Magnet"
 msgstr "Magnetas"
-
-
-msgid "Fluid: %s canceled!"
-msgstr "Skystis: %s atšaukta/-s!"
 
 
 msgid "Blender Info Log"
@@ -4866,104 +4838,4 @@ msgstr "mikrofonas"
 
 msgid "network"
 msgstr "tinklas"
-
-
-msgid "English (English)"
-msgstr "Angliškai (English)"
-
-
-msgid "Japanese (日本語)"
-msgstr "Japoniškai (日本語)"
-
-
-msgid "Dutch (Nederlands)"
-msgstr "Nyderlandiškai (Niederländisch)"
-
-
-msgid "Italian (Italiano)"
-msgstr "Itališkai (Italiano)"
-
-
-msgid "German (Deutsch)"
-msgstr "Vokiškai (Deutsch)"
-
-
-msgid "Finnish (Suomi)"
-msgstr "Suomiškai (Suomi)"
-
-
-msgid "Swedish (Svenska)"
-msgstr "Švediškai (Svenska)"
-
-
-msgid "French (Français)"
-msgstr "Prancūziškai (Français)"
-
-
-msgid "Spanish (Español)"
-msgstr "Ispaniškai (Español)"
-
-
-msgid "Catalan (Català)"
-msgstr "Kataloniškai (Català)"
-
-
-msgid "Czech (Čeština)"
-msgstr "Čekiškai (Čeština)"
-
-
-msgid "Portuguese (Português)"
-msgstr "Portugališkai (Português)"
-
-
-msgid "Russian (Русский)"
-msgstr "Rusiškai (Русский)"
-
-
-msgid "Croatian (Hrvatski)"
-msgstr "Kroatiškai (Hrvatski)"
-
-
-msgid "Serbian (Српски)"
-msgstr "Serbiškai-kirilica (Српски)"
-
-
-msgid "Ukrainian (Українська)"
-msgstr "Ukrainietiškai (Українська)"
-
-
-msgid "Polish (Polski)"
-msgstr "Lenkiškai (Polski)"
-
-
-msgid "Romanian (Român)"
-msgstr "Rumuniškai (Română)"
-
-
-msgid "Arabic (ﺔﻴﺑﺮﻌﻟﺍ)"
-msgstr "Arabiškai (ﺔﻴﺑﺮﻌﻟﺍ)"
-
-
-msgid "Bulgarian (Български)"
-msgstr "Bulgariškai (Български)"
-
-
-msgid "Greek (Ελληνικά)"
-msgstr "Graikiškai (Ελληνικά)"
-
-
-msgid "Korean (한국어)"
-msgstr "P. Korėjietiškai (한국어)"
-
-
-msgid "Nepali (नेपाली)"
-msgstr "Nepalietiškai (नेपाली)"
-
-
-msgid "Serbian Latin (Srpski latinica)"
-msgstr "Serbiškai-lotynų (Srpski)"
-
-
-msgid "Kyrgyz (Кыргыз тили)"
-msgstr "Kirgiziškai (Кыргызча)"
 

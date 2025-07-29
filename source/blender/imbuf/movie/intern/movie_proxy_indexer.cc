@@ -60,7 +60,7 @@ struct MovieIndexBuilder {
 
 static MovieIndexBuilder *index_builder_create(const char *filepath)
 {
-  MovieIndexBuilder *rv = MEM_cnew<MovieIndexBuilder>("index builder");
+  MovieIndexBuilder *rv = MEM_callocN<MovieIndexBuilder>("index builder");
 
   STRNCPY(rv->filepath, filepath);
 
@@ -83,7 +83,9 @@ static MovieIndexBuilder *index_builder_create(const char *filepath)
   fprintf(rv->fp,
           "%s%c%.3d",
           binary_header_str,
-          (ENDIAN_ORDER == B_ENDIAN) ? 'V' : 'v',
+          /* NOTE: this is endianness-sensitive.
+           * On Big Endian system 'V' must be used instead of 'v'. */
+          'v',
           INDEX_FILE_VERSION);
 
   return rv;
@@ -179,7 +181,10 @@ static MovieIndex *movie_index_open(const char *filepath)
     return nullptr;
   }
 
-  if ((ENDIAN_ORDER == B_ENDIAN) != (header[8] == 'V')) {
+  /* NOTE: this is endianness-sensitive. */
+  BLI_assert(ELEM(header[8], 'v', 'V'));
+  const int16_t file_endianness = (header[8] == 'v') ? L_ENDIAN : B_ENDIAN;
+  if (file_endianness == B_ENDIAN) {
     for (int64_t i = 0; i < num_entries; i++) {
       BLI_endian_switch_int32(&idx->entries[i].frameno);
       BLI_endian_switch_uint64(&idx->entries[i].seek_pos_pts);
@@ -297,7 +302,7 @@ static bool get_proxy_filepath(const MovieReader *anim,
 
   BLI_assert(i >= 0);
 
-  char proxy_name[256];
+  char proxy_name[FILE_MAXFILE];
   char stream_suffix[20];
   const char *name = (temp) ? "proxy_%d%s_part.avi" : "proxy_%d%s.avi";
 
@@ -372,7 +377,7 @@ static proxy_output_ctx *alloc_proxy_output_ffmpeg(MovieReader *anim,
                                                    int height,
                                                    int quality)
 {
-  proxy_output_ctx *rv = MEM_cnew<proxy_output_ctx>("alloc_proxy_output");
+  proxy_output_ctx *rv = MEM_callocN<proxy_output_ctx>("alloc_proxy_output");
 
   char filepath[FILE_MAX];
 
@@ -413,8 +418,9 @@ static proxy_output_ctx *alloc_proxy_output_ffmpeg(MovieReader *anim,
   rv->c->gop_size = 10;
   rv->c->max_b_frames = 0;
 
-  if (rv->codec->pix_fmts) {
-    rv->c->pix_fmt = rv->codec->pix_fmts[0];
+  const enum AVPixelFormat *pix_fmts = ffmpeg_get_pix_fmts(rv->c, rv->codec);
+  if (pix_fmts) {
+    rv->c->pix_fmt = pix_fmts[0];
   }
   else {
     rv->c->pix_fmt = AV_PIX_FMT_YUVJ420P;
@@ -425,6 +431,7 @@ static proxy_output_ctx *alloc_proxy_output_ffmpeg(MovieReader *anim,
   rv->c->time_base.den = 25;
   rv->c->time_base.num = 1;
   rv->st->time_base = rv->c->time_base;
+  rv->st->avg_frame_rate = av_inv_q(rv->c->time_base);
 
   /* This range matches #eFFMpegCrf. `crf_range_min` corresponds to lowest quality,
    * `crf_range_max` to highest quality. */
@@ -455,7 +462,7 @@ static proxy_output_ctx *alloc_proxy_output_ffmpeg(MovieReader *anim,
     rv->c->thread_type = FF_THREAD_SLICE;
   }
 
-  if (rv->of->flags & AVFMT_GLOBALHEADER) {
+  if (rv->of->oformat->flags & AVFMT_GLOBALHEADER) {
     rv->c->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
   }
 
@@ -463,10 +470,6 @@ static proxy_output_ctx *alloc_proxy_output_ffmpeg(MovieReader *anim,
   rv->c->color_primaries = codec_ctx->color_primaries;
   rv->c->color_trc = codec_ctx->color_trc;
   rv->c->colorspace = codec_ctx->colorspace;
-
-  avcodec_parameters_from_context(rv->st->codecpar, rv->c);
-
-  ffmpeg_copy_display_matrix(st, rv->st);
 
   int ret = avio_open(&rv->of->pb, filepath, AVIO_FLAG_WRITE);
 
@@ -499,6 +502,9 @@ static proxy_output_ctx *alloc_proxy_output_ffmpeg(MovieReader *anim,
     return nullptr;
   }
 
+  avcodec_parameters_from_context(rv->st->codecpar, rv->c);
+  ffmpeg_copy_display_matrix(st, rv->st);
+
   rv->orig_height = st->codecpar->height;
 
   if (st->codecpar->width != width || st->codecpar->height != height ||
@@ -514,9 +520,13 @@ static proxy_output_ctx *alloc_proxy_output_ffmpeg(MovieReader *anim,
     rv->sws_ctx = ffmpeg_sws_get_context(st->codecpar->width,
                                          rv->orig_height,
                                          AVPixelFormat(st->codecpar->format),
+                                         codec_ctx->color_range == AVCOL_RANGE_JPEG,
+                                         -1,
                                          width,
                                          height,
                                          rv->c->pix_fmt,
+                                         codec_ctx->color_range == AVCOL_RANGE_JPEG,
+                                         -1,
                                          SWS_FAST_BILINEAR);
   }
 
@@ -627,17 +637,14 @@ static void free_proxy_output_ffmpeg(proxy_output_ctx *ctx, int rollback)
     add_to_proxy_output_ffmpeg(ctx, nullptr);
   }
 
-  avcodec_flush_buffers(ctx->c);
-
   av_write_trailer(ctx->of);
-
-  avcodec_free_context(&ctx->c);
 
   if (ctx->of->oformat) {
     if (!(ctx->of->oformat->flags & AVFMT_NOFILE)) {
       avio_close(ctx->of->pb);
     }
   }
+  avcodec_free_context(&ctx->c);
   avformat_free_context(ctx->of);
 
   if (ctx->sws_ctx) {
@@ -705,7 +712,7 @@ static MovieProxyBuilder *index_ffmpeg_create_context(MovieReader *anim,
     return nullptr;
   }
 
-  MovieProxyBuilder *context = MEM_cnew<MovieProxyBuilder>("FFmpeg index builder context");
+  MovieProxyBuilder *context = MEM_callocN<MovieProxyBuilder>("FFmpeg index builder context");
   int num_proxy_sizes = IMB_PROXY_MAX_SLOT;
   int i, streamcount;
 
@@ -1251,8 +1258,11 @@ MovieReader *movie_open_proxy(MovieReader *anim, IMB_Proxy_Size preview_size)
 
   get_proxy_filepath(anim, preview_size, filepath, false);
 
-  /* proxies are generated in the same color space as animation itself */
-  anim->proxy_anim[i] = MOV_open_file(filepath, 0, 0, anim->colorspace);
+  /* Proxies are generated in the same color space as animation itself.
+   *
+   * Also skip any colorspace conversion to the color pipeline design as it helps performance and
+   * the image buffers from the proxy builder are not used anywhere else in Blender. */
+  anim->proxy_anim[i] = MOV_open_file(filepath, 0, 0, true, anim->colorspace);
 
   anim->proxies_tried |= preview_size;
 

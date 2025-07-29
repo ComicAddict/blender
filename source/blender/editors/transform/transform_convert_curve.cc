@@ -152,8 +152,7 @@ static void createTransCurveVerts(bContext * /*C*/, TransInfo *t)
       tc->data_len = countsel;
       data_len_pt = countsel_pt;
     }
-    tc->data = static_cast<TransData *>(
-        MEM_callocN(tc->data_len * sizeof(TransData), "TransObData(Curve EditMode)"));
+    tc->data = MEM_calloc_arrayN<TransData>(tc->data_len, "TransObData(Curve EditMode)");
 
     t->data_len_all += tc->data_len;
     data_len_all_pt += data_len_pt;
@@ -228,7 +227,6 @@ static void createTransCurveVerts(bContext * /*C*/, TransInfo *t)
                   td->flag = 0;
                 }
               }
-              td->ext = nullptr;
               td->val = nullptr;
 
               hdata = initTransDataCurveHandles(td, bezt);
@@ -254,7 +252,6 @@ static void createTransCurveVerts(bContext * /*C*/, TransInfo *t)
               else {
                 td->flag = 0;
               }
-              td->ext = nullptr;
 
               /* TODO: make points scale. */
               if (t->mode == TFM_CURVE_SHRINKFATTEN /* `|| t->mode == TFM_RESIZE` */) {
@@ -310,7 +307,6 @@ static void createTransCurveVerts(bContext * /*C*/, TransInfo *t)
                   td->flag = 0;
                 }
               }
-              td->ext = nullptr;
               td->val = nullptr;
 
               if (hdata == nullptr) {
@@ -346,7 +342,6 @@ static void createTransCurveVerts(bContext * /*C*/, TransInfo *t)
               else {
                 td->flag = 0;
               }
-              td->ext = nullptr;
 
               if (ELEM(t->mode, TFM_CURVE_SHRINKFATTEN, TFM_RESIZE)) {
                 td->val = &(bp->radius);

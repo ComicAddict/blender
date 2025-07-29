@@ -6,7 +6,6 @@
 
 #include "scene/background.h"
 #include "scene/camera.h"
-#include "scene/colorspace.h"
 #include "scene/integrator.h"
 #include "scene/light.h"
 #include "scene/mesh.h"
@@ -158,16 +157,6 @@ static float3 output_estimate_emission(ShaderOutput *output, bool &is_constant)
       estimate *= node->get_float(strength_in->socket_type);
     }
 
-    /* Lower importance of emission nodes from automatic value/color to shader
-     * conversion, as these are likely used for previewing and can be slow to
-     * build a light tree for on dense meshes. */
-    if (node->type == EmissionNode::get_node_type()) {
-      EmissionNode *emission_node = static_cast<EmissionNode *>(node);
-      if (emission_node->from_auto_conversion) {
-        estimate *= 0.1f;
-      }
-    }
-
     return estimate;
   }
   if (node->type == LightFalloffNode::get_node_type() ||
@@ -266,7 +255,19 @@ void Shader::estimate_emission()
      * using a lot of memory in the light tree and potentially wasting samples
      * where indirect light samples are sufficient.
      * Possible optimization: estimate front and back emission separately. */
-    emission_sampling = (reduce_max(fabs(emission_estimate)) > 0.5f) ?
+
+    /* Lower importance of emission nodes from automatic value/color to shader conversion, as these
+     * are likely used for previewing and can be slow to build a light tree for on dense meshes. */
+    float scale = 1.0f;
+    const ShaderOutput *output = surf->link;
+    if (output && output->parent->type == EmissionNode::get_node_type()) {
+      const EmissionNode *emission_node = static_cast<const EmissionNode *>(output->parent);
+      if (emission_node->from_auto_conversion) {
+        scale = 0.1f;
+      }
+    }
+
+    emission_sampling = (reduce_max(fabs(emission_estimate * scale)) > 0.5f) ?
                             EMISSION_SAMPLING_FRONT_BACK :
                             EMISSION_SAMPLING_NONE;
   }
@@ -416,7 +417,7 @@ bool Shader::need_update_geometry() const
 
 /* Shader Manager */
 
-ShaderManager::ShaderManager()
+ShaderManager::ShaderManager() : thin_film_table_offset_(TABLE_OFFSET_INVALID)
 {
   update_flags = UPDATE_ALL;
 
@@ -425,16 +426,15 @@ ShaderManager::ShaderManager()
 
 ShaderManager::~ShaderManager() = default;
 
-unique_ptr<ShaderManager> ShaderManager::create(const int shadingsystem, Device *device)
+unique_ptr<ShaderManager> ShaderManager::create(const int shadingsystem)
 {
   unique_ptr<ShaderManager> manager;
 
   (void)shadingsystem; /* Ignored when built without OSL. */
-  (void)device;
 
 #ifdef WITH_OSL
   if (shadingsystem == SHADINGSYSTEM_OSL) {
-    manager = make_unique<OSLShaderManager>(device);
+    manager = make_unique<OSLShaderManager>();
   }
   else
 #endif
@@ -482,11 +482,12 @@ int ShaderManager::get_shader_id(Shader *shader, bool smooth)
   return id;
 }
 
-void ShaderManager::device_update(Device *device,
-                                  DeviceScene *dscene,
-                                  Scene *scene,
-                                  Progress &progress)
+void ShaderManager::device_update_pre(Device *device,
+                                      DeviceScene *dscene,
+                                      Scene *scene,
+                                      Progress &progress)
 {
+  /* This runs before kernels have been loaded, so can't copy to device yet. */
   if (!need_update()) {
     return;
   }
@@ -496,7 +497,7 @@ void ShaderManager::device_update(Device *device,
     shader->id = id++;
   }
 
-  /* Those shaders should always be compiled as they are used as fallback if a shader cannot be
+  /* Those shaders should always be compiled as they are used as a fallback if a shader cannot be
    * found, e.g. bad shader index for the triangle shaders on a Mesh. */
   assert(scene->default_surface->reference_count() != 0);
   assert(scene->default_light->reference_count() != 0);
@@ -504,6 +505,16 @@ void ShaderManager::device_update(Device *device,
   assert(scene->default_empty->reference_count() != 0);
 
   device_update_specific(device, dscene, scene, progress);
+}
+
+void ShaderManager::device_update_post(Device * /*device*/,
+                                       DeviceScene *dscene,
+                                       Scene * /*scene*/,
+                                       Progress & /*progress*/)
+{
+  /* This runs after kernels have been loaded, so can copy to device. */
+  dscene->shaders.copy_to_device_if_modified();
+  dscene->svm_nodes.copy_to_device_if_modified();
 }
 
 void ShaderManager::device_update_common(Device * /*device*/,
@@ -606,8 +617,6 @@ void ShaderManager::device_update_common(Device * /*device*/,
     has_transparent_shadow |= (flag & SD_HAS_TRANSPARENT_SHADOW) != 0;
   }
 
-  dscene->shaders.copy_to_device();
-
   /* lookup tables */
   KernelTables *ktables = &dscene->data.tables;
   ktables->ggx_E = ensure_bsdf_table(dscene, scene, table_ggx_E);
@@ -619,6 +628,11 @@ void ShaderManager::device_update_common(Device * /*device*/,
   ktables->sheen_ltc = ensure_bsdf_table(dscene, scene, table_sheen_ltc);
   ktables->ggx_gen_schlick_ior_s = ensure_bsdf_table(dscene, scene, table_ggx_gen_schlick_ior_s);
   ktables->ggx_gen_schlick_s = ensure_bsdf_table(dscene, scene, table_ggx_gen_schlick_s);
+
+  if (thin_film_table_offset_ == TABLE_OFFSET_INVALID) {
+    thin_film_table_offset_ = scene->lookup_tables->add_table(dscene, thin_film_table);
+  }
+  dscene->data.tables.thin_film_table = (int)thin_film_table_offset_;
 
   /* integrator */
   KernelIntegrator *kintegrator = &dscene->data.integrator;
@@ -646,6 +660,8 @@ void ShaderManager::device_free_common(Device * /*device*/, DeviceScene *dscene,
     scene->lookup_tables->remove_table(&entry.second);
   }
   bsdf_tables.clear();
+  scene->lookup_tables->remove_table(&thin_film_table_offset_);
+  thin_film_table_offset_ = TABLE_OFFSET_INVALID;
 
   dscene->shaders.free();
 }
@@ -656,10 +672,8 @@ void ShaderManager::add_default(Scene *scene)
   {
     unique_ptr<ShaderGraph> graph = make_unique<ShaderGraph>();
 
-    DiffuseBsdfNode *diffuse = graph->create_node<DiffuseBsdfNode>();
-    diffuse->set_color(make_float3(0.8f, 0.8f, 0.8f));
-
-    graph->connect(diffuse->output("BSDF"), graph->output()->input("Surface"));
+    PrincipledBsdfNode *bsdf = graph->create_node<PrincipledBsdfNode>();
+    graph->connect(bsdf->output("BSDF"), graph->output()->input("Surface"));
 
     Shader *shader = scene->create_node<Shader>();
     shader->name = "default_surface";
@@ -778,20 +792,10 @@ uint ShaderManager::get_kernel_features(Scene *scene)
   }
 
   if (use_osl()) {
-    kernel_features |= KERNEL_FEATURE_OSL;
+    kernel_features |= KERNEL_FEATURE_OSL_SHADING;
   }
 
   return kernel_features;
-}
-
-void ShaderManager::free_memory()
-{
-
-#ifdef WITH_OSL
-  OSLShaderManager::free_memory();
-#endif
-
-  ColorSpaceManager::free_memory();
 }
 
 float ShaderManager::linear_rgb_to_gray(const float3 c)
@@ -863,6 +867,79 @@ static bool to_scene_linear_transform(OCIO::ConstConfigRcPtr &config,
 }
 #endif
 
+void ShaderManager::compute_thin_film_table(const Transform &xyz_to_rgb)
+{
+  /* Our implementation of Thin Film Fresnel is based on
+   * "A Practical Extension to Microfacet Theory for the Modeling of Varying Iridescence"
+   * by Laurent Belcour and Pascal Barla
+   * (https://belcour.github.io/blog/research/publication/2017/05/01/brdf-thin-film.html).
+   *
+   * The idea there is that for a naive implementation of Thin Film interference, you'd compute
+   * the reflectivity for a given wavelength using Airy summation, and then numerically integrate
+   * the product of this reflectivity function and the Color Matching Functions of the colorspace
+   * you're working in to obtain the RGB (or XYZ) values.
+   * However, this integration would require too many evaluations to be practical.
+   * Therefore, they reformulate the computation as a rapidly converging series involving the
+   * Fourier transform of the CMFs.
+   *
+   * Specifically, we need to:
+   * - Compute the RGB CMFs from the XYZ CMFs using the working color space's XYZ-to-RGB matrix
+   * - Resample the RGB CMFs to be parametrized by frequency instead of wavelength as usual
+   * - Compute the FFT of the CMFs
+   * - Store the result as a LUT
+   * - Look up the values for each channel at runtime based on the optical path difference and
+   *   phase shift.
+   *
+   * Computing an FFT here would be annoying, so we'd like to precompute it, but we only know
+   * the XYZ-to-RGB matrix at runtime. Luckily, both resampling and FFT are linear operations,
+   * so we can precompute the FFT of the resampled XYZ CMFs and then multiply each entry with
+   * the XYZ-to-RGB matrix to get the RGB LUT.
+   *
+   * That's what this function does: We load the precomputed values, convert to RGB, normalize
+   * the result to make the DC term equal to 1, convert from real/imaginary to magnitude/phase
+   * since that form is smoother and therefore interpolates more nicely, and then store that
+   * into the final table that's used by the kernel.
+   */
+  assert(sizeof(table_thin_film_cmf) == 6 * THIN_FILM_TABLE_SIZE * sizeof(float));
+  thin_film_table.resize(6 * THIN_FILM_TABLE_SIZE);
+
+  float3 normalization;
+  float3 prevPhase = zero_float3();
+  for (int i = 0; i < THIN_FILM_TABLE_SIZE; i++) {
+    const float *table_row = table_thin_film_cmf[i];
+    /* Load precomputed resampled Fourier-transformed XYZ CMFs. */
+    const float3 xyzReal = make_float3(table_row[0], table_row[1], table_row[2]);
+    const float3 xyzImag = make_float3(table_row[3], table_row[4], table_row[5]);
+
+    /* Linearly combine precomputed data to produce the RGB equivalents. Works since both
+     * resampling and Fourier transformation are linear operations. */
+    const float3 rgbReal = transform_direction(&xyz_to_rgb, xyzReal);
+    const float3 rgbImag = transform_direction(&xyz_to_rgb, xyzImag);
+
+    /* We normalize all entries by the first element. Since that is the DC component, it normalizes
+     * the CMF (in non-Fourier space) to an area of 1. */
+    if (i == 0) {
+      normalization = 1.0f / rgbReal;
+    }
+
+    /* Convert the complex value into magnitude/phase representation. */
+    const float3 rgbMag = sqrt(sqr(rgbReal) + sqr(rgbImag));
+    float3 rgbPhase = atan2(rgbImag, rgbReal);
+
+    /* Unwrap phase to avoid jumps. */
+    rgbPhase -= M_2PI_F * round((rgbPhase - prevPhase) * M_1_2PI_F);
+    prevPhase = rgbPhase;
+
+    /* Store in lookup table. */
+    thin_film_table[i + 0 * THIN_FILM_TABLE_SIZE] = rgbMag.x * normalization.x;
+    thin_film_table[i + 1 * THIN_FILM_TABLE_SIZE] = rgbMag.y * normalization.y;
+    thin_film_table[i + 2 * THIN_FILM_TABLE_SIZE] = rgbMag.z * normalization.z;
+    thin_film_table[i + 3 * THIN_FILM_TABLE_SIZE] = rgbPhase.x;
+    thin_film_table[i + 4 * THIN_FILM_TABLE_SIZE] = rgbPhase.y;
+    thin_film_table[i + 5 * THIN_FILM_TABLE_SIZE] = rgbPhase.z;
+  }
+}
+
 void ShaderManager::init_xyz_transforms()
 {
   /* Default to ITU-BT.709 in case no appropriate transform found.
@@ -891,6 +968,8 @@ void ShaderManager::init_xyz_transforms()
   rec709_to_b = make_float3(0.0f, 0.0f, 1.0f);
   is_rec709 = true;
 
+  compute_thin_film_table(xyz_to_rec709);
+
 #ifdef WITH_OCIO
   /* Get from OpenColorO config if it has the required roles. */
   OCIO::ConstConfigRcPtr config = nullptr;
@@ -898,7 +977,7 @@ void ShaderManager::init_xyz_transforms()
     config = OCIO::GetCurrentConfig();
   }
   catch (OCIO::Exception &exception) {
-    VLOG_WARNING << "OCIO config error: " << exception.what();
+    LOG_WARNING << "OCIO config error: " << exception.what();
     return;
   }
 
@@ -956,6 +1035,8 @@ void ShaderManager::init_xyz_transforms()
   rec709_to_g = make_float3(rec709_to_rgb.y);
   rec709_to_b = make_float3(rec709_to_rgb.z);
   is_rec709 = transform_equal_threshold(xyz_to_rgb, xyz_to_rec709, 0.0001f);
+
+  compute_thin_film_table(xyz_to_rgb);
 #endif
 }
 

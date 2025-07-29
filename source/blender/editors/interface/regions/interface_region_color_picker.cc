@@ -17,15 +17,13 @@
 #include "DNA_userdef_types.h"
 
 #include "BLI_listbase.h"
-#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 #include "BLI_utildefines.h"
 
 #include "WM_api.hh"
 #include "WM_types.hh"
 
 #include "RNA_access.hh"
-
-#include "UI_interface.hh"
 
 #include "BLT_translation.hh"
 
@@ -206,7 +204,7 @@ static void ui_update_color_picker_buts_rgba(uiBut *from_but,
        * push, so disable it on RNA buttons in the color picker block */
       UI_but_flag_disable(bt.get(), UI_BUT_UNDO);
     }
-    else if (bt->type == UI_BTYPE_TEXT) {
+    else if (bt->type == ButType::Text) {
       /* Hex text input field. */
       float rgba_hex[4];
       uchar rgba_hex_uchar[4];
@@ -223,10 +221,11 @@ static void ui_update_color_picker_buts_rgba(uiBut *from_but,
 
       int col_len;
       if (cpicker->has_alpha) {
-        col_len = SNPRINTF_RLEN(col, "#%02X%02X%02X%02X", UNPACK4_EX((uint), rgba_hex_uchar, ));
+        col_len = SNPRINTF_UTF8_RLEN(
+            col, "#%02X%02X%02X%02X", UNPACK4_EX((uint), rgba_hex_uchar, ));
       }
       else {
-        col_len = SNPRINTF_RLEN(col, "#%02X%02X%02X", UNPACK3_EX((uint), rgba_hex_uchar, ));
+        col_len = SNPRINTF_UTF8_RLEN(col, "#%02X%02X%02X", UNPACK3_EX((uint), rgba_hex_uchar, ));
       }
       memcpy(bt->poin, col, col_len + 1); /* +1 offset for the # symbol. */
     }
@@ -340,7 +339,7 @@ static void ui_colorpicker_hide_reveal(uiBlock *block, ePickerType colormode)
 {
   /* tag buttons */
   for (const std::unique_ptr<uiBut> &bt : block->buttons) {
-    if ((bt->func == ui_colorpicker_rgba_update_cb) && (bt->type == UI_BTYPE_NUM_SLIDER) &&
+    if ((bt->func == ui_colorpicker_rgba_update_cb) && (bt->type == ButType::NumSlider) &&
         (bt->rnaindex != 3))
     {
       /* RGB sliders (color circle and alpha are always shown) */
@@ -376,7 +375,7 @@ static void ui_colorpicker_circle(uiBlock *block,
 
   /* HS circle */
   bt = uiDefButR_prop(block,
-                      UI_BTYPE_HSVCIRCLE,
+                      ButType::HsvCircle,
                       0,
                       "",
                       0,
@@ -395,7 +394,7 @@ static void ui_colorpicker_circle(uiBlock *block,
   /* value */
   if (U.color_picker_type == USER_CP_CIRCLE_HSL) {
     hsv_but = (uiButHSVCube *)uiDefButR_prop(block,
-                                             UI_BTYPE_HSVCUBE,
+                                             ButType::HsvCube,
                                              0,
                                              "",
                                              PICKER_W + PICKER_SPACE,
@@ -413,7 +412,7 @@ static void ui_colorpicker_circle(uiBlock *block,
   }
   else {
     hsv_but = (uiButHSVCube *)uiDefButR_prop(block,
-                                             UI_BTYPE_HSVCUBE,
+                                             ButType::HsvCube,
                                              0,
                                              "",
                                              PICKER_W + PICKER_SPACE,
@@ -444,7 +443,7 @@ static void ui_colorpicker_square(uiBlock *block,
 
   /* HS square */
   hsv_but = (uiButHSVCube *)uiDefButR_prop(block,
-                                           UI_BTYPE_HSVCUBE,
+                                           ButType::HsvCube,
                                            0,
                                            "",
                                            0,
@@ -463,7 +462,7 @@ static void ui_colorpicker_square(uiBlock *block,
 
   /* value */
   hsv_but = (uiButHSVCube *)uiDefButR_prop(block,
-                                           UI_BTYPE_HSVCUBE,
+                                           ButType::HsvCube,
                                            0,
                                            "",
                                            0,
@@ -536,7 +535,7 @@ static void ui_block_colorpicker(uiBlock *block,
   yco = -1.5f * UI_UNIT_Y;
   UI_block_align_begin(block);
   bt = uiDefButC(block,
-                 UI_BTYPE_ROW,
+                 ButType::Row,
                  0,
                  IFACE_("RGB"),
                  0,
@@ -552,7 +551,7 @@ static void ui_block_colorpicker(uiBlock *block,
   UI_but_func_set(bt, ui_colorpicker_create_mode_cb, bt, nullptr);
   bt->custom_data = cpicker;
   bt = uiDefButC(block,
-                 UI_BTYPE_ROW,
+                 ButType::Row,
                  0,
                  IFACE_((U.color_picker_type == USER_CP_CIRCLE_HSL) ? "HSL" : "HSV"),
                  picker_width / 2,
@@ -577,7 +576,7 @@ static void ui_block_colorpicker(uiBlock *block,
   /* RGB values */
   UI_block_align_begin(block);
   bt = uiDefButR_prop(block,
-                      UI_BTYPE_NUM_SLIDER,
+                      ButType::NumSlider,
                       0,
                       IFACE_("Red:"),
                       0,
@@ -595,7 +594,7 @@ static void ui_block_colorpicker(uiBlock *block,
   UI_but_func_set(bt, ui_colorpicker_rgba_update_cb, bt, nullptr);
   bt->custom_data = cpicker;
   bt = uiDefButR_prop(block,
-                      UI_BTYPE_NUM_SLIDER,
+                      ButType::NumSlider,
                       0,
                       IFACE_("Green:"),
                       0,
@@ -613,7 +612,7 @@ static void ui_block_colorpicker(uiBlock *block,
   UI_but_func_set(bt, ui_colorpicker_rgba_update_cb, bt, nullptr);
   bt->custom_data = cpicker;
   bt = uiDefButR_prop(block,
-                      UI_BTYPE_NUM_SLIDER,
+                      ButType::NumSlider,
                       0,
                       IFACE_("Blue:"),
                       0,
@@ -632,13 +631,13 @@ static void ui_block_colorpicker(uiBlock *block,
   bt->custom_data = cpicker;
 
   /* Could use:
-   * uiItemFullR(col, ptr, prop, -1, 0, UI_ITEM_R_EXPAND | UI_ITEM_R_SLIDER, "", ICON_NONE);
+   * col->prop(ptr, prop, -1, 0, UI_ITEM_R_EXPAND | UI_ITEM_R_SLIDER, "", ICON_NONE);
    * but need to use UI_but_func_set for updating other fake buttons */
 
   /* HSV values */
   yco = -3.0f * UI_UNIT_Y;
   bt = uiDefButF(block,
-                 UI_BTYPE_NUM_SLIDER,
+                 ButType::NumSlider,
                  0,
                  IFACE_("Hue:"),
                  0,
@@ -655,7 +654,7 @@ static void ui_block_colorpicker(uiBlock *block,
   UI_but_func_set(bt, ui_colorpicker_hsv_update_cb, bt, from_but);
   bt->custom_data = cpicker;
   bt = uiDefButF(block,
-                 UI_BTYPE_NUM_SLIDER,
+                 ButType::NumSlider,
                  0,
                  IFACE_("Saturation:"),
                  0,
@@ -673,7 +672,7 @@ static void ui_block_colorpicker(uiBlock *block,
   bt->custom_data = cpicker;
   if (U.color_picker_type == USER_CP_CIRCLE_HSL) {
     bt = uiDefButF(block,
-                   UI_BTYPE_NUM_SLIDER,
+                   ButType::NumSlider,
                    0,
                    IFACE_("Lightness:"),
                    0,
@@ -689,7 +688,7 @@ static void ui_block_colorpicker(uiBlock *block,
   }
   else {
     bt = uiDefButF(block,
-                   UI_BTYPE_NUM_SLIDER,
+                   ButType::NumSlider,
                    0,
                    CTX_IFACE_(BLT_I18NCONTEXT_COLOR, "Value:"),
                    0,
@@ -711,7 +710,7 @@ static void ui_block_colorpicker(uiBlock *block,
 
   if (cpicker->has_alpha) {
     bt = uiDefButR_prop(block,
-                        UI_BTYPE_NUM_SLIDER,
+                        ButType::NumSlider,
                         0,
                         IFACE_("Alpha:"),
                         0,
@@ -749,10 +748,10 @@ static void ui_block_colorpicker(uiBlock *block,
   rgba_float_to_uchar(rgba_hex_uchar, rgba_hex);
 
   if (cpicker->has_alpha) {
-    SNPRINTF(hexcol, "#%02X%02X%02X%02X", UNPACK4_EX((uint), rgba_hex_uchar, ));
+    SNPRINTF_UTF8(hexcol, "#%02X%02X%02X%02X", UNPACK4_EX((uint), rgba_hex_uchar, ));
   }
   else {
-    SNPRINTF(hexcol, "#%02X%02X%02X", UNPACK3_EX((uint), rgba_hex_uchar, ));
+    SNPRINTF_UTF8(hexcol, "#%02X%02X%02X", UNPACK3_EX((uint), rgba_hex_uchar, ));
   }
 
   yco -= UI_UNIT_Y * 1.5f;
@@ -762,7 +761,7 @@ static void ui_block_colorpicker(uiBlock *block,
   const int text_width = picker_width - label_width - eyedropper_offset;
 
   uiDefBut(block,
-           UI_BTYPE_LABEL,
+           ButType::Label,
            0,
            IFACE_("Hex"),
            0,
@@ -775,7 +774,7 @@ static void ui_block_colorpicker(uiBlock *block,
            std::nullopt);
 
   bt = uiDefBut(block,
-                UI_BTYPE_TEXT,
+                ButType::Text,
                 0,
                 IFACE_(""),
                 label_width,
@@ -786,27 +785,28 @@ static void ui_block_colorpicker(uiBlock *block,
                 0,
                 cpicker->has_alpha ? 10 : 8,
                 std::nullopt);
-  const auto bt_tooltip_func = [](bContext & /*C*/, uiTooltipData &tip, void *has_alpha_ptr) {
-    const bool *has_alpha = static_cast<bool *>(has_alpha_ptr);
-    if (*has_alpha) {
-      UI_tooltip_text_field_add(tip,
-                                "Hex triplet for color with alpha (#RRGGBBAA).",
-                                {},
-                                UI_TIP_STYLE_HEADER,
-                                UI_TIP_LC_NORMAL,
-                                false);
-    }
-    else {
-      UI_tooltip_text_field_add(tip,
-                                "Hex triplet for color (#RRGGBB).",
-                                {},
-                                UI_TIP_STYLE_HEADER,
-                                UI_TIP_LC_NORMAL,
-                                false);
-    }
-    UI_tooltip_text_field_add(
-        tip, "Gamma corrected", {}, UI_TIP_STYLE_NORMAL, UI_TIP_LC_NORMAL, false);
-  };
+  const auto bt_tooltip_func =
+      [](bContext & /*C*/, uiTooltipData &tip, uiBut * /*but*/, void *has_alpha_ptr) {
+        const bool *has_alpha = static_cast<bool *>(has_alpha_ptr);
+        if (*has_alpha) {
+          UI_tooltip_text_field_add(tip,
+                                    "Hex triplet for color with alpha (#RRGGBBAA).",
+                                    {},
+                                    UI_TIP_STYLE_HEADER,
+                                    UI_TIP_LC_NORMAL,
+                                    false);
+        }
+        else {
+          UI_tooltip_text_field_add(tip,
+                                    "Hex triplet for color (#RRGGBB).",
+                                    {},
+                                    UI_TIP_STYLE_HEADER,
+                                    UI_TIP_LC_NORMAL,
+                                    false);
+        }
+        UI_tooltip_text_field_add(
+            tip, "Gamma corrected", {}, UI_TIP_STYLE_NORMAL, UI_TIP_LC_NORMAL, false);
+      };
   UI_but_func_tooltip_custom_set(
       bt, bt_tooltip_func, static_cast<void *>(&cpicker->has_alpha), nullptr);
   UI_but_flag_disable(bt, UI_BUT_UNDO);
@@ -815,9 +815,9 @@ static void ui_block_colorpicker(uiBlock *block,
 
   if (show_picker) {
     bt = uiDefIconButO(block,
-                       UI_BTYPE_BUT,
+                       ButType::But,
                        "UI_OT_eyedropper_color",
-                       WM_OP_INVOKE_DEFAULT,
+                       blender::wm::OpCallContext::InvokeDefault,
                        ICON_EYEDROPPER,
                        picker_width - UI_UNIT_X,
                        yco,
@@ -854,7 +854,7 @@ static int ui_colorpicker_wheel_cb(const bContext * /*C*/, uiBlock *block, const
 
   if (add != 0.0f) {
     for (const std::unique_ptr<uiBut> &but : block->buttons) {
-      if (but->type == UI_BTYPE_HSVCUBE && but->active == nullptr) {
+      if (but->type == ButType::HsvCube && but->active == nullptr) {
         uiPopupBlockHandle *popup = block->handle;
         ColorPicker *cpicker = static_cast<ColorPicker *>(but->custom_data);
         float *hsv_perceptual = cpicker->hsv_perceptual;
@@ -895,7 +895,7 @@ uiBlock *ui_block_func_COLOR(bContext *C, uiPopupBlockHandle *handle, void *arg_
   uiBut *but = static_cast<uiBut *>(arg_but);
   uiBlock *block;
 
-  block = UI_block_begin(C, handle->region, __func__, UI_EMBOSS);
+  block = UI_block_begin(C, handle->region, __func__, blender::ui::EmbossType::Emboss);
 
   if (ui_but_is_color_gamma(but)) {
     block->is_color_gamma_picker = true;
@@ -917,7 +917,7 @@ uiBlock *ui_block_func_COLOR(bContext *C, uiPopupBlockHandle *handle, void *arg_
 
 ColorPicker *ui_block_colorpicker_create(uiBlock *block)
 {
-  ColorPicker *cpicker = MEM_cnew<ColorPicker>(__func__);
+  ColorPicker *cpicker = MEM_callocN<ColorPicker>(__func__);
   BLI_addhead(&block->color_pickers.list, cpicker);
 
   return cpicker;

@@ -299,7 +299,7 @@ std::optional<int64_t> CTX_data_int_get(const bContext *C, const char *member);
 /**
  * \param C: Context.
  * \param use_store: Use 'C->wm.store'.
- * \param use_rna: Use Include the properties from 'RNA_Context'.
+ * \param use_rna: Use Include the properties from #RNA_Context.
  * \param use_all: Don't skip values (currently only "scene").
  */
 ListBase CTX_data_dir_get_ex(const bContext *C, bool use_store, bool use_rna, bool use_all);
@@ -364,12 +364,13 @@ int ctx_data_list_count(const bContext *C,
 
 Main *CTX_data_main(const bContext *C);
 Scene *CTX_data_scene(const bContext *C);
+Scene *CTX_data_sequencer_scene(const bContext *C);
 /**
  * This is tricky. Sometimes the user overrides the render_layer
  * but not the scene_collection. In this case what to do?
  *
  * If the scene_collection is linked to the #ViewLayer we use it.
- * Otherwise we fallback to the active one of the #ViewLayer.
+ * Otherwise we fall back to the active one of the #ViewLayer.
  */
 LayerCollection *CTX_data_layer_collection(const bContext *C);
 Collection *CTX_data_collection(const bContext *C);

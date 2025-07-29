@@ -8,16 +8,14 @@
 
 #pragma once
 
-#include "draw_common_shader_shared.hh"
-
 struct FluidModifierData;
 struct GPUMaterial;
-struct GPUTexture;
 struct GPUUniformBuf;
 
 namespace blender::gpu {
+class Texture;
 class VertBuf;
-}
+}  // namespace blender::gpu
 struct ModifierData;
 struct Object;
 struct ParticleSystem;
@@ -30,6 +28,7 @@ class Manager;
 struct CurvesModule;
 struct PointCloudModule;
 struct VolumeModule;
+class ObjectRef;
 }  // namespace blender::draw
 
 /* draw_hair.cc */
@@ -40,10 +39,6 @@ struct VolumeModule;
 blender::gpu::VertBuf *DRW_hair_pos_buffer_get(Object *object,
                                                ParticleSystem *psys,
                                                ModifierData *md);
-void DRW_hair_duplimat_get(Object *object,
-                           ParticleSystem *psys,
-                           ModifierData *md,
-                           float (*dupli_mat)[4]);
 
 /* draw_curves.cc */
 
@@ -56,6 +51,7 @@ gpu::VertBuf *DRW_curves_pos_buffer_get(Object *object);
 
 /* If drw_data is nullptr, DST global is accessed to get it. */
 void DRW_curves_init(DRWData *drw_data = nullptr);
+void DRW_curves_begin_sync(DRWData *drw_data);
 void DRW_curves_module_free(draw::CurvesModule *module);
 void DRW_curves_update(draw::Manager &manager);
 
@@ -84,5 +80,5 @@ void DRW_fluid_ensure_range_field(FluidModifierData *fmd);
 
 void DRW_smoke_free(FluidModifierData *fmd);
 
-void DRW_smoke_init(DRWData *drw_data);
+void DRW_smoke_begin_sync(DRWData *drw_data);
 void DRW_smoke_exit(DRWData *drw_data);

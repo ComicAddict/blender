@@ -6,12 +6,17 @@
  * \ingroup gpu
  */
 
+#include <cctype>
+#include <cstdint>
+#include <cstdlib>
 #include <string>
 
 #include "BKE_global.hh"
 #if defined(WIN32)
 #  include "BLI_winstuff.h"
 #endif
+#include "BLI_array.hh"
+#include "BLI_span.hh"
 #include "BLI_string_ref.hh"
 #include "BLI_subprocess.hh"
 #include "BLI_threads.h"
@@ -43,6 +48,68 @@ static bool match_renderer(StringRef renderer, const Vector<std::string> &items)
   return false;
 }
 
+/**
+ * Return whether an AMD driver version is in [20.11, 22],
+ * preferring false negatives.
+ *
+ * Matches:
+ *   4.6.14761 Core Profile Context 20.45.44 27.20.14544.6
+ *   4.6.14760 Compatibility Profile Context 21.2.3 27.20.14535.3005
+ *   4.6.14831 Core Profile Context FireGL 21.Q2.1 27.20.21026.2006
+ *   4.6.14830 Core Profile Context 22.6.1 27.20.20913.2000
+ *   4.6.14760 Core Profile Context 21.2.3 27.20.14535.3005
+ * Rejects:
+ *   4.6.0 Core Profile Context 23.10.2.231013
+ *   4.6.0 Core Profile Context 24.7.1.240618
+ *   4.6.0 Core Profile Context 25.3.2.250311
+ * by matching
+ *   " 2" digits "." "Q"? digits "." digits " "
+ */
+static bool is_AMD_between_20_11_and_22(const char *version)
+{
+  const char *spc_2 = strstr(version, " 2");
+  if (!spc_2) {
+    return false;
+  }
+
+  char *after_first = nullptr;
+  long first = std::strtol(spc_2, &after_first, 10);
+  if (first < 20 || first > 22) {
+    return false;
+  }
+  if (*after_first != '.') {
+    return false;
+  }
+  ++after_first;
+
+  if (*after_first == 'Q') {
+    ++after_first;
+  }
+  char *after_second = nullptr;
+  long second = std::strtol(after_first, &after_second, 10);
+  if (after_second == after_first) {
+    return false;
+  }
+
+  if (*after_second != '.') {
+    return false;
+  }
+  ++after_second;
+
+  char *after_third = nullptr;
+  long third = std::strtol(after_second, &after_third, 10);
+  UNUSED_VARS(third);
+  if (after_third == after_second) {
+    return false;
+  }
+
+  if (*after_third != ' ') {
+    return false;
+  }
+
+  return (first == 20 && second >= 11) || first == 21 || first == 22;
+}
+
 void GLBackend::platform_init()
 {
   BLI_assert(!GPG.initialized);
@@ -66,6 +133,15 @@ void GLBackend::platform_init()
     device = GPU_DEVICE_UNKNOWN;
     driver = GPU_DRIVER_ANY;
   }
+  else if (strstr(renderer, "Mesa DRI R") ||
+           (strstr(renderer, "Radeon") && (strstr(vendor, "X.Org") || strstr(version, "Mesa"))) ||
+           (strstr(renderer, "AMD") && (strstr(vendor, "X.Org") || strstr(version, "Mesa"))) ||
+           (strstr(renderer, "Gallium ") && strstr(renderer, " on ATI ")) ||
+           (strstr(renderer, "Gallium ") && strstr(renderer, " on AMD ")))
+  {
+    device = GPU_DEVICE_ATI;
+    driver = GPU_DRIVER_OPENSOURCE;
+  }
   else if (strstr(vendor, "ATI") || strstr(vendor, "AMD")) {
     device = GPU_DEVICE_ATI;
     driver = GPU_DRIVER_OFFICIAL;
@@ -88,15 +164,6 @@ void GLBackend::platform_init()
     {
       device |= GPU_DEVICE_INTEL_UHD;
     }
-  }
-  else if (strstr(renderer, "Mesa DRI R") ||
-           (strstr(renderer, "Radeon") && strstr(vendor, "X.Org")) ||
-           (strstr(renderer, "AMD") && strstr(vendor, "X.Org")) ||
-           (strstr(renderer, "Gallium ") && strstr(renderer, " on ATI ")) ||
-           (strstr(renderer, "Gallium ") && strstr(renderer, " on AMD ")))
-  {
-    device = GPU_DEVICE_ATI;
-    driver = GPU_DRIVER_OPENSOURCE;
   }
   else if (strstr(renderer, "Nouveau") || strstr(vendor, "nouveau")) {
     device = GPU_DEVICE_NVIDIA;
@@ -158,7 +225,7 @@ void GLBackend::platform_init()
         if (ver0 < 30 || (ver0 == 30 && ver1 == 0 && ver2 < 3820)) {
           std::cout
               << "=====================================\n"
-              << "Qualcomm drivers older than 30.0.3820.x are not capable of running Blender 4.0\n"
+              << "Qualcomm drivers older than 30.0.3820.x cannot run Blender 4.0 or later.\n"
               << "If your device is older than an 8cx Gen3, you must use a 3.x LTS release.\n"
               << "If you have an 8cx Gen3 or newer device, a driver update may be available.\n"
               << "=====================================\n";
@@ -230,6 +297,33 @@ void GLBackend::platform_init()
            renderer,
            version,
            GPU_ARCHITECTURE_IMR);
+
+  GPG.device_uuid.reinitialize(0);
+  GPG.device_luid.reinitialize(0);
+  GPG.device_luid_node_mask = 0;
+
+  if (epoxy_has_gl_extension("GL_EXT_memory_object")) {
+    GLint number_of_devices = 0;
+    glGetIntegerv(GL_NUM_DEVICE_UUIDS_EXT, &number_of_devices);
+    /* Multiple devices could be used by the context if certain extensions like multi-cast is used.
+     * But this is not used by Blender, so this should always be 1. */
+    BLI_assert(number_of_devices == 1);
+
+    GLubyte device_uuid[GL_UUID_SIZE_EXT] = {0};
+    glGetUnsignedBytei_vEXT(GL_DEVICE_UUID_EXT, 0, device_uuid);
+    GPG.device_uuid = Array<uint8_t, 16>(Span<uint8_t>(device_uuid, GL_UUID_SIZE_EXT));
+
+    /* LUID is only supported on Windows. */
+    if (epoxy_has_gl_extension("GL_EXT_memory_object_win32") && (os & GPU_OS_WIN)) {
+      GLubyte device_luid[GL_LUID_SIZE_EXT] = {0};
+      glGetUnsignedBytevEXT(GL_DEVICE_LUID_EXT, device_luid);
+      GPG.device_luid = Array<uint8_t, 8>(Span<uint8_t>(device_luid, GL_LUID_SIZE_EXT));
+
+      GLint node_mask = 0;
+      glGetIntegerv(GL_DEVICE_NODE_MASK_EXT, &node_mask);
+      GPG.device_luid_node_mask = uint32_t(node_mask);
+    }
+  }
 }
 
 void GLBackend::platform_exit()
@@ -243,51 +337,6 @@ void GLBackend::platform_exit()
 /* -------------------------------------------------------------------- */
 /** \name Capabilities
  * \{ */
-
-static bool detect_mip_render_workaround()
-{
-  int cube_size = 2;
-  float clear_color[4] = {1.0f, 0.5f, 0.0f, 0.0f};
-  float *source_pix = (float *)MEM_callocN(sizeof(float[4]) * cube_size * cube_size * 6, __func__);
-
-  /* NOTE: Debug layers are not yet enabled. Force use of glGetError. */
-  debug::check_gl_error("Cubemap Workaround Start");
-  /* Not using GPU API since it is not yet fully initialized. */
-  GLuint tex, fb;
-  /* Create cubemap with 2 mip level. */
-  glGenTextures(1, &tex);
-  glBindTexture(GL_TEXTURE_CUBE_MAP, tex);
-  for (int mip = 0; mip < 2; mip++) {
-    for (int i = 0; i < 6; i++) {
-      const int width = cube_size / (1 << mip);
-      GLenum target = GL_TEXTURE_CUBE_MAP_POSITIVE_X + i;
-      glTexImage2D(target, mip, GL_RGBA16F, width, width, 0, GL_RGBA, GL_FLOAT, source_pix);
-    }
-  }
-  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_BASE_LEVEL, 0);
-  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, 0);
-  /* Attach and clear mip 1. */
-  glGenFramebuffers(1, &fb);
-  glBindFramebuffer(GL_FRAMEBUFFER, fb);
-  glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, tex, 1);
-  glDrawBuffer(GL_COLOR_ATTACHMENT0);
-  glClearColor(UNPACK4(clear_color));
-  glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-  glClear(GL_COLOR_BUFFER_BIT);
-  glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-  /* Read mip 1. If color is not the same as the clear_color, the rendering failed. */
-  glGetTexImage(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 1, GL_RGBA, GL_FLOAT, source_pix);
-  bool enable_workaround = !equals_v4v4(clear_color, source_pix);
-  MEM_freeN(source_pix);
-
-  glDeleteFramebuffers(1, &fb);
-  glDeleteTextures(1, &tex);
-
-  debug::check_gl_error("Cubemap Workaround End9");
-
-  return enable_workaround;
-}
 
 static const char *gl_extension_get(int i)
 {
@@ -308,8 +357,9 @@ static void detect_workarounds()
     printf("    renderer: %s\n", renderer);
     printf("    version: %s\n\n", version);
     GCaps.depth_blitting_workaround = true;
-    GCaps.mip_render_workaround = true;
     GCaps.stencil_clasify_buffer_workaround = true;
+    GCaps.node_link_instancing_workaround = true;
+    GCaps.line_directive_workaround = true;
     GLContext::debug_layer_workaround = true;
     /* Turn off Blender features. */
     GCaps.hdr_viewport_support = false;
@@ -317,6 +367,7 @@ static void detect_workarounds()
     GLContext::multi_bind_support = false;
     GLContext::multi_bind_image_support = false;
     /* Turn off OpenGL 4.5 features. */
+    GLContext::clip_control_support = false;
     GLContext::direct_state_access_support = false;
     /* Turn off OpenGL 4.6 features. */
     GLContext::texture_filter_anisotropic_support = false;
@@ -332,6 +383,7 @@ static void detect_workarounds()
     GLContext::framebuffer_fetch_support = false;
     GLContext::texture_barrier_support = false;
     GCaps.stencil_export_support = false;
+    GCaps.clip_control_support = false;
 
 #if 0
     /* Do not alter OpenGL 4.3 features.
@@ -340,12 +392,6 @@ static void detect_workarounds()
 #endif
 
     return;
-  }
-
-  /* Only use main context when running inside RenderDoc.
-   * RenderDoc requires that all calls are* from the same context. */
-  if (G.debug & G_DEBUG_GPU_RENDERDOC) {
-    GCaps.use_main_context_workaround = true;
   }
 
   if (GPU_type_matches(GPU_DEVICE_ATI, GPU_OS_WIN, GPU_DRIVER_OFFICIAL) &&
@@ -360,7 +406,6 @@ static void detect_workarounds()
      *   Radeon R5 Graphics;
      * And others... */
     GLContext::unused_fb_slot_workaround = true;
-    GCaps.mip_render_workaround = true;
     GCaps.shader_draw_parameters_support = false;
     GCaps.broken_amd_driver = true;
   }
@@ -382,15 +427,13 @@ static void detect_workarounds()
   }
   /* See #82856: AMD drivers since 20.11 running on a polaris architecture doesn't support the
    * `GL_INT_2_10_10_10_REV` data type correctly. This data type is used to pack normals and flags.
-   * The work around uses `GPU_RGBA16I`. In 22.?.? drivers this has been fixed for
-   * polaris platform. Keeping legacy platforms around just in case.
+   * The work around uses `TextureFormat::SINT_16_16_16_16`. In 22.?.? drivers this
+   * has been fixed for polaris platform. Keeping legacy platforms around just in case.
    */
   if (GPU_type_matches(GPU_DEVICE_ATI, GPU_OS_ANY, GPU_DRIVER_OFFICIAL)) {
     /* Check for AMD legacy driver. Assuming that when these drivers are used this bug is present.
      */
-    if (strstr(version, " 22.6.1 ") || strstr(version, " 21.Q1.2 ") ||
-        strstr(version, " 21.Q2.1 "))
-    {
+    if (is_AMD_between_20_11_and_22(version)) {
       GCaps.use_hq_normals_workaround = true;
     }
     const Vector<std::string> matches = {
@@ -400,13 +443,16 @@ static void detect_workarounds()
       GCaps.use_hq_normals_workaround = true;
     }
   }
-  /* Special fix for these specific GPUs.
-   * Without this workaround, blender crashes on startup. (see #72098) */
-  if (GPU_type_matches(GPU_DEVICE_INTEL, GPU_OS_WIN, GPU_DRIVER_OFFICIAL) &&
-      (strstr(renderer, "HD Graphics 620") || strstr(renderer, "HD Graphics 630")))
-  {
-    GCaps.mip_render_workaround = true;
+  /* See #132968: Legacy AMD drivers do not accept a hash after the line number and results into
+   * undefined behavior. Users have reported that the issue can go away after doing a clean
+   * install of the driver.
+   */
+  if (GPU_type_matches(GPU_DEVICE_ATI, GPU_OS_ANY, GPU_DRIVER_OFFICIAL)) {
+    if (is_AMD_between_20_11_and_22(version)) {
+      GCaps.line_directive_workaround = true;
+    }
   }
+
   /* Maybe not all of these drivers have problems with `GL_ARB_base_instance`.
    * But it's hard to test each case.
    * We get crashes from some crappy Intel drivers don't work well with shaders created in
@@ -421,6 +467,12 @@ static void detect_workarounds()
   /* Somehow fixes armature display issues (see #69743). */
   if (GPU_type_matches(GPU_DEVICE_INTEL, GPU_OS_WIN, GPU_DRIVER_ANY) &&
       strstr(version, "Build 20.19.15.4285"))
+  {
+    GCaps.use_main_context_workaround = true;
+  }
+  /* Needed to avoid driver hangs on legacy AMD drivers (see #139939). */
+  if (GPU_type_matches(GPU_DEVICE_ATI, GPU_OS_ANY, GPU_DRIVER_OFFICIAL) &&
+      is_AMD_between_20_11_and_22(version))
   {
     GCaps.use_main_context_workaround = true;
   }
@@ -464,13 +516,6 @@ static void detect_workarounds()
   }
 #endif
 
-  /* Some Intel drivers have issues with using mips as frame-buffer targets if
-   * GL_TEXTURE_MAX_LEVEL is higher than the target MIP.
-   * Only check at the end after all other workarounds because this uses the drawing code.
-   * Also after device/driver flags to avoid the check that causes pre GCN Radeon to crash. */
-  if (GCaps.mip_render_workaround == false) {
-    GCaps.mip_render_workaround = detect_mip_render_workaround();
-  }
   /* Disable multi-draw if the base instance cannot be read. */
   if (GLContext::shader_draw_parameters_support == false) {
     GLContext::multi_draw_indirect_support = false;
@@ -493,22 +538,10 @@ static void detect_workarounds()
     GLContext::multi_bind_image_support = false;
   }
 
-  /* Multi viewport creates small triangle discard on RDNA2 GPUs with official drivers.
-   * Using geometry shader workaround fixes the issue. */
-  if (GPU_type_matches(GPU_DEVICE_ATI, GPU_OS_ANY, GPU_DRIVER_OFFICIAL)) {
-    if (strstr(renderer, "RX 6300") || strstr(renderer, "RX 6400") ||
-        strstr(renderer, "RX 6450") || strstr(renderer, "RX 6500") ||
-        strstr(renderer, "RX 6550") || strstr(renderer, "RX 6600") ||
-        strstr(renderer, "RX 6650") || strstr(renderer, "RX 6700") ||
-        strstr(renderer, "RX 6750") || strstr(renderer, "RX 6800") ||
-        strstr(renderer, "RX 6850") || strstr(renderer, "RX 6900") ||
-        strstr(renderer, "RX 6950") || strstr(renderer, "W6300") || strstr(renderer, "W6400") ||
-        strstr(renderer, "W6500") || strstr(renderer, "W6600") ||
-        /* NOTE: `W6700` was never released, so it's not in this list. */
-        strstr(renderer, "W6800") || strstr(renderer, "W6900"))
-    {
-      GLContext::layered_rendering_support = false;
-    }
+  /* #134509 Intel ARC GPU have a driver bug that break the display of batched node-links.
+   * Disabling batching fixes the issue. */
+  if (GPU_type_matches(GPU_DEVICE_INTEL, GPU_OS_ANY, GPU_DRIVER_OFFICIAL)) {
+    GCaps.node_link_instancing_workaround = true;
   }
 
   /* Metal-related Workarounds. */
@@ -526,6 +559,7 @@ GLint GLContext::max_ssbo_binds = 0;
 
 /** Extensions. */
 
+bool GLContext::clip_control_support = false;
 bool GLContext::debug_layer_support = false;
 bool GLContext::direct_state_access_support = false;
 bool GLContext::explicit_location_support = false;
@@ -590,8 +624,6 @@ void GLBackend::capabilities_init()
   glGetIntegerv(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, &ssbo_alignment);
   GCaps.storage_buffer_alignment = size_t(ssbo_alignment);
 
-  GCaps.texture_view_support = epoxy_gl_version() >= 43 ||
-                               epoxy_has_gl_extension("GL_ARB_texture_view");
   GCaps.stencil_export_support = epoxy_has_gl_extension("GL_ARB_shader_stencil_export");
 
   /* GL specific capabilities. */
@@ -626,6 +658,9 @@ void GLBackend::capabilities_init()
   GLContext::stencil_texturing_support = epoxy_gl_version() >= 43;
   GLContext::texture_filter_anisotropic_support = epoxy_has_gl_extension(
       "GL_EXT_texture_filter_anisotropic");
+  GLContext::clip_control_support = epoxy_has_gl_extension("GL_ARB_clip_control");
+
+  GCaps.clip_control_support = GLContext::clip_control_support;
 
   /* Disabled until it is proven to work. */
   GLContext::framebuffer_fetch_support = false;
@@ -633,17 +668,66 @@ void GLBackend::capabilities_init()
   detect_workarounds();
 
 #if BLI_SUBPROCESS_SUPPORT
-  if (GCaps.max_parallel_compilations == -1) {
-    GCaps.max_parallel_compilations = std::min(int(U.max_shader_compilation_subprocesses),
-                                               BLI_system_thread_count());
-  }
+  GCaps.use_subprocess_shader_compilations = U.shader_compilation_method ==
+                                             USER_SHADER_COMPILE_SUBPROCESS;
+#else
+  GCaps.use_subprocess_shader_compilations = false;
+#endif
   if (G.debug & G_DEBUG_GPU_RENDERDOC) {
     /* Avoid crashes on RenderDoc sessions. */
-    GCaps.max_parallel_compilations = 0;
+    GCaps.use_subprocess_shader_compilations = false;
   }
-#else
-  GCaps.max_parallel_compilations = 0;
-#endif
+
+  int thread_count = U.gpu_shader_workers;
+
+  if (thread_count == 0) {
+    /* Good default based on measurements. */
+
+    /* Always have at least 1 worker. */
+    thread_count = 1;
+
+    if (GCaps.use_subprocess_shader_compilations) {
+      /* Use reasonable number of worker by default when there are known gains. */
+      if (GPU_type_matches(GPU_DEVICE_NVIDIA, GPU_OS_ANY, GPU_DRIVER_OFFICIAL) ||
+          GPU_type_matches(GPU_DEVICE_ATI, GPU_OS_ANY, GPU_DRIVER_OFFICIAL) ||
+          GPU_type_matches(GPU_DEVICE_INTEL, GPU_OS_WIN, GPU_DRIVER_ANY))
+      {
+        /* Subprocess is too costly in memory (>150MB per worker) to have better defaults. */
+        thread_count = std::max(1, std::min(4, BLI_system_thread_count() / 2));
+      }
+    }
+    else if (GPU_type_matches(GPU_DEVICE_NVIDIA, GPU_OS_ANY, GPU_DRIVER_OFFICIAL)) {
+      /* Best middle ground between memory usage and speedup as Nvidia context memory footprint
+       * is quite heavy (~25MB). Moreover we have diminishing return after this because of PSO
+       * compilation blocking the main thread.
+       * Can be revisited if we find a way to delete the worker thread context after finishing
+       * compilation, and fix the scheduling bubbles (#139775). */
+      thread_count = 4;
+    }
+    else if (GPU_type_matches(GPU_DEVICE_ATI, GPU_OS_ANY, GPU_DRIVER_OPENSOURCE) ||
+             GPU_type_matches(GPU_DEVICE_INTEL, GPU_OS_UNIX, GPU_DRIVER_ANY))
+    {
+      /* Mesa has very good compilation time and doesn't block the main thread.
+       * The memory footprint of the worker context is rather small (<10MB).
+       * Shader compilation gets much slower as the number of threads increases. */
+      thread_count = 8;
+    }
+    else if (GPU_type_matches(GPU_DEVICE_ATI, GPU_OS_ANY, GPU_DRIVER_OFFICIAL)) {
+      /* AMD proprietary driver's context have huge memory footprint (~45MB).
+       * There is also not much gain from parallelization. */
+      thread_count = 1;
+    }
+    else if (GPU_type_matches(GPU_DEVICE_INTEL, GPU_OS_WIN, GPU_DRIVER_ANY)) {
+      /* Intel windows driver offer almost no speedup with parallel compilation. */
+      thread_count = 1;
+    }
+  }
+
+  /* Allow thread count override option to limit the number of workers and avoid allocating more
+   * workers than needed. Also ensures that there is always 1 thread available for the UI. */
+  int max_thread_count = std::max(1, BLI_system_thread_count() - 1);
+
+  GCaps.max_parallel_compilations = std::min(thread_count, max_thread_count);
 
   /* Disable this feature entirely when not debugging. */
   if ((G.debug & G_DEBUG_GPU) == 0) {

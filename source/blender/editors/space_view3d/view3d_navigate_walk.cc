@@ -352,24 +352,24 @@ static void drawWalkPixel(const bContext * /*C*/, ARegion *region, void *arg)
   /* Draws an aim/cross in the center. */
   WalkInfo *walk = static_cast<WalkInfo *>(arg);
 
-  const int outter_length = 24;
-  const int inner_length = 14;
-  int xoff, yoff;
+  const float outer_length = 24.0f;
+  const float inner_length = 14.0f;
+  float xoff, yoff;
   rctf viewborder;
 
   if (ED_view3d_cameracontrol_object_get(walk->v3d_camera_control)) {
     ED_view3d_calc_camera_border(
         walk->scene, walk->depsgraph, region, walk->v3d, walk->rv3d, false, &viewborder);
-    xoff = int(viewborder.xmin + BLI_rctf_size_x(&viewborder) * 0.5f);
-    yoff = int(viewborder.ymin + BLI_rctf_size_y(&viewborder) * 0.5f);
+    xoff = viewborder.xmin + BLI_rctf_size_x(&viewborder) * 0.5f;
+    yoff = viewborder.ymin + BLI_rctf_size_y(&viewborder) * 0.5f;
   }
   else {
-    xoff = walk->region->winx / 2;
-    yoff = walk->region->winy / 2;
+    xoff = float(walk->region->winx) / 2.0f;
+    yoff = float(walk->region->winy) / 2.0f;
   }
 
   GPUVertFormat *format = immVertexFormat();
-  uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_I32, 2, GPU_FETCH_INT_TO_FLOAT);
+  uint pos = GPU_vertformat_attr_add(format, "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
 
   immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
 
@@ -378,20 +378,20 @@ static void drawWalkPixel(const bContext * /*C*/, ARegion *region, void *arg)
   immBegin(GPU_PRIM_LINES, 8);
 
   /* North. */
-  immVertex2i(pos, xoff, yoff + inner_length);
-  immVertex2i(pos, xoff, yoff + outter_length);
+  immVertex2f(pos, xoff, yoff + inner_length);
+  immVertex2f(pos, xoff, yoff + outer_length);
 
   /* East. */
-  immVertex2i(pos, xoff + inner_length, yoff);
-  immVertex2i(pos, xoff + outter_length, yoff);
+  immVertex2f(pos, xoff + inner_length, yoff);
+  immVertex2f(pos, xoff + outer_length, yoff);
 
   /* South. */
-  immVertex2i(pos, xoff, yoff - inner_length);
-  immVertex2i(pos, xoff, yoff - outter_length);
+  immVertex2f(pos, xoff, yoff - inner_length);
+  immVertex2f(pos, xoff, yoff - outer_length);
 
   /* West. */
-  immVertex2i(pos, xoff - inner_length, yoff);
-  immVertex2i(pos, xoff - outter_length, yoff);
+  immVertex2f(pos, xoff - inner_length, yoff);
+  immVertex2f(pos, xoff - outer_length, yoff);
 
   immEnd();
   immUnbindProgram();
@@ -505,8 +505,11 @@ static bool walk_ray_cast(RegionView3D *rv3d,
 /** Keep the previous speed and jump height until user changes preferences. */
 static struct {
   float base_speed;
+  /** Only used to detect change. */
   float userdef_speed;
+
   float jump_height;
+  /** Only used to detect change. */
   float userdef_jump_height;
 } g_walk = {
     /*base_speed*/ -1.0f,
@@ -556,13 +559,20 @@ static bool initWalkInfo(bContext *C, WalkInfo *walk, wmOperator *op, const int 
 
   walk->state = WALK_RUNNING;
 
+  walk->grid = (walk->scene->unit.system == USER_UNIT_NONE) ?
+                   1.0f :
+                   1.0f / walk->scene->unit.scale_length;
+
+  const float userdef_jump_height = U.walk_navigation.jump_height * walk->grid;
+  const float userdef_view_height = U.walk_navigation.view_height * walk->grid;
+
   if (fabsf(U.walk_navigation.walk_speed - g_walk.userdef_speed) > 0.1f) {
     g_walk.base_speed = U.walk_navigation.walk_speed;
     g_walk.userdef_speed = U.walk_navigation.walk_speed;
   }
 
   if (fabsf(U.walk_navigation.jump_height - g_walk.userdef_jump_height) > 0.1f) {
-    g_walk.jump_height = U.walk_navigation.jump_height;
+    g_walk.jump_height = userdef_jump_height;
     g_walk.userdef_jump_height = U.walk_navigation.jump_height;
   }
 
@@ -571,9 +581,6 @@ static bool initWalkInfo(bContext *C, WalkInfo *walk, wmOperator *op, const int 
   walk->speed = 0.0f;
   walk->is_fast = false;
   walk->is_slow = false;
-  walk->grid = (walk->scene->unit.system == USER_UNIT_NONE) ?
-                   1.0f :
-                   1.0f / walk->scene->unit.scale_length;
 
   /* User preference settings. */
   walk->teleport.duration = U.walk_navigation.teleport_time;
@@ -586,8 +593,8 @@ static bool initWalkInfo(bContext *C, WalkInfo *walk, wmOperator *op, const int 
     walk_navigation_mode_set(walk, WALK_MODE_FREE);
   }
 
-  walk->view_height = U.walk_navigation.view_height;
-  walk->jump_height = U.walk_navigation.jump_height;
+  walk->view_height = userdef_view_height;
+  walk->jump_height = userdef_jump_height;
   walk->speed = U.walk_navigation.walk_speed;
   walk->speed_factor = U.walk_navigation.walk_speed_factor;
   walk->zlock = WALK_AXISLOCK_STATE_OFF;
@@ -595,10 +602,10 @@ static bool initWalkInfo(bContext *C, WalkInfo *walk, wmOperator *op, const int 
   walk->gravity_state = WALK_GRAVITY_STATE_OFF;
 
   if (walk->scene->physics_settings.flag & PHYS_GLOBAL_GRAVITY) {
-    walk->gravity = fabsf(walk->scene->physics_settings.gravity[2]);
+    walk->gravity = fabsf(walk->scene->physics_settings.gravity[2]) * walk->grid;
   }
   else {
-    walk->gravity = 9.80668f; /* m/s2 */
+    walk->gravity = 9.80668f * walk->grid; /* m/s2 */
   }
 
   walk->is_reversed = ((U.walk_navigation.flag & USER_WALK_MOUSE_REVERSE) != 0);
@@ -644,7 +651,7 @@ static bool initWalkInfo(bContext *C, WalkInfo *walk, wmOperator *op, const int 
   return true;
 }
 
-static int walkEnd(bContext *C, WalkInfo *walk)
+static wmOperatorStatus walkEnd(bContext *C, WalkInfo *walk)
 {
   wmWindow *win;
   RegionView3D *rv3d;
@@ -1080,6 +1087,8 @@ static int walkApply(bContext *C, WalkInfo *walk, bool is_confirm)
         walk->gravity_state != WALK_GRAVITY_STATE_OFF ||
         walk->teleport.state == WALK_TELEPORT_STATE_ON || is_confirm)
     {
+      /* Apply the "scene" grid scale to support navigation around scenes of different sizes. */
+      bool dvec_grid_scale = true;
       float dvec_tmp[3];
 
       /* Time how fast it takes for us to redraw,
@@ -1404,10 +1413,14 @@ static int walkApply(bContext *C, WalkInfo *walk, bool is_confirm)
 
         copy_v3_v3(cur_loc, walk->rv3d->viewinv[3]);
         sub_v3_v3v3(dvec, cur_loc, new_loc);
+
+        /* It doesn't make sense to scale the direction for teleport
+         * as this value is interpolate between two points. */
+        dvec_grid_scale = false;
       }
 
       /* Scale the movement to the scene size. */
-      mul_v3_v3fl(dvec_tmp, dvec, walk->grid);
+      mul_v3_v3fl(dvec_tmp, dvec, dvec_grid_scale ? walk->grid : 1.0f);
       add_v3_v3(rv3d->ofs, dvec_tmp);
 
       if (rv3d->persp == RV3D_CAMOB) {
@@ -1441,7 +1454,7 @@ static void walkApply_ndof(bContext *C, WalkInfo *walk, bool is_confirm)
   Object *lock_ob = ED_view3d_cameracontrol_object_get(walk->v3d_camera_control);
   bool has_translate, has_rotate;
 
-  view3d_ndof_fly(walk->ndof,
+  view3d_ndof_fly(*walk->ndof,
                   walk->v3d,
                   walk->rv3d,
                   walk->is_slow,
@@ -1527,19 +1540,19 @@ static void walk_draw_status(bContext *C, wmOperator *op)
                  walk->zlock != WALK_AXISLOCK_STATE_OFF);
 }
 
-static int walk_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus walk_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   RegionView3D *rv3d = CTX_wm_region_view3d(C);
   if (RV3D_LOCK_FLAGS(rv3d) & RV3D_LOCK_ANY_TRANSFORM) {
     return OPERATOR_CANCELLED;
   }
 
-  WalkInfo *walk = MEM_cnew<WalkInfo>("NavigationWalkOperation");
+  WalkInfo *walk = MEM_callocN<WalkInfo>("NavigationWalkOperation");
 
   op->customdata = walk;
 
   if (initWalkInfo(C, walk, op, event->mval) == false) {
-    MEM_freeN(op->customdata);
+    MEM_freeN(walk);
     return OPERATOR_CANCELLED;
   }
 
@@ -1561,10 +1574,11 @@ static void walk_cancel(bContext *C, wmOperator *op)
   op->customdata = nullptr;
 }
 
-static int walk_modal(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus walk_modal(bContext *C, wmOperator *op, const wmEvent *event)
 {
   bool do_draw = false;
   WalkInfo *walk = static_cast<WalkInfo *>(op->customdata);
+  ARegion *region = walk->region;
   View3D *v3d = walk->v3d;
   RegionView3D *rv3d = walk->rv3d;
   Object *walk_object = ED_view3d_cameracontrol_object_get(walk->v3d_camera_control);
@@ -1583,13 +1597,15 @@ static int walk_modal(bContext *C, wmOperator *op, const wmEvent *event)
   }
   else
 #endif /* WITH_INPUT_NDOF */
+  {
     if (event->type == TIMER && event->customdata == walk->timer) {
       walkApply(C, walk, false);
     }
+  }
 
   do_draw |= walk->redraw;
 
-  const int exit_code = walkEnd(C, walk);
+  const wmOperatorStatus exit_code = walkEnd(C, walk);
 
   if (exit_code != OPERATOR_RUNNING_MODAL) {
     do_draw = true;
@@ -1610,7 +1626,7 @@ static int walk_modal(bContext *C, wmOperator *op, const wmEvent *event)
 
     /* Too frequent, commented with `NDOF_WALK_DRAW_TOOMUCH` for now. */
     // puts("redraw!");
-    ED_region_tag_redraw(CTX_wm_region(C));
+    ED_region_tag_redraw(region);
   }
   return exit_code;
 }

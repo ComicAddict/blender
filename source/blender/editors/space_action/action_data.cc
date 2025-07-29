@@ -42,7 +42,6 @@
 #include "WM_api.hh"
 #include "WM_types.hh"
 
-#include "UI_interface.hh"
 #include "UI_interface_c.hh"
 
 #include "action_intern.hh"
@@ -216,7 +215,7 @@ static bool action_new_poll(bContext *C)
   return false;
 }
 
-static int action_new_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus action_new_exec(bContext *C, wmOperator * /*op*/)
 {
   PointerRNA ptr;
   PropertyRNA *prop;
@@ -301,7 +300,7 @@ void ACTION_OT_new(wmOperatorType *ot)
   ot->idname = "ACTION_OT_new";
   ot->description = "Create new action";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = action_new_exec;
   ot->poll = action_new_poll;
 
@@ -339,7 +338,7 @@ static bool action_pushdown_poll(bContext *C)
   return (adt->flag & ADT_NLA_EDIT_ON) == 0;
 }
 
-static int action_pushdown_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus action_pushdown_exec(bContext *C, wmOperator * /*op*/)
 {
   SpaceAction *saction = (SpaceAction *)CTX_wm_space_data(C);
   ID *adt_id_owner = nullptr;
@@ -348,14 +347,6 @@ static int action_pushdown_exec(bContext *C, wmOperator *op)
   /* Do the deed... */
   if (adt && adt->action) {
     blender::animrig::Action &action = adt->action->wrap();
-
-    /* Perform the push-down operation
-     * - This will deal with all the AnimData-side user-counts. */
-    if (!action.has_keyframes(adt->slot_handle)) {
-      /* action may not be suitable... */
-      BKE_report(op->reports, RPT_WARNING, "Action must have at least one keyframe or F-Modifier");
-      return OPERATOR_CANCELLED;
-    }
 
     /* action can be safely added */
     BKE_nla_action_pushdown({*adt_id_owner, *adt}, ID_IS_OVERRIDE_LIBRARY(adt_id_owner));
@@ -399,7 +390,7 @@ void ACTION_OT_push_down(wmOperatorType *ot)
 /** \name Action Stash Operator
  * \{ */
 
-static int action_stash_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus action_stash_exec(bContext *C, wmOperator *op)
 {
   SpaceAction *saction = (SpaceAction *)CTX_wm_space_data(C);
   ID *adt_id_owner = nullptr;
@@ -407,13 +398,6 @@ static int action_stash_exec(bContext *C, wmOperator *op)
 
   /* Perform stashing operation */
   if (adt) {
-    /* don't do anything if this action is empty... */
-    if (!adt->action->wrap().has_keyframes(adt->slot_handle)) {
-      /* action may not be suitable... */
-      BKE_report(op->reports, RPT_WARNING, "Action must have at least one keyframe or F-Modifier");
-      return OPERATOR_CANCELLED;
-    }
-
     /* stash the action */
     if (BKE_nla_action_stash({*adt_id_owner, *adt}, ID_IS_OVERRIDE_LIBRARY(adt_id_owner))) {
       /* The stash operation will remove the user already,
@@ -483,7 +467,7 @@ static bool action_stash_create_poll(bContext *C)
       }
     }
     else {
-      /* There may not be any action/animdata yet, so, just fallback to the global setting
+      /* There may not be any action/animdata yet, so, just fall back to the global setting
        * (which may not be totally valid yet if the action editor was used and things are
        * now in an inconsistent state)
        */
@@ -502,7 +486,7 @@ static bool action_stash_create_poll(bContext *C)
   return false;
 }
 
-static int action_stash_create_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus action_stash_create_exec(bContext *C, wmOperator *op)
 {
   SpaceAction *saction = (SpaceAction *)CTX_wm_space_data(C);
   ID *adt_id_owner = nullptr;
@@ -516,13 +500,6 @@ static int action_stash_create_exec(bContext *C, wmOperator *op)
   }
   else if (adt) {
     /* Perform stashing operation */
-    if (!adt->action->wrap().has_keyframes(adt->slot_handle)) {
-      /* don't do anything if this action is empty... */
-      BKE_report(op->reports, RPT_WARNING, "Action must have at least one keyframe or F-Modifier");
-      return OPERATOR_CANCELLED;
-    }
-
-    /* stash the action */
     if (BKE_nla_action_stash({*adt_id_owner, *adt}, ID_IS_OVERRIDE_LIBRARY(adt_id_owner))) {
       bAction *new_action = nullptr;
 
@@ -691,7 +668,7 @@ static bool action_unlink_poll(bContext *C)
   return false;
 }
 
-static int action_unlink_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus action_unlink_exec(bContext *C, wmOperator *op)
 {
   ID *animated_id = nullptr;
   AnimData *adt = ED_actedit_animdata_from_context(C, &animated_id);
@@ -707,7 +684,7 @@ static int action_unlink_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-static int action_unlink_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus action_unlink_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   /* NOTE: this is hardcoded to match the behavior for the unlink button
    * (in `interface_templates.cc`). */
@@ -864,7 +841,7 @@ static bool action_layer_next_poll(bContext *C)
   return false;
 }
 
-static int action_layer_next_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus action_layer_next_exec(bContext *C, wmOperator *op)
 {
   ID *animated_id = nullptr;
   AnimData *adt = ED_actedit_animdata_from_context(C, &animated_id);
@@ -980,7 +957,7 @@ static bool action_layer_prev_poll(bContext *C)
   return false;
 }
 
-static int action_layer_prev_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus action_layer_prev_exec(bContext *C, wmOperator *op)
 {
   ID *animated_id = nullptr;
   AnimData *adt = ED_actedit_animdata_from_context(C, &animated_id);

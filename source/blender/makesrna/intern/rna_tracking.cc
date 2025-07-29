@@ -267,9 +267,9 @@ static void rna_trackingTrack_name_set(PointerRNA *ptr, const char *value)
                                                                             track);
   /* Store old name, for the animation fix later. */
   char old_name[sizeof(track->name)];
-  STRNCPY(old_name, track->name);
+  STRNCPY_UTF8(old_name, track->name);
   /* Update the name, */
-  STRNCPY(track->name, value);
+  STRNCPY_UTF8(track->name, value);
   BKE_tracking_track_unique_name(&tracking_object->tracks, track);
   /* Fix animation paths. */
   AnimData *adt = BKE_animdata_from_id(&clip->id);
@@ -574,7 +574,7 @@ static void rna_trackingObject_name_set(PointerRNA *ptr, const char *value)
   MovieClip *clip = (MovieClip *)ptr->owner_id;
   MovieTrackingObject *tracking_object = (MovieTrackingObject *)ptr->data;
 
-  STRNCPY(tracking_object->name, value);
+  STRNCPY_UTF8(tracking_object->name, value);
 
   BKE_tracking_object_unique_name(&clip->tracking, tracking_object);
 }
@@ -670,7 +670,7 @@ static MovieTrackingTrack *add_track_to_base(
   track = BKE_tracking_track_add(tracking, tracksbase, 0, 0, frame, width, height);
 
   if (name && name[0]) {
-    STRNCPY(track->name, name);
+    STRNCPY_UTF8(track->name, name);
     BKE_tracking_track_unique_name(tracksbase, track);
   }
 
@@ -746,9 +746,8 @@ static MovieTrackingMarker *rna_trackingMarkers_insert_frame(MovieTrackingTrack 
                                                              int framenr,
                                                              const float co[2])
 {
-  MovieTrackingMarker marker, *new_marker;
+  MovieTrackingMarker marker = {}, *new_marker;
 
-  memset(&marker, 0, sizeof(marker));
   marker.framenr = framenr;
   copy_v2_v2(marker.pos, co);
 
@@ -792,9 +791,8 @@ static MovieTrackingPlaneMarker *rna_trackingPlaneMarkers_find_frame(
 static MovieTrackingPlaneMarker *rna_trackingPlaneMarkers_insert_frame(
     MovieTrackingPlaneTrack *plane_track, int framenr)
 {
-  MovieTrackingPlaneMarker plane_marker, *new_plane_marker;
+  MovieTrackingPlaneMarker plane_marker = {}, *new_plane_marker;
 
-  memset(&plane_marker, 0, sizeof(plane_marker));
   plane_marker.framenr = framenr;
 
   /* a bit arbitrary, but better than creating zero markers */
@@ -1719,14 +1717,14 @@ static void rna_def_trackingTrack(BlenderRNA *brna)
   RNA_def_property_clear_flag(prop, PROP_EDITABLE);
   RNA_def_property_ui_text(prop, "Average Error", "Average error of re-projection");
 
-  /* grease pencil */
-  prop = RNA_def_property(srna, "grease_pencil", PROP_POINTER, PROP_NONE);
+  /* Annotations */
+  prop = RNA_def_property(srna, "annotation", PROP_POINTER, PROP_NONE);
   RNA_def_property_pointer_sdna(prop, nullptr, "gpd");
-  RNA_def_property_struct_type(prop, "GreasePencil");
+  RNA_def_property_struct_type(prop, "Annotation");
   RNA_def_property_pointer_funcs(
       prop, nullptr, nullptr, nullptr, "rna_GPencil_datablocks_annotations_poll");
   RNA_def_property_flag(prop, PROP_EDITABLE | PROP_ID_REFCOUNT);
-  RNA_def_property_ui_text(prop, "Grease Pencil", "Grease Pencil data for this track");
+  RNA_def_property_ui_text(prop, "Annotation", "Annotation data for this track");
   RNA_def_property_update(prop, NC_MOVIECLIP | ND_DISPLAY, nullptr);
 
   /* weight */
@@ -2213,8 +2211,9 @@ static void rna_def_trackingReconstruction(BlenderRNA *brna)
   prop = RNA_def_property(srna, "is_valid", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_clear_flag(prop, PROP_EDITABLE);
   RNA_def_property_boolean_sdna(prop, nullptr, "flag", TRACKING_RECONSTRUCTED);
-  RNA_def_property_ui_text(
-      prop, "Reconstructed", "Is tracking data contains valid reconstruction information");
+  RNA_def_property_ui_text(prop,
+                           "Reconstructed",
+                           "Whether the tracking data contains valid reconstruction information");
 
   /* average_error */
   prop = RNA_def_property(srna, "average_error", PROP_FLOAT, PROP_NONE);

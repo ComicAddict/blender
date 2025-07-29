@@ -192,6 +192,8 @@ class GHOST_SystemWin32 : public GHOST_System {
    */
   GHOST_TSuccess getPixelAtCursor(float r_color[3]) const override;
 
+  uint32_t getCursorPreferredLogicalSize() const override;
+
   /***************************************************************************************
    ** Access to mouse button and keyboard states.
    ***************************************************************************************/
@@ -369,12 +371,20 @@ class GHOST_SystemWin32 : public GHOST_System {
                                                const int32_t screen_co[2]);
 
   /**
-   * Handles a mouse wheel event.
+   * Handles a vertical mouse wheel event.
    * \param window: The window receiving the event (the active window).
    * \param wParam: The wParam from the `wndproc`.
    * \param lParam: The lParam from the `wndproc`.
    */
-  static void processWheelEvent(GHOST_WindowWin32 *window, WPARAM wParam, LPARAM lParam);
+  static void processWheelEventVertical(GHOST_WindowWin32 *window, WPARAM wParam, LPARAM lParam);
+
+  /**
+   * Handles a horizontal mouse wheel event.
+   * \param window: The window receiving the event (the active window).
+   * \param wParam: The wParam from the `wndproc`.
+   * \param lParam: The lParam from the `wndproc`.
+   */
+  static void processWheelEventHorizontal(GHOST_WindowWin32 *window, WPARAM wParam, LPARAM lParam);
 
   /**
    * Creates a key event and updates the key data stored locally (m_modifierKeys).
@@ -418,7 +428,7 @@ class GHOST_SystemWin32 : public GHOST_System {
    */
   static GHOST_Event *processImeEvent(GHOST_TEventType type,
                                       GHOST_WindowWin32 *window,
-                                      GHOST_TEventImeData *data);
+                                      const GHOST_TEventImeData *data);
 #endif /* WITH_INPUT_IME */
 
   /**
@@ -479,8 +489,9 @@ class GHOST_SystemWin32 : public GHOST_System {
   /** Console status. */
   bool m_consoleStatus;
 
-  /** Wheel delta accumulator. */
-  int m_wheelDeltaAccum;
+  /** Wheel delta accumulators. */
+  int m_wheelDeltaAccumVertical;
+  int m_wheelDeltaAccumHorizontal;
 };
 
 inline void GHOST_SystemWin32::handleKeyboardChange()

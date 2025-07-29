@@ -22,11 +22,16 @@
 #include "BLI_listbase.h"
 #include "BLI_map.hh"
 #include "BLI_math_vector.h"
+#include "BLI_math_vector_types.hh"
 #include "BLI_path_utils.hh"
 #include "BLI_string.h"
+#include "BLI_string_ref.hh"
+#include "BLI_string_utf8.h"
 #include "BLI_vector.hh"
 
 #include "DNA_material_types.h"
+
+#include "IMB_colormanagement.hh"
 
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/usd/ar/packageUtils.h>
@@ -94,69 +99,32 @@ static const pxr::TfToken UsdTransform2d("UsdTransform2d", pxr::TfToken::Immorta
 
 using blender::io::usd::ShaderToNodeMap;
 
-/**
- * Generate a key for caching a Blender node created for a given USD shader
- * by returning the shader prim path with an optional tag suffix.  The tag can
- * be specified in order to generate a unique key when more than one Blender
- * node is created for the USD shader.
- */
-static std::string get_key(const pxr::UsdShadeShader &usd_shader, const char *tag)
-{
-  std::string key = usd_shader.GetPath().GetAsString();
-  if (tag) {
-    key += ":";
-    key += tag;
-  }
-  return key;
-}
-
-/* Returns the Blender node previously cached for
- * the given USD shader in the given map.  Returns
- * null if no cached shader was found. */
-static bNode *get_cached_node(const ShaderToNodeMap &node_cache,
-                              const pxr::UsdShadeShader &usd_shader,
-                              const char *tag = nullptr)
-{
-  return node_cache.lookup_default(get_key(usd_shader, tag), nullptr);
-}
-
-/* Cache the Blender node translated from the given USD shader
- * in the given map. */
-static void cache_node(ShaderToNodeMap &node_cache,
-                       const pxr::UsdShadeShader &usd_shader,
-                       bNode *node,
-                       const char *tag = nullptr)
-{
-  node_cache.add(get_key(usd_shader, tag), node);
-}
-
 /* Add a node of the given type at the given location coordinates. */
-static bNode *add_node(
-    const bContext *C, bNodeTree *ntree, const int type, const float locx, const float locy)
+static bNode *add_node(bNodeTree *ntree, const int type, const blender::float2 loc)
 {
-  bNode *new_node = blender::bke::node_add_static_node(C, *ntree, type);
-
-  if (new_node) {
-    new_node->location[0] = locx;
-    new_node->location[1] = locy;
-  }
+  bNode *new_node = blender::bke::node_add_static_node(nullptr, *ntree, type);
+  new_node->location[0] = loc.x;
+  new_node->location[1] = loc.y;
 
   return new_node;
 }
 
 /* Connect the output socket of node 'source' to the input socket of node 'dest'. */
-static void link_nodes(
-    bNodeTree *ntree, bNode *source, const char *sock_out, bNode *dest, const char *sock_in)
+static void link_nodes(bNodeTree *ntree,
+                       bNode *source,
+                       const blender::StringRefNull sock_out,
+                       bNode *dest,
+                       const blender::StringRefNull sock_in)
 {
   bNodeSocket *source_socket = blender::bke::node_find_socket(*source, SOCK_OUT, sock_out);
   if (!source_socket) {
-    CLOG_ERROR(&LOG, "Couldn't find output socket %s", sock_out);
+    CLOG_ERROR(&LOG, "Couldn't find output socket %s", sock_out.c_str());
     return;
   }
 
   bNodeSocket *dest_socket = blender::bke::node_find_socket(*dest, SOCK_IN, sock_in);
   if (!dest_socket) {
-    CLOG_ERROR(&LOG, "Couldn't find input socket %s", sock_in);
+    CLOG_ERROR(&LOG, "Couldn't find input socket %s", sock_in.c_str());
     return;
   }
 
@@ -408,7 +376,9 @@ static pxr::UsdShadeInput get_input(const pxr::UsdShadeShader &usd_shader,
   return input;
 }
 
-static bNodeSocket *get_input_socket(bNode *node, const char *identifier, ReportList *reports)
+static bNodeSocket *get_input_socket(bNode *node,
+                                     const blender::StringRefNull identifier,
+                                     ReportList *reports)
 {
   bNodeSocket *sock = blender::bke::node_find_socket(*node, SOCK_IN, identifier);
   if (!sock) {
@@ -416,7 +386,7 @@ static bNodeSocket *get_input_socket(bNode *node, const char *identifier, Report
                 RPT_ERROR,
                 "%s: Error: Couldn't get input socket %s for node %s",
                 __func__,
-                identifier,
+                identifier.c_str(),
                 node->idname);
   }
 
@@ -425,33 +395,50 @@ static bNodeSocket *get_input_socket(bNode *node, const char *identifier, Report
 
 namespace blender::io::usd {
 
-namespace {
-
-/* Compute the x- and y-coordinates for placing a new node in an unoccupied region of
- * the column with the given index.  Returns the coordinates in r_locx and r_locy and
- * updates the column-occupancy information in r_ctx. */
-void compute_node_loc(const int column, float *r_locx, float *r_locy, NodePlacementContext *r_ctx)
+float2 NodePlacementContext::compute_node_loc(const int column)
 {
-  if (!(r_locx && r_locy && r_ctx)) {
-    return;
+  if (column >= column_offsets_.size()) {
+    /* UsdPreviewSurface graphs are all very tiny due to their constrained nature. It is unlikely
+     * we need to grow at all but, if we do, do so by small chunks at a time. */
+    column_offsets_.resize(column + 4);
   }
 
-  (*r_locx) = r_ctx->origx - column * r_ctx->horizontal_step;
-
-  if (column >= r_ctx->column_offsets.size()) {
-    r_ctx->column_offsets.append(0.0f);
-  }
-
-  (*r_locy) = r_ctx->origy - r_ctx->column_offsets[column];
+  float2 loc;
+  loc.x = origx_ - column * horizontal_step_;
+  loc.y = origy_ - column_offsets_[column];
 
   /* Record the y-offset of the occupied region in
    * the column, including padding. */
-  r_ctx->column_offsets[column] += r_ctx->vertical_step + 10.0f;
+  column_offsets_[column] += vertical_step_ + 10.0f;
+
+  return loc;
 }
 
-}  // namespace
+std::string NodePlacementContext::get_key(const pxr::UsdShadeShader &usd_shader,
+                                          const blender::StringRef tag) const
+{
+  std::string key = usd_shader.GetPath().GetAsString();
+  if (!tag.is_empty()) {
+    key += ":";
+    key += tag;
+  }
+  return key;
+}
 
-USDMaterialReader::USDMaterialReader(const USDImportParams &params, Main *bmain)
+bNode *NodePlacementContext::get_cached_node(const pxr::UsdShadeShader &usd_shader,
+                                             const blender::StringRef tag) const
+{
+  return node_cache_.lookup_default(get_key(usd_shader, tag), nullptr);
+}
+
+void NodePlacementContext::cache_node(const pxr::UsdShadeShader &usd_shader,
+                                      bNode *node,
+                                      const blender::StringRef tag)
+{
+  node_cache_.add_new(get_key(usd_shader, tag), node);
+}
+
+USDMaterialReader::USDMaterialReader(const USDImportParams &params, Main &bmain)
     : params_(params), bmain_(bmain)
 {
 }
@@ -459,14 +446,14 @@ USDMaterialReader::USDMaterialReader(const USDImportParams &params, Main *bmain)
 Material *USDMaterialReader::add_material(const pxr::UsdShadeMaterial &usd_material,
                                           const bool read_usd_preview) const
 {
-  if (!(bmain_ && usd_material)) {
+  if (!usd_material) {
     return nullptr;
   }
 
   std::string mtl_name = usd_material.GetPrim().GetName().GetString();
 
   /* Create the material. */
-  Material *mtl = BKE_material_add(bmain_, mtl_name.c_str());
+  Material *mtl = BKE_material_add(&bmain_, mtl_name.c_str());
   id_us_min(&mtl->id);
 
   if (read_usd_preview) {
@@ -491,15 +478,16 @@ void USDMaterialReader::import_usd_preview(Material *mtl,
 
     /* Optionally, create shader nodes to represent a UsdPreviewSurface. */
     if (params_.import_usd_preview) {
-      import_usd_preview_nodes(mtl, usd_preview);
+      import_usd_preview_nodes(mtl, usd_material, usd_preview);
     }
   }
 }
 
 void USDMaterialReader::import_usd_preview_nodes(Material *mtl,
+                                                 const pxr::UsdShadeMaterial &usd_material,
                                                  const pxr::UsdShadeShader &usd_shader) const
 {
-  if (!(bmain_ && mtl && usd_shader)) {
+  if (!(mtl && usd_shader)) {
     return;
   }
 
@@ -512,24 +500,10 @@ void USDMaterialReader::import_usd_preview_nodes(Material *mtl,
   mtl->use_nodes = true;
 
   /* Create the Principled BSDF shader node. */
-  bNode *principled = add_node(nullptr, ntree, SH_NODE_BSDF_PRINCIPLED, 0.0f, 300.0f);
-
-  if (!principled) {
-    CLOG_ERROR(&LOG,
-               "Couldn't create SH_NODE_BSDF_PRINCIPLED node for USD shader %s",
-               usd_shader.GetPath().GetAsString().c_str());
-    return;
-  }
+  bNode *principled = add_node(ntree, SH_NODE_BSDF_PRINCIPLED, {0.0f, 300.0f});
 
   /* Create the material output node. */
-  bNode *output = add_node(nullptr, ntree, SH_NODE_OUTPUT_MATERIAL, 300.0f, 300.0f);
-
-  if (!output) {
-    CLOG_ERROR(&LOG,
-               "Couldn't create SH_NODE_OUTPUT_MATERIAL node for USD shader %s",
-               usd_shader.GetPath().GetAsString().c_str());
-    return;
-  }
+  bNode *output = add_node(ntree, SH_NODE_OUTPUT_MATERIAL, {300.0f, 300.0f});
 
   /* Connect the Principled BSDF node to the output node. */
   link_nodes(ntree, principled, "BSDF", output, "Surface");
@@ -537,13 +511,16 @@ void USDMaterialReader::import_usd_preview_nodes(Material *mtl,
   /* Recursively create the principled shader input networks. */
   set_principled_node_inputs(principled, ntree, usd_shader);
 
-  if (set_displacement_node_inputs(ntree, output, usd_shader)) {
-    mtl->displacement_method = MA_DISPLACEMENT_BOTH;
+  /* Process displacement if we have a valid displacement source. */
+  if (pxr::UsdShadeShader disp_shader = usd_material.ComputeDisplacementSource()) {
+    if (set_displacement_node_inputs(ntree, output, disp_shader)) {
+      mtl->displacement_method = MA_DISPLACEMENT_BOTH;
+    }
   }
 
   blender::bke::node_set_active(*ntree, *output);
 
-  BKE_ntree_update_after_single_tree_change(*bmain_, *ntree);
+  BKE_ntree_update_after_single_tree_change(bmain_, *ntree);
 
   /* Optionally, set the material blend mode. */
   if (params_.set_material_blend) {
@@ -570,7 +547,7 @@ void USDMaterialReader::set_principled_node_inputs(bNode *principled,
   if (pxr::UsdShadeInput diffuse_input = usd_shader.GetInput(usdtokens::diffuseColor)) {
     ExtraLinkInfo extra;
     extra.is_color_corrected = true;
-    set_node_input(diffuse_input, principled, "Base Color", ntree, column, &context, extra);
+    set_node_input(diffuse_input, principled, "Base Color", ntree, column, context, extra);
   }
 
   float emission_strength = 0.0f;
@@ -578,7 +555,7 @@ void USDMaterialReader::set_principled_node_inputs(bNode *principled,
     ExtraLinkInfo extra;
     extra.is_color_corrected = true;
     if (set_node_input(
-            emissive_input, principled, "Emission Color", ntree, column, &context, extra))
+            emissive_input, principled, "Emission Color", ntree, column, context, extra))
     {
       emission_strength = 1.0f;
     }
@@ -589,38 +566,38 @@ void USDMaterialReader::set_principled_node_inputs(bNode *principled,
   ((bNodeSocketValueFloat *)emission_strength_sock->default_value)->value = emission_strength;
 
   if (pxr::UsdShadeInput specular_input = usd_shader.GetInput(usdtokens::specularColor)) {
-    set_node_input(specular_input, principled, "Specular Tint", ntree, column, &context);
+    set_node_input(specular_input, principled, "Specular Tint", ntree, column, context);
   }
 
   if (pxr::UsdShadeInput metallic_input = usd_shader.GetInput(usdtokens::metallic)) {
-    set_node_input(metallic_input, principled, "Metallic", ntree, column, &context);
+    set_node_input(metallic_input, principled, "Metallic", ntree, column, context);
   }
 
   if (pxr::UsdShadeInput roughness_input = usd_shader.GetInput(usdtokens::roughness)) {
-    set_node_input(roughness_input, principled, "Roughness", ntree, column, &context);
+    set_node_input(roughness_input, principled, "Roughness", ntree, column, context);
   }
 
   if (pxr::UsdShadeInput coat_input = usd_shader.GetInput(usdtokens::clearcoat)) {
-    set_node_input(coat_input, principled, "Coat Weight", ntree, column, &context);
+    set_node_input(coat_input, principled, "Coat Weight", ntree, column, context);
   }
 
   if (pxr::UsdShadeInput coat_roughness_input = usd_shader.GetInput(usdtokens::clearcoatRoughness))
   {
-    set_node_input(coat_roughness_input, principled, "Coat Roughness", ntree, column, &context);
+    set_node_input(coat_roughness_input, principled, "Coat Roughness", ntree, column, context);
   }
 
   if (pxr::UsdShadeInput opacity_input = usd_shader.GetInput(usdtokens::opacity)) {
     ExtraLinkInfo extra;
     extra.opacity_threshold = get_opacity_threshold(usd_shader, 0.0f);
-    set_node_input(opacity_input, principled, "Alpha", ntree, column, &context, extra);
+    set_node_input(opacity_input, principled, "Alpha", ntree, column, context, extra);
   }
 
   if (pxr::UsdShadeInput ior_input = usd_shader.GetInput(usdtokens::ior)) {
-    set_node_input(ior_input, principled, "IOR", ntree, column, &context);
+    set_node_input(ior_input, principled, "IOR", ntree, column, context);
   }
 
   if (pxr::UsdShadeInput normal_input = usd_shader.GetInput(usdtokens::normal)) {
-    set_node_input(normal_input, principled, "Normal", ntree, column, &context);
+    set_node_input(normal_input, principled, "Normal", ntree, column, context);
   }
 }
 
@@ -634,13 +611,7 @@ bool USDMaterialReader::set_displacement_node_inputs(bNodeTree *ntree,
     return false;
   }
 
-  bNode *displacement_node = add_node(nullptr, ntree, SH_NODE_DISPLACEMENT, 0.0f, -100.0f);
-  if (!displacement_node) {
-    CLOG_ERROR(&LOG,
-               "Couldn't create SH_NODE_DISPLACEMENT node for USD shader %s",
-               usd_shader.GetPath().GetAsString().c_str());
-    return false;
-  }
+  bNode *displacement_node = add_node(ntree, SH_NODE_DISPLACEMENT, {0.0f, -100.0f});
 
   /* The context struct keeps track of the locations for adding
    * input nodes. */
@@ -649,21 +620,23 @@ bool USDMaterialReader::set_displacement_node_inputs(bNodeTree *ntree,
   /* The column index, from right to left relative to the output node. */
   int column = 0;
 
-  const char *sock_name = "Height";
+  const StringRefNull height = "Height";
   ExtraLinkInfo extra;
   extra.is_color_corrected = false;
-  set_node_input(displacement_input, displacement_node, sock_name, ntree, column, &context, extra);
+  set_node_input(displacement_input, displacement_node, height, ntree, column, context, extra);
 
-  /* If the displacement input is not connected, then this is "constant" displacement.
-   * We need to adjust the Height input by our default Midlevel value of 0.5. */
+  /* If the displacement input is not connected, then this is "constant" displacement which is
+   * a lossy conversion from the UsdPreviewSurface. We adjust the Height input assuming a
+   * Midlevel of 0.5 and Scale of 1 as that closely matches the scene in `usdview`. */
   if (!displacement_input.HasConnectedSource()) {
-    bNodeSocket *sock = blender::bke::node_find_socket(*displacement_node, SOCK_IN, sock_name);
-    if (!sock) {
-      CLOG_ERROR(&LOG, "Couldn't get destination node socket %s", sock_name);
-      return false;
-    }
+    bNodeSocket *sock_height = blender::bke::node_find_socket(*displacement_node, SOCK_IN, height);
+    bNodeSocket *sock_mid = blender::bke::node_find_socket(
+        *displacement_node, SOCK_IN, "Midlevel");
+    bNodeSocket *sock_scale = blender::bke::node_find_socket(*displacement_node, SOCK_IN, "Scale");
 
-    ((bNodeSocketValueFloat *)sock->default_value)->value += 0.5f;
+    ((bNodeSocketValueFloat *)sock_height->default_value)->value += 0.5f;
+    ((bNodeSocketValueFloat *)sock_mid->default_value)->value = 0.5f;
+    ((bNodeSocketValueFloat *)sock_scale->default_value)->value = 1.0f;
   }
 
   /* Connect the Displacement node to the output node. */
@@ -673,27 +646,27 @@ bool USDMaterialReader::set_displacement_node_inputs(bNodeTree *ntree,
 
 bool USDMaterialReader::set_node_input(const pxr::UsdShadeInput &usd_input,
                                        bNode *dest_node,
-                                       const char *dest_socket_name,
+                                       const StringRefNull dest_socket_name,
                                        bNodeTree *ntree,
                                        const int column,
-                                       NodePlacementContext *r_ctx,
+                                       NodePlacementContext &ctx,
                                        const ExtraLinkInfo &extra) const
 {
-  if (!(usd_input && dest_node && r_ctx)) {
+  if (!(usd_input && dest_node)) {
     return false;
   }
 
   if (usd_input.HasConnectedSource()) {
     /* The USD shader input has a connected source shader. Follow the connection
      * and attempt to convert the connected USD shader to a Blender node. */
-    return follow_connection(usd_input, dest_node, dest_socket_name, ntree, column, r_ctx, extra);
+    return follow_connection(usd_input, dest_node, dest_socket_name, ntree, column, ctx, extra);
   }
 
   /* Set the destination node socket value from the USD shader input value. */
 
   bNodeSocket *sock = blender::bke::node_find_socket(*dest_node, SOCK_IN, dest_socket_name);
   if (!sock) {
-    CLOG_ERROR(&LOG, "Couldn't get destination node socket %s", dest_socket_name);
+    CLOG_ERROR(&LOG, "Couldn't get destination node socket %s", dest_socket_name.c_str());
     return false;
   }
 
@@ -741,7 +714,7 @@ bool USDMaterialReader::set_node_input(const pxr::UsdShadeInput &usd_input,
       CLOG_WARN(&LOG,
                 "Unexpected type %s for destination node socket %s",
                 sock->idname,
-                dest_socket_name);
+                dest_socket_name.c_str());
       break;
   }
 
@@ -750,20 +723,18 @@ bool USDMaterialReader::set_node_input(const pxr::UsdShadeInput &usd_input,
 
 struct IntermediateNode {
   bNode *node;
-  const char *sock_input_name;
-  const char *sock_output_name;
+  StringRefNull sock_input_name;
+  StringRefNull sock_output_name;
 };
 
-static IntermediateNode add_normal_map(bNodeTree *ntree, int column, NodePlacementContext *r_ctx)
+static IntermediateNode add_normal_map(bNodeTree *ntree, int column, NodePlacementContext &ctx)
 {
-  float locx = 0.0f;
-  float locy = 0.0f;
-  compute_node_loc(column, &locx, &locy, r_ctx);
+  const float2 loc = ctx.compute_node_loc(column);
 
   /* Currently, the Normal Map node has Tangent Space as the default,
    * which is what we need, so we don't need to explicitly set it. */
   IntermediateNode normal_map{};
-  normal_map.node = add_node(nullptr, ntree, SH_NODE_NORMAL_MAP, locx, locy);
+  normal_map.node = add_node(ntree, SH_NODE_NORMAL_MAP, loc);
   normal_map.sock_input_name = "Color";
   normal_map.sock_output_name = "Normal";
 
@@ -774,7 +745,7 @@ static IntermediateNode add_scale_bias(const pxr::UsdShadeShader &usd_shader,
                                        bNodeTree *ntree,
                                        int column,
                                        bool feeds_normal_map,
-                                       NodePlacementContext *r_ctx)
+                                       NodePlacementContext &ctx)
 {
   /* Handle the scale-bias inputs if present. */
   pxr::UsdShadeInput scale_input = usd_shader.GetInput(usdtokens::scale);
@@ -804,20 +775,18 @@ static IntermediateNode add_scale_bias(const pxr::UsdShadeShader &usd_shader,
     return {};
   }
 
-  float locx = 0.0f;
-  float locy = 0.0f;
   /* If we know a Normal Map node will be involved, leave room for the another
    * adjustment node which will be added later. */
-  compute_node_loc(feeds_normal_map ? column + 1 : column, &locx, &locy, r_ctx);
+  const float2 loc = ctx.compute_node_loc(feeds_normal_map ? column + 1 : column);
 
   IntermediateNode scale_bias{};
 
-  const char *tag = "scale_bias";
-  bNode *node = get_cached_node(r_ctx->node_cache, usd_shader, tag);
+  const StringRefNull tag = "scale_bias";
+  bNode *node = ctx.get_cached_node(usd_shader, tag);
 
   if (!node) {
-    node = add_node(nullptr, ntree, SH_NODE_VECTOR_MATH, locx, locy);
-    cache_node(r_ctx->node_cache, usd_shader, node, tag);
+    node = add_node(ntree, SH_NODE_VECTOR_MATH, loc);
+    ctx.cache_node(usd_shader, node, tag);
   }
 
   scale_bias.node = node;
@@ -836,14 +805,12 @@ static IntermediateNode add_scale_bias(const pxr::UsdShadeShader &usd_shader,
 
 static IntermediateNode add_scale_bias_adjust(bNodeTree *ntree,
                                               int column,
-                                              NodePlacementContext *r_ctx)
+                                              NodePlacementContext &ctx)
 {
-  float locx = 0.0f;
-  float locy = 0.0f;
-  compute_node_loc(column, &locx, &locy, r_ctx);
+  const float2 loc = ctx.compute_node_loc(column);
 
   IntermediateNode adjust{};
-  adjust.node = add_node(nullptr, ntree, SH_NODE_VECTOR_MATH, locx, locy);
+  adjust.node = add_node(ntree, SH_NODE_VECTOR_MATH, loc);
   adjust.node->custom1 = NODE_VECTOR_MATH_MULTIPLY_ADD;
   adjust.sock_input_name = "Vector";
   adjust.sock_output_name = "Vector";
@@ -860,23 +827,21 @@ static IntermediateNode add_separate_color(const pxr::UsdShadeShader &usd_shader
                                            const pxr::TfToken &usd_source_name,
                                            bNodeTree *ntree,
                                            int column,
-                                           NodePlacementContext *r_ctx)
+                                           NodePlacementContext &ctx)
 {
   IntermediateNode separate_color{};
 
   if (usd_source_name == usdtokens::r || usd_source_name == usdtokens::g ||
       usd_source_name == usdtokens::b)
   {
-    const char *tag = "separate_color";
-    bNode *node = get_cached_node(r_ctx->node_cache, usd_shader, tag);
+    const StringRefNull tag = "separate_color";
+    bNode *node = ctx.get_cached_node(usd_shader, tag);
 
     if (!node) {
-      float locx = 0.0f;
-      float locy = 0.0f;
-      compute_node_loc(column, &locx, &locy, r_ctx);
+      const float2 loc = ctx.compute_node_loc(column);
 
-      node = add_node(nullptr, ntree, SH_NODE_SEPARATE_COLOR, locx, locy);
-      cache_node(r_ctx->node_cache, usd_shader, node, tag);
+      node = add_node(ntree, SH_NODE_SEPARATE_COLOR, loc);
+      ctx.cache_node(usd_shader, node, tag);
     }
 
     separate_color.node = node;
@@ -899,14 +864,12 @@ static IntermediateNode add_separate_color(const pxr::UsdShadeShader &usd_shader
 static IntermediateNode add_lessthan(bNodeTree *ntree,
                                      float threshold,
                                      int column,
-                                     NodePlacementContext *r_ctx)
+                                     NodePlacementContext &ctx)
 {
-  float locx = 0.0f;
-  float locy = 0.0f;
-  compute_node_loc(column, &locx, &locy, r_ctx);
+  const float2 loc = ctx.compute_node_loc(column);
 
   IntermediateNode lessthan{};
-  lessthan.node = add_node(nullptr, ntree, SH_NODE_MATH, locx, locy);
+  lessthan.node = add_node(ntree, SH_NODE_MATH, loc);
   lessthan.node->custom1 = NODE_MATH_LESS_THAN;
   lessthan.sock_input_name = "Value";
   lessthan.sock_output_name = "Value";
@@ -917,15 +880,13 @@ static IntermediateNode add_lessthan(bNodeTree *ntree,
   return lessthan;
 }
 
-static IntermediateNode add_oneminus(bNodeTree *ntree, int column, NodePlacementContext *r_ctx)
+static IntermediateNode add_oneminus(bNodeTree *ntree, int column, NodePlacementContext &ctx)
 {
-  float locx = 0.0f;
-  float locy = 0.0f;
-  compute_node_loc(column, &locx, &locy, r_ctx);
+  const float2 loc = ctx.compute_node_loc(column);
 
   /* An "invert" node : 1.0f - Value_001 */
   IntermediateNode oneminus{};
-  oneminus.node = add_node(nullptr, ntree, SH_NODE_MATH, locx, locy);
+  oneminus.node = add_node(ntree, SH_NODE_MATH, loc);
   oneminus.node->custom1 = NODE_MATH_SUBTRACT;
   oneminus.sock_input_name = "Value_001";
   oneminus.sock_output_name = "Value";
@@ -962,15 +923,42 @@ static void configure_displacement(const pxr::UsdShadeShader &usd_shader, bNode 
   ((bNodeSocketValueFloat *)sock_scale->default_value)->value = scale_avg;
 }
 
+static pxr::UsdShadeShader node_graph_output_source(const pxr::UsdShadeNodeGraph &node_graph,
+                                                    const pxr::TfToken &output_name)
+{
+  // Check that we have a legit output
+  pxr::UsdShadeOutput output = node_graph.GetOutput(output_name);
+  if (!output) {
+    return pxr::UsdShadeShader();
+  }
+
+  pxr::UsdShadeAttributeVector attrs = pxr::UsdShadeUtils::GetValueProducingAttributes(output);
+  if (attrs.empty()) {
+    return pxr::UsdShadeShader();
+  }
+
+  pxr::UsdAttribute attr = attrs[0];
+
+  std::pair<pxr::TfToken, pxr::UsdShadeAttributeType> name_and_type =
+      pxr::UsdShadeUtils::GetBaseNameAndType(attr.GetName());
+
+  pxr::UsdShadeShader shader(attr.GetPrim());
+  if (name_and_type.second != pxr::UsdShadeAttributeType::Output || !shader) {
+    return pxr::UsdShadeShader();
+  }
+
+  return shader;
+}
+
 bool USDMaterialReader::follow_connection(const pxr::UsdShadeInput &usd_input,
                                           bNode *dest_node,
-                                          const char *dest_socket_name,
+                                          const StringRefNull dest_socket_name,
                                           bNodeTree *ntree,
                                           int column,
-                                          NodePlacementContext *r_ctx,
+                                          NodePlacementContext &ctx,
                                           const ExtraLinkInfo &extra) const
 {
-  if (!(usd_input && dest_node && dest_socket_name && ntree && r_ctx)) {
+  if (!(usd_input && dest_node && !dest_socket_name.is_empty() && ntree)) {
     return false;
   }
 
@@ -980,11 +968,19 @@ bool USDMaterialReader::follow_connection(const pxr::UsdShadeInput &usd_input,
 
   usd_input.GetConnectedSource(&source, &source_name, &source_type);
 
-  if (!(source && source.GetPrim().IsA<pxr::UsdShadeShader>())) {
+  if (!source) {
     return false;
   }
 
-  pxr::UsdShadeShader source_shader(source.GetPrim());
+  const pxr::UsdPrim source_prim = source.GetPrim();
+  pxr::UsdShadeShader source_shader;
+  if (source_prim.IsA<pxr::UsdShadeShader>()) {
+    source_shader = pxr::UsdShadeShader(source_prim);
+  }
+  else if (source_prim.IsA<pxr::UsdShadeNodeGraph>()) {
+    pxr::UsdShadeNodeGraph node_graph(source_prim);
+    source_shader = node_graph_output_source(node_graph, source_name);
+  }
 
   if (!source_shader) {
     return false;
@@ -992,9 +988,9 @@ bool USDMaterialReader::follow_connection(const pxr::UsdShadeInput &usd_input,
 
   pxr::TfToken shader_id;
   if (!source_shader.GetShaderId(&shader_id)) {
-    CLOG_ERROR(&LOG,
-               "Couldn't get shader id for source shader %s",
-               source_shader.GetPath().GetAsString().c_str());
+    CLOG_WARN(&LOG,
+              "Couldn't get shader id for source shader %s",
+              source_shader.GetPath().GetAsString().c_str());
     return false;
   }
 
@@ -1004,37 +1000,37 @@ bool USDMaterialReader::follow_connection(const pxr::UsdShadeInput &usd_input,
 
     /* Create a Normal Map node if the source is flowing into a 'Normal' socket. */
     IntermediateNode normal_map{};
-    const bool is_normal_map = STREQ(dest_socket_name, "Normal");
+    const bool is_normal_map = dest_socket_name == "Normal";
     if (is_normal_map) {
-      normal_map = add_normal_map(ntree, column + shift, r_ctx);
+      normal_map = add_normal_map(ntree, column + shift, ctx);
       shift++;
     }
 
     /* Create a Separate Color node if necessary. */
     IntermediateNode separate_color = add_separate_color(
-        source_shader, source_name, ntree, column + shift, r_ctx);
+        source_shader, source_name, ntree, column + shift, ctx);
     if (separate_color.node) {
       shift++;
     }
 
     /* Create a Scale-Bias adjustment node or fill in Displacement settings if necessary. */
     IntermediateNode scale_bias{};
-    if (STREQ(dest_socket_name, "Height")) {
+    if (dest_socket_name == "Height") {
       configure_displacement(source_shader, dest_node);
     }
     else {
-      scale_bias = add_scale_bias(source_shader, ntree, column + shift, is_normal_map, r_ctx);
+      scale_bias = add_scale_bias(source_shader, ntree, column + shift, is_normal_map, ctx);
     }
 
     /* Wire up any intermediate nodes that are present. Keep track of the
      * final "target" destination for the Image link. */
     bNode *target_node = dest_node;
-    const char *target_sock_name = dest_socket_name;
+    StringRefNull target_sock_name = dest_socket_name;
     if (normal_map.node) {
       /* If a scale-bias node is required, we need to re-adjust the output
        * so it can be passed into the NormalMap node properly. */
       if (scale_bias.node) {
-        IntermediateNode re_adjust = add_scale_bias_adjust(ntree, column + shift, r_ctx);
+        IntermediateNode re_adjust = add_scale_bias_adjust(ntree, column + shift, ctx);
         link_nodes(ntree,
                    scale_bias.node,
                    scale_bias.sock_output_name,
@@ -1079,7 +1075,7 @@ bool USDMaterialReader::follow_connection(const pxr::UsdShadeInput &usd_input,
       shift++;
     }
     else if (separate_color.node) {
-      if (extra.opacity_threshold == 0.0f || !STREQ(dest_socket_name, "Alpha")) {
+      if (extra.opacity_threshold == 0.0f || dest_socket_name != "Alpha") {
         link_nodes(ntree,
                    separate_color.node,
                    separate_color.sock_output_name,
@@ -1094,8 +1090,8 @@ bool USDMaterialReader::follow_connection(const pxr::UsdShadeInput &usd_input,
     if (extra.opacity_threshold > 0.0f) {
       /* USD defines the threshold as >= but Blender does not have that operation. Use < instead
        * and then invert it. */
-      IntermediateNode lessthan = add_lessthan(ntree, extra.opacity_threshold, column + 1, r_ctx);
-      IntermediateNode invert = add_oneminus(ntree, column + 1, r_ctx);
+      IntermediateNode lessthan = add_lessthan(ntree, extra.opacity_threshold, column + 1, ctx);
+      IntermediateNode invert = add_oneminus(ntree, column + 1, ctx);
       link_nodes(
           ntree, lessthan.node, lessthan.sock_output_name, invert.node, invert.sock_input_name);
       link_nodes(ntree, invert.node, invert.sock_output_name, dest_node, dest_socket_name);
@@ -1118,15 +1114,27 @@ bool USDMaterialReader::follow_connection(const pxr::UsdShadeInput &usd_input,
                            target_sock_name,
                            ntree,
                            column + shift,
-                           r_ctx,
+                           ctx,
                            extra);
   }
   else if (shader_id == usdtokens::UsdPrimvarReader_float2) {
     convert_usd_primvar_reader_float2(
-        source_shader, source_name, dest_node, dest_socket_name, ntree, column + 1, r_ctx);
+        source_shader, source_name, dest_node, dest_socket_name, ntree, column + 1, ctx);
   }
   else if (shader_id == usdtokens::UsdTransform2d) {
-    convert_usd_transform_2d(source_shader, dest_node, dest_socket_name, ntree, column + 1, r_ctx);
+    convert_usd_transform_2d(source_shader, dest_node, dest_socket_name, ntree, column + 1, ctx);
+  }
+  else {
+    /* Handle any remaining "generic" primvar readers. */
+    StringRef shader_id_name(shader_id.GetString());
+    if (shader_id_name.startswith("UsdPrimvarReader_")) {
+      int64_t type_offset = shader_id_name.rfind('_');
+      if (type_offset >= 0) {
+        StringRef output_type = shader_id_name.drop_prefix(type_offset + 1);
+        convert_usd_primvar_reader_generic(
+            source_shader, output_type, dest_node, dest_socket_name, ntree, column + 1, ctx);
+      }
+    }
   }
 
   return true;
@@ -1135,33 +1143,26 @@ bool USDMaterialReader::follow_connection(const pxr::UsdShadeInput &usd_input,
 void USDMaterialReader::convert_usd_uv_texture(const pxr::UsdShadeShader &usd_shader,
                                                const pxr::TfToken &usd_source_name,
                                                bNode *dest_node,
-                                               const char *dest_socket_name,
+                                               const StringRefNull dest_socket_name,
                                                bNodeTree *ntree,
                                                const int column,
-                                               NodePlacementContext *r_ctx,
+                                               NodePlacementContext &ctx,
                                                const ExtraLinkInfo &extra) const
 {
-  if (!usd_shader || !dest_node || !ntree || !dest_socket_name || !bmain_ || !r_ctx) {
+  if (!usd_shader || !dest_node || !ntree || dest_socket_name.is_empty()) {
     return;
   }
 
-  bNode *tex_image = get_cached_node(r_ctx->node_cache, usd_shader);
+  bNode *tex_image = ctx.get_cached_node(usd_shader);
 
   if (tex_image == nullptr) {
-    float locx = 0.0f;
-    float locy = 0.0f;
-    compute_node_loc(column, &locx, &locy, r_ctx);
+    const float2 loc = ctx.compute_node_loc(column);
 
     /* Create the Texture Image node. */
-    tex_image = add_node(nullptr, ntree, SH_NODE_TEX_IMAGE, locx, locy);
-
-    if (!tex_image) {
-      CLOG_ERROR(&LOG, "Couldn't create SH_NODE_TEX_IMAGE for node input %s", dest_socket_name);
-      return;
-    }
+    tex_image = add_node(ntree, SH_NODE_TEX_IMAGE, loc);
 
     /* Cache newly created node. */
-    cache_node(r_ctx->node_cache, usd_shader, tex_image);
+    ctx.cache_node(usd_shader, tex_image);
 
     /* Load the texture image. */
     load_tex_image(usd_shader, tex_image, extra);
@@ -1170,48 +1171,37 @@ void USDMaterialReader::convert_usd_uv_texture(const pxr::UsdShadeShader &usd_sh
   /* Connect to destination node input. */
 
   /* Get the source socket name. */
-  std::string source_socket_name = usd_source_name == usdtokens::a ? "Alpha" : "Color";
+  const StringRefNull source_socket_name = usd_source_name == usdtokens::a ? "Alpha" : "Color";
 
-  link_nodes(ntree, tex_image, source_socket_name.c_str(), dest_node, dest_socket_name);
+  link_nodes(ntree, tex_image, source_socket_name, dest_node, dest_socket_name);
 
   /* Connect the texture image node "Vector" input. */
   if (pxr::UsdShadeInput st_input = usd_shader.GetInput(usdtokens::st)) {
-    set_node_input(st_input, tex_image, "Vector", ntree, column, r_ctx);
+    set_node_input(st_input, tex_image, "Vector", ntree, column, ctx);
   }
 }
 
 void USDMaterialReader::convert_usd_transform_2d(const pxr::UsdShadeShader &usd_shader,
                                                  bNode *dest_node,
-                                                 const char *dest_socket_name,
+                                                 const StringRefNull dest_socket_name,
                                                  bNodeTree *ntree,
                                                  int column,
-                                                 NodePlacementContext *r_ctx) const
+                                                 NodePlacementContext &ctx) const
 {
-  if (!usd_shader || !dest_node || !ntree || !dest_socket_name || !bmain_ || !r_ctx) {
+  if (!usd_shader || !dest_node || !ntree || dest_socket_name.is_empty()) {
     return;
   }
 
-  bNode *mapping = get_cached_node(r_ctx->node_cache, usd_shader);
+  bNode *mapping = ctx.get_cached_node(usd_shader);
 
   if (mapping == nullptr) {
-    float locx = 0.0f;
-    float locy = 0.0f;
-    compute_node_loc(column, &locx, &locy, r_ctx);
+    const float2 loc = ctx.compute_node_loc(column);
 
     /* Create the MAPPING node. */
-    mapping = add_node(nullptr, ntree, SH_NODE_MAPPING, locx, locy);
-
-    if (!mapping) {
-      BKE_reportf(reports(),
-                  RPT_WARNING,
-                  "%s: Couldn't create SH_NODE_MAPPING for node input %s",
-                  __func__,
-                  dest_socket_name);
-      return;
-    }
+    mapping = add_node(ntree, SH_NODE_MAPPING, loc);
 
     /* Cache newly created node. */
-    cache_node(r_ctx->node_cache, usd_shader, mapping);
+    ctx.cache_node(usd_shader, mapping);
 
     mapping->custom1 = TEXMAP_TYPE_POINT;
 
@@ -1231,8 +1221,8 @@ void USDMaterialReader::convert_usd_transform_2d(const pxr::UsdShadeShader &usd_
         pxr::VtValue val;
         if (trans_input.Get(&val) && val.CanCast<pxr::GfVec2f>()) {
           pxr::GfVec2f trans_val = val.Cast<pxr::GfVec2f>().UncheckedGet<pxr::GfVec2f>();
-          float loc[3] = {trans_val[0], trans_val[1], 0.0f};
-          copy_v3_v3(((bNodeSocketValueVector *)loc_socket->default_value)->value, loc);
+          float location[3] = {trans_val[0], trans_val[1], 0.0f};
+          copy_v3_v3(((bNodeSocketValueVector *)loc_socket->default_value)->value, location);
         }
       }
     }
@@ -1254,7 +1244,7 @@ void USDMaterialReader::convert_usd_transform_2d(const pxr::UsdShadeShader &usd_
 
   /* Connect the mapping node "Vector" input. */
   if (pxr::UsdShadeInput in_input = usd_shader.GetInput(usdtokens::in)) {
-    set_node_input(in_input, mapping, "Vector", ntree, column, r_ctx);
+    set_node_input(in_input, mapping, "Vector", ntree, column, ctx);
   }
 }
 
@@ -1344,7 +1334,7 @@ void USDMaterialReader::load_tex_image(const pxr::UsdShadeShader &usd_shader,
                                                              USD_TEX_NAME_COLLISION_OVERWRITE :
                                                              params_.tex_name_collision_mode;
 
-    file_path = import_asset(file_path.c_str(), textures_dir, name_collision_mode, reports());
+    file_path = import_asset(file_path, textures_dir, name_collision_mode, reports());
   }
 
   /* If this is a UDIM texture, this will store the
@@ -1356,7 +1346,7 @@ void USDMaterialReader::load_tex_image(const pxr::UsdShadeShader &usd_shader,
   }
 
   const char *im_file = file_path.c_str();
-  Image *image = BKE_image_load_exists(bmain_, im_file);
+  Image *image = BKE_image_load_exists(&bmain_, im_file);
   if (!image) {
     CLOG_WARN(&LOG, "Couldn't open image file '%s' for Texture Image node", im_file);
     return;
@@ -1387,11 +1377,13 @@ void USDMaterialReader::load_tex_image(const pxr::UsdShadeShader &usd_shader,
   if (color_space == usdtokens::auto_) {
     /* If it's auto, determine whether to apply color correction based
      * on incoming connection (passed in from outer functions). */
-    STRNCPY(image->colorspace_settings.name, extra.is_color_corrected ? "sRGB" : "Non-Color");
+    STRNCPY_UTF8(image->colorspace_settings.name,
+                 IMB_colormanagement_role_colorspace_name_get(
+                     extra.is_color_corrected ? COLOR_ROLE_DEFAULT_BYTE : COLOR_ROLE_DATA));
   }
 
   else if (color_space == usdtokens::sRGB) {
-    STRNCPY(image->colorspace_settings.name, "sRGB");
+    STRNCPY_UTF8(image->colorspace_settings.name, IMB_colormanagement_srgb_colorspace_name_get());
   }
 
   /*
@@ -1400,7 +1392,8 @@ void USDMaterialReader::load_tex_image(const pxr::UsdShadeShader &usd_shader,
    * On write, we are *only* using the correct, lower-case "raw" token.
    */
   else if (ELEM(color_space, usdtokens::RAW, usdtokens::raw)) {
-    STRNCPY(image->colorspace_settings.name, "Non-Color");
+    STRNCPY_UTF8(image->colorspace_settings.name,
+                 IMB_colormanagement_role_colorspace_name_get(COLOR_ROLE_DATA));
   }
 
   NodeTexImage *storage = static_cast<NodeTexImage *>(tex_image->storage);
@@ -1413,7 +1406,7 @@ void USDMaterialReader::load_tex_image(const pxr::UsdShadeShader &usd_shader,
   if (import_textures && params_.import_textures_mode == USD_TEX_IMPORT_PACK &&
       !BKE_image_has_packedfile(image))
   {
-    BKE_image_packfiles(nullptr, image, ID_BLEND_PATH(bmain_, &image->id));
+    BKE_image_packfiles(nullptr, image, ID_BLEND_PATH(&bmain_, &image->id));
     if (BLI_is_dir(temp_textures_dir())) {
       BLI_delete(temp_textures_dir(), true, true);
     }
@@ -1423,32 +1416,25 @@ void USDMaterialReader::load_tex_image(const pxr::UsdShadeShader &usd_shader,
 void USDMaterialReader::convert_usd_primvar_reader_float2(const pxr::UsdShadeShader &usd_shader,
                                                           const pxr::TfToken & /*usd_source_name*/,
                                                           bNode *dest_node,
-                                                          const char *dest_socket_name,
+                                                          const StringRefNull dest_socket_name,
                                                           bNodeTree *ntree,
                                                           const int column,
-                                                          NodePlacementContext *r_ctx) const
+                                                          NodePlacementContext &ctx) const
 {
-  if (!usd_shader || !dest_node || !ntree || !dest_socket_name || !bmain_ || !r_ctx) {
+  if (!usd_shader || !dest_node || !ntree || dest_socket_name.is_empty()) {
     return;
   }
 
-  bNode *uv_map = get_cached_node(r_ctx->node_cache, usd_shader);
+  bNode *uv_map = ctx.get_cached_node(usd_shader);
 
   if (uv_map == nullptr) {
-    float locx = 0.0f;
-    float locy = 0.0f;
-    compute_node_loc(column, &locx, &locy, r_ctx);
+    const float2 loc = ctx.compute_node_loc(column);
 
     /* Create the UV Map node. */
-    uv_map = add_node(nullptr, ntree, SH_NODE_UVMAP, locx, locy);
-
-    if (!uv_map) {
-      CLOG_ERROR(&LOG, "Couldn't create SH_NODE_UVMAP for node input %s", dest_socket_name);
-      return;
-    }
+    uv_map = add_node(ntree, SH_NODE_UVMAP, loc);
 
     /* Cache newly created node. */
-    cache_node(r_ctx->node_cache, usd_shader, uv_map);
+    ctx.cache_node(usd_shader, uv_map);
 
     /* Set the texmap name. */
     pxr::UsdShadeInput varname_input = usd_shader.GetInput(usdtokens::varname);
@@ -1484,6 +1470,73 @@ void USDMaterialReader::convert_usd_primvar_reader_float2(const pxr::UsdShadeSha
 
   /* Connect to destination node input. */
   link_nodes(ntree, uv_map, "UV", dest_node, dest_socket_name);
+}
+
+void USDMaterialReader::convert_usd_primvar_reader_generic(const pxr::UsdShadeShader &usd_shader,
+                                                           const StringRef output_type,
+                                                           bNode *dest_node,
+                                                           const StringRefNull dest_socket_name,
+                                                           bNodeTree *ntree,
+                                                           const int column,
+                                                           NodePlacementContext &ctx) const
+{
+  if (!usd_shader || !dest_node || !ntree) {
+    return;
+  }
+
+  bNode *attribute = ctx.get_cached_node(usd_shader);
+
+  if (attribute == nullptr) {
+    const float2 loc = ctx.compute_node_loc(column);
+
+    /* Create the attribute node. */
+    attribute = add_node(ntree, SH_NODE_ATTRIBUTE, loc);
+
+    /* Cache newly created node. */
+    ctx.cache_node(usd_shader, attribute);
+
+    /* Set the attribute name. */
+    pxr::UsdShadeInput varname_input = usd_shader.GetInput(usdtokens::varname);
+
+    /* First check if the shader's "varname" input is connected to another source,
+     * and use that instead if so. */
+    if (varname_input) {
+      for (const pxr::UsdShadeConnectionSourceInfo &source_info :
+           varname_input.GetConnectedSources())
+      {
+        pxr::UsdShadeShader shader = pxr::UsdShadeShader(source_info.source.GetPrim());
+        pxr::UsdShadeInput secondary_varname_input = shader.GetInput(source_info.sourceName);
+        if (secondary_varname_input) {
+          varname_input = secondary_varname_input;
+          break;
+        }
+      }
+    }
+
+    if (varname_input) {
+      pxr::VtValue varname_val;
+      /* The varname input may be a string or TfToken, so just cast it to a string.
+       * The Cast function is defined to provide an empty result if it fails. */
+      if (varname_input.Get(&varname_val) && varname_val.CanCastToTypeid(typeid(std::string))) {
+        std::string varname = varname_val.Cast<std::string>().Get<std::string>();
+        if (!varname.empty()) {
+          NodeShaderAttribute *storage = (NodeShaderAttribute *)attribute->storage;
+          STRNCPY(storage->name, varname.c_str());
+        }
+      }
+    }
+  }
+
+  /* Connect to destination node input. */
+  if (ELEM(output_type, "float", "int")) {
+    link_nodes(ntree, attribute, "Fac", dest_node, dest_socket_name);
+  }
+  else if (ELEM(output_type, "float3", "float4")) {
+    link_nodes(ntree, attribute, "Color", dest_node, dest_socket_name);
+  }
+  else if (ELEM(output_type, "vector", "normal", "point")) {
+    link_nodes(ntree, attribute, "Vector", dest_node, dest_socket_name);
+  }
 }
 
 void build_material_map(const Main *bmain, blender::Map<std::string, Material *> &r_mat_map)

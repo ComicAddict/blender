@@ -23,6 +23,7 @@ namespace blender::nodes::node_composite_gamma_cc {
 
 static void cmp_node_gamma_declare(NodeDeclarationBuilder &b)
 {
+  b.is_function_node();
   b.add_input<decl::Color>("Image")
       .default_value({1.0f, 1.0f, 1.0f, 1.0f})
       .compositor_domain_priority(0);
@@ -31,7 +32,11 @@ static void cmp_node_gamma_declare(NodeDeclarationBuilder &b)
       .min(0.001f)
       .max(10.0f)
       .subtype(PROP_UNSIGNED)
-      .compositor_domain_priority(1);
+      .compositor_domain_priority(1)
+      .description(
+          "Gamma correction value, applied as color^gamma.\n"
+          "Typically used to convert from gamma encoded to linear color space, or in the reverse "
+          "direction with 1/gamma");
   b.add_output<decl::Color>("Image");
 }
 
@@ -59,7 +64,7 @@ static void node_build_multi_function(blender::nodes::NodeMultiFunctionBuilder &
 
 }  // namespace blender::nodes::node_composite_gamma_cc
 
-void register_node_type_cmp_gamma()
+static void register_node_type_cmp_gamma()
 {
   namespace file_ns = blender::nodes::node_composite_gamma_cc;
 
@@ -76,3 +81,4 @@ void register_node_type_cmp_gamma()
 
   blender::bke::node_register_type(ntype);
 }
+NOD_REGISTER_NODE(register_node_type_cmp_gamma)

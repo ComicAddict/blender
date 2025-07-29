@@ -33,6 +33,7 @@
 #include "DNA_key_types.h"
 #include "DNA_lattice_types.h"
 #include "DNA_light_types.h"
+#include "DNA_lightprobe_types.h"
 #include "DNA_linestyle_types.h"
 #include "DNA_mask_types.h"
 #include "DNA_material_types.h"
@@ -102,7 +103,7 @@ using namespace blender;
 
 /* Draw Backdrop ---------------------------------- */
 
-/* get backdrop color for top-level widgets (Scene and Object only) */
+/* get backdrop color for top-level widgets (Scene, Object and ActionSlot only) */
 static void acf_generic_root_color(bAnimContext * /*ac*/,
                                    bAnimListElem * /*ale*/,
                                    float r_color[3])
@@ -158,7 +159,8 @@ static void acf_generic_dataexpand_backdrop(bAnimContext *ac,
   short offset = (acf->get_offset) ? acf->get_offset(ac, ale) : 0;
   float color[3];
 
-  uint pos = GPU_vertformat_attr_add(immVertexFormat(), "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+  uint pos = GPU_vertformat_attr_add(
+      immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
 
   /* set backdrop drawing color */
   acf->get_backdrop_color(ac, ale, color);
@@ -201,7 +203,8 @@ static void acf_generic_channel_backdrop(bAnimContext *ac,
   short offset = (acf->get_offset) ? acf->get_offset(ac, ale) : 0;
   float color[3];
 
-  uint pos = GPU_vertformat_attr_add(immVertexFormat(), "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+  uint pos = GPU_vertformat_attr_add(
+      immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
 
   /* set backdrop drawing color */
   acf->get_backdrop_color(ac, ale, color);
@@ -337,7 +340,7 @@ static short acf_generic_group_offset(bAnimContext *ac, bAnimListElem *ale)
 
     /* nodetree animdata */
     if (GS(ale->id->name) == ID_NT) {
-      offset += acf_nodetree_rootType_offset((bNodeTree *)ale->id);
+      offset += acf_nodetree_rootType_offset(reinterpret_cast<bNodeTree *>(ale->id));
     }
   }
 
@@ -350,7 +353,7 @@ static short acf_generic_group_offset(bAnimContext *ac, bAnimListElem *ale)
 /* name for ID block entries */
 static void acf_generic_idblock_name(bAnimListElem *ale, char *name)
 {
-  ID *id = (ID *)ale->data; /* data pointed to should be an ID block */
+  ID *id = static_cast<ID *>(ale->data); /* data pointed to should be an ID block */
 
   /* just copy the name... */
   if (id && name) {
@@ -484,12 +487,12 @@ static void *acf_summary_setting_ptr(bAnimListElem *ale,
                                      eAnimChannel_Settings setting,
                                      short *r_type)
 {
-  bAnimContext *ac = (bAnimContext *)ale->data;
+  bAnimContext *ac = static_cast<bAnimContext *>(ale->data);
 
   /* If data is valid, return pointer to active dope-sheet's relevant flag
    * - this is restricted to DopeSheet/Action Editor only. */
   if ((ac->sl) && (ac->spacetype == SPACE_ACTION) && (setting == ACHANNEL_SETTING_EXPAND)) {
-    SpaceAction *saction = (SpaceAction *)ac->sl;
+    SpaceAction *saction = reinterpret_cast<SpaceAction *>(ac->sl);
     bDopeSheet *ads = &saction->ads;
 
     /* return pointer to DopeSheet's flag */
@@ -590,7 +593,7 @@ static void *acf_scene_setting_ptr(bAnimListElem *ale,
                                    eAnimChannel_Settings setting,
                                    short *r_type)
 {
-  Scene *scene = (Scene *)ale->data;
+  Scene *scene = static_cast<Scene *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -639,7 +642,7 @@ static bAnimChannelType ACF_SCENE = {
 
 static int acf_object_icon(bAnimListElem *ale)
 {
-  Base *base = (Base *)ale->data;
+  Base *base = static_cast<Base *>(ale->data);
   Object *ob = base->object;
 
   /* icon depends on object-type */
@@ -684,12 +687,12 @@ static int acf_object_icon(bAnimListElem *ale)
 /* name for object */
 static void acf_object_name(bAnimListElem *ale, char *name)
 {
-  Base *base = (Base *)ale->data;
+  Base *base = static_cast<Base *>(ale->data);
   Object *ob = base->object;
 
   /* just copy the name... */
   if (ob && name) {
-    BLI_strncpy(name, ob->id.name + 2, ANIM_CHAN_NAME_SIZE);
+    BLI_strncpy_utf8(name, ob->id.name + 2, ANIM_CHAN_NAME_SIZE);
   }
 }
 
@@ -707,7 +710,7 @@ static bool acf_object_setting_valid(bAnimContext *ac,
                                      bAnimListElem *ale,
                                      eAnimChannel_Settings setting)
 {
-  Base *base = (Base *)ale->data;
+  Base *base = static_cast<Base *>(ale->data);
   Object *ob = base->object;
 
   switch (setting) {
@@ -755,7 +758,7 @@ static int acf_object_setting_flag(bAnimContext * /*ac*/,
       *r_neg = true;
       return ADT_CURVES_NOT_VISIBLE;
 
-    case ACHANNEL_SETTING_ALWAYS_VISIBLE:
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
       return ADT_CURVES_ALWAYS_VISIBLE;
 
     default: /* unsupported */
@@ -768,7 +771,7 @@ static void *acf_object_setting_ptr(bAnimListElem *ale,
                                     eAnimChannel_Settings setting,
                                     short *r_type)
 {
-  Base *base = (Base *)ale->data;
+  Base *base = static_cast<Base *>(ale->data);
   Object *ob = base->object;
 
   /* Clear extra return data first. */
@@ -781,9 +784,9 @@ static void *acf_object_setting_ptr(bAnimListElem *ale,
     case ACHANNEL_SETTING_EXPAND:                   /* expanded */
       return GET_ACF_FLAG_PTR(ob->nlaflag, r_type); /* XXX */
 
-    case ACHANNEL_SETTING_MUTE:    /* mute (only in NLA) */
-    case ACHANNEL_SETTING_VISIBLE: /* visible (for Graph Editor only) */
-    case ACHANNEL_SETTING_ALWAYS_VISIBLE:
+    case ACHANNEL_SETTING_MUTE:           /* mute (only in NLA) */
+    case ACHANNEL_SETTING_VISIBLE:        /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
       if (ob->adt) {
         return GET_ACF_FLAG_PTR(ob->adt->flag, r_type);
       }
@@ -854,11 +857,11 @@ static void acf_group_backdrop(bAnimContext *ac, bAnimListElem *ale, float yminc
 /* name for group entries */
 static void acf_group_name(bAnimListElem *ale, char *name)
 {
-  bActionGroup *agrp = (bActionGroup *)ale->data;
+  bActionGroup *agrp = static_cast<bActionGroup *>(ale->data);
 
   /* just copy the name... */
   if (agrp && name) {
-    BLI_strncpy(name, agrp->name, ANIM_CHAN_NAME_SIZE);
+    BLI_strncpy_utf8(name, agrp->name, ANIM_CHAN_NAME_SIZE);
   }
 }
 
@@ -887,7 +890,7 @@ static bool acf_group_setting_valid(bAnimContext *ac,
     case ACHANNEL_SETTING_VISIBLE: /* Only available in Graph Editor */
       return (ac->spacetype == SPACE_GRAPH);
 
-    case ACHANNEL_SETTING_ALWAYS_VISIBLE:
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
       return ELEM(ac->spacetype, SPACE_ACTION, SPACE_GRAPH);
 
     default: /* always supported */
@@ -929,7 +932,7 @@ static int acf_group_setting_flag(bAnimContext *ac, eAnimChannel_Settings settin
       *r_neg = true;
       return AGRP_NOTVISIBLE;
 
-    case ACHANNEL_SETTING_ALWAYS_VISIBLE:
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
       return ADT_CURVES_ALWAYS_VISIBLE;
 
     default:
@@ -943,7 +946,7 @@ static void *acf_group_setting_ptr(bAnimListElem *ale,
                                    eAnimChannel_Settings /*setting*/,
                                    short *r_type)
 {
-  bActionGroup *agrp = (bActionGroup *)ale->data;
+  bActionGroup *agrp = static_cast<bActionGroup *>(ale->data);
 
   /* all flags are just in agrp->flag for now... */
   return GET_ACF_FLAG_PTR(agrp->flag, r_type);
@@ -1058,7 +1061,7 @@ static void acf_fcurve_name(bAnimListElem *ale, char *name)
 /* "name" property for fcurve entries */
 static bool acf_fcurve_name_prop(bAnimListElem *ale, PointerRNA *r_ptr, PropertyRNA **r_prop)
 {
-  FCurve *fcu = (FCurve *)ale->data;
+  FCurve *fcu = static_cast<FCurve *>(ale->data);
 
   /* Ctrl-Click Usability Convenience Hack:
    * For disabled F-Curves, allow access to the RNA Path
@@ -1135,7 +1138,7 @@ static void *acf_fcurve_setting_ptr(bAnimListElem *ale,
                                     eAnimChannel_Settings /*setting*/,
                                     short *r_type)
 {
-  FCurve *fcu = (FCurve *)ale->data;
+  FCurve *fcu = static_cast<FCurve *>(ale->data);
 
   /* all flags are just in agrp->flag for now... */
   return GET_ACF_FLAG_PTR(fcu->flag, r_type);
@@ -1254,7 +1257,7 @@ static void *acf_nla_controls_setting_ptr(bAnimListElem *ale,
                                           eAnimChannel_Settings /*setting*/,
                                           short *r_type)
 {
-  AnimData *adt = (AnimData *)ale->data;
+  AnimData *adt = static_cast<AnimData *>(ale->data);
 
   /* all flags are just in adt->flag for now... */
   return GET_ACF_FLAG_PTR(adt->flag, r_type);
@@ -1299,11 +1302,12 @@ static void acf_nla_curve_name(bAnimListElem *ale, char *name)
   prop = RNA_struct_type_find_property(&RNA_NlaStrip, fcu->rna_path);
   if (prop) {
     /* "name" of this strip displays the UI identifier + the name of the NlaStrip */
-    BLI_snprintf(name, 256, "%s (%s)", RNA_property_ui_name(prop), strip->name);
+    BLI_snprintf_utf8(
+        name, ANIM_CHAN_NAME_SIZE, "%s (%s)", RNA_property_ui_name(prop), strip->name);
   }
   else {
     /* unknown property... */
-    BLI_snprintf(name, 256, "%s[%d]", fcu->rna_path, fcu->array_index);
+    BLI_snprintf_utf8(name, ANIM_CHAN_NAME_SIZE, "%s[%d]", fcu->rna_path, fcu->array_index);
   }
 }
 
@@ -1420,7 +1424,7 @@ static void acf_action_slot_name(bAnimListElem *ale, char *r_name)
   if (!slot) {
     /* Trying to getting the slot's name without a slot is a bug. */
     BLI_assert_unreachable();
-    BLI_strncpy(r_name, "-nil-", ANIM_CHAN_NAME_SIZE);
+    BLI_strncpy_utf8(r_name, "-nil-", ANIM_CHAN_NAME_SIZE);
     return;
   }
 
@@ -1431,13 +1435,13 @@ static void acf_action_slot_name(bAnimListElem *ale, char *r_name)
   BLI_assert(num_users >= 0);
   switch (num_users) {
     case 0:
-      BLI_snprintf(r_name, ANIM_CHAN_NAME_SIZE, "%s (unassigned)", display_name);
+      BLI_snprintf_utf8(r_name, ANIM_CHAN_NAME_SIZE, "%s (unassigned)", display_name);
       break;
     case 1:
-      BLI_strncpy(r_name, display_name, ANIM_CHAN_NAME_SIZE);
+      BLI_strncpy_utf8(r_name, display_name, ANIM_CHAN_NAME_SIZE);
       break;
     default:
-      BLI_snprintf(r_name, ANIM_CHAN_NAME_SIZE, "%s (%d)", display_name, num_users);
+      BLI_snprintf_utf8(r_name, ANIM_CHAN_NAME_SIZE, "%s (%d)", display_name, num_users);
       break;
   }
 }
@@ -1504,9 +1508,9 @@ static bAnimChannelType ACF_ACTION_SLOT = {
     /*channel_type_name*/ "Action Slot",
     /*channel_role*/ ACHANNEL_ROLE_EXPANDER,
 
-    /*get_backdrop_color*/ acf_generic_dataexpand_color,
+    /*get_backdrop_color*/ acf_generic_root_color,
     /*get_channel_color*/ nullptr,
-    /*draw_backdrop*/ nullptr,
+    /*draw_backdrop*/ acf_generic_root_backdrop,
     /*get_indent_level*/ acf_generic_indentation_0,
     /*get_offset*/ acf_generic_group_offset,
 
@@ -1570,7 +1574,7 @@ static void *acf_fillactd_setting_ptr(bAnimListElem *ale,
                                       eAnimChannel_Settings setting,
                                       short *r_type)
 {
-  bAction *act = (bAction *)ale->data;
+  bAction *act = static_cast<bAction *>(ale->data);
   AnimData *adt = ale->adt;
 
   /* Clear extra return data first. */
@@ -1664,7 +1668,7 @@ static void *acf_filldrivers_setting_ptr(bAnimListElem *ale,
                                          eAnimChannel_Settings setting,
                                          short *r_type)
 {
-  AnimData *adt = (AnimData *)ale->data;
+  AnimData *adt = static_cast<AnimData *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -1739,7 +1743,7 @@ static void *acf_dsmat_setting_ptr(bAnimListElem *ale,
                                    eAnimChannel_Settings setting,
                                    short *r_type)
 {
-  Material *ma = (Material *)ale->data;
+  Material *ma = static_cast<Material *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -1812,6 +1816,9 @@ static int acf_dslight_setting_flag(bAnimContext * /*ac*/,
     case ACHANNEL_SETTING_SELECT: /* selected */
       return ADT_UI_SELECTED;
 
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
+      return ADT_CURVES_ALWAYS_VISIBLE;
+
     default: /* unsupported */
       return 0;
   }
@@ -1822,7 +1829,7 @@ static void *acf_dslight_setting_ptr(bAnimListElem *ale,
                                      eAnimChannel_Settings setting,
                                      short *r_type)
 {
-  Light *la = (Light *)ale->data;
+  Light *la = static_cast<Light *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -1831,9 +1838,10 @@ static void *acf_dslight_setting_ptr(bAnimListElem *ale,
     case ACHANNEL_SETTING_EXPAND: /* expanded */
       return GET_ACF_FLAG_PTR(la->flag, r_type);
 
-    case ACHANNEL_SETTING_SELECT:  /* selected */
-    case ACHANNEL_SETTING_MUTE:    /* muted (for NLA only) */
-    case ACHANNEL_SETTING_VISIBLE: /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_SELECT:         /* selected */
+    case ACHANNEL_SETTING_MUTE:           /* muted (for NLA only) */
+    case ACHANNEL_SETTING_VISIBLE:        /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
       if (la->adt) {
         return GET_ACF_FLAG_PTR(la->adt->flag, r_type);
       }
@@ -1912,7 +1920,7 @@ static void *acf_dstex_setting_ptr(bAnimListElem *ale,
                                    eAnimChannel_Settings setting,
                                    short *r_type)
 {
-  Tex *tex = (Tex *)ale->data;
+  Tex *tex = static_cast<Tex *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -1998,7 +2006,7 @@ static void *acf_dscachefile_setting_ptr(bAnimListElem *ale,
                                          eAnimChannel_Settings setting,
                                          short *r_type)
 {
-  CacheFile *cache_file = (CacheFile *)ale->data;
+  CacheFile *cache_file = static_cast<CacheFile *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -2072,7 +2080,7 @@ static int acf_dscam_setting_flag(bAnimContext * /*ac*/,
     case ACHANNEL_SETTING_SELECT: /* selected */
       return ADT_UI_SELECTED;
 
-    case ACHANNEL_SETTING_ALWAYS_VISIBLE:
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
       return ADT_CURVES_ALWAYS_VISIBLE;
 
     default: /* unsupported */
@@ -2085,7 +2093,7 @@ static void *acf_dscam_setting_ptr(bAnimListElem *ale,
                                    eAnimChannel_Settings setting,
                                    short *r_type)
 {
-  Camera *ca = (Camera *)ale->data;
+  Camera *ca = static_cast<Camera *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -2094,10 +2102,10 @@ static void *acf_dscam_setting_ptr(bAnimListElem *ale,
     case ACHANNEL_SETTING_EXPAND: /* expanded */
       return GET_ACF_FLAG_PTR(ca->flag, r_type);
 
-    case ACHANNEL_SETTING_SELECT:  /* selected */
-    case ACHANNEL_SETTING_MUTE:    /* muted (for NLA only) */
-    case ACHANNEL_SETTING_VISIBLE: /* visible (for Graph Editor only) */
-    case ACHANNEL_SETTING_ALWAYS_VISIBLE:
+    case ACHANNEL_SETTING_SELECT:         /* selected */
+    case ACHANNEL_SETTING_MUTE:           /* muted (for NLA only) */
+    case ACHANNEL_SETTING_VISIBLE:        /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
       if (ca->adt) {
         return GET_ACF_FLAG_PTR(ca->adt->flag, r_type);
       }
@@ -2134,10 +2142,8 @@ static bAnimChannelType ACF_DSCAM = {
 /* TODO: just get this from RNA? */
 static int acf_dscur_icon(bAnimListElem *ale)
 {
-  Curve *cu = (Curve *)ale->data;
-  short obtype = BKE_curve_type_get(cu);
-
-  switch (obtype) {
+  Curve *cu = static_cast<Curve *>(ale->data);
+  switch (cu->ob_type) {
     case OB_FONT:
       return ICON_FONT_DATA;
     case OB_SURF:
@@ -2169,6 +2175,9 @@ static int acf_dscur_setting_flag(bAnimContext * /*ac*/,
     case ACHANNEL_SETTING_SELECT: /* selected */
       return ADT_UI_SELECTED;
 
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
+      return ADT_CURVES_ALWAYS_VISIBLE;
+
     default: /* unsupported */
       return 0;
   }
@@ -2179,7 +2188,7 @@ static void *acf_dscur_setting_ptr(bAnimListElem *ale,
                                    eAnimChannel_Settings setting,
                                    short *r_type)
 {
-  Curve *cu = (Curve *)ale->data;
+  Curve *cu = static_cast<Curve *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -2188,9 +2197,10 @@ static void *acf_dscur_setting_ptr(bAnimListElem *ale,
     case ACHANNEL_SETTING_EXPAND: /* expanded */
       return GET_ACF_FLAG_PTR(cu->flag, r_type);
 
-    case ACHANNEL_SETTING_SELECT:  /* selected */
-    case ACHANNEL_SETTING_MUTE:    /* muted (for NLA only) */
-    case ACHANNEL_SETTING_VISIBLE: /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_SELECT:         /* selected */
+    case ACHANNEL_SETTING_MUTE:           /* muted (for NLA only) */
+    case ACHANNEL_SETTING_VISIBLE:        /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
       if (cu->adt) {
         return GET_ACF_FLAG_PTR(cu->adt->flag, r_type);
       }
@@ -2281,7 +2291,7 @@ static void *acf_dsskey_setting_ptr(bAnimListElem *ale,
                                     eAnimChannel_Settings setting,
                                     short *r_type)
 {
-  Key *key = (Key *)ale->data;
+  Key *key = static_cast<Key *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -2364,7 +2374,7 @@ static void *acf_dswor_setting_ptr(bAnimListElem *ale,
                                    eAnimChannel_Settings setting,
                                    short *r_type)
 {
-  World *wo = (World *)ale->data;
+  World *wo = static_cast<World *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -2447,7 +2457,7 @@ static void *acf_dspart_setting_ptr(bAnimListElem *ale,
                                     eAnimChannel_Settings setting,
                                     short *r_type)
 {
-  ParticleSettings *part = (ParticleSettings *)ale->data;
+  ParticleSettings *part = static_cast<ParticleSettings *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -2520,6 +2530,9 @@ static int acf_dsmball_setting_flag(bAnimContext * /*ac*/,
     case ACHANNEL_SETTING_SELECT: /* selected */
       return ADT_UI_SELECTED;
 
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
+      return ADT_CURVES_ALWAYS_VISIBLE;
+
     default: /* unsupported */
       return 0;
   }
@@ -2530,7 +2543,7 @@ static void *acf_dsmball_setting_ptr(bAnimListElem *ale,
                                      eAnimChannel_Settings setting,
                                      short *r_type)
 {
-  MetaBall *mb = (MetaBall *)ale->data;
+  MetaBall *mb = static_cast<MetaBall *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -2539,9 +2552,10 @@ static void *acf_dsmball_setting_ptr(bAnimListElem *ale,
     case ACHANNEL_SETTING_EXPAND: /* expanded */
       return GET_ACF_FLAG_PTR(mb->flag2, r_type);
 
-    case ACHANNEL_SETTING_SELECT:  /* selected */
-    case ACHANNEL_SETTING_MUTE:    /* muted (for NLA only) */
-    case ACHANNEL_SETTING_VISIBLE: /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_SELECT:         /* selected */
+    case ACHANNEL_SETTING_MUTE:           /* muted (for NLA only) */
+    case ACHANNEL_SETTING_VISIBLE:        /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
       if (mb->adt) {
         return GET_ACF_FLAG_PTR(mb->adt->flag, r_type);
       }
@@ -2603,6 +2617,9 @@ static int acf_dsarm_setting_flag(bAnimContext * /*ac*/,
     case ACHANNEL_SETTING_SELECT: /* selected */
       return ADT_UI_SELECTED;
 
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
+      return ADT_CURVES_ALWAYS_VISIBLE;
+
     default: /* unsupported */
       return 0;
   }
@@ -2613,7 +2630,7 @@ static void *acf_dsarm_setting_ptr(bAnimListElem *ale,
                                    eAnimChannel_Settings setting,
                                    short *r_type)
 {
-  bArmature *arm = (bArmature *)ale->data;
+  bArmature *arm = static_cast<bArmature *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -2622,9 +2639,10 @@ static void *acf_dsarm_setting_ptr(bAnimListElem *ale,
     case ACHANNEL_SETTING_EXPAND: /* expanded */
       return GET_ACF_FLAG_PTR(arm->flag, r_type);
 
-    case ACHANNEL_SETTING_SELECT:  /* selected */
-    case ACHANNEL_SETTING_MUTE:    /* muted (for NLA only) */
-    case ACHANNEL_SETTING_VISIBLE: /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_SELECT:         /* selected */
+    case ACHANNEL_SETTING_MUTE:           /* muted (for NLA only) */
+    case ACHANNEL_SETTING_VISIBLE:        /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
       if (arm->adt) {
         return GET_ACF_FLAG_PTR(arm->adt->flag, r_type);
       }
@@ -2667,7 +2685,7 @@ static int acf_dsntree_icon(bAnimListElem * /*ale*/)
 /* offset for nodetree expanders */
 static short acf_dsntree_offset(bAnimContext *ac, bAnimListElem *ale)
 {
-  bNodeTree *ntree = (bNodeTree *)ale->data;
+  bNodeTree *ntree = static_cast<bNodeTree *>(ale->data);
   short offset = acf_generic_basic_offset(ac, ale);
 
   offset += acf_nodetree_rootType_offset(ntree);
@@ -2707,7 +2725,7 @@ static void *acf_dsntree_setting_ptr(bAnimListElem *ale,
                                      eAnimChannel_Settings setting,
                                      short *r_type)
 {
-  bNodeTree *ntree = (bNodeTree *)ale->data;
+  bNodeTree *ntree = static_cast<bNodeTree *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -2790,7 +2808,7 @@ static void *acf_dslinestyle_setting_ptr(bAnimListElem *ale,
                                          eAnimChannel_Settings setting,
                                          short *r_type)
 {
-  FreestyleLineStyle *linestyle = (FreestyleLineStyle *)ale->data;
+  FreestyleLineStyle *linestyle = static_cast<FreestyleLineStyle *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -2863,6 +2881,9 @@ static int acf_dsmesh_setting_flag(bAnimContext * /*ac*/,
     case ACHANNEL_SETTING_SELECT: /* selected */
       return ADT_UI_SELECTED;
 
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
+      return ADT_CURVES_ALWAYS_VISIBLE;
+
     default: /* unsupported */
       return 0;
   }
@@ -2873,7 +2894,7 @@ static void *acf_dsmesh_setting_ptr(bAnimListElem *ale,
                                     eAnimChannel_Settings setting,
                                     short *r_type)
 {
-  Mesh *mesh = (Mesh *)ale->data;
+  Mesh *mesh = static_cast<Mesh *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -2882,9 +2903,10 @@ static void *acf_dsmesh_setting_ptr(bAnimListElem *ale,
     case ACHANNEL_SETTING_EXPAND: /* expanded */
       return GET_ACF_FLAG_PTR(mesh->flag, r_type);
 
-    case ACHANNEL_SETTING_SELECT:  /* selected */
-    case ACHANNEL_SETTING_MUTE:    /* muted (for NLA only) */
-    case ACHANNEL_SETTING_VISIBLE: /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_SELECT:         /* selected */
+    case ACHANNEL_SETTING_MUTE:           /* muted (for NLA only) */
+    case ACHANNEL_SETTING_VISIBLE:        /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
       if (mesh->adt) {
         return GET_ACF_FLAG_PTR(mesh->adt->flag, r_type);
       }
@@ -2947,6 +2969,9 @@ static int acf_dslat_setting_flag(bAnimContext * /*ac*/,
     case ACHANNEL_SETTING_SELECT: /* selected */
       return ADT_UI_SELECTED;
 
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
+      return ADT_CURVES_ALWAYS_VISIBLE;
+
     default: /* unsupported */
       return 0;
   }
@@ -2957,7 +2982,7 @@ static void *acf_dslat_setting_ptr(bAnimListElem *ale,
                                    eAnimChannel_Settings setting,
                                    short *r_type)
 {
-  Lattice *lt = (Lattice *)ale->data;
+  Lattice *lt = static_cast<Lattice *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -2966,9 +2991,10 @@ static void *acf_dslat_setting_ptr(bAnimListElem *ale,
     case ACHANNEL_SETTING_EXPAND: /* expanded */
       return GET_ACF_FLAG_PTR(lt->flag, r_type);
 
-    case ACHANNEL_SETTING_SELECT:  /* selected */
-    case ACHANNEL_SETTING_MUTE:    /* muted (for NLA only) */
-    case ACHANNEL_SETTING_VISIBLE: /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_SELECT:         /* selected */
+    case ACHANNEL_SETTING_MUTE:           /* muted (for NLA only) */
+    case ACHANNEL_SETTING_VISIBLE:        /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
       if (lt->adt) {
         return GET_ACF_FLAG_PTR(lt->adt->flag, r_type);
       }
@@ -3041,7 +3067,7 @@ static void *acf_dsspk_setting_ptr(bAnimListElem *ale,
                                    eAnimChannel_Settings setting,
                                    short *r_type)
 {
-  Speaker *spk = (Speaker *)ale->data;
+  Speaker *spk = static_cast<Speaker *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -3114,6 +3140,9 @@ static int acf_dscurves_setting_flag(bAnimContext * /*ac*/,
     case ACHANNEL_SETTING_SELECT: /* selected */
       return ADT_UI_SELECTED;
 
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
+      return ADT_CURVES_ALWAYS_VISIBLE;
+
     default: /* unsupported */
       return 0;
   }
@@ -3124,7 +3153,7 @@ static void *acf_dscurves_setting_ptr(bAnimListElem *ale,
                                       eAnimChannel_Settings setting,
                                       short *r_type)
 {
-  Curves *curves = (Curves *)ale->data;
+  Curves *curves = static_cast<Curves *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -3133,9 +3162,10 @@ static void *acf_dscurves_setting_ptr(bAnimListElem *ale,
     case ACHANNEL_SETTING_EXPAND: /* expanded */
       return GET_ACF_FLAG_PTR(curves->flag, r_type);
 
-    case ACHANNEL_SETTING_SELECT:  /* selected */
-    case ACHANNEL_SETTING_MUTE:    /* muted (for NLA only) */
-    case ACHANNEL_SETTING_VISIBLE: /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_SELECT:         /* selected */
+    case ACHANNEL_SETTING_MUTE:           /* muted (for NLA only) */
+    case ACHANNEL_SETTING_VISIBLE:        /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
       if (curves->adt) {
         return GET_ACF_FLAG_PTR(curves->adt->flag, r_type);
       }
@@ -3197,6 +3227,9 @@ static int acf_dspointcloud_setting_flag(bAnimContext * /*ac*/,
     case ACHANNEL_SETTING_SELECT: /* selected */
       return ADT_UI_SELECTED;
 
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
+      return ADT_CURVES_ALWAYS_VISIBLE;
+
     default: /* unsupported */
       return 0;
   }
@@ -3207,7 +3240,7 @@ static void *acf_dspointcloud_setting_ptr(bAnimListElem *ale,
                                           eAnimChannel_Settings setting,
                                           short *r_type)
 {
-  PointCloud *pointcloud = (PointCloud *)ale->data;
+  PointCloud *pointcloud = static_cast<PointCloud *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -3216,9 +3249,10 @@ static void *acf_dspointcloud_setting_ptr(bAnimListElem *ale,
     case ACHANNEL_SETTING_EXPAND: /* expanded */
       return GET_ACF_FLAG_PTR(pointcloud->flag, r_type);
 
-    case ACHANNEL_SETTING_SELECT:  /* selected */
-    case ACHANNEL_SETTING_MUTE:    /* muted (for NLA only) */
-    case ACHANNEL_SETTING_VISIBLE: /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_SELECT:         /* selected */
+    case ACHANNEL_SETTING_MUTE:           /* muted (for NLA only) */
+    case ACHANNEL_SETTING_VISIBLE:        /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
       if (pointcloud->adt) {
         return GET_ACF_FLAG_PTR(pointcloud->adt->flag, r_type);
       }
@@ -3280,6 +3314,9 @@ static int acf_dsvolume_setting_flag(bAnimContext * /*ac*/,
     case ACHANNEL_SETTING_SELECT: /* selected */
       return ADT_UI_SELECTED;
 
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
+      return ADT_CURVES_ALWAYS_VISIBLE;
+
     default: /* unsupported */
       return 0;
   }
@@ -3290,7 +3327,7 @@ static void *acf_dsvolume_setting_ptr(bAnimListElem *ale,
                                       eAnimChannel_Settings setting,
                                       short *r_type)
 {
-  Volume *volume = (Volume *)ale->data;
+  Volume *volume = static_cast<Volume *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -3299,9 +3336,10 @@ static void *acf_dsvolume_setting_ptr(bAnimListElem *ale,
     case ACHANNEL_SETTING_EXPAND: /* expanded */
       return GET_ACF_FLAG_PTR(volume->flag, r_type);
 
-    case ACHANNEL_SETTING_SELECT:  /* selected */
-    case ACHANNEL_SETTING_MUTE:    /* muted (for NLA only) */
-    case ACHANNEL_SETTING_VISIBLE: /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_SELECT:         /* selected */
+    case ACHANNEL_SETTING_MUTE:           /* muted (for NLA only) */
+    case ACHANNEL_SETTING_VISIBLE:        /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
       if (volume->adt) {
         return GET_ACF_FLAG_PTR(volume->adt->flag, r_type);
       }
@@ -3330,6 +3368,103 @@ static bAnimChannelType ACF_DSVOLUME = {
     /*has_setting*/ acf_generic_dataexpand_setting_valid,
     /*setting_flag*/ acf_dsvolume_setting_flag,
     /*setting_ptr*/ acf_dsvolume_setting_ptr,
+    /*setting_post_update*/ nullptr,
+};
+
+/* LightProbe Expander  ------------------------------------------- */
+
+/* TODO: just get this from RNA? */
+static int acf_dslightprobe_icon(bAnimListElem *ale)
+{
+  const LightProbe *probe = static_cast<LightProbe *>(ale->data);
+  switch (probe->type) {
+    case LIGHTPROBE_TYPE_SPHERE:
+      return ICON_LIGHTPROBE_SPHERE;
+    case LIGHTPROBE_TYPE_PLANE:
+      return ICON_LIGHTPROBE_PLANE;
+    case LIGHTPROBE_TYPE_VOLUME:
+      return ICON_LIGHTPROBE_VOLUME;
+    default:
+      return ICON_LIGHTPROBE_SPHERE;
+  }
+}
+
+/* Get the appropriate flag(s) for the setting when it is valid. */
+static int acf_dslightprobe_setting_flag(bAnimContext * /*ac*/,
+                                         eAnimChannel_Settings setting,
+                                         bool *r_neg)
+{
+  /* Clear extra return data first. */
+  *r_neg = false;
+
+  switch (setting) {
+    case ACHANNEL_SETTING_EXPAND: /* expanded */
+      return LIGHTPROBE_DS_EXPAND;
+
+    case ACHANNEL_SETTING_MUTE: /* mute (only in NLA) */
+      return ADT_NLA_EVAL_OFF;
+
+    case ACHANNEL_SETTING_VISIBLE: /* visible (only in Graph Editor) */
+      *r_neg = true;
+      return ADT_CURVES_NOT_VISIBLE;
+
+    case ACHANNEL_SETTING_SELECT: /* selected */
+      return ADT_UI_SELECTED;
+
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
+      return ADT_CURVES_ALWAYS_VISIBLE;
+
+    default: /* unsupported */
+      return 0;
+  }
+}
+
+/* get pointer to the setting */
+static void *acf_dslightprobe_setting_ptr(bAnimListElem *ale,
+                                          eAnimChannel_Settings setting,
+                                          short *r_type)
+{
+  LightProbe *probe = static_cast<LightProbe *>(ale->data);
+
+  /* Clear extra return data first. */
+  *r_type = 0;
+
+  switch (setting) {
+    case ACHANNEL_SETTING_EXPAND: /* expanded */
+      return GET_ACF_FLAG_PTR(probe->flag, r_type);
+
+    case ACHANNEL_SETTING_SELECT:         /* selected */
+    case ACHANNEL_SETTING_MUTE:           /* muted (for NLA only) */
+    case ACHANNEL_SETTING_VISIBLE:        /* visible (for Graph Editor only) */
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE: /* pin */
+      if (probe->adt) {
+        return GET_ACF_FLAG_PTR(probe->adt->flag, r_type);
+      }
+      return nullptr;
+
+    default: /* unsupported */
+      return nullptr;
+  }
+}
+
+/** Light Probe expander type define. */
+static bAnimChannelType ACF_DSLIGHTPROBE = {
+    /*channel_type_name*/ "LightProbe Expander",
+    /*channel_role*/ ACHANNEL_ROLE_EXPANDER,
+
+    /*get_backdrop_color*/ acf_generic_dataexpand_color,
+    /*get_channel_color*/ nullptr,
+    /*draw_backdrop*/ acf_generic_dataexpand_backdrop,
+    /*get_indent_level*/ acf_generic_indentation_1,
+    /*get_offset*/ acf_generic_basic_offset,
+
+    /*name*/ acf_generic_idblock_name,
+    /*name_prop*/ acf_generic_idblock_name_prop,
+    /*icon*/ acf_dslightprobe_icon,
+
+    /*has_setting*/ acf_generic_dataexpand_setting_valid,
+    /*setting_flag*/ acf_dslightprobe_setting_flag,
+    /*setting_ptr*/ acf_dslightprobe_setting_ptr,
     /*setting_post_update*/ nullptr,
 };
 
@@ -3373,7 +3508,7 @@ static void *acf_dsgpencil_setting_ptr(bAnimListElem *ale,
                                        eAnimChannel_Settings setting,
                                        short *r_type)
 {
-  bGPdata *gpd = (bGPdata *)ale->data;
+  bGPdata *gpd = static_cast<bGPdata *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -3456,7 +3591,7 @@ static void *acf_dsmclip_setting_ptr(bAnimListElem *ale,
                                      eAnimChannel_Settings setting,
                                      short *r_type)
 {
-  MovieClip *clip = (MovieClip *)ale->data;
+  MovieClip *clip = static_cast<MovieClip *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -3504,16 +3639,16 @@ static bAnimChannelType ACF_DSMCLIP = {
 /* name for ShapeKey */
 static void acf_shapekey_name(bAnimListElem *ale, char *name)
 {
-  KeyBlock *kb = (KeyBlock *)ale->data;
+  KeyBlock *kb = static_cast<KeyBlock *>(ale->data);
 
   /* just copy the name... */
   if (kb && name) {
     /* if the KeyBlock had a name, use it, otherwise use the index */
     if (kb->name[0]) {
-      BLI_strncpy(name, kb->name, ANIM_CHAN_NAME_SIZE);
+      BLI_strncpy_utf8(name, kb->name, ANIM_CHAN_NAME_SIZE);
     }
     else {
-      BLI_snprintf(name, ANIM_CHAN_NAME_SIZE, IFACE_("Key %d"), ale->index);
+      BLI_snprintf_utf8(name, ANIM_CHAN_NAME_SIZE, IFACE_("Key %d"), ale->index);
     }
   }
 }
@@ -3521,7 +3656,7 @@ static void acf_shapekey_name(bAnimListElem *ale, char *name)
 /* name property for ShapeKey entries */
 static bool acf_shapekey_name_prop(bAnimListElem *ale, PointerRNA *r_ptr, PropertyRNA **r_prop)
 {
-  KeyBlock *kb = (KeyBlock *)ale->data;
+  KeyBlock *kb = static_cast<KeyBlock *>(ale->data);
 
   /* if the KeyBlock had a name, use it, otherwise use the index */
   if (kb && kb->name[0]) {
@@ -3579,7 +3714,7 @@ static void *acf_shapekey_setting_ptr(bAnimListElem *ale,
                                       eAnimChannel_Settings setting,
                                       short *r_type)
 {
-  KeyBlock *kb = (KeyBlock *)ale->data;
+  KeyBlock *kb = static_cast<KeyBlock *>(ale->data);
 
   /* Clear extra return data first. */
   *r_type = 0;
@@ -3618,13 +3753,6 @@ static bAnimChannelType ACF_SHAPEKEY = {
 
 /* GPencil Datablock (Legacy) ------------------------------------------- */
 
-/* get backdrop color for gpencil datablock widget */
-static void acf_gpd_color(bAnimContext * /*ac*/, bAnimListElem * /*ale*/, float r_color[3])
-{
-  /* these are ID-blocks, but not exactly standalone... */
-  UI_GetThemeColorShade3fv(TH_DOPESHEET_CHANNELSUBOB, 20, r_color);
-}
-
 /* TODO: just get this from RNA? */
 static int acf_gpd_icon(bAnimListElem * /*ale*/)
 {
@@ -3647,68 +3775,15 @@ static bool acf_gpd_setting_valid(bAnimContext * /*ac*/,
   }
 }
 
-/* Get the appropriate flag(s) for the setting when it is valid. */
-static int acf_gpd_setting_flag_legacy(bAnimContext * /*ac*/,
-                                       eAnimChannel_Settings setting,
-                                       bool *r_neg)
-{
-  /* Clear extra return data first. */
-  *r_neg = false;
-
-  switch (setting) {
-    case ACHANNEL_SETTING_SELECT: /* selected */
-      return AGRP_SELECTED;
-
-    case ACHANNEL_SETTING_EXPAND: /* expanded */
-      return GP_DATA_EXPAND;
-
-    default:
-      /* these shouldn't happen */
-      return 0;
-  }
-}
-
-/* get pointer to the setting */
-static void *acf_gpd_setting_ptr_legacy(bAnimListElem *ale,
-                                        eAnimChannel_Settings /*setting*/,
-                                        short *r_type)
-{
-  bGPdata *grease_pencil = (bGPdata *)ale->data;
-
-  /* all flags are just in gpd->flag for now... */
-  return GET_ACF_FLAG_PTR(grease_pencil->flag, r_type);
-}
-
-/** Grease-pencil data-block type define. (Legacy) */
-static bAnimChannelType ACF_GPD_LEGACY = {
-    /*channel_type_name*/ "GPencil Datablock",
-    /*channel_role*/ ACHANNEL_ROLE_EXPANDER,
-
-    /*get_backdrop_color*/ acf_gpd_color,
-    /*get_channel_color*/ nullptr,
-    /*draw_backdrop*/ acf_group_backdrop,
-    /*get_indent_level*/ acf_generic_indentation_0,
-    /*get_offset*/ acf_generic_group_offset,
-
-    /*name*/ acf_generic_idblock_name,
-    /*name_prop*/ acf_generic_idfill_name_prop,
-    /*icon*/ acf_gpd_icon,
-
-    /*has_setting*/ acf_gpd_setting_valid,
-    /*setting_flag*/ acf_gpd_setting_flag_legacy,
-    /*setting_ptr*/ acf_gpd_setting_ptr_legacy,
-    /*setting_post_update*/ nullptr,
-};
-
 /* GPencil Layer (Legacy) ------------------------------------------- */
 
 /* name for grease pencil layer entries */
 static void acf_gpl_name_legacy(bAnimListElem *ale, char *name)
 {
-  bGPDlayer *gpl = (bGPDlayer *)ale->data;
+  bGPDlayer *gpl = static_cast<bGPDlayer *>(ale->data);
 
   if (gpl && name) {
-    BLI_strncpy(name, gpl->info, ANIM_CHAN_NAME_SIZE);
+    BLI_strncpy_utf8(name, gpl->info, ANIM_CHAN_NAME_SIZE);
   }
 }
 
@@ -3716,7 +3791,7 @@ static void acf_gpl_name_legacy(bAnimListElem *ale, char *name)
 static bool acf_gpl_name_prop_legacy(bAnimListElem *ale, PointerRNA *r_ptr, PropertyRNA **r_prop)
 {
   if (ale->data) {
-    *r_ptr = RNA_pointer_create_discrete(ale->id, &RNA_GPencilLayer, ale->data);
+    *r_ptr = RNA_pointer_create_discrete(ale->id, &RNA_AnnotationLayer, ale->data);
     *r_prop = RNA_struct_name_property(r_ptr->type);
 
     return (*r_prop != nullptr);
@@ -3783,7 +3858,7 @@ static void *acf_gpl_setting_ptr_legacy(bAnimListElem *ale,
                                         eAnimChannel_Settings /*setting*/,
                                         short *r_type)
 {
-  bGPDlayer *gpl = (bGPDlayer *)ale->data;
+  bGPDlayer *gpl = static_cast<bGPDlayer *>(ale->data);
 
   /* all flags are just in gpl->flag for now... */
   return GET_ACF_FLAG_PTR(gpl->flag, r_type);
@@ -3869,10 +3944,10 @@ static short layer_offset(bAnimContext *ac, bAnimListElem *ale)
 /* Name for grease pencil layer entries. */
 static void layer_name(bAnimListElem *ale, char *name)
 {
-  GreasePencilLayer *layer = (GreasePencilLayer *)ale->data;
+  GreasePencilLayer *layer = static_cast<GreasePencilLayer *>(ale->data);
 
   if (layer && name) {
-    BLI_strncpy(name, layer->wrap().name().c_str(), ANIM_CHAN_NAME_SIZE);
+    BLI_strncpy_utf8(name, layer->wrap().name().c_str(), ANIM_CHAN_NAME_SIZE);
   }
 }
 
@@ -3941,7 +4016,7 @@ static void *layer_setting_ptr(bAnimListElem *ale,
                                eAnimChannel_Settings /*setting*/,
                                short *r_type)
 {
-  GreasePencilLayer *layer = (GreasePencilLayer *)ale->data;
+  GreasePencilLayer *layer = static_cast<GreasePencilLayer *>(ale->data);
   return GET_ACF_FLAG_PTR(layer->base.flag, r_type);
 }
 
@@ -3975,7 +4050,7 @@ static void layer_group_name(bAnimListElem *ale, char *name)
   GreasePencilLayerTreeGroup *layer_group = static_cast<GreasePencilLayerTreeGroup *>(ale->data);
 
   if (layer_group && name) {
-    BLI_strncpy(name, layer_group->wrap().name().c_str(), ANIM_CHAN_NAME_SIZE);
+    BLI_strncpy_utf8(name, layer_group->wrap().name().c_str(), ANIM_CHAN_NAME_SIZE);
   }
 }
 
@@ -4127,7 +4202,7 @@ static void *acf_mask_setting_ptr(bAnimListElem *ale,
                                   eAnimChannel_Settings /*setting*/,
                                   short *r_type)
 {
-  Mask *mask = (Mask *)ale->data;
+  Mask *mask = static_cast<Mask *>(ale->data);
 
   /* all flags are just in mask->flag for now... */
   return GET_ACF_FLAG_PTR(mask->flag, r_type);
@@ -4159,10 +4234,10 @@ static bAnimChannelType ACF_MASKDATA = {
 /* name for grease pencil layer entries */
 static void acf_masklay_name(bAnimListElem *ale, char *name)
 {
-  MaskLayer *masklay = (MaskLayer *)ale->data;
+  MaskLayer *masklay = static_cast<MaskLayer *>(ale->data);
 
   if (masklay && name) {
-    BLI_strncpy(name, masklay->name, ANIM_CHAN_NAME_SIZE);
+    BLI_strncpy_utf8(name, masklay->name, ANIM_CHAN_NAME_SIZE);
   }
 }
 
@@ -4225,7 +4300,7 @@ static void *acf_masklay_setting_ptr(bAnimListElem *ale,
                                      eAnimChannel_Settings /*setting*/,
                                      short *r_type)
 {
-  MaskLayer *masklay = (MaskLayer *)ale->data;
+  MaskLayer *masklay = static_cast<MaskLayer *>(ale->data);
 
   /* all flags are just in masklay->flag for now... */
   return GET_ACF_FLAG_PTR(masklay->flag, r_type);
@@ -4257,7 +4332,7 @@ static bAnimChannelType ACF_MASKLAYER = {
 /* get backdrop color for nla track channels */
 static void acf_nlatrack_color(bAnimContext * /*ac*/, bAnimListElem *ale, float r_color[3])
 {
-  NlaTrack *nlt = (NlaTrack *)ale->data;
+  NlaTrack *nlt = static_cast<NlaTrack *>(ale->data);
   AnimData *adt = ale->adt;
   bool nonSolo = false;
 
@@ -4276,10 +4351,10 @@ static void acf_nlatrack_color(bAnimContext * /*ac*/, bAnimListElem *ale, float 
 /* name for nla track entries */
 static void acf_nlatrack_name(bAnimListElem *ale, char *name)
 {
-  NlaTrack *nlt = (NlaTrack *)ale->data;
+  NlaTrack *nlt = static_cast<NlaTrack *>(ale->data);
 
   if (nlt && name) {
-    BLI_strncpy(name, nlt->name, ANIM_CHAN_NAME_SIZE);
+    BLI_strncpy_utf8(name, nlt->name, ANIM_CHAN_NAME_SIZE);
   }
 }
 
@@ -4301,7 +4376,7 @@ static bool acf_nlatrack_setting_valid(bAnimContext * /*ac*/,
                                        bAnimListElem *ale,
                                        eAnimChannel_Settings setting)
 {
-  NlaTrack *nlt = (NlaTrack *)ale->data;
+  NlaTrack *nlt = static_cast<NlaTrack *>(ale->data);
   AnimData *adt = ale->adt;
 
   /* visibility of settings depends on various states... */
@@ -4369,7 +4444,7 @@ static void *acf_nlatrack_setting_ptr(bAnimListElem *ale,
                                       eAnimChannel_Settings /*setting*/,
                                       short *r_type)
 {
-  NlaTrack *nlt = (NlaTrack *)ale->data;
+  NlaTrack *nlt = static_cast<NlaTrack *>(ale->data);
   return GET_ACF_FLAG_PTR(nlt->flag, r_type);
 }
 
@@ -4444,7 +4519,7 @@ static void acf_nlaaction_color(bAnimContext * /*ac*/, bAnimListElem *ale, float
    *   strips backgrounds but here we're doing track list backgrounds instead
    *   so we ignore that and use our own when needed
    */
-  nla_action_get_color(ale->adt, (bAction *)ale->data, color);
+  nla_action_get_color(ale->adt, static_cast<bAction *>(ale->data), color);
 
   /* NOTE: since the return types only allow rgb, we cannot do the alpha-blending we'd
    * like for the solo-drawing case. Hence, this method isn't actually used for drawing
@@ -4495,15 +4570,15 @@ static void acf_nlaaction_backdrop(bAnimContext *ac, bAnimListElem *ale, float y
 /* name for nla action entries */
 static void acf_nlaaction_name(bAnimListElem *ale, char *name)
 {
-  bAction *act = (bAction *)ale->data;
+  bAction *act = static_cast<bAction *>(ale->data);
 
   if (name) {
     if (act) {
       /* TODO: add special decoration when doing this in tweaking mode? */
-      BLI_strncpy(name, act->id.name + 2, ANIM_CHAN_NAME_SIZE);
+      BLI_strncpy_utf8(name, act->id.name + 2, ANIM_CHAN_NAME_SIZE);
     }
     else {
-      BLI_strncpy(name, IFACE_("<No Action>"), ANIM_CHAN_NAME_SIZE);
+      BLI_strncpy_utf8(name, IFACE_("<No Action>"), ANIM_CHAN_NAME_SIZE);
     }
   }
 }
@@ -4659,10 +4734,10 @@ static void ANIM_init_channel_typeinfo_data()
     animchannelTypeInfo[type++] = &ACF_DSCURVES;     /* Curves Channel */
     animchannelTypeInfo[type++] = &ACF_DSPOINTCLOUD; /* PointCloud Channel */
     animchannelTypeInfo[type++] = &ACF_DSVOLUME;     /* Volume Channel */
+    animchannelTypeInfo[type++] = &ACF_DSLIGHTPROBE; /* Light Probe */
 
     animchannelTypeInfo[type++] = &ACF_SHAPEKEY; /* ShapeKey */
 
-    animchannelTypeInfo[type++] = &ACF_GPD_LEGACY; /* Grease Pencil Datablock (Legacy) */
     animchannelTypeInfo[type++] = &ACF_GPL_LEGACY; /* Grease Pencil Layer (Legacy) */
 
     animchannelTypeInfo[type++] = &ACF_GPD;      /* Grease Pencil Datablock. */
@@ -4702,7 +4777,33 @@ const bAnimChannelType *ANIM_channel_get_typeinfo(const bAnimListElem *ale)
 
 /* --------------------------- */
 
-void ANIM_channel_debug_print_info(bAnimListElem *ale, short indent_level)
+static blender::StringRefNull setting_name(const eAnimChannel_Settings setting)
+{
+  switch (setting) {
+    case ACHANNEL_SETTING_SELECT:
+      return "SELECT";
+    case ACHANNEL_SETTING_PROTECT:
+      return "PROTECT";
+    case ACHANNEL_SETTING_MUTE:
+      return "MUTE";
+    case ACHANNEL_SETTING_EXPAND:
+      return "EXPAND";
+    case ACHANNEL_SETTING_VISIBLE:
+      return "VISIBLE";
+    case ACHANNEL_SETTING_SOLO:
+      return "SOLO";
+    case ACHANNEL_SETTING_PINNED:
+      return "PINNED";
+    case ACHANNEL_SETTING_MOD_OFF:
+      return "MOD_OFF";
+    case ACHANNEL_SETTING_ALWAYS_VISIBLE:
+      return "ALWAYS_VISIBLE";
+  }
+
+  return "unknown setting";
+}
+
+void ANIM_channel_debug_print_info(bAnimContext &ac, bAnimListElem *ale, short indent_level)
 {
   const bAnimChannelType *acf = ANIM_channel_get_typeinfo(ale);
 
@@ -4712,39 +4813,86 @@ void ANIM_channel_debug_print_info(bAnimListElem *ale, short indent_level)
   }
 
   /* print info */
-  if (acf) {
-    char name[ANIM_CHAN_NAME_SIZE]; /* hopefully this will be enough! */
-
-    /* get UI name */
-    if (acf->name) {
-      acf->name(ale, name);
-    }
-    else {
-      STRNCPY(name, "<No name>");
-    }
-
-    /* print type name + ui name */
-    printf("ChanType: <%s> Name: \"%s\"\n", acf->channel_type_name, name);
+  if (!ale) {
+    printf("<Invalid channel - nullptr>\n");
+    return;
   }
-  else if (ale) {
+
+  if (!acf) {
     printf("ChanType: <Unknown - %d>\n", ale->type);
+    return;
+  }
+
+  /* Get UI name. */
+  char name[ANIM_CHAN_NAME_SIZE];
+  if (acf->name) {
+    acf->name(ale, name);
   }
   else {
-    printf("<Invalid channel - nullptr>\n");
+    STRNCPY_UTF8(name, "<No name>");
   }
+
+  printf("ChanType: <%-25s> Name: \"%s\"\n       ", acf->channel_type_name, name);
+
+  /* Print settings. */
+  blender::Vector<eAnimChannel_Settings> settings = {
+      ACHANNEL_SETTING_SELECT,
+      ACHANNEL_SETTING_PROTECT,
+      ACHANNEL_SETTING_MUTE,
+      ACHANNEL_SETTING_EXPAND,
+      ACHANNEL_SETTING_VISIBLE,
+      ACHANNEL_SETTING_SOLO,
+      ACHANNEL_SETTING_PINNED,
+      ACHANNEL_SETTING_MOD_OFF,
+      ACHANNEL_SETTING_ALWAYS_VISIBLE,
+  };
+  for (const eAnimChannel_Settings setting : settings) {
+    if (!acf->has_setting(&ac, ale, setting)) {
+      continue;
+    }
+
+    bool is_neg = false;
+    const int setting_flag = acf->setting_flag(&ac, setting, &is_neg);
+
+    short setting_type = 0;
+    const void *setting_ptr = acf->setting_ptr(ale, setting, &setting_type);
+
+    bool setting_value = false;
+    switch (setting_type) {
+      case sizeof(int): {
+        const int as_int = *static_cast<const int *>(setting_ptr);
+        setting_value = bool(as_int & setting_flag) != is_neg;
+        break;
+      }
+      case sizeof(short): {
+        const short as_short = *static_cast<const short *>(setting_ptr);
+        setting_value = bool(as_short & short(setting_flag)) != is_neg;
+        break;
+      }
+      default:
+        BLI_assert_unreachable();
+    }
+
+    std::string show_name = setting_name(setting);
+    if (!setting_value) {
+      BLI_str_tolower_ascii(show_name.data(), show_name.length());
+    }
+    printf("%-15s", show_name.c_str());
+  }
+  printf("\n");
 }
 
 bAction *ANIM_channel_action_get(const bAnimListElem *ale)
 {
   if (ale->datatype == ALE_ACT) {
-    return (bAction *)ale->key_data;
+    return static_cast<bAction *>(ale->key_data);
   }
 
   if (ELEM(ale->type, ANIMTYPE_GROUP, ANIMTYPE_FCURVE)) {
     ID *owner = ale->fcurve_owner_id;
 
     if (owner && GS(owner->name) == ID_AC) {
-      return (bAction *)owner;
+      return reinterpret_cast<bAction *>(owner);
     }
   }
 
@@ -5101,9 +5249,9 @@ void ANIM_channel_draw(
     {
       /* for F-Curves, draw color-preview of curve left to the visibility icon */
       if (ELEM(ale->type, ANIMTYPE_FCURVE, ANIMTYPE_NLACURVE)) {
-        FCurve *fcu = (FCurve *)ale->data;
+        FCurve *fcu = static_cast<FCurve *>(ale->data);
         uint pos = GPU_vertformat_attr_add(
-            immVertexFormat(), "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+            immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
 
         immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
 
@@ -5168,7 +5316,7 @@ void ANIM_channel_draw(
     /* draw red underline if channel is disabled */
     if (achannel_is_broken(ale)) {
       uint pos = GPU_vertformat_attr_add(
-          immVertexFormat(), "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+          immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
 
       immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
 
@@ -5205,7 +5353,8 @@ void ANIM_channel_draw(
     short draw_sliders = 0;
     float ymin_ofs = 0.0f;
     float color[3];
-    uint pos = GPU_vertformat_attr_add(immVertexFormat(), "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+    uint pos = GPU_vertformat_attr_add(
+        immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
 
     immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
 
@@ -5217,12 +5366,12 @@ void ANIM_channel_draw(
     if ((ac->sl) && ELEM(ac->spacetype, SPACE_ACTION, SPACE_GRAPH)) {
       switch (ac->spacetype) {
         case SPACE_ACTION: {
-          SpaceAction *saction = (SpaceAction *)ac->sl;
+          SpaceAction *saction = reinterpret_cast<SpaceAction *>(ac->sl);
           draw_sliders = (saction->flag & SACTION_SLIDERS);
           break;
         }
         case SPACE_GRAPH: {
-          SpaceGraph *sipo = (SpaceGraph *)ac->sl;
+          SpaceGraph *sipo = reinterpret_cast<SpaceGraph *>(ac->sl);
           draw_sliders = (sipo->flag & SIPO_SLIDERS);
           break;
         }
@@ -5353,7 +5502,7 @@ static void achannel_setting_widget_cb(bContext *C, void *ale_npoin, void *setti
 /* callback for widget settings that need flushing */
 static void achannel_setting_flush_widget_cb(bContext *C, void *ale_npoin, void *setting_wrap)
 {
-  bAnimListElem *ale_setting = (bAnimListElem *)ale_npoin;
+  bAnimListElem *ale_setting = static_cast<bAnimListElem *>(ale_npoin);
   bAnimContext ac;
   ListBase anim_data = {nullptr, nullptr};
   int filter;
@@ -5374,7 +5523,7 @@ static void achannel_setting_flush_widget_cb(bContext *C, void *ale_npoin, void 
   if (ale_setting->type == ANIMTYPE_GPLAYER) {
     /* draw cache updates for settings that affect the visible strokes */
     if (setting == ACHANNEL_SETTING_VISIBLE) {
-      bGPdata *gpd = (bGPdata *)ale_setting->id;
+      bGPdata *gpd = reinterpret_cast<bGPdata *>(ale_setting->id);
       DEG_id_tag_update(&gpd->id, ID_RECALC_TRANSFORM | ID_RECALC_GEOMETRY);
     }
 
@@ -5448,9 +5597,9 @@ static void achannel_nlatrack_solo_widget_cb(bContext *C, void *ale_poin, void *
 /* callback for widget sliders - insert keyframes */
 static void achannel_setting_slider_cb(bContext *C, void *id_poin, void *fcu_poin)
 {
-  ID *id = (ID *)id_poin;
+  ID *id = static_cast<ID *>(id_poin);
   AnimData *adt = BKE_animdata_from_id(id);
-  FCurve *fcu = (FCurve *)fcu_poin;
+  FCurve *fcu = static_cast<FCurve *>(fcu_poin);
 
   ReportList *reports = CTX_wm_reports(C);
   Scene *scene = CTX_data_scene(C);
@@ -5516,9 +5665,9 @@ static void achannel_setting_slider_shapekey_cb(bContext *C, void *key_poin, voi
   const AnimationEvalContext anim_eval_context = BKE_animsys_eval_context_construct(
       depsgraph, float(scene->r.cfra));
 
-  Key *key = (Key *)key_poin;
-  KeyBlock *kb = (KeyBlock *)kb_poin;
-  PointerRNA id_ptr = RNA_id_pointer_create((ID *)key);
+  Key *key = static_cast<Key *>(key_poin);
+  KeyBlock *kb = static_cast<KeyBlock *>(kb_poin);
+  PointerRNA id_ptr = RNA_id_pointer_create(reinterpret_cast<ID *>(key));
   std::optional<std::string> rna_path = BKE_keyblock_curval_rnapath_get(key, kb);
 
   /* Since this is only ever called from moving a slider for an existing
@@ -5546,7 +5695,7 @@ static void achannel_setting_slider_shapekey_cb(bContext *C, void *key_poin, voi
 static void achannel_setting_slider_nla_curve_cb(bContext *C, void * /*id_poin*/, void *fcu_poin)
 {
   // ID *id = (ID *)id_poin;
-  FCurve *fcu = (FCurve *)fcu_poin;
+  FCurve *fcu = static_cast<FCurve *>(fcu_poin);
 
   PointerRNA ptr;
   PropertyRNA *prop;
@@ -5717,21 +5866,21 @@ static void draw_setting_widget(bAnimContext *ac,
   }
 
   /* type of button */
-  short butType;
+  ButType butType;
   if (usetoggle) {
     if (negflag) {
-      butType = UI_BTYPE_ICON_TOGGLE_N;
+      butType = ButType::IconToggleN;
     }
     else {
-      butType = UI_BTYPE_ICON_TOGGLE;
+      butType = ButType::IconToggle;
     }
   }
   else {
     if (negflag) {
-      butType = UI_BTYPE_TOGGLE_N;
+      butType = ButType::ToggleN;
     }
     else {
-      butType = UI_BTYPE_TOGGLE;
+      butType = ButType::Toggle;
     }
   }
 
@@ -5795,10 +5944,10 @@ static void draw_setting_widget(bAnimContext *ac,
     uiButHandleNFunc button_callback;
     switch (setting) {
       /* Settings needing flushing up/down hierarchy. */
-      case ACHANNEL_SETTING_VISIBLE: /* Graph Editor - 'visibility' toggles */
-      case ACHANNEL_SETTING_PROTECT: /* General - protection flags */
-      case ACHANNEL_SETTING_MUTE:    /* General - muting flags */
-      case ACHANNEL_SETTING_PINNED:  /* NLA Actions - 'map/nomap' */
+      case ACHANNEL_SETTING_VISIBLE: /* Graph Editor - "visibility" toggles. */
+      case ACHANNEL_SETTING_PROTECT: /* General - protection flags. */
+      case ACHANNEL_SETTING_MUTE:    /* General - muting flags. */
+      case ACHANNEL_SETTING_PINNED:  /* NLA Actions - "map/no-map". */
       case ACHANNEL_SETTING_MOD_OFF:
       case ACHANNEL_SETTING_ALWAYS_VISIBLE:
         button_callback = achannel_setting_flush_widget_cb;
@@ -5868,7 +6017,7 @@ static void draw_grease_pencil_layer_widgets(bAnimListElem *ale,
 
   /* Layer onion skinning switch. */
   offset -= ICON_WIDTH;
-  UI_block_emboss_set(block, UI_EMBOSS_NONE);
+  UI_block_emboss_set(block, blender::ui::EmbossType::None);
   PropertyRNA *onion_skinning_prop = RNA_struct_find_property(&ptr, "use_onion_skinning");
 
   const std::optional<std::string> onion_skinning_rna_path = RNA_path_from_ID_to_property(
@@ -5890,7 +6039,7 @@ static void draw_grease_pencil_layer_widgets(bAnimListElem *ale,
 
   /* Mask layer. */
   offset -= ICON_WIDTH;
-  UI_block_emboss_set(block, UI_EMBOSS_NONE);
+  UI_block_emboss_set(block, blender::ui::EmbossType::None);
   PropertyRNA *layer_mask_prop = RNA_struct_find_property(&ptr, "use_masks");
 
   const std::optional<std::string> layer_mask_rna_path = RNA_path_from_ID_to_property(
@@ -5911,7 +6060,7 @@ static void draw_grease_pencil_layer_widgets(bAnimListElem *ale,
   /* Layer opacity. */
   const short width = SLIDER_WIDTH * 0.6;
   offset -= width;
-  UI_block_emboss_set(block, UI_EMBOSS);
+  UI_block_emboss_set(block, blender::ui::EmbossType::Emboss);
   PropertyRNA *opacity_prop = RNA_struct_find_property(&ptr, "opacity");
   const std::optional<std::string> opacity_rna_path = RNA_path_from_ID_to_property(&ptr,
                                                                                    opacity_prop);
@@ -5957,7 +6106,7 @@ void ANIM_channel_draw_widgets(const bContext *C,
   ymid = BLI_rctf_cent_y(rect) - 0.5f * ICON_WIDTH;
 
   /* no button backdrop behind icons */
-  UI_block_emboss_set(block, UI_EMBOSS_NONE);
+  UI_block_emboss_set(block, blender::ui::EmbossType::None);
 
   /* step 1) draw expand widget ....................................... */
   if (acf->has_setting(ac, ale, ACHANNEL_SETTING_EXPAND)) {
@@ -6016,10 +6165,10 @@ void ANIM_channel_draw_widgets(const bContext *C,
       const short width = ac->region->winx - offset - (margin_x * 2);
       uiBut *but;
 
-      UI_block_emboss_set(block, UI_EMBOSS);
+      UI_block_emboss_set(block, blender::ui::EmbossType::Emboss);
 
       but = uiDefButR(block,
-                      UI_BTYPE_TEXT,
+                      ButType::Text,
                       1,
                       "",
                       offset + margin_x,
@@ -6041,7 +6190,7 @@ void ANIM_channel_draw_widgets(const bContext *C,
         WM_event_add_notifier(C, NC_ANIMATION | ND_ANIMCHAN | NA_RENAME, nullptr);
       }
 
-      UI_block_emboss_set(block, UI_EMBOSS_NONE);
+      UI_block_emboss_set(block, blender::ui::EmbossType::None);
     }
     else {
       /* Cannot get property/cannot or rename for some reason, so clear rename index
@@ -6064,12 +6213,12 @@ void ANIM_channel_draw_widgets(const bContext *C,
     if ((ac->sl) && ELEM(ac->spacetype, SPACE_ACTION, SPACE_GRAPH)) {
       switch (ac->spacetype) {
         case SPACE_ACTION: {
-          SpaceAction *saction = (SpaceAction *)ac->sl;
+          SpaceAction *saction = reinterpret_cast<SpaceAction *>(ac->sl);
           draw_sliders = (saction->flag & SACTION_SLIDERS);
           break;
         }
         case SPACE_GRAPH: {
-          SpaceGraph *sipo = (SpaceGraph *)ac->sl;
+          SpaceGraph *sipo = reinterpret_cast<SpaceGraph *>(ac->sl);
           draw_sliders = (sipo->flag & SIPO_SLIDERS);
           break;
         }
@@ -6095,7 +6244,7 @@ void ANIM_channel_draw_widgets(const bContext *C,
           immUniformColor3ubv(color);
 
           GPUVertFormat format = {0};
-          uint pos = GPU_vertformat_attr_add(&format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+          uint pos = GPU_vertformat_attr_add(&format, "pos", gpu::VertAttrType::SFLOAT_32_32);
           immRectf(pos,
                    rect->xmax - rect_width - rect_margin,
                    rect->ymin + rect_margin,
@@ -6166,13 +6315,13 @@ void ANIM_channel_draw_widgets(const bContext *C,
         uiBut *but;
         PointerRNA *opptr_b;
 
-        UI_block_emboss_set(block, UI_EMBOSS);
+        UI_block_emboss_set(block, blender::ui::EmbossType::Emboss);
 
         offset -= UI_UNIT_X;
         but = uiDefIconButO(block,
-                            UI_BTYPE_BUT,
+                            ButType::But,
                             "NLA_OT_action_pushdown",
-                            WM_OP_INVOKE_DEFAULT,
+                            blender::wm::OpCallContext::InvokeDefault,
                             ICON_NLA_PUSHDOWN,
                             offset,
                             ymid,
@@ -6183,7 +6332,7 @@ void ANIM_channel_draw_widgets(const bContext *C,
         opptr_b = UI_but_operator_ptr_ensure(but);
         RNA_int_set(opptr_b, "track_index", channel_index);
 
-        UI_block_emboss_set(block, UI_EMBOSS_NONE);
+        UI_block_emboss_set(block, blender::ui::EmbossType::None);
       }
 
       /* Slot ID type indicator. */
@@ -6220,12 +6369,12 @@ void ANIM_channel_draw_widgets(const bContext *C,
       offset -= SLIDER_WIDTH;
 
       /* need backdrop behind sliders... */
-      UI_block_emboss_set(block, UI_EMBOSS);
+      UI_block_emboss_set(block, blender::ui::EmbossType::Emboss);
 
       if (ale->owner) { /* Slider using custom RNA Access ---------- */
         if (ale->type == ANIMTYPE_NLACURVE) {
-          NlaStrip *strip = (NlaStrip *)ale->owner;
-          FCurve *fcu = (FCurve *)ale->data;
+          NlaStrip *strip = static_cast<NlaStrip *>(ale->owner);
+          FCurve *fcu = static_cast<FCurve *>(ale->data);
           PropertyRNA *prop;
 
           /* create RNA pointers */
@@ -6260,34 +6409,34 @@ void ANIM_channel_draw_widgets(const bContext *C,
 
         /* get destination info */
         if (ale->type == ANIMTYPE_FCURVE) {
-          FCurve *fcu = (FCurve *)ale->data;
+          FCurve *fcu = static_cast<FCurve *>(ale->data);
 
           rna_path = fcu->rna_path;
           array_index = fcu->array_index;
         }
         else if (ale->type == ANIMTYPE_SHAPEKEY) {
-          KeyBlock *kb = (KeyBlock *)ale->data;
-          Key *key = (Key *)ale->id;
+          KeyBlock *kb = static_cast<KeyBlock *>(ale->data);
+          Key *key = reinterpret_cast<Key *>(ale->id);
 
           rna_path = BKE_keyblock_curval_rnapath_get(key, kb);
         }
         /* Special for Grease Pencil Layer. */
         else if (ale->type == ANIMTYPE_GPLAYER) {
-          bGPdata *gpd = (bGPdata *)ale->id;
+          bGPdata *gpd = reinterpret_cast<bGPdata *>(ale->id);
           if ((gpd->flag & GP_DATA_ANNOTATIONS) == 0) {
             /* Reset slider offset, in order to add special gp icons. */
             offset += SLIDER_WIDTH;
 
-            bGPDlayer *gpl = (bGPDlayer *)ale->data;
+            bGPDlayer *gpl = static_cast<bGPDlayer *>(ale->data);
 
             /* Create the RNA pointers. */
-            ptr = RNA_pointer_create_discrete(ale->id, &RNA_GPencilLayer, ale->data);
+            ptr = RNA_pointer_create_discrete(ale->id, &RNA_AnnotationLayer, ale->data);
             PointerRNA id_ptr = RNA_id_pointer_create(ale->id);
             int icon;
 
             /* Layer onion skinning switch. */
             offset -= ICON_WIDTH;
-            UI_block_emboss_set(block, UI_EMBOSS_NONE);
+            UI_block_emboss_set(block, blender::ui::EmbossType::None);
             prop = RNA_struct_find_property(&ptr, "use_annotation_onion_skinning");
             if (const std::optional<std::string> gp_rna_path = RNA_path_from_ID_to_property(&ptr,
                                                                                             prop))
@@ -6311,7 +6460,7 @@ void ANIM_channel_draw_widgets(const bContext *C,
             /* Layer opacity. */
             const short width = SLIDER_WIDTH * 0.6;
             offset -= width;
-            UI_block_emboss_set(block, UI_EMBOSS);
+            UI_block_emboss_set(block, blender::ui::EmbossType::Emboss);
             prop = RNA_struct_find_property(&ptr, "annotation_opacity");
             if (const std::optional<std::string> gp_rna_path = RNA_path_from_ID_to_property(&ptr,
                                                                                             prop))

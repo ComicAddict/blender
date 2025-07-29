@@ -104,6 +104,9 @@ typedef struct BrushGpencilSettings {
   /** Randomness for Value. */
   float random_value;
 
+  int color_jitter_flag;
+  char _pad1[4];
+
   /** Factor to extend stroke extremes using fill tool. */
   float fill_extend_fac;
   /** Number of pixels to dilate fill area. */
@@ -161,7 +164,11 @@ typedef struct BrushCurvesSculptSettings {
  * saved in the asset library should be followed by a #BKE_brush_tag_unsaved_changes() call.
  */
 typedef struct Brush {
+#ifdef __cplusplus
   DNA_DEFINE_CXX_METHODS(Brush)
+  /** See #ID_Type comment for why this is here. */
+  static constexpr ID_Type id_type = ID_BR;
+#endif
 
   ID id;
 
@@ -170,16 +177,13 @@ typedef struct Brush {
   struct MTex mtex;
   struct MTex mask_mtex;
 
-  struct Brush *toggle_brush;
+  /* TODO (Sean): To be removed in 5.0 */
+  struct Brush *toggle_brush DNA_DEPRECATED;
 
-  struct ImBuf *icon_imbuf;
   PreviewImage *preview;
   /** Color gradient. */
   struct ColorBand *gradient;
   struct PaintCurve *paint_curve;
-
-  /** 1024 = FILE_MAX. */
-  char icon_filepath[1024];
 
   float normal_weight;
   /** Rake actual data (not texture), used for sculpt. */
@@ -219,6 +223,14 @@ typedef struct Brush {
 
   /** Color. */
   float rgb[3];
+  int color_jitter_flag;
+  float hsv_jitter[3];
+
+  /** Color jitter pressure curves. */
+  struct CurveMapping *curve_rand_hue;
+  struct CurveMapping *curve_rand_saturation;
+  struct CurveMapping *curve_rand_value;
+
   /** Opacity. */
   float alpha;
   /** Hardness */
@@ -287,7 +299,7 @@ typedef struct Brush {
   char gpencil_weight_brush_type;
   /** Active curves sculpt brush type (#eBrushCurvesSculptType). */
   char curves_sculpt_brush_type;
-  char _pad1[2];
+  char _pad1[10];
 
   float autosmooth_factor;
 
@@ -426,6 +438,11 @@ typedef struct PaletteColor {
 } PaletteColor;
 
 typedef struct Palette {
+#ifdef __cplusplus
+  /** See #ID_Type comment for why this is here. */
+  static constexpr ID_Type id_type = ID_PAL;
+#endif
+
   ID id;
 
   /** Pointer to individual colors. */
@@ -443,6 +460,11 @@ typedef struct PaintCurvePoint {
 } PaintCurvePoint;
 
 typedef struct PaintCurve {
+#ifdef __cplusplus
+  /** See #ID_Type comment for why this is here. */
+  static constexpr ID_Type id_type = ID_PC;
+#endif
+
   ID id;
   /** Points of curve. */
   PaintCurvePoint *points;

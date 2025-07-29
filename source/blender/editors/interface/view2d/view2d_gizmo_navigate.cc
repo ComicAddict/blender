@@ -39,6 +39,8 @@
 /* How much mini buttons offset from the primary. */
 #define GIZMO_MINI_OFFSET_FAC 0.38f
 
+namespace {
+
 enum {
   GZ_INDEX_MOVE = 0,
   GZ_INDEX_ZOOM = 1,
@@ -51,6 +53,16 @@ struct NavigateGizmoInfo {
   const char *gizmo;
   uint icon;
 };
+
+struct NavigateWidgetGroup {
+  wmGizmo *gz_array[GZ_INDEX_TOTAL];
+  /* Store the view state to check for changes. */
+  struct {
+    rcti rect_visible;
+  } state;
+};
+
+}  // namespace
 
 static NavigateGizmoInfo g_navigate_params_for_space_image[GZ_INDEX_TOTAL] = {
     {
@@ -104,14 +116,6 @@ static NavigateGizmoInfo *navigate_params_from_space_type(short space_type)
   }
 }
 
-struct NavigateWidgetGroup {
-  wmGizmo *gz_array[GZ_INDEX_TOTAL];
-  /* Store the view state to check for changes. */
-  struct {
-    rcti rect_visible;
-  } state;
-};
-
 static bool WIDGETGROUP_navigate_poll(const bContext *C, wmGizmoGroupType * /*gzgt*/)
 {
   if ((U.uiflag & USER_SHOW_GIZMO_NAVIGATE) == 0) {
@@ -119,6 +123,9 @@ static bool WIDGETGROUP_navigate_poll(const bContext *C, wmGizmoGroupType * /*gz
   }
   ScrArea *area = CTX_wm_area(C);
   if (area == nullptr) {
+    return false;
+  }
+  if (CTX_wm_screen(C)->state == SCREENFULL) {
     return false;
   }
   switch (area->spacetype) {
@@ -149,7 +156,7 @@ static bool WIDGETGROUP_navigate_poll(const bContext *C, wmGizmoGroupType * /*gz
 
 static void WIDGETGROUP_navigate_setup(const bContext * /*C*/, wmGizmoGroup *gzgroup)
 {
-  NavigateWidgetGroup *navgroup = MEM_cnew<NavigateWidgetGroup>(__func__);
+  NavigateWidgetGroup *navgroup = MEM_callocN<NavigateWidgetGroup>(__func__);
 
   const NavigateGizmoInfo *navigate_params = navigate_params_from_space_type(
       gzgroup->type->gzmap_params.spaceid);

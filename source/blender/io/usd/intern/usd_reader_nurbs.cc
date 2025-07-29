@@ -31,7 +31,7 @@ static bool set_knots(const pxr::VtDoubleArray &knots, float *&nu_knots)
 
   /* Skip first and last knots, as they are used for padding. */
   const size_t num_knots = knots.size();
-  nu_knots = static_cast<float *>(MEM_callocN(num_knots * sizeof(float), __func__));
+  nu_knots = MEM_calloc_arrayN<float>(num_knots, __func__);
 
   for (size_t i = 0; i < num_knots; i++) {
     nu_knots[i] = float(knots[i]);
@@ -42,7 +42,7 @@ static bool set_knots(const pxr::VtDoubleArray &knots, float *&nu_knots)
 
 namespace blender::io::usd {
 
-void USDNurbsReader::create_object(Main *bmain, const double /*motionSampleTime*/)
+void USDNurbsReader::create_object(Main *bmain)
 {
   Curve *cu = BKE_curve_add(bmain, name_.c_str(), OB_CURVES_LEGACY);
 
@@ -54,41 +54,41 @@ void USDNurbsReader::create_object(Main *bmain, const double /*motionSampleTime*
   object_->data = cu;
 }
 
-void USDNurbsReader::read_object_data(Main *bmain, const double motionSampleTime)
+void USDNurbsReader::read_object_data(Main *bmain, const pxr::UsdTimeCode time)
 {
   Curve *cu = (Curve *)object_->data;
-  read_curve_sample(cu, motionSampleTime);
+  read_curve_sample(cu, time);
 
   if (curve_prim_.GetPointsAttr().ValueMightBeTimeVarying()) {
     add_cache_modifier();
   }
 
-  USDXformReader::read_object_data(bmain, motionSampleTime);
+  USDXformReader::read_object_data(bmain, time);
 }
 
-void USDNurbsReader::read_curve_sample(Curve *cu, const double motionSampleTime)
+void USDNurbsReader::read_curve_sample(Curve *cu, const pxr::UsdTimeCode time)
 {
   pxr::UsdAttribute widthsAttr = curve_prim_.GetWidthsAttr();
   pxr::UsdAttribute vertexAttr = curve_prim_.GetCurveVertexCountsAttr();
   pxr::UsdAttribute pointsAttr = curve_prim_.GetPointsAttr();
 
   pxr::VtIntArray usdCounts;
-  vertexAttr.Get(&usdCounts, motionSampleTime);
+  vertexAttr.Get(&usdCounts, time);
 
   pxr::VtVec3fArray usdPoints;
-  pointsAttr.Get(&usdPoints, motionSampleTime);
+  pointsAttr.Get(&usdPoints, time);
 
   pxr::VtFloatArray usdWidths;
-  widthsAttr.Get(&usdWidths, motionSampleTime);
+  widthsAttr.Get(&usdWidths, time);
 
   pxr::VtIntArray orders;
-  curve_prim_.GetOrderAttr().Get(&orders, motionSampleTime);
+  curve_prim_.GetOrderAttr().Get(&orders, time);
 
   pxr::VtDoubleArray knots;
-  curve_prim_.GetKnotsAttr().Get(&knots, motionSampleTime);
+  curve_prim_.GetKnotsAttr().Get(&knots, time);
 
   pxr::VtVec3fArray usdNormals;
-  curve_prim_.GetNormalsAttr().Get(&usdNormals, motionSampleTime);
+  curve_prim_.GetNormalsAttr().Get(&usdNormals, time);
 
   /* If normals, extrude, else bevel.
    * Perhaps to be replaced by Blender USD Schema. */
@@ -105,7 +105,7 @@ void USDNurbsReader::read_curve_sample(Curve *cu, const double motionSampleTime)
   for (size_t i = 0; i < usdCounts.size(); i++) {
     const int num_verts = usdCounts[i];
 
-    Nurb *nu = static_cast<Nurb *>(MEM_callocN(sizeof(Nurb), __func__));
+    Nurb *nu = MEM_callocN<Nurb>(__func__);
     nu->flag = CU_SMOOTH;
     nu->type = CU_NURBS;
 
@@ -137,7 +137,7 @@ void USDNurbsReader::read_curve_sample(Curve *cu, const double motionSampleTime)
 
     float weight = 1.0f;
 
-    nu->bp = static_cast<BPoint *>(MEM_callocN(sizeof(BPoint) * nu->pntsu, __func__));
+    nu->bp = MEM_calloc_arrayN<BPoint>(nu->pntsu, __func__);
     BPoint *bp = nu->bp;
 
     for (int j = 0; j < nu->pntsu; j++, bp++, idx++) {

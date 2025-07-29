@@ -7,7 +7,7 @@
  */
 
 #include "BKE_node.hh"
-#include "BLI_math_base.h"
+#include "BLI_math_base.hh"
 #include "BLI_math_vector.hh"
 #include "BLI_math_vector_types.hh"
 
@@ -18,8 +18,6 @@
 #include "DNA_color_types.h"
 
 #include "BKE_colortools.hh"
-
-#include "UI_interface.hh"
 
 #include "GPU_material.hh"
 
@@ -34,14 +32,14 @@ namespace blender::nodes::node_composite_time_curves_cc {
 
 static void cmp_node_time_declare(NodeDeclarationBuilder &b)
 {
+  b.add_input<decl::Int>("Start Frame").default_value(1);
+  b.add_input<decl::Int>("End Frame").default_value(250);
+
   b.add_output<decl::Float>("Fac");
 }
 
-/* custom1 = start_frame, custom2 = end_frame */
 static void node_composit_init_curves_time(bNodeTree * /*ntree*/, bNode *node)
 {
-  node->custom1 = 1;
-  node->custom2 = 250;
   node->storage = BKE_curvemapping_add(1, 0.0f, 0.0f, 1.0f, 1.0f);
 }
 
@@ -53,43 +51,45 @@ class TimeCurveOperation : public NodeOperation {
 
   void execute() override
   {
-    Result &result = get_result("Fac");
+    Result &result = this->get_result("Fac");
     result.allocate_single_value();
 
-    CurveMapping *curve_mapping = const_cast<CurveMapping *>(get_curve_mapping());
+    CurveMapping *curve_mapping = const_cast<CurveMapping *>(this->get_curve_mapping());
     BKE_curvemapping_init(curve_mapping);
-    const float time = BKE_curvemapping_evaluateF(curve_mapping, 0, compute_normalized_time());
-    result.set_single_value(clamp_f(time, 0.0f, 1.0f));
+    const float time = BKE_curvemapping_evaluateF(
+        curve_mapping, 0, this->compute_normalized_time());
+    result.set_single_value(math::clamp(time, 0.0f, 1.0f));
+  }
+
+  float compute_normalized_time()
+  {
+    const int frame_number = this->context().get_frame_number();
+    if (frame_number < this->get_start_frame()) {
+      return 0.0f;
+    }
+    if (frame_number > this->get_end_frame()) {
+      return 1.0f;
+    }
+    if (this->get_start_frame() == this->get_end_frame()) {
+      return 0.0f;
+    }
+    return float(frame_number - this->get_start_frame()) /
+           float(this->get_end_frame() - this->get_start_frame());
+  }
+
+  int get_start_frame()
+  {
+    return this->get_input("Start Frame").get_single_value_default(1);
+  }
+
+  int get_end_frame()
+  {
+    return this->get_input("End Frame").get_single_value_default(250);
   }
 
   const CurveMapping *get_curve_mapping()
   {
     return static_cast<const CurveMapping *>(bnode().storage);
-  }
-
-  int get_start_time()
-  {
-    return bnode().custom1;
-  }
-
-  int get_end_time()
-  {
-    return bnode().custom2;
-  }
-
-  float compute_normalized_time()
-  {
-    const int frame_number = context().get_frame_number();
-    if (frame_number < get_start_time()) {
-      return 0.0f;
-    }
-    if (frame_number > get_end_time()) {
-      return 1.0f;
-    }
-    if (get_start_time() == get_end_time()) {
-      return 0.0f;
-    }
-    return float(frame_number - get_start_time()) / float(get_end_time() - get_start_time());
   }
 };
 
@@ -100,7 +100,7 @@ static NodeOperation *get_compositor_operation(Context &context, DNode node)
 
 }  // namespace blender::nodes::node_composite_time_curves_cc
 
-void register_node_type_cmp_curve_time()
+static void register_node_type_cmp_curve_time()
 {
   namespace file_ns = blender::nodes::node_composite_time_curves_cc;
 
@@ -121,114 +121,7 @@ void register_node_type_cmp_curve_time()
 
   blender::bke::node_register_type(ntype);
 }
-
-/* **************** CURVE VEC  ******************** */
-
-namespace blender::nodes::node_composite_vector_curves_cc {
-
-static void cmp_node_curve_vec_declare(NodeDeclarationBuilder &b)
-{
-  b.add_input<decl::Vector>("Vector")
-      .default_value({0.0f, 0.0f, 0.0f})
-      .min(-1.0f)
-      .max(1.0f)
-      .compositor_domain_priority(0);
-  b.add_output<decl::Vector>("Vector");
-}
-
-static void node_composit_init_curve_vec(bNodeTree * /*ntree*/, bNode *node)
-{
-  node->storage = BKE_curvemapping_add(3, -1.0f, -1.0f, 1.0f, 1.0f);
-}
-
-static void node_buts_curvevec(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
-{
-  uiTemplateCurveMapping(layout, ptr, "mapping", 'v', false, false, false, false);
-}
-
-using namespace blender::compositor;
-
-static CurveMapping *get_curve_mapping(const bNode &node)
-{
-  return static_cast<CurveMapping *>(node.storage);
-}
-
-static int node_gpu_material(GPUMaterial *material,
-                             bNode *node,
-                             bNodeExecData * /*execdata*/,
-                             GPUNodeStack *inputs,
-                             GPUNodeStack *outputs)
-{
-  CurveMapping *curve_mapping = get_curve_mapping(*node);
-
-  BKE_curvemapping_init(curve_mapping);
-  float *band_values;
-  int band_size;
-  BKE_curvemapping_table_RGBA(curve_mapping, &band_values, &band_size);
-  float band_layer;
-  GPUNodeLink *band_texture = GPU_color_band(material, band_size, band_values, &band_layer);
-
-  float start_slopes[CM_TOT];
-  float end_slopes[CM_TOT];
-  BKE_curvemapping_compute_slopes(curve_mapping, start_slopes, end_slopes);
-  float range_minimums[CM_TOT];
-  BKE_curvemapping_get_range_minimums(curve_mapping, range_minimums);
-  float range_dividers[CM_TOT];
-  BKE_curvemapping_compute_range_dividers(curve_mapping, range_dividers);
-
-  return GPU_stack_link(material,
-                        node,
-                        "curves_vector",
-                        inputs,
-                        outputs,
-                        band_texture,
-                        GPU_constant(&band_layer),
-                        GPU_uniform(range_minimums),
-                        GPU_uniform(range_dividers),
-                        GPU_uniform(start_slopes),
-                        GPU_uniform(end_slopes));
-}
-
-static void node_build_multi_function(blender::nodes::NodeMultiFunctionBuilder &builder)
-{
-  CurveMapping *curve_mapping = get_curve_mapping(builder.node());
-  BKE_curvemapping_init(curve_mapping);
-
-  builder.construct_and_set_matching_fn_cb([=]() {
-    return mf::build::SI1_SO<float3, float3>(
-        "Vector Curves",
-        [=](const float3 &vector) -> float3 {
-          float3 output_vector = float3(0.0f);
-          BKE_curvemapping_evaluate3F(curve_mapping, output_vector, vector);
-          return output_vector;
-        },
-        mf::build::exec_presets::AllSpanOrSingle());
-  });
-}
-
-}  // namespace blender::nodes::node_composite_vector_curves_cc
-
-void register_node_type_cmp_curve_vec()
-{
-  namespace file_ns = blender::nodes::node_composite_vector_curves_cc;
-
-  static blender::bke::bNodeType ntype;
-
-  cmp_node_type_base(&ntype, "CompositorNodeCurveVec", CMP_NODE_CURVE_VEC);
-  ntype.ui_name = "Vector Curves";
-  ntype.ui_description = "Map input vector components with curves";
-  ntype.enum_name_legacy = "CURVE_VEC";
-  ntype.nclass = NODE_CLASS_OP_VECTOR;
-  ntype.declare = file_ns::cmp_node_curve_vec_declare;
-  ntype.draw_buttons = file_ns::node_buts_curvevec;
-  blender::bke::node_type_size(ntype, 200, 140, 320);
-  ntype.initfunc = file_ns::node_composit_init_curve_vec;
-  blender::bke::node_type_storage(ntype, "CurveMapping", node_free_curves, node_copy_curves);
-  ntype.gpu_fn = file_ns::node_gpu_material;
-  ntype.build_multi_function = file_ns::node_build_multi_function;
-
-  blender::bke::node_register_type(ntype);
-}
+NOD_REGISTER_NODE(register_node_type_cmp_curve_time)
 
 /* **************** CURVE RGB  ******************** */
 
@@ -236,6 +129,7 @@ namespace blender::nodes::node_composite_rgb_curves_cc {
 
 static void cmp_node_rgbcurves_declare(NodeDeclarationBuilder &b)
 {
+  b.is_function_node();
   b.add_input<decl::Float>("Fac")
       .default_value(1.0f)
       .min(0.0f)
@@ -371,7 +265,7 @@ static void node_build_multi_function(blender::nodes::NodeMultiFunctionBuilder &
 
 }  // namespace blender::nodes::node_composite_rgb_curves_cc
 
-void register_node_type_cmp_curve_rgb()
+static void register_node_type_cmp_curve_rgb()
 {
   namespace file_ns = blender::nodes::node_composite_rgb_curves_cc;
 
@@ -391,3 +285,4 @@ void register_node_type_cmp_curve_rgb()
 
   blender::bke::node_register_type(ntype);
 }
+NOD_REGISTER_NODE(register_node_type_cmp_curve_rgb)

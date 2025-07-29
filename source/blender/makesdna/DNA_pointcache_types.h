@@ -102,8 +102,8 @@ typedef struct PointCache {
   char name[64];
   char prev_name[64];
   char info[128];
-  /** File path, 1024 = FILE_MAX. */
-  char path[1024];
+  /** File path. */
+  char path[/*FILE_MAX*/ 1024];
 
   /**
    * Array of length `endframe - startframe + 1` with flags to indicate cached frames.
@@ -151,6 +151,11 @@ enum {
 
 enum {
   PTCACHE_COMPRESS_NO = 0,
-  PTCACHE_COMPRESS_LZO = 1,
-  PTCACHE_COMPRESS_LZMA = 2,
+  /* LZO and LZMA have been removed since 5.0. */
+  // PTCACHE_COMPRESS_LZO = 1 << 0,
+  // PTCACHE_COMPRESS_LZMA = 1 << 1,
+  PTCACHE_COMPRESS_ZSTD_FAST = 1 << 2,
+  PTCACHE_COMPRESS_ZSTD_SLOW = 1 << 3,
+
+  PTCACHE_COMPRESS_ZSTD = PTCACHE_COMPRESS_ZSTD_FAST | PTCACHE_COMPRESS_ZSTD_SLOW
 };

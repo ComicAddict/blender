@@ -12,6 +12,7 @@
 
 #include "DNA_node_types.h"
 #include "DNA_screen_types.h"
+#include "DNA_sequence_types.h"
 
 #include "BLI_listbase.h"
 #include "BLI_map.hh"
@@ -133,16 +134,17 @@ static void change_node_socket_name(ListBase *sockets, const char *old_name, con
 {
   LISTBASE_FOREACH (bNodeSocket *, socket, sockets) {
     if (STREQ(socket->name, old_name)) {
-      STRNCPY(socket->name, new_name);
+      STRNCPY_UTF8(socket->name, new_name);
     }
     if (STREQ(socket->identifier, old_name)) {
-      STRNCPY(socket->identifier, new_name);
+      STRNCPY_UTF8(socket->identifier, new_name);
     }
   }
 }
 
 bool version_node_socket_is_used(bNodeSocket *sock)
 {
+  BLI_assert(sock != nullptr);
   return sock->flag & SOCK_IS_LINKED;
 }
 
@@ -204,11 +206,39 @@ void version_node_output_socket_name(bNodeTree *ntree,
   }
 }
 
+StringRef legacy_socket_idname_to_socket_type(StringRef idname)
+{
+  using string_pair = std::pair<const char *, const char *>;
+  static const string_pair subtypes_map[] = {{"NodeSocketFloatUnsigned", "NodeSocketFloat"},
+                                             {"NodeSocketFloatPercentage", "NodeSocketFloat"},
+                                             {"NodeSocketFloatFactor", "NodeSocketFloat"},
+                                             {"NodeSocketFloatAngle", "NodeSocketFloat"},
+                                             {"NodeSocketFloatTime", "NodeSocketFloat"},
+                                             {"NodeSocketFloatTimeAbsolute", "NodeSocketFloat"},
+                                             {"NodeSocketFloatDistance", "NodeSocketFloat"},
+                                             {"NodeSocketIntUnsigned", "NodeSocketInt"},
+                                             {"NodeSocketIntPercentage", "NodeSocketInt"},
+                                             {"NodeSocketIntFactor", "NodeSocketInt"},
+                                             {"NodeSocketVectorTranslation", "NodeSocketVector"},
+                                             {"NodeSocketVectorDirection", "NodeSocketVector"},
+                                             {"NodeSocketVectorVelocity", "NodeSocketVector"},
+                                             {"NodeSocketVectorAcceleration", "NodeSocketVector"},
+                                             {"NodeSocketVectorEuler", "NodeSocketVector"},
+                                             {"NodeSocketVectorXYZ", "NodeSocketVector"}};
+  for (const string_pair &pair : subtypes_map) {
+    if (pair.first == idname) {
+      return pair.second;
+    }
+  }
+  /* Unchanged socket idname. */
+  return idname;
+}
+
 bNode &version_node_add_empty(bNodeTree &ntree, const char *idname)
 {
   blender::bke::bNodeType *ntype = blender::bke::node_type_find(idname);
 
-  bNode *node = MEM_cnew<bNode>(__func__);
+  bNode *node = MEM_callocN<bNode>(__func__);
   node->runtime = MEM_new<blender::bke::bNodeRuntime>(__func__);
   BLI_addtail(&ntree.nodes, node);
   blender::bke::node_unique_id(ntree, *node);
@@ -228,6 +258,15 @@ bNode &version_node_add_empty(bNodeTree &ntree, const char *idname)
   return *node;
 }
 
+void version_node_remove(bNodeTree &ntree, bNode &node)
+{
+  blender::bke::node_unlink_node(ntree, node);
+  blender::bke::node_unlink_attached(&ntree, &node);
+
+  blender::bke::node_free_node(&ntree, node);
+  blender::bke::node_rebuild_id_vector(ntree);
+}
+
 bNodeSocket &version_node_add_socket(bNodeTree &ntree,
                                      bNode &node,
                                      const eNodeSocketInOut in_out,
@@ -236,15 +275,15 @@ bNodeSocket &version_node_add_socket(bNodeTree &ntree,
 {
   blender::bke::bNodeSocketType *stype = blender::bke::node_socket_type_find(idname);
 
-  bNodeSocket *socket = MEM_cnew<bNodeSocket>(__func__);
+  bNodeSocket *socket = MEM_callocN<bNodeSocket>(__func__);
   socket->runtime = MEM_new<blender::bke::bNodeSocketRuntime>(__func__);
   socket->in_out = in_out;
   socket->limit = (in_out == SOCK_IN ? 1 : 0xFFF);
   socket->type = stype->type;
 
-  STRNCPY(socket->idname, idname);
-  STRNCPY(socket->identifier, identifier);
-  STRNCPY(socket->name, identifier);
+  STRNCPY_UTF8(socket->idname, idname);
+  STRNCPY_UTF8(socket->identifier, identifier);
+  STRNCPY_UTF8(socket->name, identifier);
 
   if (in_out == SOCK_IN) {
     BLI_addtail(&node.inputs, socket);
@@ -253,8 +292,7 @@ bNodeSocket &version_node_add_socket(bNodeTree &ntree,
     BLI_addtail(&node.outputs, socket);
   }
 
-  node_socket_init_default_value_data(
-      eNodeSocketDatatype(stype->type), stype->subtype, &socket->default_value);
+  node_socket_init_default_value_data(stype->type, stype->subtype, &socket->default_value);
 
   BKE_ntree_update_tag_socket_new(&ntree, socket);
   return *socket;
@@ -272,7 +310,7 @@ bNodeLink &version_node_add_link(
   bNode &node_to = node_b;
   bNodeSocket &socket_to = socket_b;
 
-  bNodeLink *link = MEM_cnew<bNodeLink>(__func__);
+  bNodeLink *link = MEM_callocN<bNodeLink>(__func__);
   link->fromnode = &node_from;
   link->fromsock = &socket_from;
   link->tonode = &node_to;
@@ -335,18 +373,14 @@ void version_node_socket_index_animdata(Main *bmain,
           continue;
         }
 
-        const size_t node_name_length = strlen(node->name);
-        const size_t node_name_escaped_max_length = (node_name_length * 2);
-        char *node_name_escaped = (char *)MEM_mallocN(node_name_escaped_max_length + 1,
-                                                      "escaped name");
-        BLI_str_escape(node_name_escaped, node->name, node_name_escaped_max_length);
+        char node_name_escaped[sizeof(node->name) * 2];
+        BLI_str_escape(node_name_escaped, node->name, sizeof(node_name_escaped));
         char *rna_path_prefix = BLI_sprintfN("nodes[\"%s\"].inputs", node_name_escaped);
 
         const int new_index = input_index + socket_index_offset;
         BKE_animdata_fix_paths_rename_all_ex(
             bmain, owner_id, rna_path_prefix, nullptr, nullptr, input_index, new_index, false);
         MEM_freeN(rna_path_prefix);
-        MEM_freeN(node_name_escaped);
       }
     }
     FOREACH_NODETREE_END;
@@ -468,13 +502,13 @@ float *version_cycles_node_socket_vector_value(bNodeSocket *socket)
 
 IDProperty *version_cycles_properties_from_ID(ID *id)
 {
-  IDProperty *idprop = IDP_GetProperties(id);
+  IDProperty *idprop = IDP_ID_system_properties_get(id);
   return (idprop) ? IDP_GetPropertyTypeFromGroup(idprop, "cycles", IDP_GROUP) : nullptr;
 }
 
 IDProperty *version_cycles_properties_from_view_layer(ViewLayer *view_layer)
 {
-  IDProperty *idprop = view_layer->id_properties;
+  IDProperty *idprop = view_layer->system_properties;
   return (idprop) ? IDP_GetPropertyTypeFromGroup(idprop, "cycles", IDP_GROUP) : nullptr;
 }
 
@@ -518,7 +552,7 @@ void version_cycles_property_boolean_set(IDProperty *idprop, const char *name, b
 
 IDProperty *version_cycles_visibility_properties_from_ID(ID *id)
 {
-  IDProperty *idprop = IDP_GetProperties(id);
+  IDProperty *idprop = IDP_ID_system_properties_get(id);
   return (idprop) ? IDP_GetPropertyTypeFromGroup(idprop, "cycles_visibility", IDP_GROUP) : nullptr;
 }
 
@@ -599,6 +633,36 @@ bNode *version_eevee_output_node_get(bNodeTree *ntree, int16_t node_type)
   return output_node;
 }
 
+bool all_scenes_use(Main *bmain, const blender::Span<const char *> engines)
+{
+  if (!bmain->scenes.first) {
+    return false;
+  }
+
+  LISTBASE_FOREACH (Scene *, scene, &bmain->scenes) {
+    bool match = false;
+    for (const char *engine : engines) {
+      if (STREQ(scene->r.engine, engine)) {
+        match = true;
+      }
+    }
+    if (!match) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bNodeTree *version_get_scene_compositor_node_tree(Main *bmain, Scene *scene)
+{
+  if (!MAIN_VERSION_FILE_ATLEAST(bmain, 500, 4)) {
+    return scene->nodetree;
+  }
+
+  return scene->compositing_node_group;
+}
+
 static bool blendfile_or_libraries_versions_atleast(Main *bmain,
                                                     const short versionfile,
                                                     const short subversionfile)
@@ -621,7 +685,7 @@ void do_versions_after_setup(Main *new_bmain,
                              BlendFileReadReport *reports)
 {
   /* WARNING: The code below may add IDs. These IDs _will_ be (by definition) conforming to current
-   * code's version already, and _must not_ be 'versionned' again.
+   * code's version already, and _must not_ be *versioned* again.
    *
    * This means that when adding code here, _extreme_ care must be taken that it will not badly
    * affect these 'modern' IDs potentially added by already existing processing.
@@ -655,7 +719,7 @@ void do_versions_after_setup(Main *new_bmain,
   if (!blendfile_or_libraries_versions_atleast(new_bmain, 250, 0)) {
     LISTBASE_FOREACH (Scene *, scene, &new_bmain->scenes) {
       if (scene->ed) {
-        SEQ_doversion_250_sound_proxy_update(new_bmain, scene->ed);
+        blender::seq::doversion_250_sound_proxy_update(new_bmain, scene->ed);
       }
     }
   }
@@ -679,13 +743,34 @@ void do_versions_after_setup(Main *new_bmain,
     BKE_main_mesh_legacy_convert_auto_smooth(*new_bmain);
   }
 
+  if (!blendfile_or_libraries_versions_atleast(new_bmain, 404, 2)) {
+    /* Version all the action assignments of just-versioned datablocks. This MUST happen before the
+     * GreasePencil conversion, as that assumes the Action Slots have already been assigned. */
+    blender::animrig::versioning::convert_legacy_action_assignments(*new_bmain, reports->reports);
+  }
+
   if (!blendfile_or_libraries_versions_atleast(new_bmain, 403, 3)) {
     /* Convert all the legacy grease pencil objects. This does not touch annotations. */
     blender::bke::greasepencil::convert::legacy_main(*new_bmain, lapp_context, *reports);
   }
 
-  if (!blendfile_or_libraries_versions_atleast(new_bmain, 404, 2)) {
-    /* Version all the action assignments of just-versioned datablocks. */
-    blender::animrig::versioning::convert_legacy_action_assignments(*new_bmain, reports->reports);
+  if (!blendfile_or_libraries_versions_atleast(new_bmain, 500, 4)) {
+    LISTBASE_FOREACH (Scene *, scene, &new_bmain->scenes) {
+      bNodeTree *ntree = scene->nodetree;
+      if (!ntree) {
+        continue;
+      }
+      ntree->id.flag &= ~ID_FLAG_EMBEDDED_DATA;
+      ntree->owner_id = nullptr;
+      ntree->id.tag |= ID_TAG_NO_MAIN;
+
+      scene->compositing_node_group = ntree;
+      scene->nodetree = nullptr;
+
+      BKE_libblock_management_main_add(new_bmain, ntree);
+
+      /* NOTE: The user count remains zero at this point. It will get automatically updated after
+       * blend file reading is done. */
+    }
   }
 }

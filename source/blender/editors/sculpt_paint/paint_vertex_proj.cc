@@ -20,7 +20,6 @@
 #include "BLI_listbase.h"
 #include "BLI_math_vector.h"
 
-#include "DEG_depsgraph.hh"
 #include "DEG_depsgraph_query.hh"
 
 #include "ED_view3d.hh"
@@ -78,7 +77,7 @@ static void vpaint_proj_dm_map_cosnos_init(Depsgraph &depsgraph,
                                            Object &ob,
                                            VertProjHandle &vp_handle)
 {
-  const Object *ob_eval = DEG_get_evaluated_object(&depsgraph, &ob);
+  const Object *ob_eval = DEG_get_evaluated(&depsgraph, &ob);
   const Mesh *mesh_eval = BKE_object_get_evaluated_mesh(ob_eval);
 
   vp_handle.vert_normals.fill(blender::float3(0));
@@ -136,7 +135,7 @@ static void vpaint_proj_dm_map_cosnos_update(Depsgraph *depsgraph,
 
   Object &ob = *vp_handle->ob;
 
-  const Object *ob_eval = DEG_get_evaluated_object(depsgraph, &ob);
+  const Object *ob_eval = DEG_get_evaluated(depsgraph, &ob);
   const Mesh *mesh_eval = BKE_object_get_evaluated_mesh(ob_eval);
 
   /* quick sanity check - we shouldn't have to run this if there are no modifiers */

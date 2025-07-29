@@ -37,6 +37,8 @@
 /* Own include. */
 #include "sequencer_intern.hh"
 
+namespace blender::ed::vse {
+
 /* -------------------------------------------------------------------- */
 /** \name Sequencer Sample Backdrop Operator
  * \{ */
@@ -48,7 +50,7 @@ void SEQUENCER_OT_sample(wmOperatorType *ot)
   ot->idname = "SEQUENCER_OT_sample";
   ot->description = "Use mouse to sample color in current frame";
 
-  /* Api callbacks. */
+  /* API callbacks. */
   ot->invoke = ED_imbuf_sample_invoke;
   ot->modal = ED_imbuf_sample_modal;
   ot->cancel = ED_imbuf_sample_cancel;
@@ -79,8 +81,9 @@ void SEQ_get_timeline_region_padding(const bContext *C, float *r_pad_top, float 
     *r_pad_top += UI_TIME_CACHE_MARGIN_Y;
   }
 
-  *r_pad_bottom = BLI_listbase_is_empty(ED_context_get_markers(C)) ? V2D_SCROLL_HANDLE_HEIGHT :
-                                                                     UI_MARKER_MARGIN_Y;
+  *r_pad_bottom = BLI_listbase_is_empty(ED_sequencer_context_get_markers(C)) ?
+                      V2D_SCROLL_HANDLE_HEIGHT :
+                      UI_MARKER_MARGIN_Y;
 }
 
 void SEQ_add_timeline_region_padding(const bContext *C, rctf *view_box)
@@ -96,23 +99,23 @@ void SEQ_add_timeline_region_padding(const bContext *C, rctf *view_box)
   BLI_rctf_pad_y(view_box, region->winy, pad_bottom, pad_top);
 }
 
-static int sequencer_view_all_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus sequencer_view_all_exec(bContext *C, wmOperator *op)
 {
   ARegion *region = CTX_wm_region(C);
   rctf box;
 
   const int smooth_viewtx = WM_operator_smooth_viewtx_get(op);
-  Scene *scene = CTX_data_scene(C);
-  const Editing *ed = SEQ_editing_get(scene);
+  Scene *scene = CTX_data_sequencer_scene(C);
+  const Editing *ed = seq::editing_get(scene);
 
-  SEQ_timeline_init_boundbox(scene, &box);
-  MetaStack *ms = SEQ_meta_stack_active_get(ed);
+  seq::timeline_init_boundbox(scene, &box);
+  MetaStack *ms = seq::meta_stack_active_get(ed);
   /* Use meta strip range instead of scene. */
   if (ms != nullptr) {
     box.xmin = ms->disp_range[0] - 1;
     box.xmax = ms->disp_range[1] + 1;
   }
-  SEQ_timeline_expand_boundbox(scene, SEQ_active_seqbase_get(ed), &box);
+  seq::timeline_expand_boundbox(scene, seq::active_seqbase_get(ed), &box);
 
   SEQ_add_timeline_region_padding(C, &box);
 
@@ -127,7 +130,7 @@ void SEQUENCER_OT_view_all(wmOperatorType *ot)
   ot->idname = "SEQUENCER_OT_view_all";
   ot->description = "View all the strips in the sequencer";
 
-  /* Api callbacks. */
+  /* API callbacks. */
   ot->exec = sequencer_view_all_exec;
   ot->poll = ED_operator_sequencer_active;
 
@@ -141,7 +144,7 @@ void SEQUENCER_OT_view_all(wmOperatorType *ot)
 /** \name Go to Current Frame Operator
  * \{ */
 
-static int sequencer_view_frame_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus sequencer_view_frame_exec(bContext *C, wmOperator *op)
 {
   const int smooth_viewtx = WM_operator_smooth_viewtx_get(op);
   ANIM_center_frame(C, smooth_viewtx);
@@ -156,7 +159,7 @@ void SEQUENCER_OT_view_frame(wmOperatorType *ot)
   ot->idname = "SEQUENCER_OT_view_frame";
   ot->description = "Move the view to the current frame";
 
-  /* Api callbacks. */
+  /* API callbacks. */
   ot->exec = sequencer_view_frame_exec;
   ot->poll = ED_operator_sequencer_active;
 
@@ -170,14 +173,14 @@ void SEQUENCER_OT_view_frame(wmOperatorType *ot)
 /** \name Preview Frame All Operator
  * \{ */
 
-static int sequencer_view_all_preview_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus sequencer_view_all_preview_exec(bContext *C, wmOperator * /*op*/)
 {
   SpaceSeq *sseq = CTX_wm_space_seq(C);
   bScreen *screen = CTX_wm_screen(C);
   ScrArea *area = CTX_wm_area(C);
 #if 0
   ARegion *region = CTX_wm_region(C);
-  Scene *scene = CTX_data_scene(C);
+  Scene *scene = CTX_data_sequencer_scene(C);
 #endif
   View2D *v2d = UI_view2d_fromcontext(C);
 
@@ -226,7 +229,7 @@ void SEQUENCER_OT_view_all_preview(wmOperatorType *ot)
   ot->idname = "SEQUENCER_OT_view_all_preview";
   ot->description = "Zoom preview to fit in the area";
 
-  /* Api callbacks. */
+  /* API callbacks. */
   ot->exec = sequencer_view_all_preview_exec;
   ot->poll = ED_operator_sequencer_active;
 
@@ -240,9 +243,9 @@ void SEQUENCER_OT_view_all_preview(wmOperatorType *ot)
 /** \name Sequencer View Zoom Ratio Operator
  * \{ */
 
-static int sequencer_view_zoom_ratio_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus sequencer_view_zoom_ratio_exec(bContext *C, wmOperator *op)
 {
-  const RenderData *rd = &CTX_data_scene(C)->r;
+  const RenderData *rd = &CTX_data_sequencer_scene(C)->r;
   View2D *v2d = UI_view2d_fromcontext(C);
 
   float ratio = RNA_float_get(op->ptr, "ratio");
@@ -250,8 +253,8 @@ static int sequencer_view_zoom_ratio_exec(bContext *C, wmOperator *op)
   int winx, winy;
   BKE_render_resolution(rd, false, &winx, &winy);
 
-  float facx = BLI_rcti_size_x(&v2d->mask) / float(winx);
-  float facy = BLI_rcti_size_y(&v2d->mask) / float(winy);
+  float facx = (BLI_rcti_size_x(&v2d->mask) + 1) / float(winx);
+  float facy = (BLI_rcti_size_y(&v2d->mask) + 1) / float(winy);
 
   BLI_rctf_resize(&v2d->cur, ceilf(winx * facx / ratio + 0.5f), ceilf(winy * facy / ratio + 0.5f));
 
@@ -269,7 +272,7 @@ void SEQUENCER_OT_view_zoom_ratio(wmOperatorType *ot)
   ot->idname = "SEQUENCER_OT_view_zoom_ratio";
   ot->description = "Change zoom ratio of sequencer preview";
 
-  /* Api callbacks. */
+  /* API callbacks. */
   ot->exec = sequencer_view_zoom_ratio_exec;
   ot->poll = ED_operator_sequencer_active;
 
@@ -295,7 +298,7 @@ static void seq_view_collection_rect_preview(Scene *scene,
                                              blender::Span<Strip *> strips,
                                              rctf *rect)
 {
-  const blender::Bounds<blender::float2> box = SEQ_image_transform_bounding_box_from_collection(
+  const blender::Bounds<blender::float2> box = seq::image_transform_bounding_box_from_collection(
       scene, strips, true);
 
   rect->xmin = box.min[0];
@@ -318,20 +321,20 @@ static void seq_view_collection_rect_timeline(const bContext *C,
                                               blender::Span<Strip *> strips,
                                               rctf *rect)
 {
-  const Scene *scene = CTX_data_scene(C);
+  const Scene *scene = CTX_data_sequencer_scene(C);
   int xmin = MAXFRAME * 2;
   int xmax = -MAXFRAME * 2;
-  int ymin = SEQ_MAX_CHANNELS + 1;
+  int ymin = seq::MAX_CHANNELS + 1;
   int ymax = 0;
   int xmargin = FPS;
 
   for (Strip *strip : strips) {
-    xmin = min_ii(xmin, SEQ_time_left_handle_frame_get(scene, strip));
-    xmax = max_ii(xmax, SEQ_time_right_handle_frame_get(scene, strip));
+    xmin = min_ii(xmin, seq::time_left_handle_frame_get(scene, strip));
+    xmax = max_ii(xmax, seq::time_right_handle_frame_get(scene, strip));
 
-    ymin = min_ii(ymin, strip->machine);
+    ymin = min_ii(ymin, strip->channel);
     /* "+1" because each channel has a thickness of 1. */
-    ymax = max_ii(ymax, strip->machine + 1);
+    ymax = max_ii(ymax, strip->channel + 1);
   }
 
   xmax += xmargin;
@@ -351,9 +354,9 @@ static void seq_view_collection_rect_timeline(const bContext *C,
   /* Y axis should only zoom out if needed, never zoom in. */
   if (orig_height > BLI_rctf_size_y(&new_viewport)) {
     /* Get the current max/min channel we can display. */
-    const Editing *ed = SEQ_editing_get(scene);
+    const Editing *ed = seq::editing_get(scene);
     rctf box;
-    SEQ_timeline_boundbox(scene, SEQ_active_seqbase_get(ed), &box);
+    seq::timeline_boundbox(scene, seq::active_seqbase_get(ed), &box);
     SEQ_add_timeline_region_padding(C, &box);
     float timeline_ymin = box.ymin;
     float timeline_ymax = box.ymax;
@@ -383,11 +386,11 @@ static void seq_view_collection_rect_timeline(const bContext *C,
   *rect = new_viewport;
 }
 
-static int sequencer_view_selected_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus sequencer_view_selected_exec(bContext *C, wmOperator *op)
 {
-  Scene *scene = CTX_data_scene(C);
+  Scene *scene = CTX_data_sequencer_scene(C);
   ARegion *region = CTX_wm_region(C);
-  blender::VectorSet strips = ED_sequencer_selected_strips_from_context(C);
+  blender::VectorSet strips = selected_strips_from_context(C);
   View2D *v2d = UI_view2d_fromcontext(C);
   rctf cur_new = v2d->cur;
 
@@ -419,7 +422,7 @@ void SEQUENCER_OT_view_selected(wmOperatorType *ot)
   ot->idname = "SEQUENCER_OT_view_selected";
   ot->description = "Zoom the sequencer on the selected strips";
 
-  /* Api callbacks. */
+  /* API callbacks. */
   ot->exec = sequencer_view_selected_exec;
   ot->poll = sequencer_editing_initialized_and_active;
 
@@ -433,9 +436,9 @@ void SEQUENCER_OT_view_selected(wmOperatorType *ot)
 /** \name Border Offset View Operator
  * \{ */
 
-static int view_ghost_border_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus view_ghost_border_exec(bContext *C, wmOperator *op)
 {
-  Scene *scene = CTX_data_scene(C);
+  Scene *scene = CTX_data_sequencer_scene(C);
   View2D *v2d = UI_view2d_fromcontext(C);
 
   rctf rect;
@@ -474,7 +477,7 @@ void SEQUENCER_OT_view_ghost_border(wmOperatorType *ot)
   ot->idname = "SEQUENCER_OT_view_ghost_border";
   ot->description = "Set the boundaries of the border used for offset view";
 
-  /* Api callbacks. */
+  /* API callbacks. */
   ot->invoke = WM_gesture_box_invoke;
   ot->exec = view_ghost_border_exec;
   ot->modal = WM_gesture_box_modal;
@@ -489,3 +492,5 @@ void SEQUENCER_OT_view_ghost_border(wmOperatorType *ot)
 }
 
 /** \} */
+
+}  // namespace blender::ed::vse

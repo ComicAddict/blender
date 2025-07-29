@@ -174,16 +174,22 @@ class BindSpaceTextures {
   void bind(Type resource_type, void *resource, GPUSamplerState sampler, int binding)
   {
     if (bound_resources.size() <= binding) {
-      bound_resources.resize(binding + 1);
+      bound_resources.resize(binding + 1, {});
     }
     bound_resources[binding].resource_type = resource_type;
     bound_resources[binding].resource = resource;
     bound_resources[binding].sampler = sampler;
   }
 
-  const Elem &get(int binding) const
+  const Elem *get(int binding) const
   {
-    return bound_resources[binding];
+    if (binding >= bound_resources.size()) {
+      /* TODO: Check with @Jeroen-Bakker.
+       * Could we ensure state_manager adds default initialized bindings for each ShaderInterface
+       * resource? (See #142097). */
+      return nullptr;
+    }
+    return &bound_resources[binding];
   }
 
   void unbind(void *resource)
@@ -204,7 +210,7 @@ class BindSpaceTextures {
 };
 
 class VKStateManager : public StateManager {
-  friend class VKDescriptorSetTracker;
+  friend class VKDescriptorSetUpdator;
 
   uint texture_unpack_row_length_ = 0;
 

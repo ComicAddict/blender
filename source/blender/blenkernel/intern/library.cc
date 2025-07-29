@@ -38,7 +38,7 @@
 
 struct BlendDataReader;
 
-static CLG_LogRef LOG = {"bke.library"};
+static CLG_LogRef LOG = {"lib.library"};
 
 using namespace blender::bke::library;
 
@@ -86,6 +86,7 @@ static void library_copy_data(Main *bmain,
   }
   library_dst->runtime = MEM_new<LibraryRuntime>(__func__, *library_src->runtime);
   library_dst->runtime->filedata = nullptr;
+  library_dst->runtime->is_filedata_owner = false;
   library_dst->runtime->name_map = nullptr;
 }
 
@@ -127,7 +128,7 @@ static void library_blend_write_data(BlendWriter *writer, ID *id, const void *id
   if (library->packedfile) {
     BKE_packedfile_blend_write(writer, library->packedfile);
     if (!is_undo) {
-      CLOG_INFO(&LOG, 2, "Write packed .blend: %s", library->filepath);
+      CLOG_DEBUG(&LOG, "Write packed .blend: %s", library->filepath);
     }
   }
 }
@@ -139,7 +140,7 @@ static void library_blend_read_data(BlendDataReader * /*reader*/, ID *id)
 }
 
 IDTypeInfo IDType_ID_LI = {
-    /*id_code*/ ID_LI,
+    /*id_code*/ Library::id_type,
     /*id_filter*/ FILTER_ID_LI,
     /*dependencies_id_types*/ FILTER_ID_LI,
     /*main_listbase_index*/ INDEX_ID_LI,

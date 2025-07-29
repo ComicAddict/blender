@@ -12,6 +12,7 @@
 #include "MEM_guardedalloc.h"
 
 #include "DNA_brush_types.h"
+#include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 #include "DNA_space_types.h"
 
@@ -26,6 +27,7 @@
 #include "BKE_context.hh"
 #include "BKE_image.hh"
 #include "BKE_paint.hh"
+#include "BKE_paint_types.hh"
 #include "BKE_report.hh"
 
 #include "DEG_depsgraph.hh"
@@ -78,6 +80,10 @@ struct BrushPainter {
   const Paint *paint;
   Brush *brush;
 
+  /* Store initial starting points for perlin noise on the beginning of each stroke when using
+   * color jitter. */
+  std::optional<blender::float3> initial_hsv_jitter;
+
   bool firsttouch; /* first paint op */
 
   ImagePool *pool;   /* image pool */
@@ -119,6 +125,7 @@ struct ImagePaintState {
   SpaceImage *sima;
   View2D *v2d;
   Scene *scene;
+  const Paint *paint;
 
   Brush *brush;
   short brush_type, blend;
@@ -140,11 +147,14 @@ static BrushPainter *brush_painter_2d_new(Scene *scene,
                                           Brush *brush,
                                           bool invert)
 {
-  BrushPainter *painter = MEM_cnew<BrushPainter>(__func__);
+  BrushPainter *painter = MEM_new<BrushPainter>(__func__);
 
   painter->brush = brush;
   painter->scene = scene;
   painter->paint = paint;
+  if (BKE_brush_color_jitter_get_settings(paint, brush)) {
+    painter->initial_hsv_jitter = seed_hsv_jitter();
+  }
   painter->firsttouch = true;
   painter->cache_invert = invert;
 
@@ -208,7 +218,6 @@ static void brush_imbuf_tex_co(const rctf *mapping, int x, int y, float texco[3]
 /* create a mask with the mask texture */
 static ushort *brush_painter_mask_ibuf_new(BrushPainter *painter, const int size)
 {
-  Scene *scene = painter->scene;
   Brush *brush = painter->brush;
   rctf mask_mapping = painter->mask_mapping;
   ImagePool *pool = painter->pool;
@@ -217,14 +226,14 @@ static ushort *brush_painter_mask_ibuf_new(BrushPainter *painter, const int size
   ushort *mask, *m;
   int x, y, thread = 0;
 
-  mask = static_cast<ushort *>(MEM_mallocN(sizeof(ushort) * size * size, __func__));
+  mask = MEM_malloc_arrayN<ushort>(size * size, __func__);
   m = mask;
 
   for (y = 0; y < size; y++) {
     for (x = 0; x < size; x++, m++) {
       float res;
       brush_imbuf_tex_co(&mask_mapping, x, y, texco);
-      res = BKE_brush_sample_masktex(scene, brush, texco, thread, pool);
+      res = BKE_brush_sample_masktex(painter->paint, brush, texco, thread, pool);
       *m = ushort(65535.0f * res);
     }
   }
@@ -244,7 +253,6 @@ static void brush_painter_mask_imbuf_update(BrushPainter *painter,
                                             int yt,
                                             const int diameter)
 {
-  Scene *scene = painter->scene;
   Brush *brush = painter->brush;
   BrushPainterCache *cache = &tile->cache;
   rctf tex_mapping = painter->mask_mapping;
@@ -270,7 +278,8 @@ static void brush_painter_mask_imbuf_update(BrushPainter *painter,
 
       if (!use_texture_old) {
         brush_imbuf_tex_co(&tex_mapping, x, y, texco);
-        res = ushort(65535.0f * BKE_brush_sample_masktex(scene, brush, texco, thread, pool));
+        res = ushort(65535.0f *
+                     BKE_brush_sample_masktex(painter->paint, brush, texco, thread, pool));
       }
 
       /* read from old texture buffer */
@@ -302,14 +311,12 @@ static void brush_painter_mask_imbuf_partial_update(BrushPainter *painter,
 
   /* create brush image buffer if it didn't exist yet */
   if (!cache->tex_mask) {
-    cache->tex_mask = static_cast<ushort *>(
-        MEM_mallocN(sizeof(ushort) * diameter * diameter, __func__));
+    cache->tex_mask = MEM_malloc_arrayN<ushort>(diameter * diameter, __func__);
   }
 
   /* create new texture image buffer with coordinates relative to old */
   tex_mask_old = cache->tex_mask_old;
-  cache->tex_mask_old = static_cast<ushort *>(
-      MEM_mallocN(sizeof(ushort) * diameter * diameter, __func__));
+  cache->tex_mask_old = MEM_malloc_arrayN<ushort>(diameter * diameter, __func__);
 
   if (tex_mask_old) {
     ImBuf maskibuf;
@@ -379,7 +386,7 @@ static ImBuf *brush_painter_imbuf_new(
   BrushPainterCache *cache = &tile->cache;
 
   const char *display_device = scene->display_settings.display_device;
-  ColorManagedDisplay *display = IMB_colormanagement_display_get_named(display_device);
+  const ColorManagedDisplay *display = IMB_colormanagement_display_get_named(display_device);
 
   rctf tex_mapping = painter->tex_mapping;
   ImagePool *pool = painter->pool;
@@ -392,13 +399,13 @@ static ImBuf *brush_painter_imbuf_new(
   float brush_rgb[3];
 
   /* allocate image buffer */
-  ImBuf *ibuf = IMB_allocImBuf(size, size, 32, (use_float) ? IB_rectfloat : IB_rect);
+  ImBuf *ibuf = IMB_allocImBuf(size, size, 32, (use_float) ? IB_float_data : IB_byte_data);
 
   /* get brush color */
   if (brush->image_brush_type == IMAGE_PAINT_BRUSH_TYPE_DRAW) {
-    paint_brush_color_get(scene,
-                          paint,
+    paint_brush_color_get(paint,
                           brush,
+                          painter->initial_hsv_jitter,
                           use_color_correction,
                           cache->invert,
                           distance,
@@ -421,7 +428,7 @@ static ImBuf *brush_painter_imbuf_new(
       if (is_texbrush) {
         brush_imbuf_tex_co(&tex_mapping, x, y, texco);
         const MTex *mtex = &brush->mtex;
-        BKE_brush_sample_tex_3d(scene, brush, mtex, texco, rgba, thread, pool);
+        BKE_brush_sample_tex_3d(painter->paint, brush, mtex, texco, rgba, thread, pool);
         /* TODO(sergey): Support texture paint color space. */
         if (!use_float) {
           IMB_colormanagement_scene_linear_to_display_v3(rgba, display);
@@ -470,7 +477,7 @@ static void brush_painter_imbuf_update(BrushPainter *painter,
   BrushPainterCache *cache = &tile->cache;
 
   const char *display_device = scene->display_settings.display_device;
-  ColorManagedDisplay *display = IMB_colormanagement_display_get_named(display_device);
+  const ColorManagedDisplay *display = IMB_colormanagement_display_get_named(display_device);
 
   rctf tex_mapping = painter->tex_mapping;
   ImagePool *pool = painter->pool;
@@ -488,8 +495,15 @@ static void brush_painter_imbuf_update(BrushPainter *painter,
 
   /* get brush color */
   if (brush->image_brush_type == IMAGE_PAINT_BRUSH_TYPE_DRAW) {
-    paint_brush_color_get(
-        scene, paint, brush, use_color_correction, cache->invert, 0.0f, 1.0f, display, brush_rgb);
+    paint_brush_color_get(paint,
+                          brush,
+                          painter->initial_hsv_jitter,
+                          use_color_correction,
+                          cache->invert,
+                          0.0f,
+                          1.0f,
+                          display,
+                          brush_rgb);
   }
   else {
     brush_rgb[0] = 1.0f;
@@ -506,7 +520,7 @@ static void brush_painter_imbuf_update(BrushPainter *painter,
       if (!use_texture_old) {
         if (is_texbrush) {
           brush_imbuf_tex_co(&tex_mapping, x, y, texco);
-          BKE_brush_sample_tex_3d(scene, brush, mtex, texco, rgba, thread, pool);
+          BKE_brush_sample_tex_3d(painter->paint, brush, mtex, texco, rgba, thread, pool);
           /* TODO(sergey): Support texture paint color space. */
           if (!use_float) {
             IMB_colormanagement_scene_linear_to_display_v3(rgba, display);
@@ -587,7 +601,7 @@ static void brush_painter_imbuf_partial_update(BrushPainter *painter,
   int imbflag, destx, desty, srcx, srcy, w, h, x1, y1, x2, y2;
 
   /* create brush image buffer if it didn't exist yet */
-  imbflag = (cache->use_float) ? IB_rectfloat : IB_rect;
+  imbflag = (cache->use_float) ? IB_float_data : IB_byte_data;
   if (!cache->ibuf) {
     cache->ibuf = IMB_allocImBuf(diameter, diameter, 32, imbflag);
   }
@@ -703,8 +717,7 @@ static void brush_painter_2d_refresh_cache(ImagePaintState *s,
                                            float distance,
                                            float size)
 {
-  const Scene *scene = painter->scene;
-  UnifiedPaintSettings *ups = &scene->toolsettings->unified_paint_settings;
+  const blender::bke::PaintRuntime *paint_runtime = painter->paint->runtime;
   Brush *brush = painter->brush;
   BrushPainterCache *cache = &tile->cache;
   /* Adding 4 pixels of padding for brush anti-aliasing. */
@@ -712,10 +725,12 @@ static void brush_painter_2d_refresh_cache(ImagePaintState *s,
 
   bool do_random = false;
   bool do_partial_update = false;
-  bool update_color = ((brush->flag & BRUSH_USE_GRADIENT) && (ELEM(brush->gradient_stroke_mode,
-                                                                   BRUSH_GRADIENT_SPACING_REPEAT,
-                                                                   BRUSH_GRADIENT_SPACING_CLAMP) ||
-                                                              (cache->last_pressure != pressure)));
+  bool update_color = ((brush->flag & BRUSH_USE_GRADIENT) &&
+                       (ELEM(brush->gradient_stroke_mode,
+                             BRUSH_GRADIENT_SPACING_REPEAT,
+                             BRUSH_GRADIENT_SPACING_CLAMP) ||
+                        (cache->last_pressure != pressure))) ||
+                      BKE_brush_color_jitter_get_settings(painter->paint, brush);
   float tex_rotation = -brush->mtex.rot;
   float mask_rotation = -brush->mask_mtex.rot;
 
@@ -724,7 +739,7 @@ static void brush_painter_2d_refresh_cache(ImagePaintState *s,
   /* determine how can update based on textures used */
   if (cache->is_texbrush) {
     if (brush->mtex.brush_map_mode == MTEX_MAP_MODE_VIEW) {
-      tex_rotation += ups->brush_rotation;
+      tex_rotation += paint_runtime->brush_rotation;
     }
     else if (brush->mtex.brush_map_mode == MTEX_MAP_MODE_RANDOM) {
       do_random = true;
@@ -742,7 +757,7 @@ static void brush_painter_2d_refresh_cache(ImagePaintState *s,
     bool do_partial_update_mask = false;
     /* invalidate case for all mapping modes */
     if (brush->mask_mtex.brush_map_mode == MTEX_MAP_MODE_VIEW) {
-      mask_rotation += ups->brush_rotation_sec;
+      mask_rotation += paint_runtime->brush_rotation_sec;
     }
     else if (brush->mask_mtex.brush_map_mode == MTEX_MAP_MODE_RANDOM) {
       renew_maxmask = true;
@@ -1025,7 +1040,7 @@ static void paint_2d_lift_soften(ImagePaintState *s,
            * avoid colored speckles appearing in final image, and also to check for threshold. */
           outrgb[0] = outrgb[1] = outrgb[2] = IMB_colormanagement_get_luminance(outrgb);
           if (fabsf(outrgb[0]) > threshold) {
-            float mask = BKE_brush_alpha_get(s->scene, s->brush);
+            float mask = BKE_brush_alpha_get(s->paint, s->brush);
             float alpha = rgba[3];
             rgba[3] = outrgb[3] = mask;
 
@@ -1308,7 +1323,7 @@ static int paint_2d_op(void *state,
   short blend = s->blend;
   const float *offset = image_paint_settings.clone_offset;
   float liftpos[2];
-  float mask_max = BKE_brush_alpha_get(s->scene, s->brush);
+  float mask_max = BKE_brush_alpha_get(s->paint, s->brush);
   int bpos[2], blastpos[2], bliftpos[2];
   int a, tot;
 
@@ -1421,7 +1436,7 @@ static int paint_2d_op(void *state,
   return 1;
 }
 
-static int paint_2d_canvas_set(ImagePaintState *s)
+static int paint_2d_canvas_set(ImagePaintState *s, const Paint *paint)
 {
   /* set clone canvas */
   if (s->brush_type == IMAGE_PAINT_BRUSH_TYPE_CLONE) {
@@ -1438,15 +1453,15 @@ static int paint_2d_canvas_set(ImagePaintState *s)
 
     /* temporarily add float rect for cloning */
     if (s->tiles[0].canvas->float_buffer.data && !s->clonecanvas->float_buffer.data) {
-      IMB_float_from_rect(s->clonecanvas);
+      IMB_float_from_byte(s->clonecanvas);
     }
     else if (!s->tiles[0].canvas->float_buffer.data && !s->clonecanvas->byte_buffer.data) {
-      IMB_rect_from_float(s->clonecanvas);
+      IMB_byte_from_float(s->clonecanvas);
     }
   }
 
   /* set masking */
-  s->do_masking = paint_use_opacity_masking(s->brush);
+  s->do_masking = paint_use_opacity_masking(paint, s->brush);
 
   return 1;
 }
@@ -1585,11 +1600,12 @@ void *paint_2d_new_stroke(bContext *C, wmOperator *op, int mode)
   const Paint *paint = BKE_paint_get_active_from_context(C);
   Brush *brush = BKE_paint_brush(&settings->imapaint.paint);
 
-  ImagePaintState *s = MEM_cnew<ImagePaintState>(__func__);
+  ImagePaintState *s = MEM_callocN<ImagePaintState>(__func__);
 
   s->sima = CTX_wm_space_image(C);
   s->v2d = &CTX_wm_region(C)->v2d;
   s->scene = scene;
+  s->paint = paint;
 
   s->brush = brush;
   s->brush_type = brush->image_brush_type;
@@ -1609,7 +1625,7 @@ void *paint_2d_new_stroke(bContext *C, wmOperator *op, int mode)
   }
 
   s->num_tiles = BLI_listbase_count(&s->image->tiles);
-  s->tiles = MEM_cnew_array<ImagePaintTile>(s->num_tiles, __func__);
+  s->tiles = MEM_calloc_arrayN<ImagePaintTile>(s->num_tiles, __func__);
   for (int i = 0; i < s->num_tiles; i++) {
     s->tiles[i].iuser = sima->iuser;
   }
@@ -1649,7 +1665,7 @@ void *paint_2d_new_stroke(bContext *C, wmOperator *op, int mode)
     s->tiles[tile_idx].uv_origin[1] = ((tile->tile_number - 1001) / 10);
   }
 
-  if (!paint_2d_canvas_set(s)) {
+  if (!paint_2d_canvas_set(s, paint)) {
     MEM_freeN(s->tiles);
 
     MEM_freeN(s);
@@ -1715,7 +1731,7 @@ void paint_2d_stroke_done(void *ps)
   for (int i = 0; i < s->num_tiles; i++) {
     brush_painter_cache_2d_free(&s->tiles[i].cache);
   }
-  MEM_freeN(s->painter);
+  MEM_delete(s->painter);
   MEM_freeN(s->tiles);
   paint_brush_exit_tex(s->brush);
 
@@ -1799,6 +1815,7 @@ void paint_2d_bucket_fill(const bContext *C,
                           void *ps)
 {
   SpaceImage *sima = CTX_wm_space_image(C);
+  Paint *paint = BKE_paint_get_active_from_context(C);
   Image *ima = sima->image;
 
   ImagePaintState *s = static_cast<ImagePaintState *>(ps);
@@ -1807,7 +1824,7 @@ void paint_2d_bucket_fill(const bContext *C,
   int x_px, y_px;
   uint color_b;
   float color_f[4];
-  float strength = (s && br) ? BKE_brush_alpha_get(s->scene, br) : 1.0f;
+  float strength = (s && br) ? BKE_brush_alpha_get(paint, br) : 1.0f;
 
   bool do_float;
 
@@ -1841,15 +1858,14 @@ void paint_2d_bucket_fill(const bContext *C,
   }
 
   do_float = (ibuf->float_buffer.data != nullptr);
-  /* first check if our image is float. If it is not we should correct the color to
-   * be in gamma space. strictly speaking this is not correct, but blender does not paint
-   * byte images in linear space */
+  /* First check if our image is float. If it is we should correct the color to be in linear space.
+   */
   if (!do_float) {
-    linearrgb_to_srgb_uchar3((uchar *)&color_b, color);
+    rgb_float_to_uchar((uchar *)&color_b, color);
     *(((char *)&color_b) + 3) = strength * 255;
   }
   else {
-    copy_v3_v3(color_f, color);
+    srgb_to_linearrgb_v3_v3(color_f, color);
     color_f[3] = strength;
   }
 
@@ -2005,7 +2021,7 @@ void paint_2d_gradient_fill(
   float image_init[2], image_final[2];
   float tangent[2];
   float line_len_sq_inv, line_len;
-  const float brush_alpha = BKE_brush_alpha_get(s->scene, br);
+  const float brush_alpha = BKE_brush_alpha_get(s->paint, br);
 
   bool do_float;
 

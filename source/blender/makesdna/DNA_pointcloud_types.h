@@ -9,6 +9,7 @@
 #pragma once
 
 #include "DNA_ID.h"
+#include "DNA_attribute_types.h"
 #include "DNA_customdata_types.h"
 
 #ifdef __cplusplus
@@ -37,6 +38,11 @@ typedef struct PointCloudRuntimeHandle PointCloudRuntimeHandle;
 #endif
 
 typedef struct PointCloud {
+#ifdef __cplusplus
+  /** See #ID_Type comment for why this is here. */
+  static constexpr ID_Type id_type = ID_PT;
+#endif
+
   ID id;
   struct AnimData *adt; /* animation data (must be immediately after id) */
 
@@ -45,8 +51,11 @@ typedef struct PointCloud {
   /* Geometry */
   int totpoint;
 
+  /** Storage for generic attributes. */
+  struct AttributeStorage attribute_storage;
+
   /* Custom Data */
-  struct CustomData pdata;
+  struct CustomData pdata_legacy;
   /** Set to -1 when none is active. */
   int attributes_active_index;
   int _pad4;
@@ -69,7 +78,7 @@ typedef struct PointCloud {
   void tag_positions_changed();
   void tag_radii_changed();
 
-  std::optional<blender::Bounds<blender::float3>> bounds_min_max() const;
+  std::optional<blender::Bounds<blender::float3>> bounds_min_max(bool use_radius = true) const;
 
   /** Get the largest material index used by the point-cloud or `nullopt` if it is empty. */
   std::optional<int> material_index_max() const;

@@ -9,7 +9,7 @@
 
 #include "NOD_socket_search_link.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 namespace blender::nodes::node_fn_random_value_cc {
@@ -35,7 +35,7 @@ static void node_declare(NodeDeclarationBuilder &b)
       .subtype(PROP_FACTOR)
       .supports_field()
       .make_available([](bNode &node) { node_storage(node).data_type = CD_PROP_BOOL; });
-  b.add_input<decl::Int>("ID").implicit_field(implicit_field_inputs::id_or_index);
+  b.add_input<decl::Int>("ID").implicit_field(NODE_DEFAULT_INPUT_ID_INDEX_FIELD);
   b.add_input<decl::Int>("Seed").default_value(0).min(-10000).max(10000).supports_field();
 
   b.add_output<decl::Vector>("Value").dependent_field();
@@ -46,12 +46,12 @@ static void node_declare(NodeDeclarationBuilder &b)
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "data_type", UI_ITEM_NONE, "", ICON_NONE);
+  layout->prop(ptr, "data_type", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void fn_node_random_value_init(bNodeTree * /*tree*/, bNode *node)
 {
-  NodeRandomValue *data = MEM_cnew<NodeRandomValue>(__func__);
+  NodeRandomValue *data = MEM_callocN<NodeRandomValue>(__func__);
   data->data_type = CD_PROP_FLOAT;
   node->storage = data;
 }
@@ -59,7 +59,7 @@ static void fn_node_random_value_init(bNodeTree * /*tree*/, bNode *node)
 static void fn_node_random_value_update(bNodeTree *ntree, bNode *node)
 {
   const NodeRandomValue &storage = node_storage(*node);
-  const eCustomDataType data_type = static_cast<eCustomDataType>(storage.data_type);
+  const eCustomDataType data_type = eCustomDataType(storage.data_type);
 
   bNodeSocket *sock_min_vector = (bNodeSocket *)node->inputs.first;
   bNodeSocket *sock_max_vector = sock_min_vector->next;
@@ -140,7 +140,7 @@ static void node_gather_link_search_ops(GatherLinkSearchOpParams &params)
 static void node_build_multi_function(NodeMultiFunctionBuilder &builder)
 {
   const NodeRandomValue &storage = node_storage(builder.node());
-  const eCustomDataType data_type = static_cast<eCustomDataType>(storage.data_type);
+  const eCustomDataType data_type = eCustomDataType(storage.data_type);
 
   switch (data_type) {
     case CD_PROP_FLOAT3: {
@@ -171,10 +171,11 @@ static void node_build_multi_function(NodeMultiFunctionBuilder &builder)
       static auto fn = mf::build::SI4_SO<int, int, int, int, int>(
           "Random Int",
           [](int min_value, int max_value, int id, int seed) -> int {
-            const float value = noise::hash_to_float(id, seed);
-            /* Add one to the maximum and use floor to produce an even
-             * distribution for the first and last values (See #93591). */
-            return floor(value * (max_value + 1 - min_value) + min_value);
+            if (min_value > max_value) {
+              std::swap(min_value, max_value);
+            }
+            const uint32_t hash = noise::hash(id, seed);
+            return min_value + hash % (max_value - min_value + 1);
           },
           mf::build::exec_presets::SomeSpanOrSingle<2>());
       builder.set_matching_fn(fn);

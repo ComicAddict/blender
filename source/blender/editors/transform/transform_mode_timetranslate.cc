@@ -9,13 +9,13 @@
 #include <cstdlib>
 
 #include "BLI_math_vector.h"
-#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 
 #include "BKE_unit.hh"
 
 #include "ED_screen.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_types.hh"
 #include "UI_view2d.hh"
 
 #include "BLT_translation.hh"
@@ -57,20 +57,20 @@ static void headerTimeTranslate(TransInfo *t, char str[UI_MAX_DRAW_STR])
     }
 
     if (snap_mode == SCE_SNAP_TO_FRAME) {
-      BLI_snprintf(&tvec[0], NUM_STR_REP_LEN, "%.2f (%.4f)", delta_x, val);
+      BLI_snprintf_utf8(&tvec[0], NUM_STR_REP_LEN, "%.2f (%.4f)", delta_x, val);
     }
     else if (snap_mode == SCE_SNAP_TO_SECOND) {
-      BLI_snprintf(&tvec[0], NUM_STR_REP_LEN, "%.2f sec (%.4f)", delta_x, val);
+      BLI_snprintf_utf8(&tvec[0], NUM_STR_REP_LEN, "%.2f sec (%.4f)", delta_x, val);
     }
     else {
-      BLI_snprintf(&tvec[0], NUM_STR_REP_LEN, "%.4f", delta_x);
+      BLI_snprintf_utf8(&tvec[0], NUM_STR_REP_LEN, "%.4f", delta_x);
     }
   }
 
-  ofs += BLI_snprintf_rlen(str, UI_MAX_DRAW_STR, IFACE_("DeltaX: %s"), &tvec[0]);
+  ofs += BLI_snprintf_utf8_rlen(str, UI_MAX_DRAW_STR, IFACE_("DeltaX: %s"), &tvec[0]);
 
   if (t->flag & T_PROP_EDIT_ALL) {
-    ofs += BLI_snprintf_rlen(
+    ofs += BLI_snprintf_utf8_rlen(
         str + ofs, UI_MAX_DRAW_STR - ofs, IFACE_(" Proportional size: %.2f"), t->prop_size);
   }
 }
@@ -139,9 +139,10 @@ static void initTimeTranslate(TransInfo *t, wmOperator * /*op*/)
   t->num.idx_max = t->idx_max;
 
   /* Initialize snap like for everything else. */
-  t->snap[0] = t->snap[1] = 1.0f;
+  t->increment[0] = 1.0f;
+  t->increment_precision = 1.0f;
 
-  copy_v3_fl(t->num.val_inc, t->snap[0]);
+  copy_v3_fl(t->num.val_inc, t->increment[0]);
   t->num.unit_sys = t->scene->unit.system;
   /* No time unit supporting frames currently. */
   t->num.unit_type[0] = B_UNIT_NONE;

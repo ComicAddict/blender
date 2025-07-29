@@ -53,7 +53,7 @@
 #define SMALL -1.0e-10
 #define SELECT 1
 
-static CLG_LogRef LOG = {"bke.fcurve"};
+static CLG_LogRef LOG = {"anim.fcurve"};
 
 /* -------------------------------------------------------------------- */
 /** \name F-Curve Data Create
@@ -61,7 +61,7 @@ static CLG_LogRef LOG = {"bke.fcurve"};
 
 FCurve *BKE_fcurve_create()
 {
-  FCurve *fcu = static_cast<FCurve *>(MEM_callocN(sizeof(FCurve), __func__));
+  FCurve *fcu = MEM_callocN<FCurve>(__func__);
   return fcu;
 }
 
@@ -779,7 +779,7 @@ float *BKE_fcurves_calc_keyed_frames_ex(FCurve **fcurve_array,
   }
 
   const size_t frames_len = BLI_gset_len(frames_unique);
-  float *frames = static_cast<float *>(MEM_mallocN(sizeof(*frames) * frames_len, __func__));
+  float *frames = MEM_malloc_arrayN<float>(frames_len, __func__);
 
   GSetIterator gs_iter;
   int i = 0;
@@ -1000,8 +1000,8 @@ void fcurve_store_samples(FCurve *fcu, void *data, int start, int end, FcuSample
 
   /* Set up sample data. */
   FPoint *new_fpt;
-  FPoint *fpt = new_fpt = static_cast<FPoint *>(
-      MEM_callocN(sizeof(FPoint) * (end - start + 1), "FPoint Samples"));
+  FPoint *fpt = new_fpt = MEM_calloc_arrayN<FPoint>(size_t(end) - size_t(start) + 1,
+                                                    "FPoint Samples");
 
   /* Use the sampling callback at 1-frame intervals from start to end frames. */
   for (int cfra = start; cfra <= end; cfra++, fpt++) {
@@ -1061,8 +1061,7 @@ void fcurve_samples_to_keyframes(FCurve *fcu, const int start, const int end)
   int keyframes_to_insert = end - start;
   int sample_points = fcu->totvert;
 
-  BezTriple *bezt = fcu->bezt = static_cast<BezTriple *>(
-      MEM_callocN(sizeof(*fcu->bezt) * size_t(keyframes_to_insert), __func__));
+  BezTriple *bezt = fcu->bezt = MEM_calloc_arrayN<BezTriple>(keyframes_to_insert, __func__);
   fcu->totvert = keyframes_to_insert;
 
   /* Get first sample point to 'copy' as keyframe. */
@@ -1207,9 +1206,14 @@ void BKE_fcurve_handles_recalc_ex(FCurve *fcu, eBezTriple_Flag handle_sel_flag)
         next = cycle_offset_triple(cycle, &tmp, &fcu->bezt[1], first, last);
       }
 
-      /* Clamp timing of handles to be on either side of beztriple. */
-      CLAMP_MAX(bezt->vec[0][0], bezt->vec[1][0]);
-      CLAMP_MIN(bezt->vec[2][0], bezt->vec[1][0]);
+      /* Clamp timing of handles to be on either side of beztriple. The threshold with
+       * increment/decrement ulp ensures that the handle length doesn't reach 0 at which point
+       * there would be no way to ensure that handles stay aligned. This adds an issue where if a
+       * handle is scaled to 0, the other side is set to be horizontal.
+       * See #141029 for more info. */
+      const float threshold = 0.001;
+      CLAMP_MAX(bezt->vec[0][0], decrement_ulp(bezt->vec[1][0] - threshold));
+      CLAMP_MIN(bezt->vec[2][0], increment_ulp(bezt->vec[1][0] + threshold));
 
       /* Calculate auto-handles. */
       BKE_nurb_handle_calc_ex(bezt, prev, next, handle_sel_flag, true, fcu->auto_smoothing);
@@ -1623,6 +1627,14 @@ void BKE_fcurve_bezt_resize(FCurve *fcu, const int new_totvert)
 
   fcu->bezt = static_cast<BezTriple *>(
       MEM_reallocN(fcu->bezt, new_totvert * sizeof(*(fcu->bezt))));
+
+  /* Zero out all the newly-allocated beztriples. This is necessary, as it is likely that only some
+   * of the fields will actually be updated by the caller. */
+  const int old_totvert = fcu->totvert;
+  if (new_totvert > old_totvert) {
+    memset(&fcu->bezt[old_totvert], 0, sizeof(fcu->bezt[0]) * (new_totvert - old_totvert));
+  }
+
   fcu->totvert = new_totvert;
 }
 
@@ -1676,8 +1688,7 @@ void BKE_fcurve_delete_keys(FCurve *fcu, blender::uint2 index_range)
 BezTriple *BKE_bezier_array_merge(
     const BezTriple *a, const int size_a, const BezTriple *b, const int size_b, int *r_merged_size)
 {
-  BezTriple *large_array = static_cast<BezTriple *>(
-      MEM_callocN((size_a + size_b) * sizeof(BezTriple), "beztriple"));
+  BezTriple *large_array = MEM_calloc_arrayN<BezTriple>(size_t(size_a + size_b), "beztriple");
 
   int iterator_a = 0;
   int iterator_b = 0;
@@ -1813,8 +1824,7 @@ void BKE_fcurve_merge_duplicate_keys(FCurve *fcu, const int sel_flag, const bool
 
       /* If nothing found yet, create a new one */
       if (found == false) {
-        tRetainedKeyframe *rk = static_cast<tRetainedKeyframe *>(
-            MEM_callocN(sizeof(tRetainedKeyframe), "tRetainedKeyframe"));
+        tRetainedKeyframe *rk = MEM_callocN<tRetainedKeyframe>("tRetainedKeyframe");
 
         rk->frame = bezt->vec[1][0];
         rk->val = bezt->vec[1][1];

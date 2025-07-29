@@ -8,6 +8,10 @@
 
 #pragma once
 
+#include <string>
+
+#include "BLI_vector.hh"
+
 #include "DNA_uuid_types.h"
 
 struct ARegion;
@@ -62,7 +66,13 @@ struct FileLayout {
   int attribute_column_header_h;
   int prv_w;
   int prv_h;
+  /** Extra padding to add above any files. Used for horizontal and column list views. */
+  int list_padding_top;
+  /** Width to draw the file's "tile" (matches the highlight background) with. `tile_border_x` will
+   * be added before and after it as padding around the tile. */
   int tile_w;
+  /** Height to draw the file's "tile" (matches the highlight background) with. `tile_border_y`
+   * will be added above and below it as padding around the tile. */
   int tile_h;
   int tile_border_x;
   int tile_border_y;
@@ -78,7 +88,8 @@ struct FileLayout {
   int height;
   int flag;
   int dirty;
-  int textheight;
+  int text_line_height;
+  int text_lines_count;
   /**
    * The columns for each item (name, modification date/time, size).
    * Not to be confused with the `flow_columns` above.
@@ -141,6 +152,7 @@ void ED_fileselect_layout_tilepos(const FileLayout *layout, int tile, int *x, in
 void ED_operatormacros_file();
 
 void ED_fileselect_clear(wmWindowManager *wm, SpaceFile *sfile);
+void ED_fileselect_clear_main_assets(wmWindowManager *wm, SpaceFile *sfile);
 
 void ED_fileselect_exit(wmWindowManager *wm, SpaceFile *sfile);
 
@@ -195,6 +207,8 @@ ScrArea *ED_fileselect_handler_area_find_any_with_op(const wmWindow *win);
  */
 void ED_fileselect_ensure_default_filepath(bContext *C, wmOperator *op, const char *extension);
 
+blender::Vector<std::string> ED_fileselect_selected_files_full_paths(const SpaceFile *sfile);
+
 /* TODO: Maybe we should move this to BLI?
  * On the other hand, it's using defines from space-file area, so not sure... */
 int ED_path_extension_type(const char *path);
@@ -222,7 +236,7 @@ struct FSMenuEntry {
   FSMenuEntry *next;
 
   char *path;
-  char name[256]; /* FILE_MAXFILE */
+  char name[/*FILE_MAXFILE*/ 256];
   short save;
   short valid;
   int icon;

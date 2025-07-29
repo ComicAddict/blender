@@ -82,7 +82,7 @@ static Mesh *create_ico_sphere_mesh(const int subdivisions,
   /* Make sure the associated boolean layers exists as well. Normally this would be done when
    * adding a UV layer via python or when copying from Mesh, but when we 'manually' create the UV
    * layer we need to make sure the boolean layers exist as well. */
-  BM_uv_map_ensure_select_and_pin_attrs(bm);
+  BM_uv_map_attr_select_and_pin_ensure(bm);
 
   BMO_op_callf(bm,
                BMO_FLAG_DEFAULTS,
@@ -94,7 +94,7 @@ static Mesh *create_ico_sphere_mesh(const int subdivisions,
 
   BMeshToMeshParams params{};
   params.calc_object_remap = false;
-  Mesh *mesh = reinterpret_cast<Mesh *>(BKE_id_new_nomain(ID_ME, nullptr));
+  Mesh *mesh = BKE_id_new_nomain<Mesh>(nullptr);
   BKE_id_material_eval_ensure_default_slot(&mesh->id);
   BM_mesh_bm_to_me(nullptr, bm, mesh, &params);
   BM_mesh_free(bm);

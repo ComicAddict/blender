@@ -422,6 +422,12 @@ static IDProperty **rna_BoneCollection_idprops(PointerRNA *ptr)
   return &bcoll->prop;
 }
 
+static IDProperty **rna_BoneCollection_system_idprops(PointerRNA *ptr)
+{
+  BoneCollection *bcoll = static_cast<BoneCollection *>(ptr->data);
+  return &bcoll->system_properties;
+}
+
 static void rna_BoneCollectionMemberships_clear(Bone *bone)
 {
   ANIM_armature_bonecoll_unassign_all(bone);
@@ -728,7 +734,7 @@ static void rna_Bone_update_renamed(Main * /*bmain*/, Scene * /*scene*/, Pointer
 {
   ID *id = ptr->owner_id;
 
-  /* Redraw Outliner / Dopesheet. */
+  /* Redraw Outliner / Dope-sheet. */
   WM_main_add_notifier(NC_GEOM | ND_DATA | NA_RENAME, id);
 
   /* update animation channels */
@@ -799,10 +805,31 @@ static IDProperty **rna_Bone_idprops(PointerRNA *ptr)
   return &bone->prop;
 }
 
+static IDProperty **rna_Bone_system_idprops(PointerRNA *ptr)
+{
+  Bone *bone = static_cast<Bone *>(ptr->data);
+  return &bone->system_properties;
+}
+
+static std::optional<std::string> rna_EditBone_path(const PointerRNA *ptr)
+{
+  EditBone *ebone = static_cast<EditBone *>(ptr->data);
+  char name_esc[sizeof(ebone->name) * 2];
+
+  BLI_str_escape(name_esc, ebone->name, sizeof(name_esc));
+  return fmt::format("edit_bones[\"{}\"]", name_esc);
+}
+
 static IDProperty **rna_EditBone_idprops(PointerRNA *ptr)
 {
   EditBone *ebone = static_cast<EditBone *>(ptr->data);
   return &ebone->prop;
+}
+
+static IDProperty **rna_EditBone_system_idprops(PointerRNA *ptr)
+{
+  EditBone *ebone = static_cast<EditBone *>(ptr->data);
+  return &ebone->system_properties;
 }
 
 static void rna_EditBone_name_set(PointerRNA *ptr, const char *value)
@@ -1035,12 +1062,14 @@ static void rna_Armature_editbone_transform_update(Main *bmain, Scene *scene, Po
   /* update our parent */
   if (ebone->parent && ebone->flag & BONE_CONNECTED) {
     copy_v3_v3(ebone->parent->tail, ebone->head);
+    ebone->parent->rad_tail = ebone->rad_head;
   }
 
   /* update our children if necessary */
   for (child = static_cast<EditBone *>(arm->edbo->first); child; child = child->next) {
     if (child->parent == ebone && (child->flag & BONE_CONNECTED)) {
       copy_v3_v3(child->head, ebone->tail);
+      child->rad_head = ebone->rad_tail;
     }
   }
 
@@ -1361,6 +1390,32 @@ static void rna_def_bone_common(StructRNA *srna, int editbone)
       {0, nullptr, 0, nullptr, nullptr},
   };
 
+  static const EnumPropertyItem prop_drawtype_items[] = {
+      {ARM_DRAW_TYPE_ARMATURE_DEFINED,
+       "ARMATURE_DEFINED",
+       0,
+       "Armature Defined",
+       "Use display mode from armature (default)"},
+      {ARM_DRAW_TYPE_OCTA, "OCTAHEDRAL", 0, "Octahedral", "Display bones as octahedral shape"},
+      {ARM_DRAW_TYPE_STICK, "STICK", 0, "Stick", "Display bones as simple 2D lines with dots"},
+      {ARM_DRAW_TYPE_B_BONE,
+       "BBONE",
+       0,
+       "B-Bone",
+       "Display bones as boxes, showing subdivision and B-Splines"},
+      {ARM_DRAW_TYPE_ENVELOPE,
+       "ENVELOPE",
+       0,
+       "Envelope",
+       "Display bones as extruded spheres, showing deformation influence volume"},
+      {ARM_DRAW_TYPE_WIRE,
+       "WIRE",
+       0,
+       "Wire",
+       "Display bones as thin wires, showing subdivision and B-Splines"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
   PropertyRNA *prop;
 
   /* strings */
@@ -1384,6 +1439,13 @@ static void rna_def_bone_common(StructRNA *srna, int editbone)
   if (editbone) {
     RNA_def_property_pointer_funcs(prop, "rna_EditBone_color_get", nullptr, nullptr, nullptr);
   }
+
+  prop = RNA_def_property(srna, "display_type", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "drawtype");
+  RNA_def_property_enum_items(prop, prop_drawtype_items);
+  RNA_def_property_ui_text(prop, "Display Type", "");
+  RNA_def_property_update(prop, 0, "rna_Armature_redraw_data");
+  RNA_def_property_flag(prop, PROP_LIB_EXCEPTION);
 
   /* flags */
   prop = RNA_def_property(srna, "use_connect", PROP_BOOLEAN, PROP_NONE);
@@ -1679,6 +1741,7 @@ static void rna_def_bone(BlenderRNA *brna)
   RNA_def_struct_ui_icon(srna, ICON_BONE_DATA);
   RNA_def_struct_path_func(srna, "rna_Bone_path");
   RNA_def_struct_idprops_func(srna, "rna_Bone_idprops");
+  RNA_def_struct_system_idprops_func(srna, "rna_Bone_system_idprops");
 
   /* pointers/collections */
   /* parent (pointer) */
@@ -1813,7 +1876,9 @@ static void rna_def_edit_bone(BlenderRNA *brna)
 
   srna = RNA_def_struct(brna, "EditBone", nullptr);
   RNA_def_struct_sdna(srna, "EditBone");
+  RNA_def_struct_path_func(srna, "rna_EditBone_path");
   RNA_def_struct_idprops_func(srna, "rna_EditBone_idprops");
+  RNA_def_struct_system_idprops_func(srna, "rna_EditBone_system_idprops");
   RNA_def_struct_ui_text(srna, "Edit Bone", "Edit mode bone in an armature data-block");
   RNA_def_struct_ui_icon(srna, ICON_BONE_DATA);
 
@@ -2123,25 +2188,30 @@ static void rna_def_armature(BlenderRNA *brna)
   PropertyRNA *parm;
 
   static const EnumPropertyItem prop_drawtype_items[] = {
-      {ARM_OCTA, "OCTAHEDRAL", 0, "Octahedral", "Display bones as octahedral shape (default)"},
-      {ARM_LINE, "STICK", 0, "Stick", "Display bones as simple 2D lines with dots"},
-      {ARM_B_BONE,
+      {ARM_DRAW_TYPE_OCTA,
+       "OCTAHEDRAL",
+       0,
+       "Octahedral",
+       "Display bones as octahedral shape (default)"},
+      {ARM_DRAW_TYPE_STICK, "STICK", 0, "Stick", "Display bones as simple 2D lines with dots"},
+      {ARM_DRAW_TYPE_B_BONE,
        "BBONE",
        0,
        "B-Bone",
        "Display bones as boxes, showing subdivision and B-Splines"},
-      {ARM_ENVELOPE,
+      {ARM_DRAW_TYPE_ENVELOPE,
        "ENVELOPE",
        0,
        "Envelope",
        "Display bones as extruded spheres, showing deformation influence volume"},
-      {ARM_WIRE,
+      {ARM_DRAW_TYPE_WIRE,
        "WIRE",
        0,
        "Wire",
        "Display bones as thin wires, showing subdivision and B-Splines"},
       {0, nullptr, 0, nullptr, nullptr},
   };
+
   static const EnumPropertyItem prop_pose_position_items[] = {
       {0, "POSE", 0, "Pose Position", "Show armature in posed state"},
       {ARM_RESTPOS,
@@ -2327,6 +2397,7 @@ static void rna_def_bonecollection(BlenderRNA *brna)
   RNA_def_struct_ui_text(srna, "BoneCollection", "Bone collection in an Armature data-block");
   RNA_def_struct_path_func(srna, "rna_BoneCollection_path");
   RNA_def_struct_idprops_func(srna, "rna_BoneCollection_idprops");
+  RNA_def_struct_system_idprops_func(srna, "rna_BoneCollection_system_idprops");
 
   prop = RNA_def_property(srna, "name", PROP_STRING, PROP_NONE);
   RNA_def_property_string_sdna(prop, nullptr, "name");

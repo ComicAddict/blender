@@ -11,6 +11,7 @@
  */
 
 #include "BLI_array_utils.h"
+#include "BLI_bounds.hh"
 #include "BLI_function_ref.hh"
 #include "BLI_listbase.h"
 #include "BLI_math_geom.h"
@@ -27,7 +28,6 @@
 #include "BKE_curve.hh"
 #include "BKE_editmesh.hh"
 #include "BKE_global.hh"
-#include "BKE_gpencil_legacy.h"
 #include "BKE_grease_pencil.hh"
 #include "BKE_layer.hh"
 #include "BKE_library.hh"
@@ -56,7 +56,7 @@
 #include "RNA_access.hh"
 #include "RNA_define.hh"
 
-#include "ANIM_bone_collections.hh"
+#include "ANIM_armature.hh"
 
 /* Local module include. */
 #include "transform.hh"
@@ -603,7 +603,7 @@ static int gizmo_3d_foreach_selected(const bContext *C,
               mat_local, obedit->world_to_object().ptr(), ob_iter->object_to_world().ptr());
         }
         LISTBASE_FOREACH (EditBone *, ebo, arm->edbo) {
-          if (EBONE_VISIBLE(arm, ebo)) {
+          if (blender::animrig::bone_is_visible_editbone(arm, ebo)) {
             if (ebo->flag & BONE_TIPSEL) {
               run_coord_with_matrix(ebo->tail, use_mat_local, mat_local);
               totsel++;
@@ -611,7 +611,8 @@ static int gizmo_3d_foreach_selected(const bContext *C,
             if ((ebo->flag & BONE_ROOTSEL) &&
                 /* Don't include same point multiple times. */
                 ((ebo->flag & BONE_CONNECTED) && (ebo->parent != nullptr) &&
-                 (ebo->parent->flag & BONE_TIPSEL) && EBONE_VISIBLE(arm, ebo->parent)) == 0)
+                 (ebo->parent->flag & BONE_TIPSEL) &&
+                 blender::animrig::bone_is_visible_editbone(arm, ebo->parent)) == 0)
             {
               run_coord_with_matrix(ebo->head, use_mat_local, mat_local);
               totsel++;
@@ -797,7 +798,7 @@ static int gizmo_3d_foreach_selected(const bContext *C,
 
               const bke::crazyspace::GeometryDeformation deformation =
                   bke::crazyspace::get_evaluated_grease_pencil_drawing_deformation(
-                      *depsgraph, *ob, info.layer_index, info.frame_number);
+                      *depsgraph, *ob, info.drawing);
 
               const float4x4 layer_transform =
                   mat_local * grease_pencil.layer(info.layer_index).to_object_space(*ob_iter);
@@ -902,11 +903,10 @@ static int gizmo_3d_foreach_selected(const bContext *C,
       }
 
       /* Get the boundbox out of the evaluated object. */
-      std::optional<BoundBox> bb;
+      std::optional<std::array<float3, 8>> bb;
       if (use_only_center == false) {
         if (std::optional<Bounds<float3>> bounds = BKE_object_boundbox_get(base->object)) {
-          bb.emplace();
-          BKE_boundbox_init_from_minmax(&*bb, bounds->min, bounds->max);
+          bb.emplace(bounds::corners(*bounds));
         }
       }
 
@@ -916,16 +916,16 @@ static int gizmo_3d_foreach_selected(const bContext *C,
       else {
         for (uint j = 0; j < 8; j++) {
           float co[3];
-          mul_v3_m4v3(co, base->object->object_to_world().ptr(), bb->vec[j]);
+          mul_v3_m4v3(co, base->object->object_to_world().ptr(), (*bb)[j]);
           user_fn(co);
         }
       }
       totsel++;
       if (r_drawflags) {
         if (orient_index == V3D_ORIENT_GLOBAL) {
-          /* Protect-flags apply to world space in object mode,
-           * so only let them influence axis visibility if we show the global orientation,
-           * otherwise it's confusing. */
+          /* Ignore scale/rotate lock flag while global orientation is active.
+           * Otherwise when object is rotated, global and local axes are misaligned, implying wrong
+           * axis as hidden/locked, see: !133286. */
           protectflag_to_drawflags(base->object->protectflag & OB_LOCK_LOC, r_drawflags);
         }
         else if (ELEM(orient_index, V3D_ORIENT_LOCAL, V3D_ORIENT_GIMBAL)) {
@@ -1581,7 +1581,7 @@ static void gizmo_3d_setup_draw_modal(wmGizmo *axis, const int axis_idx, const i
 
 static GizmoGroup *gizmogroup_init(wmGizmoGroup *gzgroup)
 {
-  GizmoGroup *ggd = MEM_cnew<GizmoGroup>(__func__);
+  GizmoGroup *ggd = MEM_callocN<GizmoGroup>(__func__);
 
   const wmGizmoType *gzt_arrow = WM_gizmotype_find("GIZMO_GT_arrow_3d", true);
   const wmGizmoType *gzt_dial = WM_gizmotype_find("GIZMO_GT_dial_3d", true);
@@ -1650,10 +1650,10 @@ static GizmoGroup *gizmogroup_init(wmGizmoGroup *gzgroup)
 /**
  * Custom handler for gizmo widgets
  */
-static int gizmo_modal(bContext *C,
-                       wmGizmo *widget,
-                       const wmEvent *event,
-                       eWM_GizmoFlagTweak /*tweak_flag*/)
+static wmOperatorStatus gizmo_modal(bContext *C,
+                                    wmGizmo *widget,
+                                    const wmEvent *event,
+                                    eWM_GizmoFlagTweak /*tweak_flag*/)
 {
   /* Avoid unnecessary updates, partially address: #55458. */
   if (ELEM(event->type, TIMER, INBETWEEN_MOUSEMOVE)) {
@@ -1923,15 +1923,11 @@ static void gizmogroup_refresh_from_matrix(wmGizmoGroup *gzgroup,
 
 static void WIDGETGROUP_gizmo_refresh(const bContext *C, wmGizmoGroup *gzgroup)
 {
-  ARegion *region = CTX_wm_region(C);
-
-  {
-    wmGizmo *gz = WM_gizmomap_get_modal(region->runtime->gizmo_map);
-    if (gz && gz->parent_gzgroup == gzgroup) {
-      return;
-    }
+  if (WM_gizmo_group_is_modal(gzgroup)) {
+    return;
   }
 
+  ARegion *region = CTX_wm_region(C);
   GizmoGroup *ggd = static_cast<GizmoGroup *>(gzgroup->customdata);
   Scene *scene = CTX_data_scene(C);
   ScrArea *area = CTX_wm_area(C);
@@ -1995,13 +1991,7 @@ static void WIDGETGROUP_gizmo_draw_prepare(const bContext *C, wmGizmoGroup *gzgr
   float idot[3];
 
   /* Re-calculate hidden unless modal. */
-  bool is_modal = false;
-  {
-    wmGizmo *gz = WM_gizmomap_get_modal(region->runtime->gizmo_map);
-    if (gz && gz->parent_gzgroup == gzgroup) {
-      is_modal = true;
-    }
-  }
+  const bool is_modal = WM_gizmo_group_is_modal(gzgroup);
 
   /* When looking through a selected camera, the gizmo can be at the
    * exact same position as the view, skip so we don't break selection. */

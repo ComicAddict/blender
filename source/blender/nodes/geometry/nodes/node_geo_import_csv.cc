@@ -2,7 +2,11 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
+#include <fmt/format.h>
+
+#include "BLI_generic_key_string.hh"
 #include "BLI_listbase.h"
+#include "BLI_memory_cache_file_load.hh"
 #include "BLI_string.h"
 
 #include "BKE_report.hh"
@@ -20,49 +24,72 @@ static void node_declare(NodeDeclarationBuilder &b)
       .path_filter("*.csv")
       .hide_label()
       .description("Path to a CSV file");
+  b.add_input<decl::String>("Delimiter").default_value(",");
 
   b.add_output<decl::Geometry>("Point Cloud");
 }
 
+class LoadCsvCache : public memory_cache::CachedValue {
+ public:
+  GeometrySet geometry;
+  Vector<geo_eval_log::NodeWarning> warnings;
+
+  void count_memory(MemoryCounter &counter) const override
+  {
+    this->geometry.count_memory(counter);
+  }
+};
+
 static void node_geo_exec(GeoNodeExecParams params)
 {
-#ifdef WITH_IO_CSV
   const std::optional<std::string> path = params.ensure_absolute_path(
       params.extract_input<std::string>("Path"));
   if (!path) {
     params.set_default_remaining_outputs();
     return;
   }
-
-  blender::io::csv::CSVImportParams import_params{};
-  STRNCPY(import_params.filepath, path->c_str());
-
-  ReportList reports;
-  BKE_reports_init(&reports, RPT_STORE);
-  BLI_SCOPED_DEFER([&]() { BKE_reports_free(&reports); })
-  import_params.reports = &reports;
-
-  PointCloud *pointcloud = blender::io::csv::import_csv_as_pointcloud(import_params);
-
-  LISTBASE_FOREACH (Report *, report, &(import_params.reports)->list) {
-    NodeWarningType type;
-    switch (report->type) {
-      case RPT_ERROR:
-        type = NodeWarningType::Error;
-        break;
-      default:
-        type = NodeWarningType::Info;
-        break;
-    }
-    params.error_message_add(type, TIP_(report->message));
+  const std::string delimiter = params.extract_input<std::string>("Delimiter");
+  if (delimiter.size() != 1) {
+    params.error_message_add(NodeWarningType::Error, TIP_("Delimiter must be a single character"));
+    params.set_default_remaining_outputs();
+    return;
+  }
+  if (ELEM(delimiter[0], '\n', '\r', '"', '\\')) {
+    params.error_message_add(NodeWarningType::Error,
+                             TIP_("Delimiter must not be \\n, \\r, \" or \\"));
+    params.set_default_remaining_outputs();
+    return;
   }
 
-  params.set_output("Point Cloud", GeometrySet::from_pointcloud(pointcloud));
-#else
-  params.error_message_add(NodeWarningType::Error,
-                           TIP_("Disabled, Blender was compiled without CSV I/O"));
-  params.set_default_remaining_outputs();
-#endif
+  /* Encode delimiter in key because it affects the result. */
+  const std::string loader_key = fmt::format("import_csv_node_{}", delimiter[0]);
+  std::shared_ptr<const LoadCsvCache> cached_value = memory_cache::get_loaded<LoadCsvCache>(
+      GenericStringKey{loader_key}, {StringRefNull(*path)}, [&]() {
+        blender::io::csv::CSVImportParams import_params{};
+        import_params.delimiter = delimiter[0];
+        STRNCPY(import_params.filepath, path->c_str());
+
+        ReportList reports;
+        BKE_reports_init(&reports, RPT_STORE);
+        BLI_SCOPED_DEFER([&]() { BKE_reports_free(&reports); });
+        import_params.reports = &reports;
+
+        PointCloud *pointcloud = blender::io::csv::import_csv_as_pointcloud(import_params);
+
+        auto cached_value = std::make_unique<LoadCsvCache>();
+        cached_value->geometry = GeometrySet::from_pointcloud(pointcloud);
+
+        LISTBASE_FOREACH (Report *, report, &(import_params.reports)->list) {
+          cached_value->warnings.append_as(*report);
+        }
+        return cached_value;
+      });
+
+  for (const geo_eval_log::NodeWarning &warning : cached_value->warnings) {
+    params.error_message_add(warning.type, warning.message);
+  }
+
+  params.set_output("Point Cloud", cached_value->geometry);
 }
 
 static void node_register()
@@ -75,7 +102,6 @@ static void node_register()
   ntype.nclass = NODE_CLASS_INPUT;
   ntype.geometry_node_execute = node_geo_exec;
   ntype.declare = node_declare;
-  ntype.gather_link_search_ops = search_link_ops_for_import_node;
 
   blender::bke::node_register_type(ntype);
 }

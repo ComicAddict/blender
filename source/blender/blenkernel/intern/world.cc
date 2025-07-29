@@ -46,8 +46,6 @@ static void world_free_data(ID *id)
 {
   World *wrld = (World *)id;
 
-  DRW_drawdata_free(id);
-
   /* is no lib link block, but world extension */
   if (wrld->nodetree) {
     blender::bke::node_tree_free_embedded_tree(wrld->nodetree);
@@ -111,7 +109,6 @@ static void world_copy_data(Main *bmain,
   }
 
   BLI_listbase_clear(&wrld_dst->gpumaterial);
-  BLI_listbase_clear((ListBase *)&wrld_dst->drawdata);
 
   if ((flag & LIB_ID_COPY_NO_PREVIEW) == 0) {
     BKE_previewimg_id_copy(&wrld_dst->id, &wrld_src->id);
@@ -181,7 +178,7 @@ static void world_blend_read_data(BlendDataReader *reader, ID *id)
 }
 
 IDTypeInfo IDType_ID_WO = {
-    /*id_code*/ ID_WO,
+    /*id_code*/ World::id_type,
     /*id_filter*/ FILTER_ID_WO,
     /*dependencies_id_types*/ FILTER_ID_TE,
     /*main_listbase_index*/ INDEX_ID_WO,
@@ -214,7 +211,7 @@ World *BKE_world_add(Main *bmain, const char *name)
 {
   World *wrld;
 
-  wrld = static_cast<World *>(BKE_id_new(bmain, ID_WO, name));
+  wrld = BKE_id_new<World>(bmain, name);
 
   return wrld;
 }

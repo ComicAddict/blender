@@ -20,6 +20,8 @@
 namespace blender::bke {
 enum class AttrDomain : int8_t;
 class AttributeAccessor;
+class AttributeStorage;
+class MutableAttributeAccessor;
 }  // namespace blender::bke
 struct CustomData;
 struct CustomDataLayer;
@@ -62,6 +64,9 @@ class AttributeOwner {
 
   AttributeOwnerType type() const;
   bool is_valid() const;
+
+  blender::bke::AttributeStorage *get_storage() const;
+  std::optional<blender::bke::MutableAttributeAccessor> get_accessor() const;
 
   Mesh *get_mesh() const;
   PointCloud *get_pointcloud() const;
@@ -126,7 +131,7 @@ int BKE_attributes_length(const AttributeOwner &owner,
                           AttrDomainMask domain_mask,
                           eCustomDataMask mask);
 
-struct CustomDataLayer *BKE_attributes_active_get(AttributeOwner &owner);
+std::optional<blender::StringRefNull> BKE_attributes_active_name_get(AttributeOwner &owner);
 void BKE_attributes_active_set(AttributeOwner &owner, blender::StringRef name);
 void BKE_attributes_active_clear(AttributeOwner &owner);
 int *BKE_attributes_active_index_p(AttributeOwner &owner);

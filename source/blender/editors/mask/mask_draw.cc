@@ -108,7 +108,7 @@ static void draw_single_handle(const MaskLayer *mask_layer,
   }
 
   GPUVertFormat *format = immVertexFormat();
-  uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+  uint pos = GPU_vertformat_attr_add(format, "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
   const uchar rgb_gray[4] = {0x60, 0x60, 0x60, 0xff};
 
   immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
@@ -200,7 +200,7 @@ static void draw_spline_points(const bContext *C,
   mask_spline_color_get(mask_layer, spline, is_spline_sel, rgb_spline);
 
   GPUVertFormat *format = immVertexFormat();
-  uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+  uint pos = GPU_vertformat_attr_add(format, "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
 
   immBindBuiltinProgram(GPU_SHADER_2D_POINT_UNIFORM_SIZE_UNIFORM_COLOR_AA);
   immUniform1f("size", 0.7f * handle_size);
@@ -392,7 +392,7 @@ static void mask_draw_curve_type(const bContext *C,
     const bool undistort = sc->clip && (sc->user.render_flag & MCLIP_PROXY_RENDER_UNDISTORT);
 
     if (undistort) {
-      points = MEM_cnew_array<float[2]>(tot_point, "undistorthed mask curve");
+      points = MEM_calloc_arrayN<float[2]>(tot_point, "undistorthed mask curve");
 
       for (int i = 0; i < tot_point; i++) {
         mask_point_undistort_pos(sc, points[i], orig_points[i]);
@@ -401,7 +401,7 @@ static void mask_draw_curve_type(const bContext *C,
   }
 
   GPUVertFormat *format = immVertexFormat();
-  uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+  uint pos = GPU_vertformat_attr_add(format, "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
 
   switch (draw_type) {
 
@@ -624,7 +624,7 @@ static void draw_mask_layers(
 static float *mask_rasterize(Mask *mask, const int width, const int height)
 {
   MaskRasterHandle *handle;
-  float *buffer = MEM_cnew_array<float>(height * width, "rasterized mask buffer");
+  float *buffer = MEM_calloc_arrayN<float>(height * width, "rasterized mask buffer");
 
   /* Initialize rasterization handle. */
   handle = BKE_maskrasterize_handle_new();
@@ -659,7 +659,7 @@ void ED_mask_draw_region(
     const bContext *C)
 {
   View2D *v2d = &region->v2d;
-  Mask *mask_eval = (Mask *)DEG_get_evaluated_id(depsgraph, &mask_->id);
+  Mask *mask_eval = DEG_get_evaluated(depsgraph, mask_);
 
   /* aspect always scales vertically in movie and image spaces */
   const float width = width_i, height = float(height_i) * (aspy / aspx);
@@ -727,12 +727,30 @@ void ED_mask_draw_region(
     if (overlay_mode == MASK_OVERLAY_COMBINED) {
       const float blend_col[4] = {0.0f, 0.0f, 0.0f, blend_factor};
 
-      immDrawPixelsTexTiled(
-          &state, 0.0f, 0.0f, width, height, GPU_R16F, false, buffer, 1.0f, 1.0f, blend_col);
+      immDrawPixelsTexTiled(&state,
+                            0.0f,
+                            0.0f,
+                            width,
+                            height,
+                            blender::gpu::TextureFormat::SFLOAT_16,
+                            false,
+                            buffer,
+                            1.0f,
+                            1.0f,
+                            blend_col);
     }
     else {
-      immDrawPixelsTexTiled(
-          &state, 0.0f, 0.0f, width, height, GPU_R16F, false, buffer, 1.0f, 1.0f, nullptr);
+      immDrawPixelsTexTiled(&state,
+                            0.0f,
+                            0.0f,
+                            width,
+                            height,
+                            blender::gpu::TextureFormat::SFLOAT_16,
+                            false,
+                            buffer,
+                            1.0f,
+                            1.0f,
+                            nullptr);
     }
     GPU_matrix_pop();
 
@@ -740,7 +758,7 @@ void ED_mask_draw_region(
       GPU_blend(GPU_BLEND_NONE);
     }
 
-    MEM_freeN((void *)buffer);
+    MEM_freeN(buffer);
   }
 
   /* apply transformation so mask editing tools will assume drawing from the
@@ -789,7 +807,7 @@ void ED_mask_draw_frames(
   const int region_bottom = rect_visible->ymin;
 
   uint pos = GPU_vertformat_attr_add(
-      immVertexFormat(), "pos", GPU_COMP_I32, 2, GPU_FETCH_INT_TO_FLOAT);
+      immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
 
   immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
   immUniformColor4ub(255, 175, 0, 255);
@@ -802,8 +820,8 @@ void ED_mask_draw_frames(
     // draw_keyframe(i, scene->r.cfra, sfra, framelen, 1);
     int height = (frame == cfra) ? 22 : 10;
     int x = (frame - sfra) * framelen;
-    immVertex2i(pos, x, region_bottom);
-    immVertex2i(pos, x, region_bottom + height * UI_SCALE_FAC);
+    immVertex2f(pos, x, region_bottom);
+    immVertex2f(pos, x, region_bottom + height * UI_SCALE_FAC);
   }
   immEnd();
   immUnbindProgram();

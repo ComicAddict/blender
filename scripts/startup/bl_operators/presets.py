@@ -152,6 +152,10 @@ class AddPresetBase:
                 self.report({'WARNING'}, "Failed to create presets path")
                 return {'CANCELLED'}
 
+            if _is_path_readonly(target_path):
+                self.report({'WARNING'}, "Can't create presets with built-in names")
+                return {'CANCELLED'}
+
             filepath = os.path.join(target_path, filename) + ext
 
             if hasattr(self, "add"):
@@ -166,9 +170,16 @@ class AddPresetBase:
 
                     def rna_recursive_attr_expand(value, rna_path_step, level):
                         if isinstance(value, bpy.types.PropertyGroup):
+                            # Avoid properties being handled multiple times.
+                            # This happens when a class defines a property which is also defined by it's parent class.
+                            # The parents property is shadowed, so it only makes sense to write each property once.
+                            # Happens with `OperatorFileListElement` which has two `name` properties.
+                            properties_skip = {"rna_type"}
                             for sub_value_attr in value.bl_rna.properties.keys():
-                                if sub_value_attr == "rna_type":
+                                if sub_value_attr in properties_skip:
                                     continue
+                                properties_skip.add(sub_value_attr)
+
                                 sub_value = getattr(value, sub_value_attr)
                                 rna_recursive_attr_expand(
                                     sub_value,
@@ -401,6 +412,20 @@ class AddPresetCloth(AddPresetBase, Operator):
         "cloth.settings.compression_damping",
         "cloth.settings.shear_damping",
         "cloth.settings.bending_damping",
+        "cloth.settings.use_internal_springs",
+        "cloth.settings.internal_spring_max_length",
+        "cloth.settings.internal_spring_max_diversion",
+        "cloth.settings.internal_spring_normal_check",
+        "cloth.settings.internal_tension_stiffness",
+        "cloth.settings.internal_compression_stiffness",
+        "cloth.settings.internal_tension_stiffness_max",
+        "cloth.settings.internal_compression_stiffness_max",
+        "cloth.settings.use_pressure",
+        "cloth.settings.uniform_pressure_force",
+        "cloth.settings.use_pressure_volume",
+        "cloth.settings.target_volume",
+        "cloth.settings.pressure_factor",
+        "cloth.settings.fluid_density",
     ]
 
     preset_subdir = "cloth"
@@ -558,7 +583,7 @@ class AddPresetEEVEERaytracing(AddPresetBase, Operator):
     """Add or remove an EEVEE ray-tracing preset"""
     bl_idname = "render.eevee_raytracing_preset_add"
     bl_label = "Add Raytracing Preset"
-    preset_menu = "RENDER_PT_eevee_next_raytracing_presets"
+    preset_menu = "RENDER_PT_eevee_raytracing_presets"
 
     preset_defines = [
         "eevee = bpy.context.scene.eevee",
@@ -857,13 +882,29 @@ class WM_OT_operator_presets_cleanup(Operator):
         if not (os.path.isfile(filepath) and os.path.splitext(filepath)[1].lower() == ".py"):
             return
         with open(filepath, "r", encoding="utf-8") as fh:
-            lines = fh.read().splitlines(True)
-        if not lines:
+            lines_prev = fh.read().splitlines(True)
+        if not lines_prev:
             return
         regex_exclude = re.compile("(" + "|".join([re.escape("op." + prop) for prop in properties_exclude]) + ")\\b")
-        lines = [line for line in lines if not regex_exclude.match(line)]
+        lines_next = []
+
+        i = 0
+        while i < len(lines_prev):
+            m = regex_exclude.match(lines_prev[i])
+            if m is None:
+                lines_next.append(lines_prev[i])
+                i += 1
+            else:
+                is_collection = lines_prev[i][m.end():].startswith(".clear()")
+                i += 1
+
+                # Skip non operator lines.
+                if is_collection:
+                    while i < len(lines_prev) and (not lines_prev[i].startswith("op.")):
+                        i += 1
+
         with open(filepath, "w", encoding="utf-8") as fh:
-            fh.write("".join(lines))
+            fh.write("".join(lines_next))
 
     def _cleanup_operators_presets(self, operators, properties_exclude):
         import os
@@ -891,11 +932,6 @@ class WM_OT_operator_presets_cleanup(Operator):
             operators = [
                 "WM_OT_alembic_export",
                 "WM_OT_alembic_import",
-                "WM_OT_collada_export",
-                "WM_OT_collada_import",
-                "WM_OT_gpencil_export_svg",
-                "WM_OT_gpencil_export_pdf",
-                "WM_OT_gpencil_import_svg",
                 "WM_OT_obj_export",
                 "WM_OT_obj_import",
                 "WM_OT_ply_export",
@@ -904,6 +940,8 @@ class WM_OT_operator_presets_cleanup(Operator):
                 "WM_OT_stl_import",
                 "WM_OT_usd_export",
                 "WM_OT_usd_import",
+                "EXPORT_SCENE_OT_fbx",
+                "IMPORT_SCENE_OT_fbx",
             ]
             properties_exclude = [
                 "filepath",

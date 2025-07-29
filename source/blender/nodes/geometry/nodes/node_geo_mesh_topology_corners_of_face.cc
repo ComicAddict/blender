@@ -13,7 +13,7 @@ namespace blender::nodes::node_geo_mesh_topology_corners_of_face_cc {
 static void node_declare(NodeDeclarationBuilder &b)
 {
   b.add_input<decl::Int>("Face Index")
-      .implicit_field(implicit_field_inputs::index)
+      .implicit_field(NODE_DEFAULT_INPUT_INDEX_FIELD)
       .description("The face to retrieve data from. Defaults to the face from the context");
   b.add_input<decl::Float>("Weights").supports_field().hide_value().description(
       "Values used to sort the face's corners. Uses indices by default");
@@ -104,7 +104,7 @@ class CornersOfFaceInput final : public bke::MeshFieldInput {
       }
     });
 
-    return VArray<int>::ForContainer(std::move(corner_of_face));
+    return VArray<int>::from_container(std::move(corner_of_face));
   }
 
   void for_each_field_input_recursive(FunctionRef<void(const FieldInput &)> fn) const override
@@ -149,8 +149,8 @@ class CornersOfFaceCountInput final : public bke::MeshFieldInput {
       return {};
     }
     const OffsetIndices faces = mesh.faces();
-    return VArray<int>::ForFunc(mesh.faces_num,
-                                [faces](const int64_t i) { return faces[i].size(); });
+    return VArray<int>::from_func(mesh.faces_num,
+                                  [faces](const int64_t i) { return faces[i].size(); });
   }
 
   uint64_t hash() const final

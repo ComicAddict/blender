@@ -84,6 +84,8 @@ class Batch {
   blender::gpu::IndexBuf *elem;
   /** Resource ID attribute workaround. */
   GPUStorageBuf *resource_id_buf;
+  /** Number of vertices to draw for procedural drawcalls. */
+  int32_t procedural_vertices;
   /** Bookkeeping. */
   eGPUBatchFlag flag;
   /** Type of geometry to draw. */
@@ -142,6 +144,9 @@ blender::gpu::Batch *GPU_batch_create_ex(GPUPrimType primitive_type,
                                          blender::gpu::VertBuf *vertex_buf,
                                          blender::gpu::IndexBuf *index_buf,
                                          eGPUBatchFlag owns_flag);
+
+blender::gpu::Batch *GPU_batch_create_procedural(GPUPrimType primitive_type, int32_t vertex_count);
+
 /**
  * Creates a #blender::gpu::Batch without buffer ownership.
  */
@@ -276,7 +281,10 @@ void GPU_batch_resource_id_buf_set(blender::gpu::Batch *batch, GPUStorageBuf *re
  * \note This need to be called first for the `GPU_batch_uniform_*` functions to work.
  */
 /* TODO(fclem): These should be removed and replaced by `GPU_shader_bind()`. */
-void GPU_batch_set_shader(blender::gpu::Batch *batch, GPUShader *shader);
+void GPU_batch_set_shader(
+    blender::gpu::Batch *batch,
+    GPUShader *shader,
+    const blender::gpu::shader::SpecializationConstants *constants_state = nullptr);
 void GPU_batch_program_set_builtin(blender::gpu::Batch *batch, eGPUBuiltinShader shader_id);
 void GPU_batch_program_set_builtin_with_config(blender::gpu::Batch *batch,
                                                eGPUBuiltinShader shader_id,
@@ -318,7 +326,10 @@ void GPU_batch_program_set_imm_shader(blender::gpu::Batch *batch);
 /**
  * Bind vertex and index buffers to SSBOs using `Frequency::GEOMETRY`.
  */
-void GPU_batch_bind_as_resources(blender::gpu::Batch *batch, GPUShader *shader);
+void GPU_batch_bind_as_resources(
+    blender::gpu::Batch *batch,
+    GPUShader *shader,
+    const blender::gpu::shader::SpecializationConstants *constants = nullptr);
 
 /** \} */
 
@@ -435,7 +446,7 @@ blender::IndexRange GPU_batch_draw_expanded_parameter_get(GPUPrimType input_prim
 /* -------------------------------------------------------------------- */
 /** \name Procedural drawing
  *
- * A drawcall always need a batch to be issued.
+ * A draw-call always need a batch to be issued.
  * These are dummy batches that contains no vertex data and can be used to render geometry
  * without per vertex inputs.
  * \{ */

@@ -11,7 +11,7 @@
 #include "MEM_guardedalloc.h"
 
 #include "BLI_listbase.h"
-#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 #include "BLI_utildefines.h"
 
 #include "BLT_translation.hh"
@@ -24,6 +24,7 @@
 #include "ED_space_api.hh"
 
 #include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 #include "UI_view2d.hh"
 
@@ -42,7 +43,7 @@ static SpaceLink *topbar_create(const ScrArea * /*area*/, const Scene * /*scene*
   ARegion *region;
   SpaceTopBar *stopbar;
 
-  stopbar = static_cast<SpaceTopBar *>(MEM_callocN(sizeof(*stopbar), "init topbar"));
+  stopbar = MEM_callocN<SpaceTopBar>("init topbar");
   stopbar->spacetype = SPACE_TOPBAR;
 
   /* header */
@@ -187,13 +188,13 @@ static void topbar_header_region_message_subscribe(const wmRegionMessageSubscrib
 static void recent_files_menu_draw(const bContext * /*C*/, Menu *menu)
 {
   uiLayout *layout = menu->layout;
-  uiLayoutSetOperatorContext(layout, WM_OP_INVOKE_DEFAULT);
+  layout->operator_context_set(blender::wm::OpCallContext::InvokeDefault);
   if (uiTemplateRecentFiles(layout, U.recent_files) != 0) {
-    uiItemS(layout);
-    uiItemO(layout, IFACE_("Clear Recent Files List..."), ICON_TRASH, "WM_OT_clear_recent_files");
+    layout->separator();
+    layout->op("WM_OT_clear_recent_files", IFACE_("Clear Recent Files List..."), ICON_TRASH);
   }
   else {
-    uiItemL(layout, IFACE_("No Recent Files"), ICON_NONE);
+    layout->label(IFACE_("No Recent Files"), ICON_NONE);
   }
 }
 
@@ -201,10 +202,10 @@ static void recent_files_menu_register()
 {
   MenuType *mt;
 
-  mt = static_cast<MenuType *>(MEM_callocN(sizeof(MenuType), "spacetype info menu recent files"));
-  STRNCPY(mt->idname, "TOPBAR_MT_file_open_recent");
-  STRNCPY(mt->label, N_("Open Recent"));
-  STRNCPY(mt->translation_context, BLT_I18NCONTEXT_DEFAULT_BPYRNA);
+  mt = MEM_callocN<MenuType>("spacetype info menu recent files");
+  STRNCPY_UTF8(mt->idname, "TOPBAR_MT_file_open_recent");
+  STRNCPY_UTF8(mt->label, N_("Open Recent"));
+  STRNCPY_UTF8(mt->translation_context, BLT_I18NCONTEXT_DEFAULT_BPYRNA);
   mt->draw = recent_files_menu_draw;
   WM_menutype_add(mt);
 }
@@ -226,7 +227,7 @@ static void undo_history_draw_menu(const bContext *C, Menu *menu)
     undo_step_count += 1;
   }
 
-  uiLayout *split = uiLayoutSplit(menu->layout, 0.0f, false);
+  uiLayout *split = &menu->layout->split(0.0f, false);
   uiLayout *column = nullptr;
 
   const int col_size = 20 + (undo_step_count / 12);
@@ -241,17 +242,15 @@ static void undo_history_draw_menu(const bContext *C, Menu *menu)
       continue;
     }
     if (!(undo_step_count % col_size)) {
-      column = uiLayoutColumn(split, false);
+      column = &split->column(false);
     }
     const bool is_active = (us == wm->undo_stack->step_active);
-    uiLayout *row = uiLayoutRow(column, false);
-    uiLayoutSetEnabled(row, !is_active);
-    uiItemIntO(row,
-               CTX_IFACE_(BLT_I18NCONTEXT_OPERATOR_DEFAULT, us->name),
-               is_active ? ICON_LAYER_ACTIVE : ICON_NONE,
-               "ED_OT_undo_history",
-               "item",
-               i);
+    uiLayout *row = &column->row(false);
+    row->enabled_set(!is_active);
+    PointerRNA op_ptr = row->op("ED_OT_undo_history",
+                                CTX_IFACE_(BLT_I18NCONTEXT_OPERATOR_DEFAULT, us->name),
+                                is_active ? ICON_LAYER_ACTIVE : ICON_NONE);
+    RNA_int_set(&op_ptr, "item", i);
     undo_step_count += 1;
   }
 }
@@ -260,10 +259,10 @@ static void undo_history_menu_register()
 {
   MenuType *mt;
 
-  mt = static_cast<MenuType *>(MEM_callocN(sizeof(MenuType), __func__));
-  STRNCPY(mt->idname, "TOPBAR_MT_undo_history");
-  STRNCPY(mt->label, N_("Undo History"));
-  STRNCPY(mt->translation_context, BLT_I18NCONTEXT_DEFAULT_BPYRNA);
+  mt = MEM_callocN<MenuType>(__func__);
+  STRNCPY_UTF8(mt->idname, "TOPBAR_MT_undo_history");
+  STRNCPY_UTF8(mt->label, N_("Undo History"));
+  STRNCPY_UTF8(mt->translation_context, BLT_I18NCONTEXT_DEFAULT_BPYRNA);
   mt->draw = undo_history_draw_menu;
   WM_menutype_add(mt);
 }
@@ -279,7 +278,7 @@ void ED_spacetype_topbar()
   ARegionType *art;
 
   st->spaceid = SPACE_TOPBAR;
-  STRNCPY(st->name, "Top Bar");
+  STRNCPY_UTF8(st->name, "Top Bar");
 
   st->create = topbar_create;
   st->free = topbar_free;
@@ -290,8 +289,7 @@ void ED_spacetype_topbar()
   st->blend_write = topbar_space_blend_write;
 
   /* regions: main window */
-  art = static_cast<ARegionType *>(
-      MEM_callocN(sizeof(ARegionType), "spacetype topbar main region"));
+  art = MEM_callocN<ARegionType>("spacetype topbar main region");
   art->regionid = RGN_TYPE_WINDOW;
   art->init = topbar_main_region_init;
   art->layout = ED_region_header_layout;
@@ -303,8 +301,7 @@ void ED_spacetype_topbar()
   BLI_addhead(&st->regiontypes, art);
 
   /* regions: header */
-  art = static_cast<ARegionType *>(
-      MEM_callocN(sizeof(ARegionType), "spacetype topbar header region"));
+  art = MEM_callocN<ARegionType>("spacetype topbar header region");
   art->regionid = RGN_TYPE_HEADER;
   art->prefsizey = HEADERY;
   art->prefsizex = UI_UNIT_X * 5; /* Mainly to avoid glitches */

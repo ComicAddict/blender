@@ -7,6 +7,8 @@
  */
 
 #ifdef _WIN32
+#  include "BLI_winstuff.h"
+#  include <exception>
 #  include <io.h>
 #  include <stddef.h>
 #  include <sys/types.h>
@@ -16,6 +18,8 @@
 #include "BLI_mmap.h"
 #include "BLI_path_utils.hh" /* For assertions. */
 #include "BLI_string.h"
+#include "BLI_string_utf8.h"
+
 #include <cstdlib>
 
 #include "IMB_allocimbuf.hh"
@@ -29,23 +33,56 @@
 #include "IMB_colormanagement.hh"
 #include "IMB_colormanagement_intern.hh"
 
-static void imb_handle_alpha(ImBuf *ibuf,
-                             int flags,
-                             char colorspace[IM_MAX_SPACE],
-                             const char effective_colorspace[IM_MAX_SPACE])
+static void imb_handle_colorspace_and_alpha(ImBuf *ibuf,
+                                            const int flags,
+                                            const char *filepath,
+                                            const ImFileColorSpace &file_colorspace,
+                                            char r_colorspace[IM_MAX_SPACE])
 {
-  if (colorspace) {
+  /* Determine file colorspace. */
+  char new_colorspace[IM_MAX_SPACE];
+
+  if (r_colorspace && r_colorspace[0]) {
+    /* Existing configured colorspace has priority. */
+    STRNCPY_UTF8(new_colorspace, r_colorspace);
+  }
+  else if (file_colorspace.metadata_colorspace[0] &&
+           colormanage_colorspace_get_named(file_colorspace.metadata_colorspace))
+  {
+    /* Use colorspace from file metadata if provided. */
+    STRNCPY_UTF8(new_colorspace, file_colorspace.metadata_colorspace);
+  }
+  else {
+    /* The color-space from the file-path (not a file-path). */
+    const char *filepath_colorspace = (filepath) ?
+                                          IMB_colormanagement_space_from_filepath_rules(filepath) :
+                                          nullptr;
+    if (filepath_colorspace) {
+      /* Use colorspace from OpenColorIO file rules. */
+      STRNCPY_UTF8(new_colorspace, filepath_colorspace);
+    }
+    else {
+      /* Use float colorspace if the image may contain HDR colors, byte otherwise. */
+      const char *role_colorspace = IMB_colormanagement_role_colorspace_name_get(
+          file_colorspace.is_hdr_float ? COLOR_ROLE_DEFAULT_FLOAT : COLOR_ROLE_DEFAULT_BYTE);
+      STRNCPY_UTF8(new_colorspace, role_colorspace);
+    }
+  }
+
+  if (r_colorspace) {
+    BLI_strncpy_utf8(r_colorspace, new_colorspace, IM_MAX_SPACE);
+  }
+
+  if (r_colorspace) {
     if (ibuf->byte_buffer.data != nullptr && ibuf->float_buffer.data == nullptr) {
       /* byte buffer is never internally converted to some standard space,
        * store pointer to its color space descriptor instead
        */
-      ibuf->byte_buffer.colorspace = colormanage_colorspace_get_named(effective_colorspace);
+      ibuf->byte_buffer.colorspace = colormanage_colorspace_get_named(new_colorspace);
     }
-
-    BLI_strncpy(colorspace, effective_colorspace, IM_MAX_SPACE);
   }
 
-  bool is_data = (colorspace && IMB_colormanagement_space_name_is_data(colorspace));
+  bool is_data = (r_colorspace && IMB_colormanagement_space_name_is_data(new_colorspace));
   int alpha_flags = (flags & IB_alphamode_detect) ? ibuf->flags : flags;
 
   if (is_data || (flags & IB_alphamode_channel_packed)) {
@@ -76,30 +113,31 @@ static void imb_handle_alpha(ImBuf *ibuf,
     }
   }
 
-  colormanage_imbuf_make_linear(ibuf, effective_colorspace);
+  colormanage_imbuf_make_linear(ibuf, new_colorspace);
 }
 
-ImBuf *IMB_ibImageFromMemory(
-    const uchar *mem, size_t size, int flags, char colorspace[IM_MAX_SPACE], const char *descr)
+ImBuf *IMB_load_image_from_memory(const uchar *mem,
+                                  const size_t size,
+                                  const int flags,
+                                  const char *descr,
+                                  const char *filepath,
+                                  char r_colorspace[IM_MAX_SPACE])
 {
   ImBuf *ibuf;
   const ImFileType *type;
-  char effective_colorspace[IM_MAX_SPACE] = "";
 
   if (mem == nullptr) {
     fprintf(stderr, "%s: nullptr pointer\n", __func__);
     return nullptr;
   }
 
-  if (colorspace) {
-    STRNCPY(effective_colorspace, colorspace);
-  }
+  ImFileColorSpace file_colorspace;
 
   for (type = IMB_FILE_TYPES; type < IMB_FILE_TYPES_LAST; type++) {
     if (type->load) {
-      ibuf = type->load(mem, size, flags, effective_colorspace);
+      ibuf = type->load(mem, size, flags, file_colorspace);
       if (ibuf) {
-        imb_handle_alpha(ibuf, flags, colorspace, effective_colorspace);
+        imb_handle_colorspace_and_alpha(ibuf, flags, filepath, file_colorspace, r_colorspace);
         return ibuf;
       }
     }
@@ -112,7 +150,10 @@ ImBuf *IMB_ibImageFromMemory(
   return nullptr;
 }
 
-ImBuf *IMB_loadifffile(int file, int flags, char colorspace[IM_MAX_SPACE], const char *descr)
+ImBuf *IMB_load_image_from_file_descriptor(const int file,
+                                           const int flags,
+                                           const char *filepath,
+                                           char r_colorspace[IM_MAX_SPACE])
 {
   ImBuf *ibuf;
 
@@ -124,14 +165,37 @@ ImBuf *IMB_loadifffile(int file, int flags, char colorspace[IM_MAX_SPACE], const
   BLI_mmap_file *mmap_file = BLI_mmap_open(file);
   imb_mmap_unlock();
   if (mmap_file == nullptr) {
-    fprintf(stderr, "%s: couldn't get mapping %s\n", __func__, descr);
+    fprintf(stderr, "%s: couldn't get mapping %s\n", __func__, filepath);
     return nullptr;
   }
 
   const uchar *mem = static_cast<const uchar *>(BLI_mmap_get_pointer(mmap_file));
   const size_t size = BLI_mmap_get_length(mmap_file);
 
-  ibuf = IMB_ibImageFromMemory(mem, size, flags, colorspace, descr);
+  /* There could be broken mmap due to network drives and other issues, handles exception the
+   * same way as in #BLI_mmap_read. Note that if the mmap becomes invalid mid-way through reading,
+   * external calls in #IMB_load_image_from_memory could leave unfreed memory, but this is the
+   * limitation of current exception handling method. Ref #139472. */
+#ifdef WIN32
+  __try
+  {
+#endif
+
+    ibuf = IMB_load_image_from_memory(mem, size, flags, filepath, filepath, r_colorspace);
+
+#ifdef WIN32
+  }
+  __except (GetExceptionCode() == EXCEPTION_IN_PAGE_ERROR ? EXCEPTION_EXECUTE_HANDLER :
+                                                            EXCEPTION_CONTINUE_SEARCH)
+  {
+    ibuf = nullptr;
+  }
+#else
+  /* For unix, if mmap encounters an exception, BLI_mmap_file::io_error would be set. */
+  if (BLI_mmap_any_io_error(mmap_file)) {
+    ibuf = nullptr;
+  }
+#endif
 
   imb_mmap_lock();
   BLI_mmap_free(mmap_file);
@@ -140,7 +204,9 @@ ImBuf *IMB_loadifffile(int file, int flags, char colorspace[IM_MAX_SPACE], const
   return ibuf;
 }
 
-ImBuf *IMB_loadiffname(const char *filepath, int flags, char colorspace[IM_MAX_SPACE])
+ImBuf *IMB_load_image_from_filepath(const char *filepath,
+                                    const int flags,
+                                    char r_colorspace[IM_MAX_SPACE])
 {
   ImBuf *ibuf;
   int file;
@@ -152,7 +218,7 @@ ImBuf *IMB_loadiffname(const char *filepath, int flags, char colorspace[IM_MAX_S
     return nullptr;
   }
 
-  ibuf = IMB_loadifffile(file, flags, colorspace, filepath);
+  ibuf = IMB_load_image_from_file_descriptor(file, flags, filepath, r_colorspace);
 
   if (ibuf) {
     STRNCPY(ibuf->filepath, filepath);
@@ -164,29 +230,28 @@ ImBuf *IMB_loadiffname(const char *filepath, int flags, char colorspace[IM_MAX_S
 }
 
 ImBuf *IMB_thumb_load_image(const char *filepath,
-                            size_t max_thumb_size,
-                            char colorspace[IM_MAX_SPACE],
-                            IMBThumbLoadFlags load_flags)
+                            const size_t max_thumb_size,
+                            char r_colorspace[IM_MAX_SPACE],
+                            const IMBThumbLoadFlags load_flags)
 {
-  const ImFileType *type = IMB_file_type_from_ftype(IMB_ispic_type(filepath));
+  const ImFileType *type = IMB_file_type_from_ftype(IMB_test_image_type(filepath));
   if (type == nullptr) {
     return nullptr;
   }
 
   ImBuf *ibuf = nullptr;
-  int flags = IB_rect | IB_metadata;
+  int flags = IB_byte_data | IB_metadata;
   /* Size of the original image. */
   size_t width = 0;
   size_t height = 0;
 
-  char effective_colorspace[IM_MAX_SPACE] = "";
-  if (colorspace) {
-    STRNCPY(effective_colorspace, colorspace);
-  }
-
   if (type->load_filepath_thumbnail) {
+    ImFileColorSpace file_colorspace;
     ibuf = type->load_filepath_thumbnail(
-        filepath, flags, max_thumb_size, colorspace, &width, &height);
+        filepath, flags, max_thumb_size, file_colorspace, &width, &height);
+    if (ibuf) {
+      imb_handle_colorspace_and_alpha(ibuf, flags, filepath, file_colorspace, r_colorspace);
+    }
   }
   else {
     /* Skip images of other types if over 100MB. */
@@ -196,7 +261,7 @@ ImBuf *IMB_thumb_load_image(const char *filepath,
         return nullptr;
       }
     }
-    ibuf = IMB_loadiffname(filepath, flags, colorspace);
+    ibuf = IMB_load_image_from_filepath(filepath, flags, r_colorspace);
     if (ibuf) {
       width = ibuf->x;
       height = ibuf->y;
@@ -204,43 +269,17 @@ ImBuf *IMB_thumb_load_image(const char *filepath,
   }
 
   if (ibuf) {
-    imb_handle_alpha(ibuf, flags, colorspace, effective_colorspace);
-
     if (width > 0 && height > 0) {
       /* Save dimensions of original image into the thumbnail metadata. */
       char cwidth[40];
       char cheight[40];
-      SNPRINTF(cwidth, "%zu", width);
-      SNPRINTF(cheight, "%zu", height);
+      SNPRINTF_UTF8(cwidth, "%zu", width);
+      SNPRINTF_UTF8(cheight, "%zu", height);
       IMB_metadata_ensure(&ibuf->metadata);
       IMB_metadata_set_field(ibuf->metadata, "Thumb::Image::Width", cwidth);
       IMB_metadata_set_field(ibuf->metadata, "Thumb::Image::Height", cheight);
     }
   }
-
-  return ibuf;
-}
-
-ImBuf *IMB_testiffname(const char *filepath, int flags)
-{
-  ImBuf *ibuf;
-  int file;
-  char colorspace[IM_MAX_SPACE] = "\0";
-
-  BLI_assert(!BLI_path_is_rel(filepath));
-
-  file = BLI_open(filepath, O_BINARY | O_RDONLY, 0);
-  if (file == -1) {
-    return nullptr;
-  }
-
-  ibuf = IMB_loadifffile(file, flags | IB_test | IB_multilayer, colorspace, filepath);
-
-  if (ibuf) {
-    STRNCPY(ibuf->filepath, filepath);
-  }
-
-  close(file);
 
   return ibuf;
 }

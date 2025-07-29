@@ -5,6 +5,7 @@
 #pragma once
 
 #include "util/types_base.h"
+#include "util/types_int2.h"
 
 CCL_NAMESPACE_BEGIN
 
@@ -40,6 +41,21 @@ ccl_device_inline float2 make_float2(const float x, const float y)
   return a;
 }
 #endif /* __KERNEL_NATIVE_VECTOR_TYPES__ */
+
+ccl_device_inline float2 make_float2(const float f)
+{
+  return {f, f};
+}
+
+ccl_device_inline float2 make_float2(const int2 i)
+{
+  return make_float2((float)i.x, (float)i.y);
+}
+
+ccl_device_inline int2 make_int2(const float2 f)
+{
+  return make_int2((int)f.x, (int)f.y);
+}
 
 ccl_device_inline void print_float2(const ccl_private char *label, const float2 a)
 {

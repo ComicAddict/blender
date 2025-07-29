@@ -4,7 +4,7 @@
 
 #include "node_geometry_util.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "NOD_rna_define.hh"
@@ -42,16 +42,25 @@ static void node_declare(NodeDeclarationBuilder &b)
   if (socket_type == SOCK_GEOMETRY) {
     output_decl.propagate_all();
   }
+
+  const StructureType structure_type = socket_type_always_single(socket_type) ?
+                                           StructureType::Single :
+                                           StructureType::Dynamic;
+
+  switch_decl.structure_type(structure_type);
+  false_decl.structure_type(structure_type);
+  true_decl.structure_type(structure_type);
+  output_decl.structure_type(structure_type);
 }
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "input_type", UI_ITEM_NONE, "", ICON_NONE);
+  layout->prop(ptr, "input_type", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
 {
-  NodeSwitch *data = MEM_cnew<NodeSwitch>(__func__);
+  NodeSwitch *data = MEM_callocN<NodeSwitch>(__func__);
   data->input_type = SOCK_GEOMETRY;
   node->storage = data;
 }
@@ -174,12 +183,12 @@ class LazyFunctionForSwitchNode : public LazyFunction {
     GField false_field = false_value_variant->extract<GField>();
     GField true_field = true_value_variant->extract<GField>();
 
-    GField output_field{FieldOperation::Create(
+    GField output_field{FieldOperation::from(
         switch_multi_function,
         {std::move(condition), std::move(false_field), std::move(true_field)})};
 
     void *output_ptr = params.get_output_data_ptr(0);
-    new (output_ptr) SocketValueVariant(std::move(output_field));
+    SocketValueVariant::ConstructIn(output_ptr, std::move(output_field));
     params.output_set(0);
   }
 
@@ -211,6 +220,14 @@ class LazyFunctionForSwitchNode : public LazyFunction {
   }
 };
 
+static const bNodeSocket *node_internally_linked_input(const bNodeTree & /*tree*/,
+                                                       const bNode &node,
+                                                       const bNodeSocket & /*output_socket*/)
+{
+  /* Default to the False input. */
+  return &node.input_socket(1);
+}
+
 static void node_rna(StructRNA *srna)
 {
   RNA_def_node_enum(
@@ -225,6 +242,11 @@ static void node_rna(StructRNA *srna)
         *r_free = true;
         return enum_items_filter(rna_enum_node_socket_data_type_items,
                                  [](const EnumPropertyItem &item) -> bool {
+                                   if (!U.experimental.use_bundle_and_closure_nodes) {
+                                     if (ELEM(item.value, SOCK_BUNDLE, SOCK_CLOSURE)) {
+                                       return false;
+                                     }
+                                   }
                                    return ELEM(item.value,
                                                SOCK_FLOAT,
                                                SOCK_INT,
@@ -239,7 +261,9 @@ static void node_rna(StructRNA *srna)
                                                SOCK_COLLECTION,
                                                SOCK_MATERIAL,
                                                SOCK_IMAGE,
-                                               SOCK_MENU);
+                                               SOCK_MENU,
+                                               SOCK_BUNDLE,
+                                               SOCK_CLOSURE);
                                  });
       });
 }
@@ -259,6 +283,8 @@ static void register_node()
       ntype, "NodeSwitch", node_free_standard_storage, node_copy_standard_storage);
   ntype.gather_link_search_ops = node_gather_link_searches;
   ntype.draw_buttons = node_layout;
+  ntype.ignore_inferred_input_socket_visibility = true;
+  ntype.internally_linked_input = node_internally_linked_input;
   blender::bke::node_register_type(ntype);
 
   node_rna(ntype.rna_ext.srna);

@@ -29,6 +29,50 @@
 namespace blender::gpu {
 class VKBackend;
 
+struct VKExtensions {
+  /** Does the device support VkPhysicalDeviceVulkan12Features::shaderOutputViewportIndex. */
+  bool shader_output_viewport_index = false;
+  /** Does the device support VkPhysicalDeviceVulkan12Features::shaderOutputLayer. */
+  bool shader_output_layer = false;
+  /**
+   * Does the device support
+   * VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR::fragmentShaderBarycentric.
+   */
+  bool fragment_shader_barycentric = false;
+  /**
+   * Does the device support VK_KHR_dynamic_rendering enabled.
+   */
+  bool dynamic_rendering = false;
+
+  /**
+   * Does the device support VK_KHR_dynamic_rendering_local_read enabled.
+   */
+  bool dynamic_rendering_local_read = false;
+
+  /**
+   * Does the device support VK_EXT_dynamic_rendering_unused_attachments.
+   */
+  bool dynamic_rendering_unused_attachments = false;
+
+  /**
+   * Does the device support VK_EXT_external_memory_win32/VK_EXT_external_memory_fd
+   */
+  bool external_memory = false;
+
+  /**
+   * Does the device support VK_EXT_descriptor_buffer.
+   */
+  bool descriptor_buffer = false;
+
+  /**
+   * Does the device support logic ops.
+   */
+  bool logic_ops = false;
+
+  /** Log enabled features and extensions. */
+  void log() const;
+};
+
 /* TODO: Split into VKWorkarounds and VKExtensions to remove the negating when an extension isn't
  * supported. */
 struct VKWorkarounds {
@@ -40,18 +84,6 @@ struct VKWorkarounds {
    */
   bool not_aligned_pixel_formats = false;
 
-  /**
-   * Is the workaround for devices that don't support
-   * #VkPhysicalDeviceVulkan12Features::shaderOutputViewportIndex enabled.
-   */
-  bool shader_output_viewport_index = false;
-
-  /**
-   * Is the workaround for devices that don't support
-   * #VkPhysicalDeviceVulkan12Features::shaderOutputLayer enabled.
-   */
-  bool shader_output_layer = false;
-
   struct {
     /**
      * Is the workaround enabled for devices that don't support using VK_FORMAT_R8G8B8_* as vertex
@@ -59,41 +91,18 @@ struct VKWorkarounds {
      */
     bool r8g8b8 = false;
   } vertex_formats;
-
-  /**
-   * Is the workaround for devices that don't support
-   * #VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR::fragmentShaderBarycentric enabled.
-   * If set to true, the backend would inject a geometry shader to produce barycentric coordinates.
-   */
-  bool fragment_shader_barycentric = false;
-
-  /**
-   * Is the workarounds for devices that don't support VK_KHR_dynamic_rendering enabled.
-   */
-  bool dynamic_rendering = false;
-
-  /**
-   * Is the workarounds for devices that don't support VK_KHR_dynamic_rendering_local_read enabled.
-   */
-  bool dynamic_rendering_local_read = false;
-
-  /**
-   * Is the workarounds for devices that don't support VK_EXT_dynamic_rendering_unused_attachments
-   * enabled.
-   */
-  bool dynamic_rendering_unused_attachments = false;
-
-  /**
-   * Is the workarounds for devices that don't support Logic Ops enabled.
-   */
-  bool logic_ops = false;
 };
 
 /**
  * Shared resources between contexts that run in the same thread.
  */
 class VKThreadData : public NonCopyable, NonMovable {
-  static constexpr uint32_t resource_pools_count = 3;
+  /**
+   * The number of resource pools is aligned to the number of frames
+   * in flight used by GHOST. Therefore, this constant *must* always
+   * match GHOST_ContextVK's GHOST_FRAMES_IN_FLIGHT.
+   */
+  static constexpr uint32_t resource_pools_count = 5;
 
  public:
   /** Thread ID this instance belongs to. */
@@ -153,18 +162,8 @@ class VKDevice : public NonCopyable {
   VkQueue vk_queue_ = VK_NULL_HANDLE;
   std::mutex *queue_mutex_ = nullptr;
 
-  /**
-   * Lifetime of the device.
-   *
-   * Used for de-initialization of the command builder thread.
-   */
-  enum Lifetime {
-    UNINITIALIZED,
-    RUNNING,
-    DEINITIALIZING,
-    DESTROYED,
-  };
-  Lifetime lifetime = Lifetime::UNINITIALIZED;
+  bool is_initialized_ = false;
+
   /**
    * Task pool for render graph submission.
    *
@@ -180,7 +179,12 @@ class VKDevice : public NonCopyable {
   ThreadQueue *submitted_render_graphs_ = nullptr;
   ThreadQueue *unused_render_graphs_ = nullptr;
   VkSemaphore vk_timeline_semaphore_ = VK_NULL_HANDLE;
-  std::atomic<uint_least64_t> timeline_value_ = 0;
+  /**
+   * Last used timeline value.
+   *
+   * Must be externally synced by orphaned_data.mutex_get()
+   */
+  TimelineValue timeline_value_ = 0;
 
   VKSamplers samplers_;
   VKDescriptorSetLayouts descriptor_set_layouts_;
@@ -202,7 +206,10 @@ class VKDevice : public NonCopyable {
   /** Limits of the device linked to this context. */
   VkPhysicalDeviceProperties vk_physical_device_properties_ = {};
   VkPhysicalDeviceDriverProperties vk_physical_device_driver_properties_ = {};
+  VkPhysicalDeviceIDProperties vk_physical_device_id_properties_ = {};
   VkPhysicalDeviceMemoryProperties vk_physical_device_memory_properties_ = {};
+  VkPhysicalDeviceDescriptorBufferPropertiesEXT vk_physical_device_descriptor_buffer_properties_ =
+      {};
   /** Features support. */
   VkPhysicalDeviceFeatures vk_physical_device_features_ = {};
   VkPhysicalDeviceVulkan11Features vk_physical_device_vulkan_11_features_ = {};
@@ -214,13 +221,19 @@ class VKDevice : public NonCopyable {
 
   /* Workarounds */
   VKWorkarounds workarounds_;
+  VKExtensions extensions_;
 
-  std::string glsl_patch_;
+  std::string glsl_vert_patch_;
+  std::string glsl_geom_patch_;
+  std::string glsl_frag_patch_;
+  std::string glsl_comp_patch_;
   Vector<VKThreadData *> thread_data_;
 
  public:
   render_graph::VKResourceStateTracker resources;
   VKDiscardPool orphaned_data;
+  /** Discard pool for resources that could still be used during rendering. */
+  VKDiscardPool orphaned_data_render;
   VKPipelinePool pipelines;
   /** Buffer to bind to unbound resource locations. */
   VKBuffer dummy_buffer;
@@ -239,7 +252,31 @@ class VKDevice : public NonCopyable {
     PFN_vkSetDebugUtilsObjectNameEXT vkSetDebugUtilsObjectName = nullptr;
     PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessenger = nullptr;
     PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessenger = nullptr;
+
+    /* Extension: VK_KHR_external_memory_fd */
+    PFN_vkGetMemoryFdKHR vkGetMemoryFd = nullptr;
+
+#ifdef _WIN32
+    /* Extension: VK_KHR_external_memory_win32 */
+    PFN_vkGetMemoryWin32HandleKHR vkGetMemoryWin32Handle = nullptr;
+#endif
+
+    /* Extension: VK_EXT_descriptor_buffer */
+    PFN_vkGetDescriptorSetLayoutSizeEXT vkGetDescriptorSetLayoutSize = nullptr;
+    PFN_vkGetDescriptorSetLayoutBindingOffsetEXT vkGetDescriptorSetLayoutBindingOffset = nullptr;
+    PFN_vkGetDescriptorEXT vkGetDescriptor = nullptr;
+    PFN_vkCmdBindDescriptorBuffersEXT vkCmdBindDescriptorBuffers = nullptr;
+    PFN_vkCmdSetDescriptorBufferOffsetsEXT vkCmdSetDescriptorBufferOffsets = nullptr;
+
   } functions;
+
+  struct {
+    /* NOTE: This attribute needs to be kept alive as it will be read by VMA when allocating from
+     * `external_memory` pool. */
+    VkExportMemoryAllocateInfoKHR external_memory_info = {
+        VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR};
+    VmaPool external_memory = VK_NULL_HANDLE;
+  } vma_pools;
 
   const char *extension_name_get(int index) const
   {
@@ -254,6 +291,17 @@ class VKDevice : public NonCopyable {
   const VkPhysicalDeviceProperties &physical_device_properties_get() const
   {
     return vk_physical_device_properties_;
+  }
+
+  const VkPhysicalDeviceIDProperties &physical_device_id_properties_get() const
+  {
+    return vk_physical_device_id_properties_;
+  }
+
+  inline const VkPhysicalDeviceDescriptorBufferPropertiesEXT &
+  physical_device_descriptor_buffer_properties_get() const
+  {
+    return vk_physical_device_descriptor_buffer_properties_;
   }
 
   const VkPhysicalDeviceFeatures &physical_device_features_get() const
@@ -281,16 +329,7 @@ class VKDevice : public NonCopyable {
     return vk_device_;
   }
 
-  VkQueue queue_get() const
-  {
-    return vk_queue_;
-  }
-  std::mutex &queue_mutex_get()
-  {
-    return *queue_mutex_;
-  }
-
-  const uint32_t queue_family_get() const
+  uint32_t queue_family_get() const
   {
     return vk_queue_family_;
   }
@@ -320,10 +359,13 @@ class VKDevice : public NonCopyable {
     return samplers_;
   }
 
-  bool is_initialized() const;
   void init(void *ghost_context);
   void reinit();
   void deinit();
+  bool is_initialized() const
+  {
+    return is_initialized_;
+  }
 
   eGPUDeviceType device_type() const;
   eGPUDriverType driver_type() const;
@@ -342,8 +384,15 @@ class VKDevice : public NonCopyable {
   {
     return workarounds_;
   }
+  inline const VKExtensions &extensions_get() const
+  {
+    return extensions_;
+  }
 
-  const char *glsl_patch_get() const;
+  const char *glsl_vertex_patch_get() const;
+  const char *glsl_geometry_patch_get() const;
+  const char *glsl_fragment_patch_get() const;
+  const char *glsl_compute_patch_get() const;
   void init_glsl_patch();
 
   /* -------------------------------------------------------------------- */
@@ -355,8 +404,13 @@ class VKDevice : public NonCopyable {
   TimelineValue render_graph_submit(render_graph::VKRenderGraph *render_graph,
                                     VKDiscardPool &context_discard_pool,
                                     bool submit_to_device,
-                                    bool wait_for_completion);
+                                    bool wait_for_completion,
+                                    VkPipelineStageFlags wait_dst_stage_mask,
+                                    VkSemaphore wait_semaphore,
+                                    VkSemaphore signal_semaphore,
+                                    VkFence signal_fence);
   void wait_for_timeline(TimelineValue timeline);
+  void wait_queue_idle();
 
   /**
    * Retrieve the last finished submission timeline.

@@ -15,7 +15,9 @@ namespace blender::nodes::node_geo_points_to_vertices_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Geometry>("Points").supported_type(GeometryComponent::Type::PointCloud);
+  b.add_input<decl::Geometry>("Points")
+      .supported_type(GeometryComponent::Type::PointCloud)
+      .description("Points that are converted to vertices in a mesh");
   b.add_input<decl::Bool>("Selection").default_value(true).field_on_all().hide_value();
   b.add_output<decl::Geometry>("Mesh").propagate_all();
 }
@@ -64,7 +66,7 @@ static void geometry_set_points_to_vertices(GeometrySet &geometry_set,
 
   for (MapItem<StringRef, AttributeDomainAndType> entry : attributes.items()) {
     const StringRef id = entry.key;
-    const eCustomDataType data_type = entry.value.data_type;
+    const bke::AttrType data_type = entry.value.data_type;
     const GAttributeReader src = src_attributes.lookup(id);
     if (selection.size() == points->totpoint && src.sharing_info && src.varray.is_span()) {
       const bke::AttributeInitShared init(src.varray.get_internal_span().data(),

@@ -11,7 +11,6 @@
 #include "BLI_math_base.hh"
 #include "BLI_math_vector_types.hh"
 
-#include "UI_interface.hh"
 #include "UI_resources.hh"
 
 #include "GPU_shader.hh"
@@ -32,14 +31,11 @@ static void cmp_node_idmask_declare(NodeDeclarationBuilder &b)
       .default_value(1.0f)
       .min(0.0f)
       .max(1.0f)
-      .compositor_domain_priority(0);
-  b.add_output<decl::Float>("Alpha");
-}
+      .structure_type(StructureType::Dynamic);
+  b.add_input<decl::Int>("Index").default_value(0).min(0);
+  b.add_input<decl::Bool>("Anti-Alias").default_value(false);
 
-static void node_composit_buts_id_mask(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
-{
-  uiItemR(layout, ptr, "index", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
-  uiItemR(layout, ptr, "use_antialiasing", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+  b.add_output<decl::Float>("Alpha").structure_type(StructureType::Dynamic);
 }
 
 using namespace blender::compositor;
@@ -121,12 +117,12 @@ class IDMaskOperation : public NodeOperation {
 
   int get_index()
   {
-    return bnode().custom1;
+    return math::max(0, this->get_input("Index").get_single_value_default(0));
   }
 
   bool use_anti_aliasing()
   {
-    return bnode().custom2 != 0;
+    return this->get_input("Anti-Alias").get_single_value_default(false);
   }
 };
 
@@ -137,7 +133,7 @@ static NodeOperation *get_compositor_operation(Context &context, DNode node)
 
 }  // namespace blender::nodes::node_composite_id_mask_cc
 
-void register_node_type_cmp_idmask()
+static void register_node_type_cmp_idmask()
 {
   namespace file_ns = blender::nodes::node_composite_id_mask_cc;
 
@@ -149,8 +145,8 @@ void register_node_type_cmp_idmask()
   ntype.enum_name_legacy = "ID_MASK";
   ntype.nclass = NODE_CLASS_CONVERTER;
   ntype.declare = file_ns::cmp_node_idmask_declare;
-  ntype.draw_buttons = file_ns::node_composit_buts_id_mask;
   ntype.get_compositor_operation = file_ns::get_compositor_operation;
 
   blender::bke::node_register_type(ntype);
 }
+NOD_REGISTER_NODE(register_node_type_cmp_idmask)

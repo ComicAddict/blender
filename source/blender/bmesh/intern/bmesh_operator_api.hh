@@ -48,7 +48,7 @@
  *
  * \note when you read from an element slot array or mapping, you can either tool-flag
  * all the elements in it, or read them using an iterator API (which is semantically
- * similar to the iterator api in bmesh_iterators.hh).
+ * similar to the iterator API in bmesh_iterators.hh).
  *
  * \note only #BMLoop items can't be put into slots as with verts, edges & faces.
  */
@@ -327,6 +327,11 @@ struct BMOpDefine {
   const char *opname;
   BMOSlotType slot_types_in[BMO_OP_MAX_SLOTS];
   BMOSlotType slot_types_out[BMO_OP_MAX_SLOTS];
+  /**
+   * Optional initialize function.
+   * Can be used for setting defaults.
+   */
+  void (*init)(BMOperator *op);
   void (*exec)(BMesh *bm, BMOperator *op);
   BMOpTypeFlag type_flag;
 };
@@ -573,7 +578,7 @@ void BMO_slot_vec_get(BMOpSlot slot_args[BMO_OP_MAX_SLOTS], const char *slot_nam
 
 /**
  * Only supports square matrices.
- * size must be 3 or 4; this api is meant only for transformation matrices.
+ * size must be 3 or 4; this API is meant only for transformation matrices.
  *
  * \note the matrix is stored in 4x4 form, and it's safe to call whichever function you want.
  */

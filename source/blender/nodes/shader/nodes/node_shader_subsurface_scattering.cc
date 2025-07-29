@@ -6,7 +6,7 @@
 
 #include "BLI_string.h"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "BKE_node_runtime.hh"
@@ -41,7 +41,7 @@ static void node_declare(NodeDeclarationBuilder &b)
 
 static void node_shader_buts_subsurface(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "falloff", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  layout->prop(ptr, "falloff", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
 }
 
 static void node_shader_init_subsurface_scattering(bNodeTree * /*ntree*/, bNode *node)

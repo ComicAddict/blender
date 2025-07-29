@@ -196,7 +196,7 @@ class InfoStructRNA:
         import types
         functions = []
         for identifier, attr in self._get_py_visible_attrs():
-            # Methods may be python wrappers to C functions.
+            # Methods may be Python wrappers to C-API functions.
             ok = False
             if (attr_func := getattr(attr, "__func__", None)) is not None:
                 if type(attr_func) == types.FunctionType:
@@ -212,7 +212,7 @@ class InfoStructRNA:
         import types
         functions = []
         for identifier, attr in self._get_py_visible_attrs():
-            # Methods may be python wrappers to C functions.
+            # Methods may be Python wrappers to C-API functions.
             ok = False
             if (attr_func := getattr(attr, "__func__", None)) is not None:
                 if type(attr_func) == types.BuiltinFunctionType:
@@ -277,6 +277,8 @@ class InfoPropertyRNA:
         "is_required",
         "is_readonly",
         "is_never_none",
+        "is_path_supports_blend_relative",
+        "is_path_supports_templates",
     )
     global_lookup = {}
 
@@ -301,6 +303,8 @@ class InfoPropertyRNA:
         self.is_readonly = rna_prop.is_readonly
         self.is_never_none = rna_prop.is_never_none
         self.is_argument_optional = rna_prop.is_argument_optional
+        self.is_path_supports_blend_relative = rna_prop.is_path_supports_blend_relative
+        self.is_path_supports_templates = rna_prop.is_path_supports_templates
 
         self.type = rna_prop.type.lower()
         fixed_type = getattr(rna_prop, "fixed_type", "")
@@ -356,7 +360,7 @@ class InfoPropertyRNA:
                 # self.default_str = repr(self.default)  # repr or set()
                 self.default_str = "{{{:s}}}".format(repr(list(sorted(self.default)))[1:-1])
             else:
-                self.default_str = "'{:s}'".format(self.default)
+                self.default_str = repr(self.default)
         elif self.array_length:
             if self.array_dimensions[1] == 0:  # single dimension array, we already took care of multi-dimensions ones.
                 # special case for floats
@@ -384,6 +388,7 @@ class InfoPropertyRNA:
             as_arg=False,
             class_fmt="{:s}",
             mathutils_fmt="{:s}",
+            literal_fmt="'{:s}'",
             collection_id="Collection",
             enum_descr_override=None,
     ):
@@ -433,9 +438,9 @@ class InfoPropertyRNA:
                 enum_descr = enum_descr_override
                 if not enum_descr:
                     if self.is_enum_flag:
-                        enum_descr = "{{{:s}}}".format(", ".join(("'{:s}'".format(s[0])) for s in self.enum_items))
+                        enum_descr = "{{{:s}}}".format(", ".join((literal_fmt.format(s[0])) for s in self.enum_items))
                     else:
-                        enum_descr = "[{:s}]".format(", ".join(("'{:s}'".format(s[0])) for s in self.enum_items))
+                        enum_descr = "[{:s}]".format(", ".join((literal_fmt.format(s[0])) for s in self.enum_items))
                 if self.is_enum_flag:
                     type_str += " set in {:s}".format(enum_descr)
                 else:
@@ -443,9 +448,16 @@ class InfoPropertyRNA:
                 del enum_descr
 
             if not (as_arg or as_ret):
-                # write default property, ignore function args for this
-                if self.type != "pointer":
-                    if self.default_str:
+                # write default property, ignore function args for this.
+                match self.type:
+                    case "pointer":
+                        pass
+                    case "enum":
+                        # Empty enums typically only occur for enums which are dynamically generated.
+                        # In that case showing a default isn't helpful.
+                        if self.default_str:
+                            type_str += ", default {:s}".format(literal_fmt.format(self.default_str))
+                    case _:
                         type_str += ", default {:s}".format(self.default_str)
 
         else:
@@ -477,6 +489,17 @@ class InfoPropertyRNA:
 
         if self.is_never_none:
             type_info.append("never None")
+
+        if self.is_path_supports_blend_relative:
+            type_info.append("blend relative ``//`` prefix supported")
+
+        if self.is_path_supports_templates:
+            type_info.append(
+                "Supports `template expressions "
+                "<https://docs.blender.org/manual/en/{:d}.{:d}/files/file_paths.html#path-templates>`_".format(
+                    *bpy.app.version[:2],
+                ),
+            )
 
         if type_info:
             type_str += ", ({:s})".format(", ".join(type_info))
@@ -670,10 +693,12 @@ def BuildRNAInfo():
     def _bpy_types_iterator():
         # Don't report when these types are ignored.
         suppress_warning = {
+            "GeometrySet",
             "bpy_func",
             "bpy_prop",
             "bpy_prop_array",
             "bpy_prop_collection",
+            "bpy_prop_collection_idprop",
             "bpy_struct",
             "bpy_struct_meta_idprop",
         }
@@ -696,7 +721,7 @@ def BuildRNAInfo():
                 print("rna_info.BuildRNAInfo(..): ignoring type", repr(rna_type_name))
 
         # Now, there are some sub-classes in add-ons we also want to include.
-        # Cycles for e.g. these are referenced from the Scene, but not part of
+        # Cycles for example. These are referenced from the Scene, but not part of
         # bpy.types module.
         # Include all sub-classes we didn't already get from 'bpy.types'.
         i = 0

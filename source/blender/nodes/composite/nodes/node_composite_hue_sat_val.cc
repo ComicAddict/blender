@@ -25,6 +25,7 @@ namespace blender::nodes::node_composite_hue_sat_val_cc {
 
 static void cmp_node_huesatval_declare(NodeDeclarationBuilder &b)
 {
+  b.is_function_node();
   b.add_input<decl::Color>("Image")
       .default_value({1.0f, 1.0f, 1.0f, 1.0f})
       .compositor_domain_priority(0);
@@ -95,7 +96,7 @@ static void node_build_multi_function(blender::nodes::NodeMultiFunctionBuilder &
 
 }  // namespace blender::nodes::node_composite_hue_sat_val_cc
 
-void register_node_type_cmp_hue_sat()
+static void register_node_type_cmp_hue_sat()
 {
   namespace file_ns = blender::nodes::node_composite_hue_sat_val_cc;
 
@@ -112,3 +113,4 @@ void register_node_type_cmp_hue_sat()
 
   blender::bke::node_register_type(ntype);
 }
+NOD_REGISTER_NODE(register_node_type_cmp_hue_sat)

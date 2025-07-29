@@ -50,6 +50,7 @@
 #include "paint_intern.hh"
 
 #include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "GPU_immediate.hh"
@@ -94,11 +95,11 @@ float brush_radius_factor(const Brush &brush, const StrokeExtension &stroke_exte
   return 1.0f;
 }
 
-float brush_radius_get(const Scene &scene,
+float brush_radius_get(const Paint &paint,
                        const Brush &brush,
                        const StrokeExtension &stroke_extension)
 {
-  return BKE_brush_size_get(&scene, &brush) * brush_radius_factor(brush, stroke_extension);
+  return BKE_brush_size_get(&paint, &brush) * brush_radius_factor(brush, stroke_extension);
 }
 
 float brush_strength_factor(const Brush &brush, const StrokeExtension &stroke_extension)
@@ -109,11 +110,11 @@ float brush_strength_factor(const Brush &brush, const StrokeExtension &stroke_ex
   return 1.0f;
 }
 
-float brush_strength_get(const Scene &scene,
+float brush_strength_get(const Paint &paint,
                          const Brush &brush,
                          const StrokeExtension &stroke_extension)
 {
-  return BKE_brush_alpha_get(&scene, &brush) * brush_strength_factor(brush, stroke_extension);
+  return BKE_brush_alpha_get(&paint, &brush) * brush_strength_factor(brush, stroke_extension);
 }
 
 static std::unique_ptr<CurvesSculptStrokeOperation> start_brush_operation(
@@ -206,7 +207,9 @@ static void stroke_done(const bContext *C, PaintStroke *stroke)
   UNUSED_VARS(C, stroke);
 }
 
-static int sculpt_curves_stroke_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus sculpt_curves_stroke_invoke(bContext *C,
+                                                    wmOperator *op,
+                                                    const wmEvent *event)
 {
   Scene *scene = CTX_data_scene(C);
   Paint *paint = BKE_paint_get_active_from_paintmode(scene, PaintMode::SculptCurves);
@@ -226,8 +229,10 @@ static int sculpt_curves_stroke_invoke(bContext *C, wmOperator *op, const wmEven
                                      event->type);
   op->customdata = op_data;
 
-  int return_value = op->type->modal(C, op, event);
-  if (return_value == OPERATOR_FINISHED) {
+  const wmOperatorStatus retval = op->type->modal(C, op, event);
+  OPERATOR_RETVAL_CHECK(retval);
+
+  if (retval == OPERATOR_FINISHED) {
     if (op->customdata != nullptr) {
       paint_stroke_free(C, op, op_data->stroke);
       MEM_delete(op_data);
@@ -239,16 +244,18 @@ static int sculpt_curves_stroke_invoke(bContext *C, wmOperator *op, const wmEven
   return OPERATOR_RUNNING_MODAL;
 }
 
-static int sculpt_curves_stroke_modal(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus sculpt_curves_stroke_modal(bContext *C,
+                                                   wmOperator *op,
+                                                   const wmEvent *event)
 {
   SculptCurvesBrushStrokeData *op_data = static_cast<SculptCurvesBrushStrokeData *>(
       op->customdata);
-  int return_value = paint_stroke_modal(C, op, event, &op_data->stroke);
-  if (ELEM(return_value, OPERATOR_FINISHED, OPERATOR_CANCELLED)) {
+  wmOperatorStatus retval = paint_stroke_modal(C, op, event, &op_data->stroke);
+  if (ELEM(retval, OPERATOR_FINISHED, OPERATOR_CANCELLED)) {
     MEM_delete(op_data);
     op->customdata = nullptr;
   }
-  return return_value;
+  return retval;
 }
 
 static void sculpt_curves_stroke_cancel(bContext *C, wmOperator *op)
@@ -302,7 +309,7 @@ static void curves_sculptmode_enter(bContext *C)
   paint->paint_cursor_col[3] = 128;
 
   ED_paint_cursor_start(&curves_sculpt->paint, curves_sculpt_poll_view3d);
-  paint_init_pivot(ob, scene);
+  paint_init_pivot(ob, scene, paint);
 
   /* Necessary to change the object mode on the evaluated object. */
   DEG_id_tag_update(&ob->id, ID_RECALC_SYNC_TO_EVAL);
@@ -316,7 +323,7 @@ static void curves_sculptmode_exit(bContext *C)
   ob->mode = OB_MODE_OBJECT;
 }
 
-static int curves_sculptmode_toggle_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus curves_sculptmode_toggle_exec(bContext *C, wmOperator *op)
 {
   Object *ob = CTX_data_active_object(C);
   wmMsgBus *mbus = CTX_wm_message_bus(C);
@@ -361,7 +368,7 @@ static void CURVES_OT_sculptmode_toggle(wmOperatorType *ot)
 
 namespace select_random {
 
-static int select_random_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus select_random_exec(bContext *C, wmOperator *op)
 {
   VectorSet<Curves *> unique_curves = curves::get_unique_editable_curves(*C);
 
@@ -463,15 +470,15 @@ static void select_random_ui(bContext * /*C*/, wmOperator *op)
 {
   uiLayout *layout = op->layout;
 
-  uiItemR(layout, op->ptr, "seed", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-  uiItemR(layout, op->ptr, "constant_per_curve", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-  uiItemR(layout, op->ptr, "partial", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(op->ptr, "seed", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(op->ptr, "constant_per_curve", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(op->ptr, "partial", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
   if (RNA_boolean_get(op->ptr, "partial")) {
-    uiItemR(layout, op->ptr, "min", UI_ITEM_R_SLIDER, IFACE_("Min"), ICON_NONE);
+    layout->prop(op->ptr, "min", UI_ITEM_R_SLIDER, IFACE_("Min"), ICON_NONE);
   }
   else {
-    uiItemR(layout, op->ptr, "probability", UI_ITEM_R_SLIDER, IFACE_("Probability"), ICON_NONE);
+    layout->prop(op->ptr, "probability", UI_ITEM_R_SLIDER, IFACE_("Probability"), ICON_NONE);
   }
 }
 
@@ -728,7 +735,7 @@ static void select_grow_invoke_per_curve(const Curves &curves_id,
       [](const float a, const float b) { return std::min(a, b); });
 }
 
-static int select_grow_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus select_grow_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   Object *active_ob = CTX_data_active_object(C);
   ARegion *region = CTX_wm_region(C);
@@ -750,7 +757,7 @@ static int select_grow_invoke(bContext *C, wmOperator *op, const wmEvent *event)
   return OPERATOR_RUNNING_MODAL;
 }
 
-static int select_grow_modal(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus select_grow_modal(bContext *C, wmOperator *op, const wmEvent *event)
 {
   GrowOperatorData &op_data = *static_cast<GrowOperatorData *>(op->customdata);
   const int mouse_x = event->xy[0];
@@ -777,8 +784,8 @@ static int select_grow_modal(bContext *C, wmOperator *op, const wmEvent *event)
           attributes.add(
               ".selection",
               bke::AttrDomain(curves_id.selection_domain),
-              bke::cpp_type_to_custom_data_type(curve_op_data->original_selection.type()),
-              bke::AttributeInitVArray(GVArray::ForSpan(curve_op_data->original_selection)));
+              bke::cpp_type_to_attribute_type(curve_op_data->original_selection.type()),
+              bke::AttributeInitVArray(GVArray::from_span(curve_op_data->original_selection)));
         }
 
         /* Use #ID_RECALC_GEOMETRY instead of #ID_RECALC_SELECT because it is handled as a generic
@@ -788,6 +795,9 @@ static int select_grow_modal(bContext *C, wmOperator *op, const wmEvent *event)
       }
       MEM_delete(&op_data);
       return OPERATOR_CANCELLED;
+    }
+    default: {
+      break;
     }
   }
   return OPERATOR_RUNNING_MODAL;
@@ -861,11 +871,11 @@ struct MinDistanceEditData {
 
 static int calculate_points_per_side(bContext *C, MinDistanceEditData &op_data)
 {
-  Scene *scene = CTX_data_scene(C);
+  Paint *paint = BKE_paint_get_active_from_context(C);
   ARegion *region = op_data.region;
 
   const float min_distance = op_data.brush->curves_sculpt_settings->minimum_distance;
-  const float brush_radius = BKE_brush_size_get(scene, op_data.brush);
+  const float brush_radius = BKE_brush_size_get(paint, op_data.brush);
 
   float3 tangent_x_cu = math::cross(op_data.normal_cu, float3{0, 0, 1});
   if (math::is_zero(tangent_x_cu)) {
@@ -903,9 +913,12 @@ static int calculate_points_per_side(bContext *C, MinDistanceEditData &op_data)
   return std::min(300, needed_points);
 }
 
-static void min_distance_edit_draw(bContext *C, int /*x*/, int /*y*/, void *customdata)
+static void min_distance_edit_draw(bContext *C,
+                                   const blender::int2 & /*xy*/,
+                                   const blender::float2 & /*tilt*/,
+                                   void *customdata)
 {
-  Scene *scene = CTX_data_scene(C);
+  Paint *paint = BKE_paint_get_active_from_context(C);
   MinDistanceEditData &op_data = *static_cast<MinDistanceEditData *>(customdata);
 
   const float min_distance = op_data.brush->curves_sculpt_settings->minimum_distance;
@@ -935,7 +948,7 @@ static void min_distance_edit_draw(bContext *C, int /*x*/, int /*y*/, void *cust
 
   float4 circle_col = float4(op_data.brush->add_col);
   float circle_alpha = op_data.brush->cursor_overlay_alpha;
-  float brush_radius_re = BKE_brush_size_get(scene, op_data.brush);
+  float brush_radius_re = BKE_brush_size_get(paint, op_data.brush);
 
   /* Draw the grid. */
   GPU_matrix_push();
@@ -953,9 +966,12 @@ static void min_distance_edit_draw(bContext *C, int /*x*/, int /*y*/, void *cust
 
   GPUVertFormat *format3d = immVertexFormat();
 
-  const uint pos3d = GPU_vertformat_attr_add(format3d, "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
-  const uint col3d = GPU_vertformat_attr_add(format3d, "color", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
-  const uint siz3d = GPU_vertformat_attr_add(format3d, "size", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
+  const uint pos3d = GPU_vertformat_attr_add(
+      format3d, "pos", blender::gpu::VertAttrType::SFLOAT_32_32_32);
+  const uint col3d = GPU_vertformat_attr_add(
+      format3d, "color", blender::gpu::VertAttrType::SFLOAT_32_32_32_32);
+  const uint siz3d = GPU_vertformat_attr_add(
+      format3d, "size", blender::gpu::VertAttrType::SFLOAT_32);
 
   immBindBuiltinProgram(GPU_SHADER_3D_POINT_VARYING_SIZE_VARYING_COLOR);
   GPU_program_point_size(true);
@@ -997,7 +1013,7 @@ static void min_distance_edit_draw(bContext *C, int /*x*/, int /*y*/, void *cust
   GPU_matrix_translate_2f(float(op_data.initial_mouse.x), float(op_data.initial_mouse.y));
 
   GPUVertFormat *format = immVertexFormat();
-  uint pos2d = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+  uint pos2d = GPU_vertformat_attr_add(format, "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
 
   immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
 
@@ -1008,7 +1024,7 @@ static void min_distance_edit_draw(bContext *C, int /*x*/, int /*y*/, void *cust
   GPU_blend(GPU_BLEND_NONE);
 }
 
-static int min_distance_edit_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus min_distance_edit_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   Depsgraph *depsgraph = CTX_data_depsgraph_pointer(C);
   ARegion *region = CTX_wm_region(C);
@@ -1018,7 +1034,7 @@ static int min_distance_edit_invoke(bContext *C, wmOperator *op, const wmEvent *
   Object &curves_ob_orig = *CTX_data_active_object(C);
   Curves &curves_id_orig = *static_cast<Curves *>(curves_ob_orig.data);
   Object &surface_ob_orig = *curves_id_orig.surface;
-  Object *surface_ob_eval = DEG_get_evaluated_object(depsgraph, &surface_ob_orig);
+  Object *surface_ob_eval = DEG_get_evaluated(depsgraph, &surface_ob_orig);
   if (surface_ob_eval == nullptr) {
     return OPERATOR_CANCELLED;
   }
@@ -1053,7 +1069,7 @@ static int min_distance_edit_invoke(bContext *C, wmOperator *op, const wmEvent *
                        surface_bvh_eval.raycast_callback,
                        &surface_bvh_eval);
   if (ray_hit.index == -1) {
-    WM_report(RPT_ERROR, "Cursor must be over the surface mesh");
+    WM_global_report(RPT_ERROR, "Cursor must be over the surface mesh");
     return OPERATOR_CANCELLED;
   }
 
@@ -1095,7 +1111,7 @@ static int min_distance_edit_invoke(bContext *C, wmOperator *op, const wmEvent *
   return OPERATOR_RUNNING_MODAL;
 }
 
-static int min_distance_edit_modal(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus min_distance_edit_modal(bContext *C, wmOperator *op, const wmEvent *event)
 {
   ARegion *region = CTX_wm_region(C);
   MinDistanceEditData &op_data = *static_cast<MinDistanceEditData *>(op->customdata);
@@ -1140,6 +1156,9 @@ static int min_distance_edit_modal(bContext *C, wmOperator *op, const wmEvent *e
       finish();
       WM_main_add_notifier(NC_SCENE | ND_TOOLSETTINGS, nullptr);
       return OPERATOR_CANCELLED;
+    }
+    default: {
+      break;
     }
   }
 

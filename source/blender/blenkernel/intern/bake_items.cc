@@ -111,7 +111,7 @@ static void restore_materials(Material ***materials,
   }
   BLI_assert(*materials == nullptr);
   *materials_num = materials_list->size();
-  *materials = MEM_cnew_array<Material *>(materials_list->size(), __func__);
+  *materials = MEM_calloc_arrayN<Material *>(materials_list->size(), __func__);
   if (!data_block_map) {
     return;
   }
@@ -178,7 +178,7 @@ void VolumeGridBakeItem::count_memory(MemoryCounter &memory) const
 
 PrimitiveBakeItem::PrimitiveBakeItem(const CPPType &type, const void *value) : type_(type)
 {
-  value_ = MEM_mallocN_aligned(type.size(), type.alignment(), __func__);
+  value_ = MEM_mallocN_aligned(type.size, type.alignment, __func__);
   type.copy_construct(value, value_);
 }
 

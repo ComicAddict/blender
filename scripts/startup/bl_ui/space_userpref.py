@@ -281,6 +281,7 @@ class USERPREF_PT_interface_editors(InterfacePanel, CenterAlignMixIn, Panel):
         col = layout.column()
         col.prop(system, "use_region_overlap")
         col.prop(view, "show_navigate_ui")
+        col.prop(view, "border_width")
         col.prop(view, "color_picker_type")
         col.row().prop(view, "header_align")
         col.prop(view, "factor_display_type")
@@ -686,23 +687,25 @@ class USERPREF_PT_system_display_graphics(SystemPanel, CenterAlignMixIn, Panel):
     def draw_centered(self, context, layout):
         prefs = context.preferences
         system = prefs.system
+        import gpu
+        import sys
 
         col = layout.column()
         col.prop(system, "gpu_backend", text="Backend")
+        if system.gpu_backend == 'VULKAN':
+            col = layout.column()
+            col.enabled = gpu.platform.backend_type_get() == 'VULKAN'
+            col.prop(system, "gpu_preferred_device")
 
-        import gpu
         if system.gpu_backend != gpu.platform.backend_type_get():
             layout.label(text="A restart of Blender is required", icon='INFO')
 
-        if system.gpu_backend == gpu.platform.backend_type_get() == 'VULKAN':
-            col = layout.column()
-            col.prop(system, "gpu_preferred_device")
-
         if system.gpu_backend == 'VULKAN':
             col = layout.column()
-            col.label(text="The Vulkan backend is experimental:", icon='INFO')
-            col.label(text="\u2022 OpenXR and GPU subdivision are not supported", icon='BLANK1')
-            col.label(text="\u2022 Expect reduced performance", icon='BLANK1')
+            col.label(text="Current Vulkan backend limitations:", icon='INFO')
+            col.label(text="\u2022 Low performance in VR", icon='BLANK1')
+            if sys.platform == "win32" and gpu.platform.device_type_get() == 'QUALCOMM':
+                col.label(text="\u2022 Windows on ARM requires driver 31.0.112.0 or higher", icon='BLANK1')
 
 
 class USERPREF_PT_system_os_settings(SystemPanel, CenterAlignMixIn, Panel):
@@ -808,8 +811,11 @@ class USERPREF_PT_system_memory(SystemPanel, CenterAlignMixIn, Panel):
 
         if sys.platform != "darwin":
             layout.separator()
-            col = layout.column()
-            col.prop(system, "max_shader_compilation_subprocesses")
+            col = layout.column(align=True)
+            col.active = system.gpu_backend != 'VULKAN'
+            col.row().prop(system, "shader_compilation_method", expand=True)
+            label = "Threads" if system.shader_compilation_method == 'THREAD' else "Subprocesses"
+            col.prop(system, "gpu_shader_workers", text=label)
 
 
 class USERPREF_PT_system_video_sequencer(SystemPanel, CenterAlignMixIn, Panel):
@@ -818,18 +824,8 @@ class USERPREF_PT_system_video_sequencer(SystemPanel, CenterAlignMixIn, Panel):
     def draw_centered(self, context, layout):
         prefs = context.preferences
         system = prefs.system
-        # edit = prefs.edit
 
         layout.prop(system, "memory_cache_limit")
-
-        layout.separator()
-
-        layout.prop(system, "use_sequencer_disk_cache", text="Disk Cache")
-        col = layout.column()
-        col.active = system.use_sequencer_disk_cache
-        col.prop(system, "sequencer_disk_cache_dir", text="Directory")
-        col.prop(system, "sequencer_disk_cache_size_limit", text="Cache Limit")
-        col.prop(system, "sequencer_disk_cache_compression", text="Compression")
 
         layout.separator()
 
@@ -914,26 +910,9 @@ class USERPREF_PT_viewport_textures(ViewportPanel, CenterAlignMixIn, Panel):
         col.prop(system, "image_draw_method", text="Image Display Method")
 
 
-class USERPREF_PT_viewport_selection(ViewportPanel, CenterAlignMixIn, Panel):
-    bl_label = "Selection"
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw_centered(self, context, layout):
-        prefs = context.preferences
-        system = prefs.system
-
-        layout.prop(system, "use_select_pick_depth")
-
-
 class USERPREF_PT_viewport_subdivision(ViewportPanel, CenterAlignMixIn, Panel):
     bl_label = "Subdivision"
     bl_options = {'DEFAULT_CLOSED'}
-
-    @classmethod
-    def poll(cls, context):
-        import gpu
-        backend = gpu.platform.backend_type_get()
-        return backend == 'OPENGL'
 
     def draw_centered(self, context, layout):
         prefs = context.preferences
@@ -952,7 +931,9 @@ class ThemePanel:
 
 
 class USERPREF_MT_interface_theme_presets(Menu):
+    # NOTE: this label is currently not used, see: !134844.
     bl_label = "Presets"
+
     preset_subdir = "interface_theme"
     preset_operator = "script.execute_preset"
     preset_type = 'XML'
@@ -978,13 +959,13 @@ class USERPREF_MT_interface_theme_presets(Menu):
         "ThemeNLAEditor",
         "ThemeNodeEditor",
         "ThemeOutliner",
-        "ThemePanelColors",
         "ThemePreferences",
         "ThemeProperties",
         "ThemeSequenceEditor",
         "ThemeSpaceGeneric",
         "ThemeSpaceGradient",
         "ThemeSpaceListGeneric",
+        "ThemeSpaceRegionGeneric",
         "ThemeSpreadsheet",
         "ThemeStatusBar",
         "ThemeStripColor",
@@ -1026,7 +1007,12 @@ class USERPREF_PT_theme(ThemePanel, Panel):
         if filepath := context.preferences.themes[0].filepath:
             preset_label = bpy.path.display_name(os.path.basename(filepath))
         else:
-            preset_label = USERPREF_MT_interface_theme_presets.bl_label
+            # If the `filepath` is empty, assume the theme was reset and use the default theme name as a label.
+            # This would typically be:
+            # `preset_label = USERPREF_MT_interface_theme_presets.bl_label`
+            # However the operator to reset the preferences doesn't clear the value,
+            # so it's simplest to hard-code "Presets" here.
+            preset_label = "Presets"
 
         row.menu("USERPREF_MT_interface_theme_presets", text=preset_label)
         del filepath, preset_label
@@ -1066,7 +1052,7 @@ class PreferenceThemeWidgetColorPanel:
 
         layout.use_property_split = True
 
-        flow = layout.grid_flow(row_major=False, columns=2, even_columns=True, even_rows=False, align=False)
+        flow = layout.grid_flow(row_major=False, columns=0, even_columns=True, even_rows=False, align=False)
 
         col = flow.column(align=True)
         col.prop(widget_style, "text")
@@ -1076,7 +1062,10 @@ class PreferenceThemeWidgetColorPanel:
         col = flow.column(align=True)
         col.prop(widget_style, "inner", slider=True)
         col.prop(widget_style, "inner_sel", text="Selected", slider=True)
+
+        col = flow.column(align=True)
         col.prop(widget_style, "outline")
+        col.prop(widget_style, "outline_sel", text="Selected", slider=True)
 
         col.separator()
 
@@ -1106,6 +1095,33 @@ class PreferenceThemeWidgetShadePanel:
         widget_style = getattr(ui, self.wcol)
 
         self.layout.prop(widget_style, "show_shaded", text="")
+
+
+class USERPREF_PT_theme_interface_panel(ThemePanel, CenterAlignMixIn, Panel):
+    bl_label = "Panel"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_parent_id = "USERPREF_PT_theme_user_interface"
+
+    def draw_centered(self, context, layout):
+        theme = context.preferences.themes[0]
+        ui = theme.user_interface
+
+        flow = layout.grid_flow(row_major=False, columns=2, even_columns=True, even_rows=False, align=False)
+
+        col = flow.column()
+        col.prop(ui, "panel_header", text="Header")
+
+        col = col.column(align=True)
+        col.prop(ui, "panel_back", text="Background")
+        col.prop(ui, "panel_sub_back", text="Sub-Panel")
+
+        col = flow.column(align=True)
+        col.prop(ui, "panel_title", text="Title")
+        col.prop(ui, "panel_text", text="Text")
+
+        col = col.column()
+        col.prop(ui, "panel_outline", text="Outline")
+        col.prop(ui, "panel_roundness", text="Roundness")
 
 
 class USERPREF_PT_theme_interface_state(ThemePanel, CenterAlignMixIn, Panel):
@@ -1173,13 +1189,14 @@ class USERPREF_PT_theme_interface_styles(ThemePanel, CenterAlignMixIn, Panel):
         col.prop(ui, "icon_alpha")
         col.prop(ui, "icon_saturation", text="Saturation")
 
-        col = flow.column(align=True)
-        col.prop(ui, "menu_shadow_fac")
-        col.prop(ui, "menu_shadow_width", text="Shadow Width")
+        flow.separator()
 
         col = flow.column()
         col.prop(ui, "widget_emboss")
-        col.prop(ui, "panel_roundness")
+
+        col = flow.column(align=True)
+        col.prop(ui, "menu_shadow_fac")
+        col.prop(ui, "menu_shadow_width", text="Shadow Width")
 
 
 class USERPREF_PT_theme_interface_transparent_checker(ThemePanel, CenterAlignMixIn, Panel):
@@ -1720,25 +1737,16 @@ class USERPREF_PT_file_paths_asset_libraries(FilePathsPanel, Panel):
 
 
 class USERPREF_UL_asset_libraries(UIList):
-    def draw_item(self, _context, layout, _data, item, icon, _active_data, _active_propname, _index):
+    def draw_item(self, _context, layout, _data, item, _icon, _active_data, _active_propname, _index):
         asset_library = item
-
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            layout.prop(asset_library, "name", text="", emboss=False)
-        elif self.layout_type == 'GRID':
-            layout.alignment = 'CENTER'
-            layout.prop(asset_library, "name", text="", emboss=False)
+        layout.prop(asset_library, "name", text="", emboss=False)
 
 
 class USERPREF_UL_extension_repos(UIList):
     def draw_item(self, _context, layout, _data, item, icon, _active_data, _active_propname, _index):
         repo = item
         icon = 'INTERNET' if repo.use_remote_url else 'DISK_DRIVE'
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            layout.prop(repo, "name", text="", icon=icon, emboss=False)
-        elif self.layout_type == 'GRID':
-            layout.alignment = 'CENTER'
-            layout.prop(repo, "name", text="", icon=icon, emboss=False)
+        layout.prop(repo, "name", text="", icon=icon, emboss=False)
 
         # Show an error icon if this repository has unusable settings.
         if repo.enabled:
@@ -2080,25 +2088,17 @@ class USERPREF_PT_ndof_settings(Panel):
 
     @staticmethod
     def draw_settings(layout, props, show_3dview_settings=True):
-        col = layout.column()
-        col.prop(props, "ndof_sensitivity", text="Pan Sensitivity")
-        col.prop(props, "ndof_orbit_sensitivity")
-        col.prop(props, "ndof_deadzone")
 
         layout.separator()
 
         if show_3dview_settings:
             col = layout.column()
-            col.row().prop(props, "ndof_view_navigate_method", expand=True, text="Navigation")
-            col.row().prop(props, "ndof_view_rotate_method", expand=True, text="Rotation")
+            col.row().prop(props, "ndof_navigation_mode", text="Navigation Mode")
+            col.prop(props, "ndof_lock_horizon", text="Lock Horizon")
 
             layout.separator()
 
         if show_3dview_settings:
-            col = layout.column(heading="Show Guides")
-            col.prop(props, "ndof_show_guide_orbit_axis", text="Orbit Axis")
-            col.prop(props, "ndof_show_guide_orbit_center", text="Orbit Center")
-
             col = layout.column(heading="Orbit Center")
             col.prop(props, "ndof_orbit_center_auto")
             colsub = col.column()
@@ -2107,36 +2107,43 @@ class USERPREF_PT_ndof_settings(Panel):
             del colsub
             col.separator()
 
-        col = layout.column(heading="Zoom")
-        col.prop(props, "ndof_zoom_invert")
-        col.prop(props, "ndof_lock_camera_pan_zoom")
-        row = col.row(heading="Pan")
-        row.prop(props, "ndof_pan_yz_swap_axis", text="Swap Y and Z Axes")
+            col = layout.column(heading="Show")
+            col.prop(props, "ndof_show_guide_orbit_axis", text="Orbit Axis")
+            col.prop(props, "ndof_show_guide_orbit_center", text="Orbit Center")
 
         layout.separator()
 
-        row = layout.row(heading=("Invert Axis Pan" if show_3dview_settings else "Invert Pan Axis"))
-        for text, attr in (
-                ("X", "ndof_panx_invert_axis"),
-                ("Y", "ndof_pany_invert_axis"),
-                ("Z", "ndof_panz_invert_axis"),
-        ):
-            row.prop(props, attr, text=text, toggle=True)
+        layout_header, layout_advanced = layout.panel("NDOF_advanced", default_closed=True)
+        layout_header.label(text="Advanced")
+        if layout_advanced:
+            col = layout_advanced.column()
+            col.prop(props, "ndof_translation_sensitivity")
+            col.prop(props, "ndof_rotation_sensitivity")
+            col.prop(props, "ndof_deadzone")
 
-        if show_3dview_settings:
-            row = layout.row(heading="Orbit")
+            col.separator()
+            col.row().prop(props, "ndof_zoom_direction", expand=True)
+            col.separator()
+
+            row = col.row(heading=("Invert Pan" if show_3dview_settings else "Invert Pan Axis"))
             for text, attr in (
-                    ("X", "ndof_rotx_invert_axis"),
-                    ("Y", "ndof_roty_invert_axis"),
-                    ("Z", "ndof_rotz_invert_axis"),
+                    ("X", "ndof_panx_invert_axis"),
+                    ("Y", "ndof_pany_invert_axis"),
+                    ("Z", "ndof_panz_invert_axis"),
             ):
                 row.prop(props, attr, text=text, toggle=True)
 
-            layout.separator()
+            if show_3dview_settings:
+                row = col.row(heading="Invert Rotate")
+                for text, attr in (
+                        ("X", "ndof_rotx_invert_axis"),
+                        ("Y", "ndof_roty_invert_axis"),
+                        ("Z", "ndof_rotz_invert_axis"),
+                ):
+                    row.prop(props, attr, text=text, toggle=True)
 
-            col = layout.column(heading="Fly/Walk")
-            col.prop(props, "ndof_lock_horizon")
-            col.prop(props, "ndof_fly_helicopter")
+            if show_3dview_settings:
+                col.prop(props, "ndof_lock_camera_pan_zoom")
 
     def draw(self, context):
         layout = self.layout
@@ -2852,12 +2859,13 @@ class USERPREF_PT_experimental_new_features(ExperimentalPanel, Panel):
     def draw(self, context):
         self._draw_items(
             context, (
-                ({"property": "use_sculpt_tools_tilt"}, ("blender/blender/issues/82877", "#82877")),
                 ({"property": "use_extended_asset_browser"},
                  ("blender/blender/projects/10", "Pipeline, Assets & IO Project Page")),
                 ({"property": "use_new_volume_nodes"}, ("blender/blender/issues/103248", "#103248")),
-                ({"property": "use_new_file_import_nodes"}, ("blender/blender/issues/122846", "#122846")),
                 ({"property": "use_shader_node_previews"}, ("blender/blender/issues/110353", "#110353")),
+                ({"property": "use_bundle_and_closure_nodes"}, ("blender/blender/issues/134029", "#134029")),
+                ({"property": "use_socket_structure_type"}, ("blender/blender/issues/127106", "#127106")),
+                ({"property": "use_geometry_nodes_lists"}, ("blender/blender/issues/140918", "#140918")),
             ),
         )
 
@@ -2869,8 +2877,8 @@ class USERPREF_PT_experimental_prototypes(ExperimentalPanel, Panel):
         self._draw_items(
             context, (
                 ({"property": "use_new_curves_tools"}, ("blender/blender/issues/68981", "#68981")),
-                ({"property": "use_new_pointcloud_type"}, ("blender/blender/issues/75717", "#75717")),
                 ({"property": "use_sculpt_texture_paint"}, ("blender/blender/issues/96225", "#96225")),
+                ({"property": "write_legacy_blend_file_format"}, ("/blender/blender/issues/129309", "#129309")),
             ),
         )
 
@@ -2944,7 +2952,6 @@ classes = (
     USERPREF_PT_viewport_display,
     USERPREF_PT_viewport_quality,
     USERPREF_PT_viewport_textures,
-    USERPREF_PT_viewport_selection,
     USERPREF_PT_viewport_subdivision,
 
     USERPREF_PT_edit_objects,
@@ -2973,6 +2980,7 @@ classes = (
 
     USERPREF_MT_interface_theme_presets,
     USERPREF_PT_theme,
+    USERPREF_PT_theme_interface_panel,
     USERPREF_PT_theme_interface_gizmos,
     USERPREF_PT_theme_interface_icons,
     USERPREF_PT_theme_interface_state,

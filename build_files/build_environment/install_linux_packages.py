@@ -548,7 +548,7 @@ PYTHON_SUBPACKAGES = (
                                   },
             ),
     Package(name="IDNA",
-            version="3.3", version_short="3.3", version_min="2.0", version_mex="4.0",
+            version="3.10", version_short="3.10", version_min="2.0", version_mex="4.0",
             distro_package_names={DISTRO_ID_DEBIAN: "python3-idna",
                                   DISTRO_ID_FEDORA: "python3-idna",
                                   DISTRO_ID_SUSE: suse_pypackages_name_gen("idna"),
@@ -556,7 +556,7 @@ PYTHON_SUBPACKAGES = (
                                   },
             ),
     Package(name="Charset Normalizer",
-            version="2.0.10", version_short="2.0", version_min="2.0.6", version_mex="4.0.0",
+            version="3.4.1", version_short="3.4", version_min="2.0.6", version_mex="4.0.0",
             distro_package_names={DISTRO_ID_DEBIAN: "python3-charset-normalizer",
                                   DISTRO_ID_FEDORA: "python3-charset-normalizer",
                                   DISTRO_ID_SUSE: suse_pypackages_name_gen("charset-normalizer"),
@@ -564,7 +564,7 @@ PYTHON_SUBPACKAGES = (
                                   },
             ),
     Package(name="URLLib",
-            version="1.26.8", version_short="1.26", version_min="1.0", version_mex="2.0",
+            version="2.4.0", version_short="2.4", version_min="1.0", version_mex="3.0",
             distro_package_names={DISTRO_ID_DEBIAN: "python3-urllib3",
                                   DISTRO_ID_FEDORA: "python3-urllib3",
                                   DISTRO_ID_SUSE: suse_pypackages_name_gen("urllib3"),
@@ -572,7 +572,7 @@ PYTHON_SUBPACKAGES = (
                                   },
             ),
     Package(name="Certifi",
-            version="2021.10.08", version_short="2021.10", version_min="2021.0", version_mex="2025.0",
+            version="2025.4.26", version_short="2025.4", version_min="2021.0", version_mex="2026.0",
             distro_package_names={DISTRO_ID_DEBIAN: "python3-certifi",
                                   DISTRO_ID_FEDORA: "python3-certifi",
                                   DISTRO_ID_SUSE: suse_pypackages_name_gen("certifi"),
@@ -580,7 +580,7 @@ PYTHON_SUBPACKAGES = (
                                   },
             ),
     Package(name="Requests",
-            version="2.27.1", version_short="2.27", version_min="2.0", version_mex="3.0",
+            version="2.32.2", version_short="2.32", version_min="2.0", version_mex="3.0",
             distro_package_names={DISTRO_ID_DEBIAN: "python3-requests",
                                   DISTRO_ID_FEDORA: "python3-requests",
                                   DISTRO_ID_SUSE: suse_pypackages_name_gen("requests"),
@@ -588,7 +588,7 @@ PYTHON_SUBPACKAGES = (
                                   },
             ),
     Package(name="ZStandard",
-            version="0.16.0", version_short="0.16", version_min="0.15.2", version_mex="1.0.0",
+            version="0.23.0", version_short="0.23", version_min="0.15.2", version_mex="1.0.0",
             distro_package_names={DISTRO_ID_DEBIAN: "python3-zstandard",
                                   DISTRO_ID_FEDORA: "python3-zstandard",
                                   DISTRO_ID_SUSE: suse_pypackages_name_gen("zstandard"),
@@ -609,6 +609,22 @@ PYTHON_SUBPACKAGES = (
                                   DISTRO_ID_FEDORA: ...,
                                   DISTRO_ID_SUSE: suse_pypackages_name_gen("numpy-devel"),
                                   DISTRO_ID_ARCH: ...,
+                                  },
+            ),
+    Package(name="fastjsonschema",
+            version="2.21.1", version_short="2.21", version_min="2.21", version_mex="3.0",
+            distro_package_names={DISTRO_ID_DEBIAN: "python-fastjsonschema",
+                                  DISTRO_ID_FEDORA: "python-fastjsonschema",
+                                  DISTRO_ID_SUSE: suse_pypackages_name_gen("fastjsonschema"),
+                                  DISTRO_ID_ARCH: "python-fastjsonschema",
+                                  },
+            ),
+    Package(name="cattrs",
+            version="25.1.1", version_short="25.1", version_min="25.1", version_mex="26.0",
+            distro_package_names={DISTRO_ID_DEBIAN: "python-cattrs",
+                                  DISTRO_ID_FEDORA: "python-cattrs",
+                                  DISTRO_ID_SUSE: suse_pypackages_name_gen("cattrs"),
+                                  DISTRO_ID_ARCH: "python-cattrs",
                                   },
             ),
 )
@@ -799,16 +815,8 @@ PACKAGES_ALL = (
                                   DISTRO_ID_ARCH: "usd",  # No official package, in AUR only currently.
                                   },
             ),
-    Package(name="OpenCollada Library", is_mandatory=False,
-            version="1.6.68", version_short="1.6", version_min="1.6.68", version_mex="1.7",
-            distro_package_names={DISTRO_ID_DEBIAN: "opencollada-dev",  # Useless, very old!
-                                  DISTRO_ID_FEDORA: "openCOLLADA-devel",
-                                  DISTRO_ID_SUSE: "libopenCOLLADA-devel",
-                                  DISTRO_ID_ARCH: "opencollada",
-                                  },
-            ),
     Package(name="Embree Library", is_mandatory=False,
-            version="4.3.3", version_short="4.3", version_min="4.3", version_mex="5.0",
+            version="4.4.0", version_short="4.4", version_min="4.3", version_mex="5.0",
             sub_packages=(),
             distro_package_names={DISTRO_ID_DEBIAN: "libembree-dev",
                                   DISTRO_ID_FEDORA: "embree-devel",
@@ -817,7 +825,7 @@ PACKAGES_ALL = (
                                   },
             ),
     Package(name="OpenImageDenoiser Library", is_mandatory=False,
-            version="2.3.2", version_short="2.3", version_min="2.0.0", version_mex="3.0",
+            version="2.3.3", version_short="2.3", version_min="2.0.0", version_mex="3.0",
             sub_packages=(),
             distro_package_names={DISTRO_ID_DEBIAN: None,
                                   DISTRO_ID_FEDORA: "oidn-devel",
@@ -853,7 +861,7 @@ PACKAGES_ALL = (
                                   },
             ),
     Package(name="FFMPEG Library", is_mandatory=False,
-            version="6.1.1", version_short="6.0", version_min="4.0", version_mex="8.0",
+            version="7.1.1", version_short="7.1", version_min="4.0", version_mex="8.0",
             sub_packages=(
                 Package(name="AVDevice FFMPEG Library", is_mandatory=False,
                         distro_package_names={DISTRO_ID_DEBIAN: "libavdevice-dev",
@@ -876,6 +884,15 @@ PACKAGES_ALL = (
                                   DISTRO_ID_FEDORA: "harfbuzz-devel",
                                   DISTRO_ID_SUSE: "harfbuzz-devel",
                                   DISTRO_ID_ARCH: "harfbuzz",
+                                  },
+            ),
+    Package(name="manifold", is_mandatory=False,
+            version="3.1.0", version_short="3.1", version_min="3.1.0", version_mex="4.0.0",
+            sub_packages=(),
+            distro_package_names={DISTRO_ID_DEBIAN: None,
+                                  DISTRO_ID_FEDORA: None,
+                                  DISTRO_ID_SUSE: None,
+                                  DISTRO_ID_ARCH: None,
                                   },
             ),
 )
@@ -928,8 +945,8 @@ class PackageInstaller:
         return cls._instance
 
     def run_command(self, command):
-        """Basic wrapper around `subprocess.Popen`, mimicking  `subprocess.run` with a basic progress bar."""
-        # First dummy call to get user password for sudo. Otherwise the progress bar on actuall commands
+        """Basic wrapper around ``subprocess.Popen``, mimicking ``subprocess.run`` with a basic progress bar."""
+        # First dummy call to get user password for `sudo`. Otherwise the progress bar on actual commands
         # makes it impossible for users to enter their password.
         if not self.settings.no_sudo:
             subprocess.run([MAYSUDO, "echo"], capture_output=True)
@@ -1109,10 +1126,10 @@ class PackageInstaller:
         Generic heuristics to try and find 'best matching version' for a given package.
         For most packages it just ensures given package name version matches the exact version from the ``package``,
         or at least fits within the [version_min, version_mex[ range.
-        But some, like e.g. python or llvm, can have packages available for several versions,
-        with complex naming (like 'python3.10', 'llvm-9-dev', etc.).
+        But some, like e.g. Python or LLVM, can have packages available for several versions,
+        with complex naming (like ``python3.10``, ``llvm-9-dev``, etc.).
         This code attempts to find the best matching one possible, based on a set of 'possible names'
-        generated by the distro-specific ``package_name_version_gen`` generator.
+        generated by the distribution-specific ``package_name_version_gen`` generator.
         """
         # Check 'exact' version match on given name.
         if self.package_query_version_match(package_distro_name, package.version_short):

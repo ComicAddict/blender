@@ -20,14 +20,12 @@
 #include "BLI_utildefines.h"
 
 #include "DNA_genfile.h"
-#include "DNA_sdna_types.h"
 
 #include "BKE_asset.hh"
 #include "BKE_idtype.hh"
 #include "BKE_main.hh"
 #include "BKE_preview_image.hh"
 
-#include "BLO_blend_defs.hh"
 #include "BLO_readfile.hh"
 
 #include "readfile.hh"
@@ -77,6 +75,31 @@ BlendHandle *BLO_blendhandle_from_memory(const void *mem,
   return bh;
 }
 
+blender::int3 BLO_blendhandle_get_version(const BlendHandle *bh)
+{
+  const FileData *fd = reinterpret_cast<const FileData *>(bh);
+  return blender::int3(fd->fileversion / 100, fd->fileversion % 100, fd->filesubversion);
+}
+
+/* Return `false` if the block should be skipped because it is either an invalid block, or it does
+ * not meet to required conditions. */
+static bool blendhandle_load_id_data_and_validate(FileData *fd,
+                                                  BHead *bhead,
+                                                  bool use_assets_only,
+                                                  const char *&r_idname,
+                                                  AssetMetaData *&r_asset_meta_data)
+{
+  r_idname = blo_bhead_id_name(fd, bhead);
+  if (!r_idname || r_idname[0] == '\0') {
+    return false;
+  }
+  r_asset_meta_data = blo_bhead_id_asset_data_address(fd, bhead);
+  if (use_assets_only && r_asset_meta_data == nullptr) {
+    return false;
+  }
+  return true;
+}
+
 LinkNode *BLO_blendhandle_get_datablock_names(BlendHandle *bh,
                                               int ofblocktype,
                                               const bool use_assets_only,
@@ -89,8 +112,11 @@ LinkNode *BLO_blendhandle_get_datablock_names(BlendHandle *bh,
 
   for (bhead = blo_bhead_first(fd); bhead; bhead = blo_bhead_next(fd, bhead)) {
     if (bhead->code == ofblocktype) {
-      const char *idname = blo_bhead_id_name(fd, bhead);
-      if (use_assets_only && blo_bhead_id_asset_data_address(fd, bhead) == nullptr) {
+      const char *idname;
+      AssetMetaData *asset_meta_data;
+      if (!blendhandle_load_id_data_and_validate(
+              fd, bhead, use_assets_only, idname, asset_meta_data))
+      {
         continue;
       }
 
@@ -125,16 +151,16 @@ LinkNode *BLO_blendhandle_get_datablock_info(BlendHandle *bh,
     if (bhead->code == ofblocktype) {
       BHead *id_bhead = bhead;
 
-      const char *name = blo_bhead_id_name(fd, bhead) + 2;
-      AssetMetaData *asset_meta_data = blo_bhead_id_asset_data_address(fd, bhead);
-
-      const bool is_asset = asset_meta_data != nullptr;
-      const bool skip_datablock = use_assets_only && !is_asset;
-      if (skip_datablock) {
+      const char *idname;
+      AssetMetaData *asset_meta_data;
+      if (!blendhandle_load_id_data_and_validate(
+              fd, id_bhead, use_assets_only, idname, asset_meta_data))
+      {
         continue;
       }
-      BLODataBlockInfo *info = static_cast<BLODataBlockInfo *>(
-          MEM_mallocN(sizeof(*info), __func__));
+
+      const char *name = idname + 2;
+      BLODataBlockInfo *info = MEM_mallocN<BLODataBlockInfo>(__func__);
 
       /* Lastly, read asset data from the following blocks. */
       if (asset_meta_data) {
@@ -245,7 +271,7 @@ PreviewImage *BLO_blendhandle_get_preview_for_id(BlendHandle *bh,
     }
     else if (bhead->code == ofblocktype) {
       const char *idname = blo_bhead_id_name(fd, bhead);
-      if (STREQ(&idname[2], name)) {
+      if (idname && STREQ(&idname[2], name)) {
         looking = true;
       }
     }
@@ -345,7 +371,6 @@ BlendFileData *BLO_read_from_memfile(Main *oldmain,
 {
   BlendFileData *bfd = nullptr;
   FileData *fd;
-  ListBase old_mainlist;
   BlendFileReadReport bf_reports{};
   bf_reports.reports = reports;
 
@@ -358,8 +383,8 @@ BlendFileData *BLO_read_from_memfile(Main *oldmain,
     blo_make_old_idmap_from_main(fd, oldmain);
 
     /* Separate linked data from old main. */
-    blo_split_main(&old_mainlist, oldmain);
-    fd->old_mainlist = &old_mainlist;
+    blo_split_main(oldmain);
+    fd->old_bmain = oldmain;
 
     /* Removed packed data from this trick - it's internal data that needs saves. */
 
@@ -375,13 +400,15 @@ BlendFileData *BLO_read_from_memfile(Main *oldmain,
     /* Ensure relinked caches are not freed together with their old IDs. */
     blo_cache_storage_old_bmain_clear(fd, oldmain);
 
-    /* Still in-use libraries have already been moved from oldmain to new mainlist,
-     * but oldmain itself shall *never* be 'transferred' to new mainlist! */
-    BLI_assert(old_mainlist.first == oldmain);
+    /* Still in-use libraries have already been moved from oldmain to new main
+     * (fd->bmain->split_mains), but oldmain itself shall *never* be 'transferred' to the new
+     * split_mains!
+     */
+    BLI_assert(oldmain->split_mains && (*oldmain->split_mains)[0] == oldmain);
 
     /* That way, libraries (aka mains) we did not reuse in new undone/redone state
      * will be cleared together with `oldmain`. */
-    blo_join_main(&old_mainlist);
+    blo_join_main(oldmain);
 
     blo_filedata_free(fd);
   }

@@ -16,14 +16,17 @@
 #include "BLI_math_vector_types.hh"
 #include "BLI_string.h"
 
+#include "DNA_node_types.h"
+
 #include "RNA_access.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "GPU_shader.hh"
 #include "GPU_texture.hh"
 
+#include "COM_domain.hh"
 #include "COM_node_operation.hh"
 #include "COM_utilities.hh"
 
@@ -33,23 +36,35 @@
 
 namespace blender::nodes::node_composite_scale_cc {
 
+NODE_STORAGE_FUNCS(NodeScaleData)
+
 static void cmp_node_scale_declare(NodeDeclarationBuilder &b)
 {
   b.add_input<decl::Color>("Image")
       .default_value({1.0f, 1.0f, 1.0f, 1.0f})
       .compositor_realization_mode(CompositorInputRealizationMode::None)
-      .compositor_domain_priority(0);
+      .structure_type(StructureType::Dynamic);
   b.add_input<decl::Float>("X")
       .default_value(1.0f)
       .min(0.0001f)
       .max(CMP_SCALE_MAX)
-      .compositor_domain_priority(1);
+      .structure_type(StructureType::Dynamic);
   b.add_input<decl::Float>("Y")
       .default_value(1.0f)
       .min(0.0001f)
       .max(CMP_SCALE_MAX)
-      .compositor_domain_priority(2);
-  b.add_output<decl::Color>("Image");
+      .structure_type(StructureType::Dynamic);
+
+  b.add_output<decl::Color>("Image").structure_type(StructureType::Dynamic);
+}
+
+static void node_composit_init_scale(bNodeTree * /*ntree*/, bNode *node)
+{
+  NodeScaleData *data = MEM_callocN<NodeScaleData>(__func__);
+  data->interpolation = CMP_NODE_INTERPOLATION_BILINEAR;
+  data->extension_x = CMP_NODE_EXTENSION_MODE_CLIP;
+  data->extension_y = CMP_NODE_EXTENSION_MODE_CLIP;
+  node->storage = data;
 }
 
 static void node_composite_update_scale(bNodeTree *ntree, bNode *node)
@@ -66,20 +81,24 @@ static void node_composite_update_scale(bNodeTree *ntree, bNode *node)
 
 static void node_composit_buts_scale(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "space", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  uiLayout &column = layout->column(true);
+  column.prop(ptr, "space", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
 
   if (RNA_enum_get(ptr, "space") == CMP_NODE_SCALE_RENDER_SIZE) {
-    uiLayout *row;
-    uiItemR(layout,
-            ptr,
-            "frame_method",
-            UI_ITEM_R_SPLIT_EMPTY_NAME | UI_ITEM_R_EXPAND,
-            std::nullopt,
-            ICON_NONE);
-    row = uiLayoutRow(layout, true);
-    uiItemR(row, ptr, "offset_x", UI_ITEM_R_SPLIT_EMPTY_NAME, "X", ICON_NONE);
-    uiItemR(row, ptr, "offset_y", UI_ITEM_R_SPLIT_EMPTY_NAME, "Y", ICON_NONE);
+    column.prop(ptr,
+                "frame_method",
+                UI_ITEM_R_SPLIT_EMPTY_NAME | UI_ITEM_R_EXPAND,
+                std::nullopt,
+                ICON_NONE);
   }
+
+  uiLayout &column_interpolation_extension_modes = layout->column(true);
+
+  column_interpolation_extension_modes.prop(
+      ptr, "interpolation", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  uiLayout &row = column_interpolation_extension_modes.row(true);
+  row.prop(ptr, "extension_x", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  row.prop(ptr, "extension_y", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
 }
 
 using namespace blender::compositor;
@@ -100,18 +119,17 @@ class ScaleOperation : public NodeOperation {
 
   void execute_constant_size()
   {
-    Result &input = this->get_input("Image");
-    Result &output = this->get_result("Image");
-
     const float2 scale = this->get_scale();
-    const math::AngleRadian rotation = 0.0f;
-    const float2 translation = this->get_translation();
-    const float3x3 transformation = math::from_loc_rot_scale<float3x3>(
-        translation, rotation, scale);
+    const float3x3 transformation = math::from_scale<float3x3>(scale);
 
-    input.pass_through(output);
+    const Result &input = this->get_input("Image");
+    Result &output = this->get_result("Image");
+    output.share_data(input);
     output.transform(transformation);
-    output.get_realization_options().interpolation = input.get_realization_options().interpolation;
+
+    output.get_realization_options().interpolation = this->get_interpolation();
+    output.get_realization_options().extension_x = this->get_extension_mode_x();
+    output.get_realization_options().extension_y = this->get_extension_mode_y();
   }
 
   void execute_variable_size()
@@ -126,12 +144,22 @@ class ScaleOperation : public NodeOperation {
 
   void execute_variable_size_gpu()
   {
-    GPUShader *shader = context().get_shader("compositor_scale_variable");
+    GPUShader *shader = this->context().get_shader(this->get_shader_name());
     GPU_shader_bind(shader);
 
     Result &input = get_input("Image");
-    GPU_texture_filter_mode(input, true);
-    GPU_texture_extend_mode(input, GPU_SAMPLER_EXTEND_MODE_CLAMP_TO_BORDER);
+    /* The texture sampler should use bilinear interpolation for both the bilinear and bicubic
+     * cases, as the logic used by the bicubic realization shader expects textures to use bilinear
+     * interpolation. */
+    const Interpolation interpolation = this->get_interpolation();
+    const ExtensionMode extension_mode_x = this->get_extension_mode_x();
+    const ExtensionMode extension_mode_y = this->get_extension_mode_y();
+
+    /* For now the EWA sampling falls back to bicubic interpolation. */
+    const bool use_bilinear = ELEM(interpolation, Interpolation::Bilinear, Interpolation::Bicubic);
+    GPU_texture_filter_mode(input, use_bilinear);
+    GPU_texture_extend_mode_x(input, map_extension_mode_to_extend_mode(extension_mode_x));
+    GPU_texture_extend_mode_y(input, map_extension_mode_to_extend_mode(extension_mode_y));
     input.bind_as_texture(shader, "input_tx");
 
     Result &x_scale = get_input("X");
@@ -161,10 +189,13 @@ class ScaleOperation : public NodeOperation {
     const Result &y_scale = this->get_input("Y");
 
     Result &output = this->get_result("Image");
+    const Interpolation interpolation = this->get_interpolation();
+    const ExtensionMode extension_mode_x = this->get_extension_mode_x();
+    const ExtensionMode extension_mode_y = this->get_extension_mode_y();
     const Domain domain = compute_domain();
+    const int2 size = domain.size;
     output.allocate_texture(domain);
 
-    const int2 size = domain.size;
     parallel_for(size, [&](const int2 texel) {
       float2 coordinates = (float2(texel) + float2(0.5f)) / float2(size);
       float2 center = float2(0.5f);
@@ -174,8 +205,64 @@ class ScaleOperation : public NodeOperation {
       float2 scaled_coordinates = center +
                                   (coordinates - center) / math::max(scale, float2(0.0001f));
 
-      output.store_pixel(texel, input.sample_bilinear_zero(scaled_coordinates));
+      output.store_pixel(
+          texel,
+          input.sample(scaled_coordinates, interpolation, extension_mode_x, extension_mode_y));
     });
+  }
+
+  const char *get_shader_name() const
+  {
+    if (this->get_interpolation() == Interpolation::Bicubic) {
+      return "compositor_scale_variable_bicubic";
+    }
+    return "compositor_scale_variable";
+  }
+
+  ExtensionMode get_extension_mode_x()
+  {
+    switch (static_cast<CMPExtensionMode>(node_storage(bnode()).extension_x)) {
+      case CMP_NODE_EXTENSION_MODE_CLIP:
+        return ExtensionMode::Clip;
+      case CMP_NODE_EXTENSION_MODE_REPEAT:
+        return ExtensionMode::Repeat;
+      case CMP_NODE_EXTENSION_MODE_EXTEND:
+        return ExtensionMode::Extend;
+    }
+
+    BLI_assert_unreachable();
+    return ExtensionMode::Clip;
+  }
+
+  ExtensionMode get_extension_mode_y()
+  {
+    switch (static_cast<CMPExtensionMode>(node_storage(bnode()).extension_y)) {
+      case CMP_NODE_EXTENSION_MODE_CLIP:
+        return ExtensionMode::Clip;
+      case CMP_NODE_EXTENSION_MODE_REPEAT:
+        return ExtensionMode::Repeat;
+      case CMP_NODE_EXTENSION_MODE_EXTEND:
+        return ExtensionMode::Extend;
+    }
+
+    BLI_assert_unreachable();
+    return ExtensionMode::Clip;
+  }
+
+  Interpolation get_interpolation() const
+  {
+    switch (static_cast<CMPNodeInterpolation>(node_storage(bnode()).interpolation)) {
+      case CMP_NODE_INTERPOLATION_NEAREST:
+        return Interpolation::Nearest;
+      case CMP_NODE_INTERPOLATION_BILINEAR:
+        return Interpolation::Bilinear;
+      case CMP_NODE_INTERPOLATION_ANISOTROPIC:
+      case CMP_NODE_INTERPOLATION_BICUBIC:
+        return Interpolation::Bicubic;
+    }
+
+    BLI_assert_unreachable();
+    return Interpolation::Nearest;
   }
 
   float2 get_scale()
@@ -269,18 +356,6 @@ class ScaleOperation : public NodeOperation {
     return float2(math::max(scale.x, scale.y));
   }
 
-  float2 get_translation()
-  {
-    /* Only the render size option supports offset translation. */
-    if (get_scale_method() != CMP_NODE_SCALE_RENDER_SIZE) {
-      return float2(0.0f);
-    }
-
-    /* Translate by the offset factor relative to the new size. */
-    const float2 input_size = float2(get_input("Image").domain().size);
-    return get_offset() * input_size * get_scale();
-  }
-
   bool is_variable_size()
   {
     /* Only relative scaling can be variable. */
@@ -293,17 +368,12 @@ class ScaleOperation : public NodeOperation {
 
   CMPNodeScaleMethod get_scale_method()
   {
-    return (CMPNodeScaleMethod)bnode().custom1;
+    return static_cast<CMPNodeScaleMethod>(bnode().custom1);
   }
 
   CMPNodeScaleRenderSizeMethod get_scale_render_size_method()
   {
-    return (CMPNodeScaleRenderSizeMethod)bnode().custom2;
-  }
-
-  float2 get_offset()
-  {
-    return float2(bnode().custom3, bnode().custom4);
+    return static_cast<CMPNodeScaleRenderSizeMethod>(bnode().custom2);
   }
 };
 
@@ -314,7 +384,7 @@ static NodeOperation *get_compositor_operation(Context &context, DNode node)
 
 }  // namespace blender::nodes::node_composite_scale_cc
 
-void register_node_type_cmp_scale()
+static void register_node_type_cmp_scale()
 {
   namespace file_ns = blender::nodes::node_composite_scale_cc;
 
@@ -327,8 +397,12 @@ void register_node_type_cmp_scale()
   ntype.nclass = NODE_CLASS_DISTORT;
   ntype.declare = file_ns::cmp_node_scale_declare;
   ntype.draw_buttons = file_ns::node_composit_buts_scale;
+  ntype.initfunc = file_ns::node_composit_init_scale;
   ntype.updatefunc = file_ns::node_composite_update_scale;
+  blender::bke::node_type_storage(
+      ntype, "NodeScaleData", node_free_standard_storage, node_copy_standard_storage);
   ntype.get_compositor_operation = file_ns::get_compositor_operation;
 
   blender::bke::node_register_type(ntype);
 }
+NOD_REGISTER_NODE(register_node_type_cmp_scale)

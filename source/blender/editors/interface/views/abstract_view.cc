@@ -131,6 +131,11 @@ bool AbstractView::supports_scrolling() const
   return false;
 }
 
+bool AbstractView::is_fully_visible() const
+{
+  return false;
+}
+
 void AbstractView::scroll(ViewScrollDirection /*direction*/)
 {
   BLI_assert_msg(false, "Unsupported for this view type");
@@ -240,6 +245,16 @@ void AbstractView::set_popup_keep_open()
 void AbstractView::clear_search_highlight()
 {
   this->foreach_view_item([](AbstractViewItem &item) { item.is_highlighted_search_ = false; });
+}
+
+void AbstractView::allow_multiselect_items()
+{
+  is_multiselect_supported_ = true;
+}
+
+bool AbstractView::is_multiselect_supported() const
+{
+  return is_multiselect_supported_;
 }
 /** \} */
 

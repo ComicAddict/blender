@@ -307,37 +307,34 @@ static int transform_seq_slide_strip_cursor_get(const Strip *strip)
 
 static int transform_seq_slide_cursor_get(TransInfo *t)
 {
-  if ((U.sequencer_editor_flag & USER_SEQ_ED_SIMPLE_TWEAKING) == 0) {
-    return WM_CURSOR_NSEW_SCROLL;
-  }
-
   const Scene *scene = t->scene;
-  VectorSet<Strip *> strips = ED_sequencer_selected_strips_from_context(t->context);
+  VectorSet<Strip *> strips = vse::selected_strips_from_context(t->context);
 
   if (strips.size() == 1) {
     return transform_seq_slide_strip_cursor_get(strips[0]);
   }
   if (strips.size() == 2) {
-    Strip *seq1 = strips[0];
-    Strip *seq2 = strips[1];
+    Strip *strip1 = strips[0];
+    Strip *strip2 = strips[1];
 
-    if (SEQ_time_left_handle_frame_get(scene, seq1) > SEQ_time_left_handle_frame_get(scene, seq2))
+    if (seq::time_left_handle_frame_get(scene, strip1) >
+        seq::time_left_handle_frame_get(scene, strip2))
     {
-      SWAP(Strip *, seq1, seq2);
+      SWAP(Strip *, strip1, strip2);
     }
 
-    if (seq1->machine != seq2->machine) {
+    if (strip1->channel != strip2->channel) {
       return WM_CURSOR_NSEW_SCROLL;
     }
 
-    if (SEQ_time_right_handle_frame_get(scene, seq1) !=
-        SEQ_time_left_handle_frame_get(scene, seq2))
+    if (seq::time_right_handle_frame_get(scene, strip1) !=
+        seq::time_left_handle_frame_get(scene, strip2))
     {
       return WM_CURSOR_NSEW_SCROLL;
     }
 
-    const int cursor1 = transform_seq_slide_strip_cursor_get(seq1);
-    const int cursor2 = transform_seq_slide_strip_cursor_get(seq2);
+    const int cursor1 = transform_seq_slide_strip_cursor_get(strip1);
+    const int cursor2 = transform_seq_slide_strip_cursor_get(strip2);
 
     if (cursor1 == WM_CURSOR_RIGHT_HANDLE && cursor2 == WM_CURSOR_LEFT_HANDLE) {
       return WM_CURSOR_BOTH_HANDLES;
@@ -380,8 +377,7 @@ void initMouseInputMode(TransInfo *t, MouseInput *mi, MouseInputMode mode)
       InputAngle_Data *data;
       mi->use_virtual_mval = false;
       mi->precision_factor = 1.0f / 30.0f;
-      data = static_cast<InputAngle_Data *>(
-          MEM_callocN(sizeof(InputAngle_Data), "angle accumulator"));
+      data = MEM_callocN<InputAngle_Data>("angle accumulator");
       data->mval_prev[0] = mi->imval[0];
       data->mval_prev[1] = mi->imval[1];
       mi->data = data;

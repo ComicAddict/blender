@@ -1531,7 +1531,7 @@ def url_retrieve_exception_as_message(
 
 def pkg_idname_is_valid_or_error(pkg_idname: str) -> str | None:
     if not pkg_idname.isidentifier():
-        return "Not a valid identifier"
+        return "Not a valid Python identifier"
     if "__" in pkg_idname:
         return "Only single separators are supported"
     if pkg_idname.startswith("_"):
@@ -2320,7 +2320,7 @@ def python_versions_from_wheel(wheel_filename: str) -> set[tuple[int] | tuple[in
     abi_tag = wheel_filename_split[-2]
 
     # NOTE(@ideasman42): when the ABI is set, simply return the major version,
-    # This is needed because older version of CPython (3.6) for e.g. are compatible with newer versions of CPython,
+    # This is needed because older version of CPython (3.6) for example are compatible with newer versions of CPython,
     # but returning the old version causes it not to register as being compatible.
     # So return the ABI version to allow any version of CPython 3.x.
     #
@@ -2446,6 +2446,24 @@ def repository_filter_skip(
         skip_message_fn: Callable[[str], None] | None,
         error_fn: Callable[[Exception], None],
 ) -> bool:
+    """
+    This function takes an ``item`` which represents un-validated extension meta-data.
+    Return True when the extension should be excluded.
+
+    The meta-data is a subset of the ``blender_manifest.toml`` which is extracted
+    into the ``index.json`` hosted by a remote server.
+
+    Filtering will exclude extensions when:
+
+    - They're incompatible with Blender, Python or the platform defined by the ``filter_*`` arguments.
+      ``skip_message_fn`` callback will run with the cause of the incompatibility.
+    - The meta-data is malformed, it doesn't confirm to ``blender_manifest.toml`` data-types.
+      ``error_fn`` callback will run with the cause of the error.
+
+    This is used so Blender's extensions listing only shows compatible extensions as well as
+    reporting errors if the user attempts to install an extension which isn't compatible with their system.
+    """
+
     if (platforms := item.get("platforms")) is not None:
         if not isinstance(platforms, list):
             # Possibly noisy, but this should *not* be happening on a regular basis.
@@ -2817,7 +2835,7 @@ def pkg_manifest_detect_duplicates(
             del python_versions_full
 
     # This can be expanded with additional values as needed.
-    # We could in principle have ABI flags (debug/release) for e.g.
+    # We could in principle have ABI flags (debug/release) for example
     PkgCfgKey = tuple[
         # Platform.
         str,
@@ -3025,7 +3043,7 @@ def repo_sync_from_remote(
             del read_total
             del retrieve_info
         except (Exception, KeyboardInterrupt) as ex:
-            msg = url_retrieve_exception_as_message(ex, prefix="sync", url=remote_url)
+            msg = url_retrieve_exception_as_message(ex, prefix="sync", url=remote_json_url)
             if demote_connection_errors_to_status and url_retrieve_exception_is_connectivity(ex):
                 msglog.status(msg)
             else:
@@ -3935,7 +3953,7 @@ class subcmd_client:
                 result.write(block)
 
         except (Exception, KeyboardInterrupt) as ex:
-            msg = url_retrieve_exception_as_message(ex, prefix="list", url=remote_url)
+            msg = url_retrieve_exception_as_message(ex, prefix="list", url=remote_json_url)
             if demote_connection_errors_to_status and url_retrieve_exception_is_connectivity(ex):
                 msglog.status(msg)
             else:
@@ -4402,7 +4420,7 @@ class subcmd_client:
                         # Unlike querying information which might reasonably be skipped.
                         msglog.fatal_error(
                             url_retrieve_exception_as_message(
-                                ex, prefix="install", url=remote_url))
+                                ex, prefix="install", url=filepath_remote_archive))
                         return False
 
                     if request_exit:
@@ -4634,12 +4652,25 @@ class subcmd_author:
             # Make default build options if none are provided.
             manifest_build = PkgManifest_Build(
                 paths=None,
+                # Limit exclusions to:
+                # - Python cache since extensions are written in Python.
+                # - Dot-files since this is standard *enough*.
+                # - ZIP archives to exclude packages that have been build.
+                # - BLEND file backups since this is for Blender extensions,
+                #   it makes sense to skip them.
+                #
+                # Further, it's not the purpose of this exclusion list to support all known file-system lint,
+                # as it changes over time and *could* result in false positives.
+                #
+                # Extension authors are expected to declare exclude patterns based on their development environment.
                 paths_exclude_pattern=[
                     "__pycache__/",
                     # Hidden dot-files.
                     ".*",
                     # Any packages built in-source.
                     "/*.zip",
+                    # Backup `.blend` files.
+                    "*.blend[1-9]",
                 ],
             )
 
@@ -4852,7 +4883,7 @@ class subcmd_author:
             *,
             manifest: PkgManifest,
             # NOTE: This path is only for inclusion in the error message,
-            # the path may not exist on the file-system (it may refer to a path inside an archive for e.g.).
+            # the path may not exist on the file-system (it may refer to a path inside an archive for example).
             pkg_manifest_filepath: str,
             valid_tags_filepath: str,
     ) -> bool:

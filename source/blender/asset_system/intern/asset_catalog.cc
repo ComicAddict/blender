@@ -27,7 +27,7 @@
 
 #include "CLG_log.h"
 
-static CLG_LogRef LOG = {"asset_system.asset_catalog_service"};
+static CLG_LogRef LOG = {"asset.catalog"};
 
 namespace blender::asset_system {
 
@@ -345,7 +345,7 @@ void AssetCatalogService::load_directory_recursive(const CatalogFilePath &direct
 
   if (!BLI_exists(file_path.data())) {
     /* No file to be loaded is perfectly fine. */
-    CLOG_INFO(&LOG, 2, "path not found: %s", file_path.data());
+    CLOG_DEBUG(&LOG, "path not found: %s", file_path.data());
     return;
   }
 
@@ -488,9 +488,7 @@ bool AssetCatalogService::write_to_disk_ex(const CatalogFilePath &blend_file_pat
     return catalog_collection_->catalog_definition_file_->write_to_disk();
   }
 
-  if (catalog_collection_->catalogs_.is_empty() &&
-      catalog_collection_->deleted_catalogs_.is_empty())
-  {
+  if (catalog_collection_->is_empty()) {
     /* Avoid saving anything, when there is nothing to save. */
     return true; /* Writing nothing when there is nothing to write is still a success. */
   }

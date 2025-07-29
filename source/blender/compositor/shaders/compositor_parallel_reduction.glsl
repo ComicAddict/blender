@@ -38,8 +38,9 @@
  *
  * The shader is generic enough to implement many types of reductions. This is done by using macros
  * that the developer should define to implement a certain reduction operation. Those include,
- * TYPE, IDENTITY, INITIALIZE, LOAD, and REDUCE. See the implementation below for more information
- * as well as the compositor_parallel_reduction_info.hh for example reductions operations. */
+ * TYPE, IDENTITY, INITIALIZE, LOAD, REDUCE, and WRITE. See the implementation below for more
+ * information as well as the compositor_parallel_reduction_info.hh for example reductions
+ * operations. */
 
 /* Doing the reduction in shared memory is faster, so create a shared array where the whole data
  * of the work group will be loaded and reduced. The 2D structure of the work group is irrelevant
@@ -56,17 +57,17 @@ shared TYPE reduction_data[reduction_size];
 
 void main()
 {
-  ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+  int2 texel = int2(gl_GlobalInvocationID.xy);
 
   /* Initialize the shared array for out of bound invocations using the `IDENTITY` value. The
    * developer is expected to define the `IDENTITY` macro to be a value of type `TYPE` that does
    * not affect the output of the reduction. For instance, sum reductions have an identity of 0.0,
    * while max value reductions have an identity of FLT_MIN */
-  if (any(lessThan(texel, ivec2(0))) || any(greaterThanEqual(texel, texture_size(input_tx)))) {
+  if (any(lessThan(texel, int2(0))) || any(greaterThanEqual(texel, texture_size(input_tx)))) {
     reduction_data[gl_LocalInvocationIndex] = IDENTITY;
   }
   else {
-    vec4 value = texture_load_unbound(input_tx, texel);
+    float4 value = texture_load_unbound(input_tx, texel);
 
     /* Initialize the shared array given the previously loaded value. This step can be different
      * depending on whether this is the initial reduction pass or a latter one. Indeed, the input
@@ -108,6 +109,12 @@ void main()
    * it. */
   barrier();
   if (gl_LocalInvocationIndex == 0) {
-    imageStore(output_img, ivec2(gl_WorkGroupID.xy), vec4(reduction_data[0]));
+    /* If no WRITE macro is provided, we assume the reduction type can be passed to the float4
+     * constructor. If not, WRITE is expected to be defined to construct the output value. */
+#if defined(WRITE)
+    imageStore(output_img, int2(gl_WorkGroupID.xy), WRITE(reduction_data[0]));
+#else
+    imageStore(output_img, int2(gl_WorkGroupID.xy), float4(reduction_data[0]));
+#endif
   }
 }

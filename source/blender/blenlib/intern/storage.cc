@@ -315,13 +315,12 @@ eFileAttributes BLI_file_attributes(const char *path)
 }
 #endif
 
-/* Return alias/shortcut file target. Apple version is defined in storage_apple.mm */
-#ifndef __APPLE__
+#ifndef __APPLE__ /* Apple version is defined in `storage_apple.mm`. */
 bool BLI_file_alias_target(const char *filepath,
                            /* This parameter can only be `const` on Linux since
                             * redirection is not supported there.
                             * NOLINTNEXTLINE: readability-non-const-parameter. */
-                           char r_targetpath[/*FILE_MAXDIR*/])
+                           char r_targetpath[FILE_MAXDIR])
 {
 #  ifdef WIN32
   if (!BLI_path_extension_check(filepath, ".lnk")) {
@@ -594,7 +593,7 @@ LinkNode *BLI_file_read_as_lines(const char *filepath)
     return nullptr;
   }
 
-  buf = MEM_cnew_array<char>(size, "file_as_lines");
+  buf = MEM_calloc_arrayN<char>(size, "file_as_lines");
   if (buf) {
     size_t i, last = 0;
 

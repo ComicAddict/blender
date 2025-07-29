@@ -18,8 +18,6 @@
 
 struct ListBase;
 
-using UniquenameCheckCallback = bool (*)(void *arg, const char *name);
-
 /* ------------------------------------------------------------------------- */
 /** \name String Replace
  * \{ */
@@ -41,6 +39,13 @@ char *BLI_string_replaceN(const char *__restrict str,
                           const char *__restrict substr_old,
                           const char *__restrict substr_new) ATTR_WARN_UNUSED_RESULT
     ATTR_NONNULL(1, 2, 3) ATTR_MALLOC;
+
+/**
+ * In-place replacement all occurrences of needle in haystack with other.
+ */
+void BLI_string_replace(std::string &haystack,
+                        blender::StringRef needle,
+                        blender::StringRef other);
 
 /**
  * In-place replace every \a src to \a dst in \a str.
@@ -87,9 +92,9 @@ size_t BLI_string_replace_range(
  * Returning the length of "Foo"
  *
  * \param left: Where to return copy of part preceding `delim`.
- * \param nr: Where to return value of numeric suffix`.
- * \param name: String to split`.
- * \param delim: Delimiter character`.
+ * \param nr: Where to return value of numeric suffix.
+ * \param name: String to split.
+ * \param delim: Delimiter character.
  * \return Length of \a left.
  */
 size_t BLI_string_split_name_number(const char *name, char delim, char *r_name_left, int *r_number)
@@ -147,26 +152,29 @@ size_t BLI_string_flip_side_name(char *name_dst,
  * incrementing its numeric suffix as necessary.
  *
  * \param unique_check: Return true if name is not unique
- * \param arg: Additional arg to unique_check--meaning is up to caller
  * \param defname: To initialize name if latter is empty
  * \param delim: Delimits numeric suffix in name
  * \param name: Name to be ensured unique
  * \param name_maxncpy: Maximum length of name area
  */
-void BLI_uniquename_cb(UniquenameCheckCallback unique_check,
-                       void *arg,
+void BLI_uniquename_cb(blender::FunctionRef<bool(blender::StringRefNull)> unique_check,
                        const char *defname,
                        char delim,
                        char *name,
-                       size_t name_maxncpy) ATTR_NONNULL(1, 3, 5);
+                       size_t name_maxncpy) ATTR_NONNULL(2, 4);
 
 /**
- * Ensures name is unique (according to criteria specified by caller in unique_check callback),
- * incrementing its numeric suffix as necessary.
+ * Return a name that is unique (according to criteria specified by caller in
+ * unique_check callback), incrementing its numeric suffix as necessary.
  *
  * \param unique_check: Return true if name is not unique
  * \param delim: Delimits numeric suffix in name
- * \param name: Name to be ensured unique
+ * \param name: Name to be made unique
+ *
+ * \return name that can be assigned by the caller to make it unique.
+ *
+ * \note Contrary to the other functions with the same name, this function does
+ * not directly set the unique name. That is the responsibility of the caller.
  */
 std::string BLI_uniquename_cb(blender::FunctionRef<bool(blender::StringRef)> unique_check,
                               char delim,

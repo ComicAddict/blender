@@ -9,7 +9,7 @@ import pathlib
 import bpy
 
 """
-blender -b --factory-startup --python tests/python/bl_animation_action.py -- --testdir tests/data/animation/
+blender -b --factory-startup --python tests/python/bl_animation_action.py -- --testdir tests/files/animation/
 """
 
 
@@ -68,24 +68,36 @@ class ActionSlotCreationTest(unittest.TestCase):
             self.action.slots.new('UNSPECIFIED', "Bob")
 
     def test_long_identifier(self):
-        # Test a 65-character identifier, using a 63-character name. This is the
-        # maximum length allowed (the DNA field is MAX_ID_NAME=66 long, which
+        # Test a 257-character identifier, using a 255-character name. This is the
+        # maximum length allowed (the DNA field is MAX_ID_NAME=258 long, which
         # includes the trailing zero byte).
-        long_but_ok_name = "This name is so long! It might look long, but it is just right!"
+        long_but_ok_name = (
+            "This name is so long! It might look long, but it is just right! "
+            "This name is so long! It might look long, but it is just right! "
+            "This name is so long! It might look long, but it is just right! "
+            "This name is so long! It might look long, but it is just right!"
+        )
+        assert (len(long_but_ok_name) == 255)
         slot_ok = self.action.slots.new('OBJECT', long_but_ok_name)
         self.assertEqual(long_but_ok_name, slot_ok.name_display, "this name should fit")
         self.assertEqual('OB' + long_but_ok_name, slot_ok.identifier, "this identifier should fit")
 
         # Test one character more.
-        too_long_name = "This name is so long! It might look long, and that it is indeed."
-        too_long_name_truncated = too_long_name[:63]
+        too_long_name = (
+            "This name is so long! It might look long, and that it is indeed."
+            "This name is so long! It might look long, and that it is indeed."
+            "This name is so long! It might look long, and that it is indeed."
+            "This name is so long! It might look long, and that it is indeed."
+        )
+        assert (len(too_long_name) == 256)
+        too_long_name_truncated = too_long_name[:255]
         slot_long = self.action.slots.new('OBJECT', too_long_name)
         self.assertEqual(too_long_name_truncated, slot_long.name_display, "this name should be truncated")
         self.assertEqual('OB' + too_long_name_truncated, slot_long.identifier, "this identifier should be truncated")
 
         # Test with different trailing character.
-        other_long_name = "This name is so long! It might look long, and that it is indeed!"
-        truncated_and_unique = other_long_name[:59] + ".001"
+        other_long_name = too_long_name[:-1] + "!"
+        truncated_and_unique = other_long_name[:251] + ".001"
         slot_long2 = self.action.slots.new('OBJECT', too_long_name)
         self.assertEqual(truncated_and_unique, slot_long2.name_display,
                          "this name should be truncated and made unique")
@@ -161,6 +173,28 @@ class ActionSlotAssignmentTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             cube_adt.action_slot = slot
         self.assertEqual(cube_adt.action_slot, slot_cube, "The slot should not have changed")
+
+    def test_slot_users(self):
+        action = bpy.data.actions.new('TestAction')
+        self.assertEqual(0, action.users)
+
+        # Assign the Action to Cube.
+        cube = bpy.data.objects['Cube']
+        cube_adt = cube.animation_data_create()
+        cube_adt.action = action
+        slot_cube = action.slots.new(cube.id_type, cube.name)
+        cube_adt.action_slot = slot_cube
+
+        self.assertEqual([cube], slot_cube.users())
+
+        # Assign the same slot to the Camera object as well.
+        camera = bpy.data.objects['Camera']
+        camera_adt = camera.animation_data_create()
+        camera_adt.action = action
+        camera_adt.action_slot = slot_cube
+
+        # Sort by name, as the order doesn't matter and is an implementation detail.
+        self.assertEqual([camera, cube], sorted(slot_cube.users(), key=lambda id: id.name))
 
     def test_untyped_slot_assignment_local(self):
         """Test untyped slot assignment, with a local Action."""

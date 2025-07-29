@@ -70,13 +70,10 @@ BlenderStrokeRenderer::BlenderStrokeRenderer(Render *re, int render_count)
 {
   freestyle_bmain = BKE_main_new();
 
-  /* We use the same window manager for freestyle bmain as
-   * real bmain uses. This is needed because freestyle's
-   * bmain could be used to tag scenes for update, which
-   * implies call of ED_render_scene_update in some cases
-   * and that function requires proper window manager
-   * to present (sergey)
-   */
+  /* NOTE(@sergey): We use the same window manager for freestyle `bmain` as real `bmain` uses.
+   * This is needed because freestyle's `bmain` could be used to tag scenes for update,
+   * which implies call of #ED_render_scene_update in some cases and that function
+   * requires proper window manager to present. */
   freestyle_bmain->wm = re->main->wm;
 
   // for stroke mesh generation
@@ -117,6 +114,10 @@ BlenderStrokeRenderer::BlenderStrokeRenderer(Render *re, int render_count)
   // Copy ID properties, including Cycles render properties
   if (old_scene->id.properties) {
     freestyle_scene->id.properties = IDP_CopyProperty_ex(old_scene->id.properties, 0);
+  }
+  if (old_scene->id.system_properties) {
+    freestyle_scene->id.system_properties = IDP_CopyProperty_ex(old_scene->id.system_properties,
+                                                                0);
   }
   // Copy eevee render settings.
   BKE_scene_copy_data_eevee(freestyle_scene, old_scene);
@@ -583,6 +584,7 @@ int BlenderStrokeRenderer::get_stroke_count() const
 // Build a mesh object representing a group of stylized strokes
 void BlenderStrokeRenderer::GenerateStrokeMesh(StrokeGroup *group, bool hasTex)
 {
+  using namespace blender;
 #if 0
   Object *object_mesh = BKE_object_add(
       freestyle_bmain, (ViewLayer *)freestyle_scene->view_layers.first, OB_MESH);
@@ -598,18 +600,24 @@ void BlenderStrokeRenderer::GenerateStrokeMesh(StrokeGroup *group, bool hasTex)
   mesh->corners_num = group->totloop;
   mesh->totcol = group->materials.size();
   BKE_mesh_face_offsets_ensure_alloc(mesh);
-
-  float3 *vert_positions = (float3 *)CustomData_add_layer_named(
-      &mesh->vert_data, CD_PROP_FLOAT3, CD_SET_DEFAULT, mesh->verts_num, "position");
-  blender::int2 *edges = (blender::int2 *)CustomData_add_layer_named(
-      &mesh->edge_data, CD_PROP_INT32_2D, CD_CONSTRUCT, mesh->edges_num, ".edge_verts");
+  blender::bke::MutableAttributeAccessor attributes = mesh->attributes_for_write();
   blender::MutableSpan<int> face_offsets = mesh->face_offsets_for_write();
-  int *corner_verts = (int *)CustomData_add_layer_named(
-      &mesh->corner_data, CD_PROP_INT32, CD_SET_DEFAULT, mesh->corners_num, ".corner_vert");
-  int *corner_edges = (int *)CustomData_add_layer_named(
-      &mesh->corner_data, CD_PROP_INT32, CD_SET_DEFAULT, mesh->corners_num, ".corner_edge");
-  int *material_indices = (int *)CustomData_add_layer_named(
-      &mesh->face_data, CD_PROP_INT32, CD_SET_DEFAULT, mesh->faces_num, "material_index");
+  bke::SpanAttributeWriter position_attr = attributes.lookup_or_add_for_write_span<float3>(
+      "position", bke::AttrDomain::Point);
+  bke::SpanAttributeWriter edge_verts_attr = attributes.lookup_or_add_for_write_span<int2>(
+      ".edge_verts", bke::AttrDomain::Edge);
+  bke::SpanAttributeWriter corner_vert_attr = attributes.lookup_or_add_for_write_span<int>(
+      ".corner_vert", bke::AttrDomain::Corner);
+  bke::SpanAttributeWriter corner_edge_attr = attributes.lookup_or_add_for_write_span<int>(
+      ".corner_edge", bke::AttrDomain::Corner);
+  bke::SpanAttributeWriter material_index_attr = attributes.lookup_or_add_for_write_span<int>(
+      "material_index", bke::AttrDomain::Face);
+  float3 *vert_positions = position_attr.span.data();
+  int2 *edges = edge_verts_attr.span.data();
+  int *corner_verts = corner_vert_attr.span.data();
+  int *corner_edges = corner_edge_attr.span.data();
+  int *material_indices = material_index_attr.span.data();
+
   blender::float2 *loopsuv[2] = {nullptr};
 
   if (hasTex) {
@@ -632,7 +640,7 @@ void BlenderStrokeRenderer::GenerateStrokeMesh(StrokeGroup *group, bool hasTex)
   BKE_id_attributes_active_color_set(
       &mesh->id, CustomData_get_layer_name(&mesh->corner_data, CD_PROP_BYTE_COLOR, 0));
 
-  mesh->mat = (Material **)MEM_mallocN(sizeof(Material *) * mesh->totcol, "MaterialList");
+  mesh->mat = MEM_malloc_arrayN<Material *>(size_t(mesh->totcol), "MaterialList");
   for (const auto item : group->materials.items()) {
     Material *material = item.key;
     const int matnr = item.value;
@@ -816,6 +824,12 @@ void BlenderStrokeRenderer::GenerateStrokeMesh(StrokeGroup *group, bool hasTex)
   }      // loop over strokes
 
   BKE_object_materials_sync_length(freestyle_bmain, object_mesh, (ID *)mesh);
+
+  position_attr.finish();
+  edge_verts_attr.finish();
+  corner_vert_attr.finish();
+  corner_edge_attr.finish();
+  material_index_attr.finish();
 
 #if 0  // XXX
   BLI_assert(mesh->verts_num == vertex_index);

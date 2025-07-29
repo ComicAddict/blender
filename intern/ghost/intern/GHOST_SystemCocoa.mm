@@ -4,7 +4,6 @@
 
 #include "GHOST_SystemCocoa.hh"
 
-#include "GHOST_DisplayManagerCocoa.hh"
 #include "GHOST_EventButton.hh"
 #include "GHOST_EventCursor.hh"
 #include "GHOST_EventDragnDrop.hh"
@@ -24,7 +23,7 @@
 #endif
 
 #ifdef WITH_METAL_BACKEND
-#  include "GHOST_ContextCGL.hh"
+#  include "GHOST_ContextMTL.hh"
 #endif
 
 #ifdef WITH_VULKAN_BACKEND
@@ -283,7 +282,7 @@ static GHOST_TKey convertKey(int rawCode, unichar recvChar)
 
         /* Get actual character value of the "remappable" keys in international keyboards,
          * if keyboard layout is not correctly reported (e.g. some non Apple keyboards in Tiger),
-         * then fallback on using the received #charactersIgnoringModifiers. */
+         * then fall back on using the received #charactersIgnoringModifiers. */
         if (uchrHandle) {
           UInt32 deadKeyState = 0;
           UniCharCount actualStrLength = 0;
@@ -541,9 +540,6 @@ GHOST_SystemCocoa::GHOST_SystemCocoa()
   m_modifierMask = 0;
   m_outsideLoopEventProcessed = false;
   m_needDelayedApplicationBecomeActiveEventProcessing = false;
-  m_displayManager = new GHOST_DisplayManagerCocoa();
-  GHOST_ASSERT(m_displayManager, "GHOST_SystemCocoa::GHOST_SystemCocoa(): m_displayManager==0\n");
-  m_displayManager->initialize();
 
   m_ignoreWindowSizedMessages = false;
   m_ignoreMomentumScroll = false;
@@ -690,10 +686,8 @@ uint64_t GHOST_SystemCocoa::getMilliSeconds() const
 
 uint8_t GHOST_SystemCocoa::getNumDisplays() const
 {
-  /* Note that OS X supports monitor hot plug.
-   * We do not support multiple monitors at the moment. */
   @autoreleasepool {
-    return NSScreen.screens.count;
+    return [[NSScreen screens] count];
   }
 }
 
@@ -701,7 +695,7 @@ void GHOST_SystemCocoa::getMainDisplayDimensions(uint32_t &width, uint32_t &heig
 {
   @autoreleasepool {
     /* Get visible frame, that is frame excluding dock and top menu bar. */
-    const NSRect frame = [[NSScreen mainScreen] visibleFrame];
+    const NSRect frame = [GHOST_WindowCocoa::getPrimaryScreen() visibleFrame];
 
     /* Returns max window contents (excluding title bar...). */
     const NSRect contentRect = [NSWindow
@@ -734,18 +728,13 @@ GHOST_IWindow *GHOST_SystemCocoa::createWindow(const char *title,
   GHOST_IWindow *window = nullptr;
   @autoreleasepool {
     /* Get the available rect for including window contents. */
-    const NSRect frame = [[NSScreen mainScreen] visibleFrame];
-    const NSRect contentRect = [NSWindow
-        contentRectForFrameRect:frame
+    const NSRect primaryScreenFrame = [GHOST_WindowCocoa::getPrimaryScreen() visibleFrame];
+    const NSRect primaryScreenContentRect = [NSWindow
+        contentRectForFrameRect:primaryScreenFrame
                       styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                                  NSWindowStyleMaskMiniaturizable)];
 
-    int32_t bottom = (contentRect.size.height - 1) - height - top;
-
-    /* Ensures window top left is inside this available rect. */
-    left = left > contentRect.origin.x ? left : contentRect.origin.x;
-    /* Add `contentRect.origin.y` to respect dock-size. */
-    bottom = bottom > contentRect.origin.y ? bottom + contentRect.origin.y : contentRect.origin.y;
+    const int32_t bottom = primaryScreenContentRect.size.height - top - height;
 
     window = new GHOST_WindowCocoa(this,
                                    title,
@@ -804,8 +793,7 @@ GHOST_IContext *GHOST_SystemCocoa::createOffscreenContext(GHOST_GPUSettings gpuS
 
 #ifdef WITH_METAL_BACKEND
     case GHOST_kDrawingContextTypeMetal: {
-      /* TODO(fclem): Remove OpenGL support and rename context to ContextMTL */
-      GHOST_Context *context = new GHOST_ContextCGL(false, nullptr, nullptr, debug_context);
+      GHOST_Context *context = new GHOST_ContextMTL(false, nullptr, nullptr, debug_context);
       if (context->initializeDrawingContext()) {
         return context;
       }
@@ -980,10 +968,19 @@ GHOST_TSuccess GHOST_SystemCocoa::getButtons(GHOST_Buttons &buttons) const
 
 GHOST_TCapabilityFlag GHOST_SystemCocoa::getCapabilities() const
 {
-  return GHOST_TCapabilityFlag(GHOST_CAPABILITY_FLAG_ALL &
-                               ~(
-                                   /* Cocoa has no support for a primary selection clipboard. */
-                                   GHOST_kCapabilityPrimaryClipboard));
+  return GHOST_TCapabilityFlag(
+      GHOST_CAPABILITY_FLAG_ALL &
+      /* NOTE: order the following flags as they they're declared in the source. */
+      ~(
+          /* Cocoa has no support for a primary selection clipboard. */
+          GHOST_kCapabilityClipboardPrimary |
+          /* Cocoa doesn't define a Hyper modifier key,
+           * it's possible another modifier could be optionally used in it's place. */
+          GHOST_kCapabilityKeyboardHyperKey |
+          /* No support yet for RGBA mouse cursors. */
+          GHOST_kCapabilityCursorRGBA |
+          /* No support yet for dynamic cursor generation. */
+          GHOST_kCapabilityCursorGenerator));
 }
 
 /* --------------------------------------------------------------------
@@ -1012,8 +1009,9 @@ bool GHOST_SystemCocoa::processEvents(bool /*waitForEvent*/)
       }
       else {
         timeOut = (double)(next - getMilliSeconds())/1000.0;
-        if (timeOut < 0.0)
+        if (timeOut < 0.0) {
           timeOut = 0.0;
+        }
       }
 
       ::ReceiveNextEvent(0, nullptr, timeOut, false, &event);
@@ -1247,7 +1245,7 @@ static NSSize getNSImagePixelSize(NSImage *image)
 static ImBuf *NSImageToImBuf(NSImage *image)
 {
   const NSSize imageSize = getNSImagePixelSize(image);
-  ImBuf *ibuf = IMB_allocImBuf(imageSize.width, imageSize.height, 32, IB_rect);
+  ImBuf *ibuf = IMB_allocImBuf(imageSize.width, imageSize.height, 32, IB_byte_data);
 
   if (!ibuf) {
     return nullptr;
@@ -1477,9 +1475,11 @@ GHOST_TSuccess GHOST_SystemCocoa::handleTabletEvent(void *eventPtr, short eventT
       }
 
       ct.Pressure = event.pressure;
+      /* Range: -1 (left) to 1 (right). */
       ct.Xtilt = event.tilt.x;
-      /* On macOS, the y tilt behavior is inverted; an increase in the tilt
-       * value corresponds to tilting the device away from the user. */
+      /* On macOS, the y tilt behavior is inverted from what we expect: negative
+       * meaning a tilt toward the user, positive meaning away from the user.
+       * Convert to what Blender expects: -1.0 (away from user) to +1.0 (toward user). */
       ct.Ytilt = -event.tilt.y;
       break;
 
@@ -1643,7 +1643,7 @@ GHOST_TSuccess GHOST_SystemCocoa::handleMouseEvent(void *eventPtr)
 
           GHOST_Rect bounds, windowBounds, correctedBounds;
 
-          /* fallback to window bounds */
+          /* fall back to window bounds */
           if (window->getCursorGrabBounds(bounds) == GHOST_kFailure) {
             window->getClientBounds(bounds);
           }
@@ -1741,17 +1741,16 @@ GHOST_TSuccess GHOST_SystemCocoa::handleMouseEvent(void *eventPtr)
       /* Standard scroll-wheel case, if no swiping happened,
        * and no momentum (kinetic scroll) works. */
       if (!m_multiTouchScroll && momentumPhase == NSEventPhaseNone) {
-        double deltaF = event.deltaY;
-
-        if (deltaF == 0.0) {
-          deltaF = event.deltaX; /* Make blender decide if it's horizontal scroll. */
+        if (event.deltaX != 0.0) {
+          const int32_t delta = event.deltaX > 0.0 ? 1 : -1;
+          pushEvent(new GHOST_EventWheel(
+              event.timestamp * 1000, window, GHOST_kEventWheelAxisHorizontal, delta));
         }
-        if (deltaF == 0.0) {
-          break; /* Discard trackpad delta=0 events. */
+        if (event.deltaY != 0.0) {
+          const int32_t delta = event.deltaY > 0.0 ? 1 : -1;
+          pushEvent(new GHOST_EventWheel(
+              event.timestamp * 1000, window, GHOST_kEventWheelAxisVertical, delta));
         }
-
-        const int32_t delta = deltaF > 0.0 ? 1 : -1;
-        pushEvent(new GHOST_EventWheel(event.timestamp * 1000, window, delta));
       }
       else {
         const NSPoint mousePos = event.locationInWindow;
@@ -1866,12 +1865,12 @@ GHOST_TSuccess GHOST_SystemCocoa::handleKeyEvent(void *eventPtr)
         }
       }
 
-      /* arrow keys should not have utf8 */
+      /* Arrow keys should not have UTF8. */
       if ((keyCode >= GHOST_kKeyLeftArrow) && (keyCode <= GHOST_kKeyDownArrow)) {
         utf8_buf[0] = '\0';
       }
 
-      /* F keys should not have utf8 */
+      /* F-keys should not have UTF8. */
       if ((keyCode >= GHOST_kKeyF1) && (keyCode <= GHOST_kKeyF20)) {
         utf8_buf[0] = '\0';
       }

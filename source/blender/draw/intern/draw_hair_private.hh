@@ -97,7 +97,7 @@ struct ParticleHairCache {
   /* Hair Procedural display: Interpolation is done on the GPU. */
   blender::gpu::VertBuf *proc_point_buf; /* Input control points */
 
-  /** Infos of control points strands (segment count and base index) */
+  /** Information of control points strands (segment count and base index) */
   blender::gpu::VertBuf *proc_strand_buf;
 
   /* Hair Length */
@@ -106,11 +106,11 @@ struct ParticleHairCache {
   blender::gpu::VertBuf *proc_strand_seg_buf;
 
   blender::gpu::VertBuf *proc_uv_buf[MAX_MTFACE];
-  GPUTexture *uv_tex[MAX_MTFACE];
+  blender::gpu::Texture *uv_tex[MAX_MTFACE];
   char uv_layer_names[MAX_MTFACE][MAX_LAYER_NAME_CT][MAX_LAYER_NAME_LEN];
 
   blender::gpu::VertBuf **proc_col_buf;
-  GPUTexture **col_tex;
+  blender::gpu::Texture **col_tex;
   char (*col_layer_names)[MAX_LAYER_NAME_CT][MAX_LAYER_NAME_LEN];
 
   int num_uv_layers;

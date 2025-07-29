@@ -32,13 +32,13 @@ class VKDescriptorPools {
    *
    * See VKDescriptorSetTracker::upload_descriptor_sets for rebalancing the pool sizes.
    */
-  static constexpr uint32_t POOL_SIZE_STORAGE_BUFFER = 10000;
-  static constexpr uint32_t POOL_SIZE_DESCRIPTOR_SETS = 2500;
-  static constexpr uint32_t POOL_SIZE_STORAGE_IMAGE = 2500;
-  static constexpr uint32_t POOL_SIZE_COMBINED_IMAGE_SAMPLER = 2500;
-  static constexpr uint32_t POOL_SIZE_UNIFORM_BUFFER = 5000;
-  static constexpr uint32_t POOL_SIZE_UNIFORM_TEXEL_BUFFER = 1000;
-  static constexpr uint32_t POOL_SIZE_INPUT_ATTACHMENT = 1000;
+  static constexpr uint32_t POOL_SIZE_STORAGE_BUFFER = 1000;
+  static constexpr uint32_t POOL_SIZE_DESCRIPTOR_SETS = 250;
+  static constexpr uint32_t POOL_SIZE_STORAGE_IMAGE = 250;
+  static constexpr uint32_t POOL_SIZE_COMBINED_IMAGE_SAMPLER = 250;
+  static constexpr uint32_t POOL_SIZE_UNIFORM_BUFFER = 500;
+  static constexpr uint32_t POOL_SIZE_UNIFORM_TEXEL_BUFFER = 100;
+  static constexpr uint32_t POOL_SIZE_INPUT_ATTACHMENT = 100;
 
   Vector<VkDescriptorPool> pools_;
   int64_t active_pool_index_ = 0;
@@ -52,9 +52,12 @@ class VKDescriptorPools {
   VkDescriptorSet allocate(const VkDescriptorSetLayout descriptor_set_layout);
 
   /**
-   * Reset the pools to start looking for free space from the first descriptor pool.
+   * Discard all existing pools and re-initializes this instance.
+   *
+   * This is a fix to ensure that resources will not be rewritten. Eventually we should discard the
+   * resource pools for reuse.
    */
-  void reset();
+  void discard(VKContext &vk_context);
 
  private:
   VkDescriptorPool active_pool_get();

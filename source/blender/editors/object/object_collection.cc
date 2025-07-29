@@ -10,7 +10,7 @@
 
 #include "BLI_listbase.h"
 #include "BLI_path_utils.hh"
-#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 #include "BLI_utildefines.h"
 
 #include "DNA_collection_types.h"
@@ -47,6 +47,7 @@
 
 #include "UI_interface.hh"
 #include "UI_interface_icons.hh"
+#include "UI_interface_layout.hh"
 
 #include "object_intern.hh"
 
@@ -125,7 +126,7 @@ static Collection *collection_object_active_find_index(Main *bmain,
   return collection;
 }
 
-static int objects_add_active_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus objects_add_active_exec(bContext *C, wmOperator *op)
 {
   Object *ob = context_object(C);
   Main *bmain = CTX_data_main(C);
@@ -191,14 +192,14 @@ void COLLECTION_OT_objects_add_active(wmOperatorType *ot)
   PropertyRNA *prop;
 
   /* identifiers */
-  ot->name = "Add Selected to Active Objects Collection";
+  ot->name = "Add Selected to Active Object's Collection";
   ot->description =
       "Add selected objects to one of the collections the active-object is part of. "
       "Optionally add to \"All Collections\" to ensure selected objects are included in "
       "the same collections as the active object";
   ot->idname = "COLLECTION_OT_objects_add_active";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = objects_add_active_exec;
   ot->invoke = WM_menu_invoke;
   ot->poll = ED_operator_objectmode;
@@ -218,7 +219,7 @@ void COLLECTION_OT_objects_add_active(wmOperatorType *ot)
   ot->prop = prop;
 }
 
-static int objects_remove_active_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus objects_remove_active_exec(bContext *C, wmOperator *op)
 {
   Main *bmain = CTX_data_main(C);
   Scene *scene = CTX_data_scene(C);
@@ -277,7 +278,7 @@ void COLLECTION_OT_objects_remove_active(wmOperatorType *ot)
   ot->description = "Remove the object from an object collection that contains the active object";
   ot->idname = "COLLECTION_OT_objects_remove_active";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = objects_remove_active_exec;
   ot->invoke = WM_menu_invoke;
   ot->poll = ED_operator_objectmode;
@@ -297,7 +298,7 @@ void COLLECTION_OT_objects_remove_active(wmOperatorType *ot)
   ot->prop = prop;
 }
 
-static int collection_objects_remove_all_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus collection_objects_remove_all_exec(bContext *C, wmOperator * /*op*/)
 {
   Main *bmain = CTX_data_main(C);
   Scene *scene = CTX_data_scene(C);
@@ -320,7 +321,7 @@ void COLLECTION_OT_objects_remove_all(wmOperatorType *ot)
   ot->description = "Remove selected objects from all collections";
   ot->idname = "COLLECTION_OT_objects_remove_all";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = collection_objects_remove_all_exec;
   ot->poll = ED_operator_objectmode;
 
@@ -328,7 +329,7 @@ void COLLECTION_OT_objects_remove_all(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 }
 
-static int collection_objects_remove_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus collection_objects_remove_exec(bContext *C, wmOperator *op)
 {
   Object *ob = context_object(C);
   Main *bmain = CTX_data_main(C);
@@ -384,7 +385,7 @@ void COLLECTION_OT_objects_remove(wmOperatorType *ot)
   ot->description = "Remove selected objects from a collection";
   ot->idname = "COLLECTION_OT_objects_remove";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = collection_objects_remove_exec;
   ot->invoke = WM_menu_invoke;
   ot->poll = ED_operator_objectmode;
@@ -404,7 +405,7 @@ void COLLECTION_OT_objects_remove(wmOperatorType *ot)
   ot->prop = prop;
 }
 
-static int collection_create_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus collection_create_exec(bContext *C, wmOperator *op)
 {
   Main *bmain = CTX_data_main(C);
   char name[MAX_ID_NAME - 2]; /* id name */
@@ -438,7 +439,7 @@ void COLLECTION_OT_create(wmOperatorType *ot)
   ot->description = "Create an object collection from selected objects";
   ot->idname = "COLLECTION_OT_create";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = collection_create_exec;
   ot->poll = ED_operator_objectmode;
 
@@ -473,11 +474,10 @@ static bool collection_export_all_poll(bContext *C)
   return CTX_data_view_layer(C) != nullptr;
 }
 
-static int collection_exporter_add_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus collection_exporter_add_exec(bContext *C, wmOperator *op)
 {
   using namespace blender;
   Collection *collection = CTX_data_collection(C);
-  ListBase *exporters = &collection->exporters;
 
   char name[MAX_ID_NAME - 2]; /* id name */
   RNA_string_get(op->ptr, "name", name);
@@ -494,19 +494,7 @@ static int collection_exporter_add_exec(bContext *C, wmOperator *op)
     return OPERATOR_CANCELLED;
   }
 
-  /* Add a new #CollectionExport item to our handler list and fill it with #FileHandlerType
-   * information. Also load in the operator's properties now as well. */
-  CollectionExport *data = MEM_cnew<CollectionExport>("CollectionExport");
-  STRNCPY(data->fh_idname, fh->idname);
-
-  BKE_collection_exporter_name_set(exporters, data, fh->label);
-
-  IDPropertyTemplate val{};
-  data->export_properties = IDP_New(IDP_GROUP, &val, "export_properties");
-  data->flag |= IO_HANDLER_PANEL_OPEN;
-
-  BLI_addtail(exporters, data);
-  collection->active_exporter_index = BLI_listbase_count(exporters) - 1;
+  BKE_collection_exporter_add(collection, fh->idname, fh->label);
 
   BKE_view_layer_need_resync_tag(CTX_data_view_layer(C));
   DEG_id_tag_update(&collection->id, ID_RECALC_SYNC_TO_EVAL);
@@ -521,10 +509,10 @@ static void COLLECTION_OT_exporter_add(wmOperatorType *ot)
 {
   /* identifiers */
   ot->name = "Add Exporter";
-  ot->description = "Add Exporter";
+  ot->description = "Add exporter to the exporter list";
   ot->idname = "COLLECTION_OT_exporter_add";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = collection_exporter_add_exec;
   ot->poll = collection_exporter_poll;
 
@@ -534,7 +522,7 @@ static void COLLECTION_OT_exporter_add(wmOperatorType *ot)
   RNA_def_string(ot->srna, "name", nullptr, MAX_ID_NAME - 2, "Name", "FileHandler idname");
 }
 
-static int collection_exporter_remove_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus collection_exporter_remove_exec(bContext *C, wmOperator *op)
 {
   Collection *collection = CTX_data_collection(C);
   ListBase *exporters = &collection->exporters;
@@ -545,14 +533,7 @@ static int collection_exporter_remove_exec(bContext *C, wmOperator *op)
     return OPERATOR_CANCELLED;
   }
 
-  BLI_remlink(exporters, data);
-  BKE_collection_exporter_free_data(data);
-
-  MEM_freeN(data);
-
-  const int count = BLI_listbase_count(exporters);
-  const int new_index = count == 0 ? 0 : std::min(collection->active_exporter_index, count - 1);
-  collection->active_exporter_index = new_index;
+  BKE_collection_exporter_remove(collection, data);
 
   BKE_view_layer_need_resync_tag(CTX_data_view_layer(C));
   DEG_id_tag_update(&collection->id, ID_RECALC_SYNC_TO_EVAL);
@@ -563,9 +544,9 @@ static int collection_exporter_remove_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-static int collection_exporter_remove_invoke(bContext *C,
-                                             wmOperator *op,
-                                             const wmEvent * /*event*/)
+static wmOperatorStatus collection_exporter_remove_invoke(bContext *C,
+                                                          wmOperator *op,
+                                                          const wmEvent * /*event*/)
 {
   return WM_operator_confirm_ex(
       C, op, IFACE_("Remove exporter?"), nullptr, IFACE_("Delete"), ALERT_ICON_NONE, false);
@@ -575,10 +556,10 @@ static void COLLECTION_OT_exporter_remove(wmOperatorType *ot)
 {
   /* identifiers */
   ot->name = "Remove Exporter";
-  ot->description = "Remove Exporter";
+  ot->description = "Remove exporter from the exporter list";
   ot->idname = "COLLECTION_OT_exporter_remove";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->invoke = collection_exporter_remove_invoke;
   ot->exec = collection_exporter_remove_exec;
   ot->poll = collection_exporter_remove_poll;
@@ -589,11 +570,57 @@ static void COLLECTION_OT_exporter_remove(wmOperatorType *ot)
   RNA_def_int(ot->srna, "index", 0, 0, INT_MAX, "Index", "Exporter index", 0, INT_MAX);
 }
 
-static int collection_exporter_export(bContext *C,
-                                      wmOperator *op,
-                                      CollectionExport *data,
-                                      Collection *collection,
-                                      const bool report_success)
+static wmOperatorStatus collection_exporter_move_exec(bContext *C, wmOperator *op)
+{
+  using namespace blender;
+  Collection *collection = CTX_data_collection(C);
+  const int dir = RNA_enum_get(op->ptr, "direction");
+  const int from = collection->active_exporter_index;
+
+  /* Move Up/down to index. */
+  const int to = from + dir;
+
+  if (!BKE_collection_exporter_move(collection, from, to)) {
+    return OPERATOR_CANCELLED;
+  }
+
+  collection->active_exporter_index = to;
+  return OPERATOR_FINISHED;
+}
+
+static void COLLECTION_OT_exporter_move(wmOperatorType *ot)
+{
+  static const EnumPropertyItem exporter_move[] = {
+      {-1, "UP", 0, "Up", ""},
+      {1, "DOWN", 0, "Down", ""},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  /* identifiers */
+  ot->name = "Move Exporter";
+  ot->description = "Move exporter up or down in the exporter list";
+  ot->idname = "COLLECTION_OT_exporter_move";
+
+  /* API callbacks. */
+  ot->exec = collection_exporter_move_exec;
+  ot->poll = collection_exporter_poll;
+
+  /* flags */
+  ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
+
+  RNA_def_enum(ot->srna,
+               "direction",
+               exporter_move,
+               0,
+               "Direction",
+               "Direction to move the active exporter");
+}
+
+static wmOperatorStatus collection_exporter_export(bContext *C,
+                                                   wmOperator *op,
+                                                   CollectionExport *data,
+                                                   Collection *collection,
+                                                   const bool report_success)
 {
   using namespace blender;
   bke::FileHandlerType *fh = bke::file_handler_find(data->fh_idname);
@@ -643,7 +670,8 @@ static int collection_exporter_export(bContext *C,
 
   RNA_string_set(&properties, "filepath", filepath);
   RNA_string_set(&properties, "collection", collection_name);
-  int op_result = WM_operator_name_call_ptr(C, ot, WM_OP_EXEC_DEFAULT, &properties, nullptr);
+  wmOperatorStatus op_result = WM_operator_name_call_ptr(
+      C, ot, wm::OpCallContext::ExecDefault, &properties, nullptr);
 
   /* Free the "last used" properties that were just set from the collection export and restore the
    * original "last used" properties. */
@@ -661,7 +689,7 @@ static int collection_exporter_export(bContext *C,
   return op_result;
 }
 
-static int collection_exporter_export_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus collection_exporter_export_exec(bContext *C, wmOperator *op)
 {
   Collection *collection = CTX_data_collection(C);
   ListBase *exporters = &collection->exporters;
@@ -682,7 +710,7 @@ static void COLLECTION_OT_exporter_export(wmOperatorType *ot)
   ot->description = "Invoke the export operation";
   ot->idname = "COLLECTION_OT_exporter_export";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = collection_exporter_export_exec;
   ot->poll = collection_exporter_poll;
 
@@ -697,10 +725,10 @@ struct CollectionExportStats {
   int collections_num = 0;
 };
 
-static int collection_export(bContext *C,
-                             wmOperator *op,
-                             Collection *collection,
-                             CollectionExportStats &stats)
+static wmOperatorStatus collection_export(bContext *C,
+                                          wmOperator *op,
+                                          Collection *collection,
+                                          CollectionExportStats &stats)
 {
   ListBase *exporters = &collection->exporters;
   int files_num = 0;
@@ -720,11 +748,11 @@ static int collection_export(bContext *C,
   return OPERATOR_FINISHED;
 }
 
-static int collection_io_export_all_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus collection_io_export_all_exec(bContext *C, wmOperator *op)
 {
   Collection *collection = CTX_data_collection(C);
   CollectionExportStats stats;
-  int result = collection_export(C, op, collection, stats);
+  wmOperatorStatus result = collection_export(C, op, collection, stats);
 
   /* Only report if nothing was cancelled along the way. We don't want this UI report to happen
    * over-top any reports from the actual failures. */
@@ -746,7 +774,7 @@ static void COLLECTION_OT_export_all(wmOperatorType *ot)
   ot->description = "Invoke all configured exporters on this collection";
   ot->idname = "COLLECTION_OT_export_all";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = collection_io_export_all_exec;
   ot->poll = collection_exporter_poll;
 
@@ -754,10 +782,10 @@ static void COLLECTION_OT_export_all(wmOperatorType *ot)
   ot->flag = 0;
 }
 
-static int collection_export_recursive(bContext *C,
-                                       wmOperator *op,
-                                       LayerCollection *layer_collection,
-                                       CollectionExportStats &stats)
+static wmOperatorStatus collection_export_recursive(bContext *C,
+                                                    wmOperator *op,
+                                                    LayerCollection *layer_collection,
+                                                    CollectionExportStats &stats)
 {
   /* Skip collections which have been Excluded in the View Layer. */
   if (layer_collection->flag & LAYER_COLLECTION_EXCLUDE) {
@@ -781,7 +809,7 @@ static int collection_export_recursive(bContext *C,
   return OPERATOR_FINISHED;
 }
 
-static int wm_collection_export_all_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus wm_collection_export_all_exec(bContext *C, wmOperator *op)
 {
   ViewLayer *view_layer = CTX_data_view_layer(C);
 
@@ -812,7 +840,7 @@ static void WM_OT_collection_export_all(wmOperatorType *ot)
   ot->description = "Invoke all configured exporters for all collections";
   ot->idname = "WM_OT_collection_export_all";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = wm_collection_export_all_exec;
   ot->poll = collection_export_all_poll;
 
@@ -829,27 +857,28 @@ static void collection_exporter_menu_draw(const bContext * /*C*/, Menu *menu)
   bool at_least_one = false;
   for (const auto &fh : bke::file_handlers()) {
     if (WM_operatortype_find(fh->export_operator, true)) {
-      uiItemStringO(
-          layout, fh->label, ICON_NONE, "COLLECTION_OT_exporter_add", "name", fh->idname);
+      PointerRNA op_ptr = layout->op("COLLECTION_OT_exporter_add", fh->label, ICON_NONE);
+      RNA_string_set(&op_ptr, "name", fh->idname);
       at_least_one = true;
     }
   }
 
   if (!at_least_one) {
-    uiItemL(layout, IFACE_("No file handlers available"), ICON_NONE);
+    layout->label(IFACE_("No file handlers available"), ICON_NONE);
   }
 }
 
 void collection_exporter_register()
 {
-  MenuType *mt = MEM_cnew<MenuType>(__func__);
-  STRNCPY(mt->idname, "COLLECTION_MT_exporter_add");
-  STRNCPY(mt->label, N_("Add Exporter"));
+  MenuType *mt = MEM_callocN<MenuType>(__func__);
+  STRNCPY_UTF8(mt->idname, "COLLECTION_MT_exporter_add");
+  STRNCPY_UTF8(mt->label, N_("Add Exporter"));
   mt->draw = collection_exporter_menu_draw;
 
   WM_menutype_add(mt);
   WM_operatortype_append(COLLECTION_OT_exporter_add);
   WM_operatortype_append(COLLECTION_OT_exporter_remove);
+  WM_operatortype_append(COLLECTION_OT_exporter_move);
   WM_operatortype_append(COLLECTION_OT_exporter_export);
   WM_operatortype_append(COLLECTION_OT_export_all);
   WM_operatortype_append(WM_OT_collection_export_all);
@@ -857,7 +886,7 @@ void collection_exporter_register()
 
 /****************** properties window operators *********************/
 
-static int collection_add_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus collection_add_exec(bContext *C, wmOperator * /*op*/)
 {
   Object *ob = context_object(C);
   Main *bmain = CTX_data_main(C);
@@ -885,7 +914,7 @@ void OBJECT_OT_collection_add(wmOperatorType *ot)
   ot->idname = "OBJECT_OT_collection_add";
   ot->description = "Add an object to a new collection";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = collection_add_exec;
   ot->poll = ED_operator_objectmode;
 
@@ -893,7 +922,7 @@ void OBJECT_OT_collection_add(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 }
 
-static int collection_link_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus collection_link_exec(bContext *C, wmOperator *op)
 {
   Main *bmain = CTX_data_main(C);
   Object *ob = context_object(C);
@@ -955,7 +984,7 @@ void OBJECT_OT_collection_link(wmOperatorType *ot)
   ot->idname = "OBJECT_OT_collection_link";
   ot->description = "Add an object to an existing collection";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = collection_link_exec;
   ot->invoke = WM_enum_search_invoke;
   ot->poll = ED_operator_objectmode;
@@ -970,7 +999,7 @@ void OBJECT_OT_collection_link(wmOperatorType *ot)
   ot->prop = prop;
 }
 
-static int collection_remove_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus collection_remove_exec(bContext *C, wmOperator *op)
 {
   Main *bmain = CTX_data_main(C);
   Object *ob = context_object(C);
@@ -1004,7 +1033,7 @@ void OBJECT_OT_collection_remove(wmOperatorType *ot)
   ot->idname = "OBJECT_OT_collection_remove";
   ot->description = "Remove the active object from this collection";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = collection_remove_exec;
   ot->poll = ED_operator_objectmode;
 
@@ -1012,7 +1041,7 @@ void OBJECT_OT_collection_remove(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 }
 
-static int collection_unlink_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus collection_unlink_exec(bContext *C, wmOperator *op)
 {
   Main *bmain = CTX_data_main(C);
   Collection *collection = CTX_data_collection(C);
@@ -1070,7 +1099,7 @@ void OBJECT_OT_collection_unlink(wmOperatorType *ot)
   ot->idname = "OBJECT_OT_collection_unlink";
   ot->description = "Unlink the collection from all objects";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = collection_unlink_exec;
   ot->poll = collection_unlink_poll;
 
@@ -1079,7 +1108,7 @@ void OBJECT_OT_collection_unlink(wmOperatorType *ot)
 }
 
 /* Select objects in the same collection as the active */
-static int select_grouped_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus select_grouped_exec(bContext *C, wmOperator * /*op*/)
 {
   Scene *scene = CTX_data_scene(C);
   Collection *collection = static_cast<Collection *>(
@@ -1111,7 +1140,7 @@ void OBJECT_OT_collection_objects_select(wmOperatorType *ot)
   ot->idname = "OBJECT_OT_collection_objects_select";
   ot->description = "Select all objects in collection";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = select_grouped_exec;
   ot->poll = ED_operator_objectmode;
 

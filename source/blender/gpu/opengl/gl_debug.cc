@@ -70,29 +70,31 @@ static void APIENTRY debug_callback(GLenum /*source*/,
   if (TRIM_NVIDIA_BUFFER_INFO && STRPREFIX(message, "Buffer detailed info") &&
       GPU_type_matches(GPU_DEVICE_NVIDIA, GPU_OS_ANY, GPU_DRIVER_OFFICIAL))
   {
-    /* Suppress buffer infos flooding the output. */
+    /* Suppress buffer information flooding the output. */
     return;
   }
 
   if (TRIM_SHADER_STATS_INFO && STRPREFIX(message, "Shader Stats")) {
-    /* Suppress buffer infos flooding the output. */
+    /* Suppress buffer information flooding the output. */
     return;
   }
 
   const bool use_color = CLG_color_support_get(&LOG);
 
   if (ELEM(severity, GL_DEBUG_SEVERITY_LOW, GL_DEBUG_SEVERITY_NOTIFICATION)) {
-    if ((LOG.type->flag & CLG_FLAG_USE) && (LOG.type->level >= CLG_SEVERITY_INFO)) {
+    if (CLOG_CHECK(&LOG, CLG_LEVEL_INFO)) {
       const char *format = use_color ? "\033[2m%s\033[0m" : "%s";
-      CLG_logf(LOG.type, CLG_SEVERITY_INFO, "Notification", "", format, message);
+      CLG_logf(LOG.type, CLG_LEVEL_INFO, "Notification", "", format, message);
     }
   }
   else {
     char debug_groups[512] = "";
     GPU_debug_get_groups_names(sizeof(debug_groups), debug_groups);
-    CLG_Severity clog_severity;
+    CLG_Level clog_level;
 
-    if (GPU_debug_group_match(GPU_DEBUG_SHADER_COMPILATION_GROUP)) {
+    if (GPU_debug_group_match(GPU_DEBUG_SHADER_COMPILATION_GROUP) ||
+        GPU_debug_group_match(GPU_DEBUG_SHADER_SPECIALIZATION_GROUP))
+    {
       /* Do not duplicate shader compilation error/warnings. */
       return;
     }
@@ -101,19 +103,19 @@ static void APIENTRY debug_callback(GLenum /*source*/,
       case GL_DEBUG_TYPE_ERROR:
       case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR:
       case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:
-        clog_severity = CLG_SEVERITY_ERROR;
+        clog_level = CLG_LEVEL_ERROR;
         break;
       case GL_DEBUG_TYPE_PORTABILITY:
       case GL_DEBUG_TYPE_PERFORMANCE:
       case GL_DEBUG_TYPE_OTHER:
       case GL_DEBUG_TYPE_MARKER: /* KHR has this, ARB does not */
       default:
-        clog_severity = CLG_SEVERITY_WARN;
+        clog_level = CLG_LEVEL_WARN;
         break;
     }
 
-    if ((LOG.type->flag & CLG_FLAG_USE) && (LOG.type->level <= clog_severity)) {
-      CLG_logf(LOG.type, clog_severity, debug_groups, "", "%s", message);
+    if (CLOG_CHECK(&LOG, clog_level)) {
+      CLG_logf(LOG.type, clog_level, debug_groups, "", "%s", message);
       if (severity == GL_DEBUG_SEVERITY_HIGH) {
         /* Focus on error message. */
         if (use_color) {
@@ -213,7 +215,7 @@ void check_gl_error(const char *info)
 
 void check_gl_resources(const char *info)
 {
-  if (!(G.debug & G_DEBUG_GPU) || GPU_bgl_get()) {
+  if (!(G.debug & G_DEBUG_GPU)) {
     return;
   }
 
@@ -439,7 +441,7 @@ void GLContext::debug_group_end()
       break;
     }
     if (i == 0) {
-      std::cout << "Profile GPU error: Extra GPU_debug_group_end() call.\n";
+      CLOG_ERROR(&LOG, "Profile GPU error: Extra GPU_debug_group_end() call.");
     }
   }
 }
@@ -459,7 +461,7 @@ void GLContext::process_frame_timings()
     for (int i = queries.size() - 1; i >= 0; i--) {
       if (!queries[i].finished) {
         frame_is_valid = false;
-        std::cout << "Profile GPU error: Missing GPU_debug_group_end() call\n";
+        CLOG_ERROR(&LOG, "Profile GPU error: Missing GPU_debug_group_end() call");
       }
       else {
         glGetQueryObjectiv(queries.last().handle_end, GL_QUERY_RESULT_AVAILABLE, &frame_is_ready);

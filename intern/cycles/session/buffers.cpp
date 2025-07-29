@@ -5,7 +5,10 @@
 #include <cstdlib>
 
 #include "device/device.h"
+
 #include "session/buffers.h"
+
+#include "util/log.h"
 
 CCL_NAMESPACE_BEGIN
 
@@ -69,7 +72,7 @@ PassInfo BufferPass::get_info() const
 }
 
 /* --------------------------------------------------------------------
- * Buffer Params.
+ * Buffer Parameters.
  */
 
 NODE_DEFINE(BufferParams)

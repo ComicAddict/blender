@@ -25,7 +25,7 @@ using nodes::SocketDeclaration;
 
 static bool is_field_socket_type(const bNodeSocket &socket)
 {
-  return nodes::socket_type_supports_fields((eNodeSocketDatatype)socket.typeinfo->type);
+  return nodes::socket_type_supports_fields(socket.typeinfo->type);
 }
 
 static bool all_dangling_reroutes(const Span<const bNodeSocket *> sockets)
@@ -514,18 +514,17 @@ static void determine_group_input_states(
     for (const int index : tree.interface_inputs().index_range()) {
       const bNodeTreeInterfaceSocket *group_input = tree.interface_inputs()[index];
       const bNodeSocketType *typeinfo = group_input->socket_typeinfo();
-      const eNodeSocketDatatype type = typeinfo ? eNodeSocketDatatype(typeinfo->type) :
-                                                  SOCK_CUSTOM;
+      const eNodeSocketDatatype type = typeinfo ? typeinfo->type : SOCK_CUSTOM;
       if (!nodes::socket_type_supports_fields(type)) {
         new_inferencing_interface.inputs[index] = InputSocketFieldType::None;
       }
-      else if (group_input->default_input != NODE_INPUT_DEFAULT_VALUE) {
+      else if (group_input->default_input != NODE_DEFAULT_INPUT_VALUE) {
         new_inferencing_interface.inputs[index] = InputSocketFieldType::Implicit;
       }
       else if (is_layer_selection_field(*group_input)) {
         new_inferencing_interface.inputs[index] = InputSocketFieldType::Implicit;
       }
-      else if (group_input->flag & NODE_INTERFACE_SOCKET_SINGLE_VALUE_ONLY) {
+      else if (group_input->structure_type == NODE_INTERFACE_SOCKET_STRUCTURE_TYPE_SINGLE) {
         new_inferencing_interface.inputs[index] = InputSocketFieldType::None;
       }
     }

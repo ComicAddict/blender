@@ -5,7 +5,7 @@
 /** \file
  * \ingroup pythonintern
  *
- * This file defines the 'BPY_driver_exec' to execute python driver expressions,
+ * This file defines the #BPY_driver_exec to execute python driver expressions,
  * called by the animation system, there are also some utility functions
  * to deal with the name-space used for driver execution.
  */
@@ -15,7 +15,7 @@
 #include "DNA_anim_types.h"
 
 #include "BLI_listbase.h"
-#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 
 #include "BKE_animsys.h"
 #include "BKE_fcurve_driver.h"
@@ -301,7 +301,6 @@ static void pydriver_error(ChannelDriver *driver, const PathResolvedRNA *anim_rn
 
   // BPy_errors_to_report(nullptr); /* TODO: reports. */
   PyErr_Print();
-  PyErr_Clear();
 }
 
 #ifdef USE_BYTECODE_WHITELIST
@@ -326,7 +325,9 @@ static bool is_opcode_secure(const int opcode)
     OK_OP(UNARY_NEGATIVE)
     OK_OP(UNARY_NOT)
     OK_OP(UNARY_INVERT)
-    OK_OP(BINARY_SUBSCR)
+#  if PY_VERSION_HEX < 0x030e0000
+    OK_OP(BINARY_SUBSCR) /* Replaced with existing `BINARY_OP`. */
+#  endif
     OK_OP(GET_LEN)
 #  if PY_VERSION_HEX < 0x030c0000
     OK_OP(LIST_TO_TUPLE)
@@ -462,7 +463,6 @@ bool BPY_driver_secure_bytecode_test_ex(PyObject *expr_code,
     co_code = PyCode_GetCode(py_code);
     if (UNLIKELY(!co_code)) {
       PyErr_Print();
-      PyErr_Clear();
       return false;
     }
 
@@ -556,7 +556,7 @@ float BPY_driver_exec(PathResolvedRNA *anim_rna,
   if (!(G.f & G_FLAG_SCRIPT_AUTOEXEC)) {
     if (!(G.f & G_FLAG_SCRIPT_AUTOEXEC_FAIL_QUIET)) {
       G.f |= G_FLAG_SCRIPT_AUTOEXEC_FAIL;
-      SNPRINTF(G.autoexec_fail, "Driver '%s'", expr);
+      SNPRINTF_UTF8(G.autoexec_fail, "Driver '%s'", expr);
 
       printf("skipping driver '%s', automatic scripts are disabled\n", expr);
     }
@@ -700,7 +700,6 @@ float BPY_driver_exec(PathResolvedRNA *anim_rna,
       fprintf(stderr, "\t%s: couldn't add variable '%s' to namespace\n", __func__, dvar->name);
       // BPy_errors_to_report(nullptr); /* TODO: reports. */
       PyErr_Print();
-      PyErr_Clear();
     }
     Py_DECREF(driver_arg);
   }
@@ -719,7 +718,7 @@ float BPY_driver_exec(PathResolvedRNA *anim_rna,
       {
         if (!(G.f & G_FLAG_SCRIPT_AUTOEXEC_FAIL_QUIET)) {
           G.f |= G_FLAG_SCRIPT_AUTOEXEC_FAIL;
-          SNPRINTF(G.autoexec_fail, "Driver '%s'", expr);
+          SNPRINTF_UTF8(G.autoexec_fail, "Driver '%s'", expr);
         }
 
         Py_DECREF(expr_code);

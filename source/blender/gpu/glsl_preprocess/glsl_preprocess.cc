@@ -6,6 +6,7 @@
  * \ingroup glsl_preprocess
  */
 
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <regex>
@@ -15,13 +16,15 @@
 
 int main(int argc, char **argv)
 {
-  if (argc != 3) {
-    std::cerr << "Usage: glsl_preprocess <data_file_from> <data_file_to>" << std::endl;
+  if (argc != 4) {
+    std::cerr << "Usage: glsl_preprocess <data_file_from> <data_file_to> <metadata_file_to>"
+              << std::endl;
     exit(1);
   }
 
   const char *input_file_name = argv[1];
   const char *output_file_name = argv[2];
+  const char *metadata_file_name = argv[3];
 
   /* Open the input file for reading */
   std::ifstream input_file(input_file_name);
@@ -30,10 +33,31 @@ int main(int argc, char **argv)
     exit(1);
   }
 
+  /* We make the required directories here rather than having the build system
+   * do the work for us, as having cmake do it leads to several thousand cmake
+   * instances being launched, leading to significant overhead, see pr #141404
+   * for details. */
+  std::filesystem::path parent_dir = std::filesystem::path(output_file_name).parent_path();
+  std::error_code ec;
+  if (!std::filesystem::create_directories(parent_dir, ec)) {
+    if (ec) {
+      std::cerr << "Unable to create " << parent_dir << " : " << ec.message() << std::endl;
+      exit(1);
+    }
+  }
+
   /* Open the output file for writing */
   std::ofstream output_file(output_file_name, std::ofstream::out | std::ofstream::binary);
   if (!output_file) {
     std::cerr << "Error: Could not open output file " << output_file_name << std::endl;
+    input_file.close();
+    exit(1);
+  }
+
+  /* Open the output file for writing */
+  std::ofstream metadata_file(metadata_file_name, std::ofstream::out | std::ofstream::binary);
+  if (!output_file) {
+    std::cerr << "Error: Could not open output file " << metadata_file_name << std::endl;
     input_file.close();
     exit(1);
   }
@@ -93,13 +117,31 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  blender::gpu::shader::Preprocessor processor;
+  using Preprocessor = blender::gpu::shader::Preprocessor;
+  Preprocessor processor;
 
+  Preprocessor::SourceLanguage language = Preprocessor::language_from_filename(filename);
+
+  if (language == Preprocessor::SourceLanguage::GLSL) {
+    /* All build-time GLSL files should be considered blender-GLSL. */
+    language = Preprocessor::SourceLanguage::BLENDER_GLSL;
+  }
+
+  blender::gpu::shader::metadata::Source metadata;
   output_file << processor.process(
-      buffer.str(), input_file_name, true, is_library, is_glsl, is_glsl, is_shared, report_error);
+      language, buffer.str(), input_file_name, is_library, is_shared, report_error, metadata);
+
+  /* TODO(fclem): Don't use regex for that. */
+  std::string metadata_function_name = "metadata_" +
+                                       std::regex_replace(
+                                           filename, std::regex(R"((?:.*)\/(.*))"), "$1");
+  std::replace(metadata_function_name.begin(), metadata_function_name.end(), '.', '_');
+
+  metadata_file << metadata.serialize(metadata_function_name);
 
   input_file.close();
   output_file.close();
+  metadata_file.close();
 
   return error;
 }

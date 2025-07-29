@@ -7,6 +7,7 @@ set(INC
   ../../ikplugin
   ../../makesrna
   ../../modifiers
+  ../../nodes
   ../../python
   ../../shader_fx
 
@@ -19,10 +20,12 @@ set(INC_SYS
 
 set(SRC
   add_modifier_assets.cc
+  interface_template_shape_key_tree.cc
   object_add.cc
   object_bake.cc
   object_bake_api.cc
   object_bake_simulation.cc
+  object_camera.cc
   object_collection.cc
   object_constraint.cc
   object_data_transfer.cc
@@ -81,7 +84,6 @@ endif()
 
 if(WITH_EXPERIMENTAL_FEATURES)
   add_definitions(-DWITH_SIMULATION_DATABLOCK)
-  add_definitions(-DWITH_POINTCLOUD)
 endif()
 
 blender_add_lib(bf_editor_object "${SRC}" "${INC}" "${INC_SYS}" "${LIB}")

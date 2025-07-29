@@ -16,6 +16,7 @@
 #include "DNA_defaults.h"
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
+#include "DNA_screen_types.h"
 
 #include "DEG_depsgraph_query.hh"
 
@@ -25,7 +26,7 @@
 #include "BKE_lib_query.hh"
 #include "BKE_modifier.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "MOD_grease_pencil_util.hh"
@@ -511,7 +512,7 @@ static float get_factor_from_draw_speed(const bke::CurvesGeometry &curves,
   /* Calculates the maximum time of this frame, which is the time between the beginning of the
    * first stroke and the end of the last stroke. `start_times.last()` gives the starting time of
    * the last stroke related to frame beginning, and `delta_time.last()` gives how long that stroke
-   * lasted.  */
+   * lasted. */
   const float max_time = start_times.last() + delta_times.last();
 
   /* If the time needed for building the frame is shorter than frame length, this gives the
@@ -558,7 +559,7 @@ static float get_build_factor(const GreasePencilBuildTimeMode time_mode,
       return percentage * (1.0f + fade);
     case MOD_GREASE_PENCIL_BUILD_TIMEMODE_DRAWSPEED:
       /* The "drawing speed" is written as an attribute called 'delta_time' (for each point). If
-       * this attribute doesn't exist, we fallback to the "frames" mode. */
+       * this attribute doesn't exist, we fall back to the "frames" mode. */
       if (!curves.attributes().contains("delta_time")) {
         return build_factor_frames;
       }
@@ -592,7 +593,7 @@ static void build_drawing(const GreasePencilBuildModifierData &mmd,
   IndexMask selection = modifier::greasepencil::get_filtered_stroke_mask(
       &ob, curves, mmd.influence, memory);
 
-  /* Remove a count of #prev_strokes.  */
+  /* Remove a count of #prev_strokes. */
   if (mmd.mode == MOD_GREASE_PENCIL_BUILD_MODE_ADDITIVE && previous_drawing != nullptr) {
     const bke::CurvesGeometry &prev_curves = previous_drawing->strokes();
     const int prev_strokes = prev_curves.curves_num();
@@ -748,12 +749,12 @@ static void panel_draw(const bContext *C, Panel *panel)
   const GreasePencilBuildMode mode = GreasePencilBuildMode(RNA_enum_get(ptr, "mode"));
   GreasePencilBuildTimeMode time_mode = GreasePencilBuildTimeMode(RNA_enum_get(ptr, "time_mode"));
 
-  uiLayoutSetPropSep(layout, true);
+  layout->use_property_split_set(true);
 
   /* First: Build mode and build settings. */
-  uiItemR(layout, ptr, "mode", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "mode", UI_ITEM_NONE, std::nullopt, ICON_NONE);
   if (mode == MOD_GREASE_PENCIL_BUILD_MODE_SEQUENTIAL) {
-    uiItemR(layout, ptr, "transition", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    layout->prop(ptr, "transition", UI_ITEM_NONE, std::nullopt, ICON_NONE);
   }
   if (mode == MOD_GREASE_PENCIL_BUILD_MODE_CONCURRENT) {
     /* Concurrent mode doesn't support MOD_GREASE_PENCIL_BUILD_TIMEMODE_DRAWSPEED, so unset it. */
@@ -761,84 +762,74 @@ static void panel_draw(const bContext *C, Panel *panel)
       RNA_enum_set(ptr, "time_mode", MOD_GREASE_PENCIL_BUILD_TIMEMODE_FRAMES);
       time_mode = MOD_GREASE_PENCIL_BUILD_TIMEMODE_FRAMES;
     }
-    uiItemR(layout, ptr, "transition", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    layout->prop(ptr, "transition", UI_ITEM_NONE, std::nullopt, ICON_NONE);
   }
-  uiItemS(layout);
+  layout->separator();
 
   /* Second: Time mode and time settings. */
 
-  uiItemR(layout, ptr, "time_mode", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "time_mode", UI_ITEM_NONE, std::nullopt, ICON_NONE);
   if (mode == MOD_GREASE_PENCIL_BUILD_MODE_CONCURRENT) {
-    uiItemR(layout, ptr, "concurrent_time_alignment", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    layout->prop(ptr, "concurrent_time_alignment", UI_ITEM_NONE, std::nullopt, ICON_NONE);
   }
   switch (time_mode) {
     case MOD_GREASE_PENCIL_BUILD_TIMEMODE_DRAWSPEED:
-      uiItemR(layout, ptr, "speed_factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-      uiItemR(layout, ptr, "speed_maxgap", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      layout->prop(ptr, "speed_factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      layout->prop(ptr, "speed_maxgap", UI_ITEM_NONE, std::nullopt, ICON_NONE);
       break;
     case MOD_GREASE_PENCIL_BUILD_TIMEMODE_FRAMES:
-      uiItemR(layout, ptr, "length", UI_ITEM_NONE, IFACE_("Frames"), ICON_NONE);
+      layout->prop(ptr, "length", UI_ITEM_NONE, IFACE_("Frames"), ICON_NONE);
       if (mode != MOD_GREASE_PENCIL_BUILD_MODE_ADDITIVE) {
-        uiItemR(layout, ptr, "start_delay", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+        layout->prop(ptr, "start_delay", UI_ITEM_NONE, std::nullopt, ICON_NONE);
       }
       break;
     case MOD_GREASE_PENCIL_BUILD_TIMEMODE_PERCENTAGE:
-      uiItemR(layout, ptr, "percentage_factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      layout->prop(ptr, "percentage_factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
       break;
     default:
       break;
   }
-  uiItemS(layout);
-  uiItemR(layout, ptr, "object", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-
-  if (uiLayout *panel = uiLayoutPanelPropWithBoolHeader(C,
-                                                        layout,
-                                                        ptr,
-                                                        "open_frame_range_panel",
-                                                        ptr,
-                                                        "use_restrict_frame_range",
-                                                        IFACE_("Effective Range"))
-                            .body)
-  {
+  layout->separator();
+  layout->prop(ptr, "object", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  PanelLayout restrict_frame_range_layout = layout->panel_prop_with_bool_header(
+      C,
+      ptr,
+      "open_frame_range_panel",
+      ptr,
+      "use_restrict_frame_range",
+      IFACE_("Effective Range"));
+  if (uiLayout *panel = restrict_frame_range_layout.body) {
     const bool active = RNA_boolean_get(ptr, "use_restrict_frame_range");
-    uiLayout *col = uiLayoutColumn(panel, false);
-    uiLayoutSetActive(col, active);
-    uiItemR(col, ptr, "frame_start", UI_ITEM_NONE, IFACE_("Start"), ICON_NONE);
-    uiItemR(col, ptr, "frame_end", UI_ITEM_NONE, IFACE_("End"), ICON_NONE);
+    uiLayout *col = &panel->column(false);
+    col->active_set(active);
+    col->prop(ptr, "frame_start", UI_ITEM_NONE, IFACE_("Start"), ICON_NONE);
+    col->prop(ptr, "frame_end", UI_ITEM_NONE, IFACE_("End"), ICON_NONE);
   }
-
-  if (uiLayout *panel =
-          uiLayoutPanelPropWithBoolHeader(
-              C, layout, ptr, "open_fading_panel", ptr, "use_fading", IFACE_("Fading"))
-              .body)
-  {
+  PanelLayout fading_layout = layout->panel_prop_with_bool_header(
+      C, ptr, "open_fading_panel", ptr, "use_fading", IFACE_("Fading"));
+  if (uiLayout *panel = fading_layout.body) {
     const bool active = RNA_boolean_get(ptr, "use_fading");
-    uiLayout *col = uiLayoutColumn(panel, false);
-    uiLayoutSetActive(col, active);
+    uiLayout *col = &panel->column(false);
+    col->active_set(active);
 
-    uiItemR(col, ptr, "fade_factor", UI_ITEM_NONE, IFACE_("Factor"), ICON_NONE);
+    col->prop(ptr, "fade_factor", UI_ITEM_NONE, IFACE_("Factor"), ICON_NONE);
 
-    uiLayout *subcol = uiLayoutColumn(col, true);
-    uiItemR(subcol, ptr, "fade_thickness_strength", UI_ITEM_NONE, IFACE_("Thickness"), ICON_NONE);
-    uiItemR(subcol, ptr, "fade_opacity_strength", UI_ITEM_NONE, IFACE_("Opacity"), ICON_NONE);
+    uiLayout *subcol = &col->column(true);
+    subcol->prop(ptr, "fade_thickness_strength", UI_ITEM_NONE, IFACE_("Thickness"), ICON_NONE);
+    subcol->prop(ptr, "fade_opacity_strength", UI_ITEM_NONE, IFACE_("Opacity"), ICON_NONE);
 
-    uiItemPointerR(col,
-                   ptr,
-                   "target_vertex_group",
-                   &ob_ptr,
-                   "vertex_groups",
-                   IFACE_("Weight Output"),
-                   ICON_NONE);
+    col->prop_search(
+        ptr, "target_vertex_group", &ob_ptr, "vertex_groups", IFACE_("Weight Output"), ICON_NONE);
   }
 
-  if (uiLayout *influence_panel = uiLayoutPanelProp(
-          C, layout, ptr, "open_influence_panel", IFACE_("Influence")))
+  if (uiLayout *influence_panel = layout->panel_prop(
+          C, ptr, "open_influence_panel", IFACE_("Influence")))
   {
     modifier::greasepencil::draw_layer_filter_settings(C, influence_panel, ptr);
     modifier::greasepencil::draw_material_filter_settings(C, influence_panel, ptr);
   }
 
-  modifier_panel_end(layout, ptr);
+  modifier_error_message_draw(layout, ptr);
 }
 
 static void panel_register(ARegionType *region_type)

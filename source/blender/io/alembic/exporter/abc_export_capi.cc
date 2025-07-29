@@ -56,7 +56,7 @@ static bool build_depsgraph(ExportJobData *job)
     Collection *collection = reinterpret_cast<Collection *>(
         BKE_libblock_find_name(job->bmain, ID_GR, job->params.collection));
     if (!collection) {
-      WM_reportf(
+      WM_global_reportf(
           RPT_ERROR, "Alembic Export: Unable to find collection '%s'", job->params.collection);
       return false;
     }
@@ -121,7 +121,7 @@ static void export_startjob(void *customdata, wmJobWorkerStatus *worker_status)
     /* The exception message can be very cryptic (just "iostream error" on Linux, for example),
      * so better not to include it in the report. */
     CLOG_ERROR(&LOG, "%s: %s", error_message.c_str(), ex.what());
-    WM_report(RPT_ERROR, error_message.c_str());
+    WM_global_report(RPT_ERROR, error_message.c_str());
     data->export_ok = false;
     return;
   }
@@ -129,7 +129,7 @@ static void export_startjob(void *customdata, wmJobWorkerStatus *worker_status)
     /* Unknown exception class, so we cannot include its message. */
     std::stringstream error_message_stream;
     error_message_stream << "Unknown error writing to " << data->filepath;
-    WM_report(RPT_ERROR, error_message_stream.str().c_str());
+    WM_global_report(RPT_ERROR, error_message_stream.str().c_str());
     data->export_ok = false;
     return;
   }
@@ -137,7 +137,7 @@ static void export_startjob(void *customdata, wmJobWorkerStatus *worker_status)
   ABCHierarchyIterator iter(data->bmain, data->depsgraph, abc_archive.get(), data->params);
 
   if (export_animation) {
-    CLOG_INFO(&LOG, 2, "Exporting animation");
+    CLOG_STR_DEBUG(&LOG, "Exporting animation");
 
     /* Writing the animated frames is not 100% of the work, but it's our best guess. */
     const float progress_per_frame = 1.0f / std::max(size_t(1), abc_archive->total_frame_count());
@@ -156,7 +156,7 @@ static void export_startjob(void *customdata, wmJobWorkerStatus *worker_status)
       scene->r.subframe = float(frame - scene->r.cfra);
       BKE_scene_graph_update_for_newframe(data->depsgraph);
 
-      CLOG_INFO(&LOG, 2, "Exporting frame %.2f", frame);
+      CLOG_DEBUG(&LOG, "Exporting frame %.2f", frame);
       ExportSubset export_subset = abc_archive->export_subset_for_frame(frame);
       iter.set_export_subset(export_subset);
       iter.iterate_and_write();

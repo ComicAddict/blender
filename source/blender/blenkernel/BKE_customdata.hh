@@ -13,12 +13,12 @@
 
 #include "BLI_implicit_sharing.h"
 #include "BLI_memory_counter_fwd.hh"
-#include "BLI_set.hh"
 #include "BLI_span.hh"
 #include "BLI_string_ref.hh"
 #include "BLI_sys_types.h"
 #include "BLI_vector.hh"
 
+#include "BKE_attribute_storage.hh"
 #include "BKE_volume_enums.hh"
 
 #include "DNA_customdata_types.h"
@@ -32,6 +32,10 @@ struct CustomDataTransferLayerMap;
 struct ID;
 struct MeshPairRemap;
 
+namespace blender::bke {
+enum class AttrDomain : int8_t;
+}
+
 /* These names are used as prefixes for UV layer names to find the associated boolean
  * layers. They should never be longer than 2 chars, as #MAX_CUSTOMDATA_LAYER_NAME
  * has 4 extra bytes above what can be used for the base layer name, and these
@@ -43,7 +47,7 @@ struct MeshPairRemap;
 #define UV_PINNED_NAME "pn"
 
 /**
- * UV map related customdata offsets into BMesh attribute blocks. See #BM_uv_map_get_offsets.
+ * UV map related customdata offsets into BMesh attribute blocks. See #BM_uv_map_offsets_get.
  * Defined in #BKE_customdata.hh to avoid including bmesh.hh in many unrelated areas.
  * An offset of -1 means that the corresponding layer does not exist.
  */
@@ -84,7 +88,10 @@ enum eCDAllocType {
   CD_CONSTRUCT = 5,
 };
 
-#define CD_TYPE_AS_MASK(_type) (eCustomDataMask)((eCustomDataMask)1 << (eCustomDataMask)(_type))
+inline eCustomDataMask CD_TYPE_AS_MASK(eCustomDataType type)
+{
+  return eCustomDataMask(1) << eCustomDataMask(type);
+}
 
 void customData_mask_layers__print(const CustomData_MeshMasks *mask);
 
@@ -590,12 +597,6 @@ void CustomData_bmesh_alloc_block(CustomData *data, void **block);
  */
 void CustomData_bmesh_free_block_data(CustomData *data, void *block);
 
-/**
- * Query info over types.
- */
-void CustomData_file_write_info(eCustomDataType type,
-                                const char **r_struct_name,
-                                int *r_struct_num);
 int CustomData_sizeof(eCustomDataType type);
 
 /**
@@ -676,21 +677,6 @@ enum {
   ME_LOOP = 1 << 3,
 };
 
-/**
- * How to filter out some elements (to leave untouched).
- * Note those options are highly dependent on type of transferred data! */
-enum {
-  CDT_MIX_NOMIX = -1, /* Special case, only used because we abuse 'copy' CD callback. */
-  CDT_MIX_TRANSFER = 0,
-  CDT_MIX_REPLACE_ABOVE_THRESHOLD = 1,
-  CDT_MIX_REPLACE_BELOW_THRESHOLD = 2,
-  CDT_MIX_MIX = 16,
-  CDT_MIX_ADD = 17,
-  CDT_MIX_SUB = 18,
-  CDT_MIX_MUL = 19,
-  /* Etc. */
-};
-
 struct CustomDataTransferLayerMap {
   CustomDataTransferLayerMap *next, *prev;
 
@@ -737,14 +723,18 @@ void CustomData_data_transfer(const MeshPairRemap *me_remap,
  *
  * \param data: The custom-data to tweak for .blend file writing (modified in place).
  * \param layers_to_write: A reduced set of layers to be written to file.
+ * \param write_data: #AttributeStorage data to write, to support the option for writing the new
+ * format even when it isn't used at runtime.
  *
  * \warning This function invalidates the custom data struct by changing the layer counts and the
  * #layers pointer, and by invalidating the type map. It expects to work on a shallow copy of
  * the struct.
  */
 void CustomData_blend_write_prepare(CustomData &data,
+                                    blender::bke::AttrDomain domain,
+                                    int domain_size,
                                     blender::Vector<CustomDataLayer, 16> &layers_to_write,
-                                    const blender::Set<std::string> &skip_names = {});
+                                    blender::bke::AttributeStorage::BlendWriteData &write_data);
 
 /**
  * \param layers_to_write: Layers created by #CustomData_blend_write_prepare.

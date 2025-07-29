@@ -227,10 +227,10 @@ class MTLTexture : public Texture {
    *
    * Texture views can also point to external textures, rather than the owned
    * texture if MTL_TEXTURE_MODE_TEXTURE_VIEW is used.
-   * If this mode is used, source_texture points to a GPUTexture from which
+   * If this mode is used, source_texture points to a gpu::Texture from which
    * we pull their texture handle as a root.
    */
-  const GPUTexture *source_texture_ = nullptr;
+  const gpu::Texture *source_texture_ = nullptr;
 
   enum TextureViewDirtyState {
     TEXTURE_VIEW_NOT_DIRTY = 0,
@@ -267,7 +267,7 @@ class MTLTexture : public Texture {
  public:
   MTLTexture(const char *name);
   MTLTexture(const char *name,
-             eGPUTextureFormat format,
+             TextureFormat format,
              eGPUTextureType type,
              id<MTLTexture> metal_texture);
   ~MTLTexture() override;
@@ -322,7 +322,7 @@ class MTLTexture : public Texture {
  protected:
   bool init_internal() override;
   bool init_internal(VertBuf *vbo) override;
-  bool init_internal(GPUTexture *src,
+  bool init_internal(gpu::Texture *src,
                      int mip_offset,
                      int layer_offset,
                      bool use_stencil) override; /* Texture View */
@@ -409,7 +409,7 @@ class MTLTexture : public Texture {
    * - IF datatype IS an exact match e.g. :
    *    - Per-component size matches (e.g. GPU_DATA_UBYTE)
    *                                OR GPU_DATA_10_11_11_REV && GPU_R11G11B10 (equiv)
-   *                                OR D24S8 and GPU_DATA_UINT_24_8
+   *                                OR D24S8 and GPU_DATA_UINT_24_8_DEPRECATED
    *    We can use BLIT ENCODER.
    *
    * OTHERWISE TRIGGER COMPUTE:
@@ -491,7 +491,7 @@ class MTLPixelBuffer : public PixelBuffer {
 
   void *map() override;
   void unmap() override;
-  int64_t get_native_handle() override;
+  GPUPixelBufferNativeHandle get_native_handle() override;
   size_t get_size() override;
 
   id<MTLBuffer> get_metal_buffer();
@@ -500,7 +500,7 @@ class MTLPixelBuffer : public PixelBuffer {
 };
 
 /* Utility */
-MTLPixelFormat gpu_texture_format_to_metal(eGPUTextureFormat tex_format);
+MTLPixelFormat gpu_texture_format_to_metal(TextureFormat tex_format);
 size_t get_mtl_format_bytesize(MTLPixelFormat tex_format);
 int get_mtl_format_num_components(MTLPixelFormat tex_format);
 bool mtl_format_supports_blending(MTLPixelFormat format);
@@ -519,7 +519,7 @@ inline std::string tex_data_format_to_msl_type_str(eGPUDataFormat type)
       return "uint";
     case GPU_DATA_UBYTE:
       return "uchar";
-    case GPU_DATA_UINT_24_8:
+    case GPU_DATA_UINT_24_8_DEPRECATED:
       return "uint"; /* Problematic type - but will match alignment. */
     case GPU_DATA_10_11_11_REV:
     case GPU_DATA_2_10_10_10_REV:
@@ -545,7 +545,7 @@ inline std::string tex_data_format_to_msl_texture_template_type(eGPUDataFormat t
       return "uint";
     case GPU_DATA_UBYTE:
       return "ushort";
-    case GPU_DATA_UINT_24_8:
+    case GPU_DATA_UINT_24_8_DEPRECATED:
       return "uint"; /* Problematic type. */
     case GPU_DATA_10_11_11_REV:
     case GPU_DATA_2_10_10_10_REV:

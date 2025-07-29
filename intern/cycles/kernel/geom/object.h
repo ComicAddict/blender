@@ -130,9 +130,10 @@ ccl_device_inline Transform lamp_get_inverse_transform(KernelGlobals kg,
 
 /* Transform position from object to world space */
 
+template<class T>
 ccl_device_inline void object_position_transform(KernelGlobals kg,
                                                  const ccl_private ShaderData *sd,
-                                                 ccl_private float3 *P)
+                                                 ccl_private T *P)
 {
 #ifdef __OBJECT_MOTION__
   if (sd->object_flag & SD_OBJECT_MOTION) {
@@ -349,17 +350,6 @@ ccl_device_inline float3 object_dupli_uv(KernelGlobals kg, const int object)
 
   const ccl_global KernelObject *kobject = &kernel_data_fetch(objects, object);
   return make_float3(kobject->dupli_uv[0], kobject->dupli_uv[1], 0.0f);
-}
-
-/* Offset to an objects patch map */
-
-ccl_device_inline uint object_patch_map_offset(KernelGlobals kg, const int object)
-{
-  if (object == OBJECT_NONE) {
-    return 0;
-  }
-
-  return kernel_data_fetch(objects, object).patch_map_offset;
 }
 
 /* Volume step size */

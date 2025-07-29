@@ -44,10 +44,11 @@
 
 #include "ANIM_action.hh"
 #include "ANIM_action_legacy.hh"
-#include "ANIM_bone_collections.hh"
+#include "ANIM_armature.hh"
 #include "ANIM_keyframing.hh"
 #include "ANIM_keyingsets.hh"
 #include "ANIM_pose.hh"
+#include "ANIM_rna.hh"
 
 #include "armature_intern.hh"
 
@@ -133,38 +134,44 @@ static void poselib_keytag_pose(bContext *C, Scene *scene, PoseBlendData *pbd)
 
     bPose *pose = ob->pose;
     bAction *act = poselib_action_to_blend(pbd);
-
-    KeyingSet *ks = blender::animrig::get_keyingset_for_autokeying(scene,
-                                                                   ANIM_KS_WHOLE_CHARACTER_ID);
-    blender::Vector<PointerRNA> sources;
-
-    /* start tagging/keying */
     const bArmature *armature = static_cast<const bArmature *>(ob->data);
-    for (bActionGroup *agrp : blender::animrig::legacy::channel_groups_all(act)) {
-      /* Only for selected bones unless there aren't any selected, in which case all are included.
-       */
-      bPoseChannel *pchan = BKE_pose_channel_find_name(pose, agrp->name);
-      if (pchan == nullptr) {
-        continue;
-      }
 
+    blender::animrig::Slot &slot = blender::animrig::get_best_pose_slot_for_id(ob->id,
+                                                                               act->wrap());
+
+    /* Storing which pose bones were already keyed since multiple FCurves will probably exist per
+     * pose bone. */
+    blender::Set<bPoseChannel *> keyed_pose_bones;
+    auto autokey_pose_bones = [&](FCurve * /* fcu */, const char *bone_name) {
+      bPoseChannel *pchan = BKE_pose_channel_find_name(pose, bone_name);
+      if (!pchan) {
+        /* This bone cannot be found any more. This is fine, this can happen
+         * when F-Curves for a bone are included in a pose asset, and later the
+         * bone itself was renamed or removed. */
+        return;
+      }
       if (BKE_pose_backup_is_selection_relevant(pbd->pose_backup) &&
           !PBONE_SELECTED(armature, pchan->bone))
       {
-        continue;
+        return;
       }
-
-      /* Add data-source override for the PoseChannel, to be used later. */
-      blender::animrig::relative_keyingset_add_source(sources, &ob->id, &RNA_PoseBone, pchan);
-    }
-
-    if (adt->action) {
-      blender::animrig::action_deselect_keys(adt->action->wrap());
-    }
-
-    /* Perform actual auto-keying. */
-    blender::animrig::apply_keyingset(
-        C, &sources, ks, blender::animrig::ModifyKeyMode::INSERT, float(scene->r.cfra));
+      if (keyed_pose_bones.contains(pchan)) {
+        return;
+      }
+      /* This mimics the Whole Character Keying Set that was used here previously. In the future we
+       * could only key rna paths of FCurves that are actually in the applied pose. */
+      PointerRNA pose_bone_pointer = RNA_pointer_create_discrete(&ob->id, &RNA_PoseBone, pchan);
+      blender::Vector<RNAPath> rna_paths = blender::animrig::get_keyable_id_property_paths(
+          pose_bone_pointer);
+      rna_paths.append({"location"});
+      const blender::StringRef rotation_mode_path = blender::animrig::get_rotation_mode_path(
+          eRotationModes(pchan->rotmode));
+      rna_paths.append({rotation_mode_path});
+      rna_paths.append({"scale"});
+      blender::animrig::autokeyframe_pose_channel(C, scene, ob, pchan, rna_paths, 0);
+      keyed_pose_bones.add(pchan);
+    };
+    blender::bke::BKE_action_find_fcurves_with_bones(act, slot.handle, autokey_pose_bones);
   }
 
   /* send notifiers for this */
@@ -174,7 +181,7 @@ static void poselib_keytag_pose(bContext *C, Scene *scene, PoseBlendData *pbd)
 /* Apply the relevant changes to the pose */
 static void poselib_blend_apply(bContext *C, wmOperator *op)
 {
-  PoseBlendData *pbd = (PoseBlendData *)op->customdata;
+  PoseBlendData *pbd = static_cast<PoseBlendData *>(op->customdata);
 
   if (!pbd->needs_redraw) {
     return;
@@ -228,7 +235,9 @@ static void poselib_toggle_flipped(PoseBlendData *pbd)
 }
 
 /* Return operator return value. */
-static int poselib_blend_handle_event(bContext * /*C*/, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus poselib_blend_handle_event(bContext * /*C*/,
+                                                   wmOperator *op,
+                                                   const wmEvent *event)
 {
   PoseBlendData *pbd = static_cast<PoseBlendData *>(op->customdata);
 
@@ -283,6 +292,9 @@ static int poselib_blend_handle_event(bContext * /*C*/, wmOperator *op, const wm
       pbd->state = pbd->state == POSE_BLEND_BLENDING ? POSE_BLEND_ORIGINAL : POSE_BLEND_BLENDING;
       pbd->needs_redraw = true;
       break;
+    default: {
+      break;
+    }
   }
 
   return OPERATOR_RUNNING_MODAL;
@@ -327,14 +339,14 @@ static bAction *poselib_blend_init_get_action(bContext *C, wmOperator *op)
   PoseBlendData *pbd = static_cast<PoseBlendData *>(op->customdata);
 
   pbd->temp_id_consumer = asset::temp_id_consumer_create(asset);
-  return (bAction *)asset::temp_id_consumer_ensure_local_id(
-      pbd->temp_id_consumer, ID_AC, CTX_data_main(C), op->reports);
+  return reinterpret_cast<bAction *>(asset::temp_id_consumer_ensure_local_id(
+      pbd->temp_id_consumer, ID_AC, CTX_data_main(C), op->reports));
 }
 
 static bAction *flip_pose(bContext *C, blender::Span<Object *> objects, bAction *action)
 {
-  bAction *action_copy = (bAction *)BKE_id_copy_ex(
-      nullptr, &action->id, nullptr, LIB_ID_COPY_LOCALIZE);
+  bAction *action_copy = reinterpret_cast<bAction *>(
+      BKE_id_copy_ex(nullptr, &action->id, nullptr, LIB_ID_COPY_LOCALIZE));
 
   /* Lock the window manager while flipping the pose. Flipping requires temporarily modifying the
    * pose, which can cause unwanted visual glitches. */
@@ -366,6 +378,10 @@ static bool poselib_blend_init_data(bContext *C, wmOperator *op, const wmEvent *
 
   pbd->act = poselib_blend_init_get_action(C, op);
   if (pbd->act == nullptr) {
+    return false;
+  }
+  if (pbd->act->wrap().slots().size() == 0) {
+    BKE_report(op->reports, RPT_ERROR, "This pose asset is empty, and thus has no pose");
     return false;
   }
 
@@ -496,7 +512,7 @@ static void poselib_blend_free(wmOperator *op)
   MEM_delete(pbd);
 }
 
-static int poselib_blend_exit(bContext *C, wmOperator *op)
+static wmOperatorStatus poselib_blend_exit(bContext *C, wmOperator *op)
 {
   PoseBlendData *pbd = static_cast<PoseBlendData *>(op->customdata);
   const ePoseBlendState exit_state = pbd->state;
@@ -522,9 +538,9 @@ static void poselib_blend_cancel(bContext *C, wmOperator *op)
 }
 
 /* Main modal status check. */
-static int poselib_blend_modal(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus poselib_blend_modal(bContext *C, wmOperator *op, const wmEvent *event)
 {
-  const int operator_result = poselib_blend_handle_event(C, op, event);
+  const wmOperatorStatus operator_result = poselib_blend_handle_event(C, op, event);
 
   const PoseBlendData *pbd = static_cast<const PoseBlendData *>(op->customdata);
   if (ELEM(pbd->state, POSE_BLEND_CONFIRM, POSE_BLEND_CANCEL)) {
@@ -553,7 +569,7 @@ static int poselib_blend_modal(bContext *C, wmOperator *op, const wmEvent *event
 }
 
 /* Modal Operator init. */
-static int poselib_blend_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus poselib_blend_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   if (!poselib_blend_init_data(C, op, event)) {
     poselib_blend_free(op);
@@ -571,7 +587,7 @@ static int poselib_blend_invoke(bContext *C, wmOperator *op, const wmEvent *even
 }
 
 /* Single-shot apply. */
-static int poselib_blend_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus poselib_blend_exec(bContext *C, wmOperator *op)
 {
   if (!poselib_blend_init_data(C, op, nullptr)) {
     poselib_blend_free(op);

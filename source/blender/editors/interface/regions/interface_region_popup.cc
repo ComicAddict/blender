@@ -28,8 +28,6 @@
 #include "WM_api.hh"
 #include "WM_types.hh"
 
-#include "UI_interface.hh"
-
 #include "ED_screen.hh"
 
 #include "interface_intern.hh"
@@ -75,7 +73,7 @@ static void ui_popup_block_position(wmWindow *window,
     ui_block_to_window_rctf(butregion, but->block, &butrct, &but->rect);
 
     /* widget_roundbox_set has this correction too, keep in sync */
-    if (but->type != UI_BTYPE_PULLDOWN) {
+    if (but->type != ButType::Pulldown) {
       if (but->drawflag & UI_BUT_ALIGN_TOP) {
         butrct.ymax += U.pixelsize;
       }
@@ -269,7 +267,7 @@ static void ui_popup_block_position(wmWindow *window,
   else if (dir1 == UI_DIR_UP) {
     offset_y = (butrct.ymax - block->rect.ymin) - offset_overlap;
 
-    if (but->type == UI_BTYPE_COLOR &&
+    if (but->type == ButType::Color &&
         block->rect.ymax + offset_y > win_size[1] - UI_POPUP_MENU_TOP)
     {
       /* Shift this down, aligning the top edge close to the window top. */
@@ -289,7 +287,7 @@ static void ui_popup_block_position(wmWindow *window,
   else if (dir1 == UI_DIR_DOWN) {
     offset_y = (butrct.ymin - block->rect.ymax) + offset_overlap;
 
-    if (but->type == UI_BTYPE_COLOR && block->rect.ymin + offset_y < UI_SCREEN_MARGIN) {
+    if (but->type == ButType::Color && block->rect.ymin + offset_y < UI_SCREEN_MARGIN) {
       /* Shift this up, aligning the bottom edge close to the window bottom. */
       offset_y = -block->rect.ymin + UI_SCREEN_MARGIN;
       /* All four corners should be rounded since this no longer button-aligned. */
@@ -388,13 +386,13 @@ static void ui_popup_block_position(wmWindow *window,
 
     /* Popovers don't need secondary direction. Pull-downs to
      * the left or right are currently not supported. */
-    const bool no_2nd_dir = (but->type == UI_BTYPE_POPOVER || ui_but_menu_draw_as_popover(but) ||
+    const bool no_2nd_dir = (but->type == ButType::Popover || ui_but_menu_draw_as_popover(but) ||
                              dir1 & (UI_DIR_RIGHT | UI_DIR_LEFT));
     block->direction = no_2nd_dir ? dir1 : (dir1 | dir2);
   }
 
   /* Keep a list of these, needed for pull-down menus. */
-  uiSafetyRct *saferct = MEM_cnew<uiSafetyRct>(__func__);
+  uiSafetyRct *saferct = MEM_callocN<uiSafetyRct>(__func__);
   saferct->parent = butrct;
   saferct->safety = block->safety;
   BLI_freelistN(&block->saferct);
@@ -722,7 +720,7 @@ uiBlock *ui_popup_block_refresh(bContext *C,
   }
   else {
     /* Keep a list of these, needed for pull-down menus. */
-    uiSafetyRct *saferct = MEM_cnew<uiSafetyRct>(__func__);
+    uiSafetyRct *saferct = MEM_callocN<uiSafetyRct>(__func__);
     saferct->safety = block->safety;
     BLI_addhead(&block->saferct, saferct);
   }

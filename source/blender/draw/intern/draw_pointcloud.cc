@@ -19,7 +19,7 @@
 #include "draw_cache_impl.hh"
 #include "draw_common.hh"
 #include "draw_common_c.hh"
-#include "draw_manager_c.hh"
+#include "draw_context_private.hh"
 #include "draw_pointcloud_private.hh"
 /* For drw_curves_get_attribute_sampler_name. */
 #include "draw_curves_private.hh"
@@ -38,7 +38,8 @@ struct PointCloudModule {
   gpu::VertBuf *create_dummy_vbo()
   {
     GPUVertFormat format = {0};
-    uint dummy_id = GPU_vertformat_attr_add(&format, "dummy", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
+    uint dummy_id = GPU_vertformat_attr_add(
+        &format, "dummy", gpu::VertAttrType::SFLOAT_32_32_32_32);
 
     gpu::VertBuf *vbo = GPU_vertbuf_create_with_format_ex(
         format, GPU_USAGE_STATIC | GPU_USAGE_FLAG_BUFFER_TEXTURE_ONLY);
@@ -71,18 +72,23 @@ gpu::Batch *pointcloud_sub_pass_setup_implementation(PassT &sub_ps,
                                                      GPUMaterial *gpu_material)
 {
   BLI_assert(object->type == OB_POINTCLOUD);
-  PointCloud &pointcloud = *static_cast<PointCloud *>(object->data);
+  PointCloud &pointcloud = DRW_object_get_data_for_drawing<PointCloud>(*object);
+  /* An empty point cloud should never result in a draw-call. However, the buffer binding commands
+   * will still be executed. In this case, in order to avoid assertion, we bind dummy VBOs. */
+  bool is_empty = pointcloud.totpoint == 0;
 
   PointCloudModule &module = *drw_get().data->pointcloud_module;
-  /* Fix issue with certain driver not drawing anything if there is no texture bound to
-   * "ac", "au", "u" or "c". */
+  /* Ensure we have no unbound resources.
+   * Required for Vulkan.
+   * Fixes issues with certain GL drivers not drawing anything. */
   sub_ps.bind_texture("u", module.dummy_vbo);
   sub_ps.bind_texture("au", module.dummy_vbo);
+  sub_ps.bind_texture("a", module.dummy_vbo);
   sub_ps.bind_texture("c", module.dummy_vbo);
   sub_ps.bind_texture("ac", module.dummy_vbo);
 
   gpu::VertBuf *pos_rad_buf = pointcloud_position_and_radius_get(&pointcloud);
-  sub_ps.bind_texture("ptcloud_pos_rad_tx", pos_rad_buf);
+  sub_ps.bind_texture("ptcloud_pos_rad_tx", is_empty ? module.dummy_vbo : pos_rad_buf);
 
   if (gpu_material != nullptr) {
     ListBase gpu_attrs = GPU_material_attributes(gpu_material);
@@ -93,7 +99,8 @@ gpu::Batch *pointcloud_sub_pass_setup_implementation(PassT &sub_ps,
 
       gpu::VertBuf **attribute_buf = DRW_pointcloud_evaluated_attribute(&pointcloud,
                                                                         gpu_attr->name);
-      sub_ps.bind_texture(sampler_name, (attribute_buf) ? attribute_buf : &module.dummy_vbo);
+      sub_ps.bind_texture(sampler_name,
+                          (attribute_buf && !is_empty) ? attribute_buf : &module.dummy_vbo);
     }
   }
 

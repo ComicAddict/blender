@@ -896,6 +896,28 @@ class CommandBatch_StatusFlag(NamedTuple):
 
 
 class CommandBatch:
+    """
+    This class manages running command-line programs as sub-processes, abstracting away process management,
+    performing non-blocking reads to access JSON output.
+
+    The sub-processes must conform to the following constraints:
+
+    - Only output JSON to the STDOUT.
+    - Exit gracefully when: SIGINT signal is sent
+      (``signal.CTRL_BREAK_EVENT`` on WIN32).
+    - Errors must be caught and forwarded as JSON error messages.
+      Unhandled exceptions are not expected and and will produce ugly
+      messages from the STDERR output.
+
+    The user of this class creates the class with all known jobs,
+    setting the limit for the number of jobs that run simultaneously.
+
+    The caller can then monitor the processes:
+    - By calling ``exec_blocking``.
+    - Or by periodically calling ``exec_non_blocking``.
+
+      Canceling is performed by calling ``exec_non_blocking`` with ``request_exit=True``.
+    """
     __slots__ = (
         "title",
 
@@ -1309,6 +1331,7 @@ class PkgManifest_Normalized(NamedTuple):
             error_fn(ex)
             return None
 
+        import re
         return PkgManifest_Normalized(
             name=field_name,
             tagline=field_tagline,
@@ -1316,7 +1339,7 @@ class PkgManifest_Normalized(NamedTuple):
             type=field_type,
             # Remove the maintainers email while it's not private, showing prominently
             # could cause maintainers to get direct emails instead of issue tracking systems.
-            maintainer=field_maintainer.split("<", 1)[0].rstrip(),
+            maintainer=re.sub(r"\s*<.*?>", "", field_maintainer),
             license=license_info_to_text(field_license),
 
             # Optional.
@@ -1814,7 +1837,7 @@ class _RepoDataSouce_TOML_FILES(_RepoDataSouce_ABC):
         """
         Detect a change and return as early as possibly.
         Ideally this would not have to scan many files, since this could become *expensive*
-        with very large repositories however as each package has it's own TOML,
+        with very large repositories however as each package has its own TOML,
         there is no viable alternative.
         """
         # Caller must check `self.exists()`.

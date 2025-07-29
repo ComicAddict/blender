@@ -47,9 +47,9 @@ int ED_node_tree_path_length(SpaceNode *snode);
  */
 void ED_node_tree_path_get(SpaceNode *snode, char *value);
 
-void ED_node_tree_start(SpaceNode *snode, bNodeTree *ntree, ID *id, ID *from);
-void ED_node_tree_push(SpaceNode *snode, bNodeTree *ntree, bNode *gnode);
-void ED_node_tree_pop(SpaceNode *snode);
+void ED_node_tree_start(ARegion *region, SpaceNode *snode, bNodeTree *ntree, ID *id, ID *from);
+void ED_node_tree_push(ARegion *region, SpaceNode *snode, bNodeTree *ntree, bNode *gnode);
+void ED_node_tree_pop(ARegion *region, SpaceNode *snode);
 int ED_node_tree_depth(SpaceNode *snode);
 bNodeTree *ED_node_tree_get(SpaceNode *snode, int level);
 
@@ -79,9 +79,14 @@ bool ED_node_supports_preview(SpaceNode *snode);
  * Called from shading buttons or header.
  */
 void ED_node_shader_default(const bContext *C, ID *id);
+
+/**
+ * Initializes an empty compositing node tree with default nodes.
+ */
+void ED_node_composit_default_init(const bContext *C, bNodeTree *ntree);
 /**
  * Assumes nothing being done in ntree yet, sets the default in/out node.
- * Called from shading buttons or header.
+ * Called from compositing buttons or header.
  */
 void ED_node_composit_default(const bContext *C, Scene *scene);
 /**

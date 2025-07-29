@@ -25,9 +25,10 @@
 #include "BLI_math_rotation.h"
 #include "BLI_math_vector.hh"
 #include "BLI_rand.h"
+#include "BLI_set.hh"
 #include "BLI_span.hh"
 #include "BLI_string_ref.hh"
-#include "BLI_vector.hh"
+#include "BLI_vector_list.hh"
 
 #include "DNA_collection_types.h"
 #include "DNA_curves_types.h"
@@ -71,8 +72,10 @@ using blender::Array;
 using blender::float2;
 using blender::float3;
 using blender::float4x4;
+using blender::Set;
 using blender::Span;
 using blender::Vector;
+using blender::VectorList;
 using blender::bke::GeometrySet;
 using blender::bke::InstanceReference;
 using blender::bke::Instances;
@@ -122,6 +125,11 @@ struct DupliContext {
    */
   Vector<short> *dupli_gen_type_stack;
 
+  /**
+   * If not null, then only instance objects that are in this set.
+   */
+  Set<const Object *> *include_objects;
+
   int persistent_id[MAX_DUPLI_RECUR];
   int64_t instance_idx[MAX_DUPLI_RECUR];
   const GeometrySet *instance_data[MAX_DUPLI_RECUR];
@@ -130,7 +138,7 @@ struct DupliContext {
   const struct DupliGenerator *gen;
 
   /** Result containers. */
-  ListBase *duplilist; /* Legacy doubly-linked list. */
+  DupliList *duplilist;
 };
 
 struct DupliGenerator {
@@ -149,8 +157,10 @@ static void init_context(DupliContext *r_ctx,
                          Scene *scene,
                          Object *ob,
                          const float space_mat[4][4],
+                         blender::Set<const Object *> *include_objects,
                          Vector<Object *> &instance_stack,
-                         Vector<short> &dupli_gen_type_stack)
+                         Vector<short> &dupli_gen_type_stack,
+                         DupliList &duplilist)
 {
   r_ctx->depsgraph = depsgraph;
   r_ctx->scene = scene;
@@ -161,6 +171,7 @@ static void init_context(DupliContext *r_ctx,
   r_ctx->obedit = OBEDIT_FROM_OBACT(ob);
   r_ctx->instance_stack = &instance_stack;
   r_ctx->dupli_gen_type_stack = &dupli_gen_type_stack;
+  r_ctx->duplilist = &duplilist;
   if (space_mat) {
     copy_m4_m4(r_ctx->space_mat, space_mat);
   }
@@ -174,9 +185,10 @@ static void init_context(DupliContext *r_ctx,
     r_ctx->dupli_gen_type_stack->append(r_ctx->gen->type);
   }
 
-  r_ctx->duplilist = nullptr;
   r_ctx->preview_instance_index = -1;
   r_ctx->preview_base_geometry = nullptr;
+
+  r_ctx->include_objects = include_objects;
 }
 
 /**
@@ -258,8 +270,8 @@ static DupliObject *make_dupli(const DupliContext *ctx,
 
   /* Add a #DupliObject instance to the result container. */
   if (ctx->duplilist) {
-    dob = MEM_cnew<DupliObject>("dupli object");
-    BLI_addtail(ctx->duplilist, dob);
+    ctx->duplilist->append({});
+    dob = &ctx->duplilist->last();
   }
   else {
     return nullptr;
@@ -271,6 +283,7 @@ static DupliObject *make_dupli(const DupliContext *ctx,
   dob->type = ctx->gen == nullptr ? 0 : ctx->dupli_gen_type_stack->last();
   dob->preview_base_geometry = ctx->preview_base_geometry;
   dob->preview_instance_index = ctx->preview_instance_index;
+  dob->level = ctx->level;
 
   /* Set persistent id, which is an array with a persistent index for each level
    * (particle number, vertex number, ..). by comparing this we can find the same
@@ -534,17 +547,27 @@ static void make_duplis_collection(const DupliContext *ctx)
 
   eEvaluationMode mode = DEG_get_mode(ctx->depsgraph);
   FOREACH_COLLECTION_VISIBLE_OBJECT_RECURSIVE_BEGIN (collection, cob, mode) {
-    if (cob != ob) {
-      float mat[4][4];
-
-      /* Collection dupli-offset, should apply after everything else. */
-      mul_m4_m4m4(mat, collection_mat, cob->object_to_world().ptr());
-
-      make_dupli(ctx, cob, mat, _base_id);
-
-      /* Recursion. */
-      make_recursive_duplis(ctx, cob, collection_mat, _base_id);
+    if (cob == ob) {
+      continue;
     }
+
+    if (ctx->include_objects) {
+      Object *original_object = cob->id.orig_id ? reinterpret_cast<Object *>(cob->id.orig_id) :
+                                                  cob;
+      if (!ctx->include_objects->contains(original_object)) {
+        continue;
+      }
+    }
+
+    float mat[4][4];
+
+    /* Collection dupli-offset, should apply after everything else. */
+    mul_m4_m4m4(mat, collection_mat, cob->object_to_world().ptr());
+
+    make_dupli(ctx, cob, mat, _base_id);
+
+    /* Recursion. */
+    make_recursive_duplis(ctx, cob, collection_mat, _base_id);
   }
   FOREACH_COLLECTION_VISIBLE_OBJECT_RECURSIVE_END;
 }
@@ -843,7 +866,7 @@ static void make_duplis_font(const DupliContext *ctx)
   family_gh = BLI_ghash_int_new_ex(__func__, 256);
 
   /* Safety check even if it might fail badly when called for original object. */
-  const bool is_eval_curve = DEG_is_evaluated_id(&cu->id);
+  const bool is_eval_curve = DEG_is_evaluated(cu);
 
   /* Advance matching BLI_str_utf8_as_utf32. */
   for (a = 0; a < text_len; a++, ct++) {
@@ -855,7 +878,7 @@ static void make_duplis_font(const DupliContext *ctx)
 
     if (is_eval_curve) {
       /* Workaround for the above hack. */
-      ob = DEG_get_evaluated_object(ctx->depsgraph, ob);
+      ob = DEG_get_evaluated(ctx->depsgraph, ob);
     }
 
     if (ob) {
@@ -882,7 +905,7 @@ static void make_duplis_font(const DupliContext *ctx)
   }
 
   if (text_free) {
-    MEM_freeN((void *)text);
+    MEM_freeN(text);
   }
 
   BLI_ghash_free(family_gh, nullptr, nullptr);
@@ -1494,8 +1517,7 @@ static void make_duplis_particle_system(const DupliContext *ctx, ParticleSystem 
         FOREACH_COLLECTION_VISIBLE_OBJECT_RECURSIVE_END;
       }
 
-      oblist = (Object **)MEM_callocN(size_t(totcollection) * sizeof(Object *),
-                                      "dupcollection object list");
+      oblist = MEM_calloc_arrayN<Object *>(totcollection, "dupcollection object list");
 
       if (use_collection_count) {
         a = 0;
@@ -1784,36 +1806,51 @@ static const DupliGenerator *get_dupli_generator(const DupliContext *ctx)
 /** \name Dupli-Container Implementation
  * \{ */
 
-ListBase *object_duplilist(Depsgraph *depsgraph, Scene *sce, Object *ob)
+void object_duplilist(Depsgraph *depsgraph,
+                      Scene *sce,
+                      Object *ob,
+                      Set<const Object *> *include_objects,
+                      DupliList &r_duplilist)
 {
-  ListBase *duplilist = MEM_cnew<ListBase>("duplilist");
   DupliContext ctx;
   Vector<Object *> instance_stack;
   Vector<short> dupli_gen_type_stack({0});
   instance_stack.append(ob);
-  init_context(&ctx, depsgraph, sce, ob, nullptr, instance_stack, dupli_gen_type_stack);
+  init_context(&ctx,
+               depsgraph,
+               sce,
+               ob,
+               nullptr,
+               include_objects,
+               instance_stack,
+               dupli_gen_type_stack,
+               r_duplilist);
   if (ctx.gen) {
-    ctx.duplilist = duplilist;
     ctx.gen->make_duplis(&ctx);
   }
-
-  return duplilist;
 }
 
-ListBase *object_duplilist_preview(Depsgraph *depsgraph,
-                                   Scene *sce,
-                                   Object *ob_eval,
-                                   const ViewerPath *viewer_path)
+void object_duplilist_preview(Depsgraph *depsgraph,
+                              Scene *sce,
+                              Object *ob_eval,
+                              const ViewerPath *viewer_path,
+                              DupliList &r_duplilist)
 {
-  ListBase *duplilist = MEM_cnew<ListBase>("duplilist");
   DupliContext ctx;
   Vector<Object *> instance_stack;
   Vector<short> dupli_gen_type_stack({0});
   instance_stack.append(ob_eval);
-  init_context(&ctx, depsgraph, sce, ob_eval, nullptr, instance_stack, dupli_gen_type_stack);
-  ctx.duplilist = duplilist;
+  init_context(&ctx,
+               depsgraph,
+               sce,
+               ob_eval,
+               nullptr,
+               nullptr,
+               instance_stack,
+               dupli_gen_type_stack,
+               r_duplilist);
 
-  Object *ob_orig = DEG_get_original_object(ob_eval);
+  Object *ob_orig = DEG_get_original(ob_eval);
 
   LISTBASE_FOREACH (ModifierData *, md_orig, &ob_orig->modifiers) {
     if (md_orig->type != eModifierType_Nodes) {
@@ -1824,7 +1861,7 @@ ListBase *object_duplilist_preview(Depsgraph *depsgraph,
       continue;
     }
     if (const geo_log::ViewerNodeLog *viewer_log =
-            geo_log::GeoModifierLog::find_viewer_node_log_for_path(*viewer_path))
+            geo_log::GeoNodesLog::find_viewer_node_log_for_path(*viewer_path))
     {
       ctx.preview_base_geometry = &viewer_log->geometry;
       make_duplis_geometry_set_impl(&ctx,
@@ -1834,13 +1871,86 @@ ListBase *object_duplilist_preview(Depsgraph *depsgraph,
                                     ob_eval->type == OB_CURVES);
     }
   }
-  return duplilist;
 }
 
-void free_object_duplilist(ListBase *lb)
+blender::bke::Instances object_duplilist_legacy_instances(Depsgraph &depsgraph,
+                                                          Scene &scene,
+                                                          Object &ob)
 {
-  BLI_freelistN(lb);
-  MEM_freeN(lb);
+  using namespace blender;
+
+  DupliContext ctx;
+  DupliList duplilist;
+  Vector<Object *> instance_stack({&ob});
+  Vector<short> dupli_gen_type_stack({0});
+
+  init_context(&ctx,
+               &depsgraph,
+               &scene,
+               &ob,
+               nullptr,
+               nullptr,
+               instance_stack,
+               dupli_gen_type_stack,
+               duplilist);
+  if (ctx.gen == &gen_dupli_geometry_set) {
+    /* These are not legacy instances. */
+    return {};
+  }
+  if (ctx.gen) {
+    ctx.gen->make_duplis(&ctx);
+  }
+  const bool is_particle_duplis = ctx.gen == &gen_dupli_particles;
+  /* Particle instances are on the second level, because the first level is the particle system
+   * itself. */
+  const int level_to_use = is_particle_duplis ? 1 : 0;
+
+  Vector<DupliObject *> top_level_duplis;
+  for (DupliObject &dob : duplilist) {
+    BLI_assert(dob.ob != &ob);
+    /* We only need the top level instances in the end, because when #Instances references an
+     * object, it implicitly also references all instances of that object. */
+    if (dob.level == level_to_use) {
+      top_level_duplis.append(&dob);
+    }
+  }
+
+  bke::Instances top_level_instances;
+  const float4x4 &world_to_object = ob.world_to_object();
+
+  VectorSet<Object *> referenced_objects;
+  const int instances_num = top_level_duplis.size();
+  top_level_instances.resize(instances_num);
+  MutableSpan<float4x4> instances_transforms = top_level_instances.transforms_for_write();
+  MutableSpan<int> instances_reference_handles = top_level_instances.reference_handles_for_write();
+  bke::SpanAttributeWriter<int> instances_ids =
+      top_level_instances.attributes_for_write().lookup_or_add_for_write_only_span<int>(
+          "id", bke::AttrDomain::Instance);
+  for (const int i : IndexRange(instances_num)) {
+    DupliObject &dob = *top_level_duplis[i];
+    Object &instanced_object = *dob.ob;
+    if (referenced_objects.add(&instanced_object)) {
+      top_level_instances.add_new_reference(instanced_object);
+    }
+    const int handle = referenced_objects.index_of(&instanced_object);
+    instances_transforms[i] = world_to_object * float4x4(dob.mat);
+    instances_reference_handles[i] = handle;
+
+    int id = dob.persistent_id[0];
+    if (is_particle_duplis) {
+      const int particle_system_i = dob.persistent_id[0];
+      const int particle_i = dob.persistent_id[1];
+      /* Attempt to build a unique ID for each particle. This allows for unique ids as long as
+       * there are not more than <= 2^26 = 67.108.864 particles per particle system and there are
+       * <= 2^6 = 64 particle systems. Otherwise there will be duplicate IDs but this is quite
+       * unlikely in the legacy particle system. */
+      id = (particle_system_i << 26) + particle_i;
+    }
+    instances_ids.span[i] = id;
+  }
+  instances_ids.finish();
+
+  return top_level_instances;
 }
 
 /** \} */
@@ -1893,7 +2003,7 @@ static bool find_rna_property_rgba(PointerRNA *id_ptr, const char *name, float r
   }
 
   /* First, check custom properties. */
-  IDProperty *group = RNA_struct_idprops(id_ptr, false);
+  IDProperty *group = RNA_struct_system_idprops(id_ptr, false);
   PropertyRNA *prop = nullptr;
 
   if (group && group->type == IDP_GROUP) {

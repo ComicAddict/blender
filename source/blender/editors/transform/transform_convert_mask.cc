@@ -90,7 +90,6 @@ static void MaskHandleToTransData(MaskSplinePoint *point,
   memset(td->axismtx, 0, sizeof(td->axismtx));
   td->axismtx[2][2] = 1.0f;
 
-  td->ext = nullptr;
   td->val = nullptr;
 
   if (is_sel_any) {
@@ -155,8 +154,6 @@ static void MaskPointToTransData(Scene *scene,
 
       memset(td->axismtx, 0, sizeof(td->axismtx));
       td->axismtx[2][2] = 1.0f;
-
-      td->ext = nullptr;
 
       if (i == 1) {
         /* Scaling weights. */
@@ -317,14 +314,12 @@ static void createTransMaskingData(bContext *C, TransInfo *t)
   ED_mask_get_aspect(t->area, t->region, &asp[0], &asp[1]);
 
   tc->data_len = (is_prop_edit) ? count : countsel;
-  td = tc->data = static_cast<TransData *>(
-      MEM_callocN(tc->data_len * sizeof(TransData), "TransObData(Mask Editing)"));
+  td = tc->data = MEM_calloc_arrayN<TransData>(tc->data_len, "TransObData(Mask Editing)");
   /* For each 2d uv coord a 3d vector is allocated, so that they can be
    * treated just as if they were 3d verts. */
-  td2d = tc->data_2d = static_cast<TransData2D *>(
-      MEM_callocN(tc->data_len * sizeof(TransData2D), "TransObData2D(Mask Editing)"));
-  tc->custom.type.data = tdm = static_cast<TransDataMasking *>(
-      MEM_callocN(tc->data_len * sizeof(TransDataMasking), "TransDataMasking(Mask Editing)"));
+  td2d = tc->data_2d = MEM_calloc_arrayN<TransData2D>(tc->data_len, "TransObData2D(Mask Editing)");
+  tc->custom.type.data = tdm = MEM_calloc_arrayN<TransDataMasking>(
+      tc->data_len, "TransDataMasking(Mask Editing)");
   tc->custom.type.use_free = true;
 
   /* Create data. */
@@ -452,7 +447,7 @@ static void special_aftertrans_update__mask(bContext *C, TransInfo *t)
     BLI_assert(0);
   }
 
-  if (t->scene->nodetree) {
+  if (t->scene->compositing_node_group) {
     WM_event_add_notifier(C, NC_MASK | ND_DATA, &mask->id);
   }
 

@@ -16,16 +16,16 @@ namespace blender::render::hydra {
 
 class DrawTexture {
  private:
-  GPUTexture *texture_ = nullptr;
+  blender::gpu::Texture *texture_ = nullptr;
   gpu::Batch *batch_;
 
  public:
   DrawTexture();
   ~DrawTexture();
 
-  void write_data(int width, int height, const void *data);
-  void draw(GPUShader *shader, const pxr::GfVec4d &viewport, GPUTexture *tex = nullptr);
-  GPUTexture *texture() const;
+  void create_from_buffer(pxr::HdRenderBuffer *buffer);
+  void draw(GPUShader *shader, const pxr::GfVec4d &viewport, blender::gpu::Texture *tex = nullptr);
+  blender::gpu::Texture *texture() const;
 
  private:
 };

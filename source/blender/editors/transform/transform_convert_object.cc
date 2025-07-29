@@ -139,7 +139,7 @@ static void trans_obchild_in_obmode_update_all(TransInfo *t)
 /**
  * Transcribe given object into TransData for Transforming.
  */
-static void ObjectToTransData(TransInfo *t, TransData *td, Object *ob)
+static void ObjectToTransData(TransInfo *t, TransData *td, TransDataExtension *td_ext, Object *ob)
 {
   Scene *scene = t->scene;
   bool constinv;
@@ -154,17 +154,17 @@ static void ObjectToTransData(TransInfo *t, TransData *td, Object *ob)
     if (BKE_rigidbody_check_sim_running(scene->rigidbody_world, ctime)) {
 
       /* Save original object transform. */
-      copy_v3_v3(td->ext->oloc, ob->loc);
+      copy_v3_v3(td_ext->oloc, ob->loc);
 
       if (ob->rotmode > 0) {
-        copy_v3_v3(td->ext->orot, ob->rot);
+        copy_v3_v3(td_ext->orot, ob->rot);
       }
       else if (ob->rotmode == ROT_MODE_AXISANGLE) {
-        td->ext->orotAngle = ob->rotAngle;
-        copy_v3_v3(td->ext->orotAxis, ob->rotAxis);
+        td_ext->orotAngle = ob->rotAngle;
+        copy_v3_v3(td_ext->orotAxis, ob->rotAxis);
       }
       else {
-        copy_qt_qt(td->ext->oquat, ob->quat);
+        copy_qt_qt(td_ext->oquat, ob->quat);
       }
       /* Update object's loc/rot to get current rigid body transform. */
       mat4_to_loc_rot_size(ob->loc, rot, scale, ob->object_to_world().ptr());
@@ -176,8 +176,8 @@ static void ObjectToTransData(TransInfo *t, TransData *td, Object *ob)
   /* `axismtx` has the real orientation. */
   transform_orientations_create_from_axis(td->axismtx, UNPACK3(ob->object_to_world().ptr()));
   if (t->orient_type_mask & (1 << V3D_ORIENT_GIMBAL)) {
-    if (!gimbal_axis_object(ob, td->ext->axismtx_gimbal)) {
-      copy_m3_m3(td->ext->axismtx_gimbal, td->axismtx);
+    if (!gimbal_axis_object(ob, td_ext->axismtx_gimbal)) {
+      copy_m3_m3(td_ext->axismtx_gimbal, td->axismtx);
     }
   }
 
@@ -201,7 +201,7 @@ static void ObjectToTransData(TransInfo *t, TransData *td, Object *ob)
    * evaluate that, and access matrix of that evaluated copy of the object.
    * Might be more tricky than it sounds, if some logic later on accesses the
    * object matrix via td->ob->object_to_world().ptr(). */
-  Object *object_eval = DEG_get_evaluated_object(t->depsgraph, ob);
+  Object *object_eval = DEG_get_evaluated(t->depsgraph, ob);
   if (skip_invert == false && constinv == false) {
     object_eval->transflag |= OB_NO_CONSTRAINTS; /* #BKE_object_where_is_calc checks this. */
     /* It is possible to have transform data initialization prior to a
@@ -228,46 +228,46 @@ static void ObjectToTransData(TransInfo *t, TransData *td, Object *ob)
   copy_v3_v3(td->iloc, td->loc);
 
   if (ob->rotmode > 0) {
-    td->ext->rot = ob->rot;
-    td->ext->rotAxis = nullptr;
-    td->ext->rotAngle = nullptr;
-    td->ext->quat = nullptr;
+    td_ext->rot = ob->rot;
+    td_ext->rotAxis = nullptr;
+    td_ext->rotAngle = nullptr;
+    td_ext->quat = nullptr;
 
-    copy_v3_v3(td->ext->irot, ob->rot);
-    copy_v3_v3(td->ext->drot, ob->drot);
+    copy_v3_v3(td_ext->irot, ob->rot);
+    copy_v3_v3(td_ext->drot, ob->drot);
   }
   else if (ob->rotmode == ROT_MODE_AXISANGLE) {
-    td->ext->rot = nullptr;
-    td->ext->rotAxis = ob->rotAxis;
-    td->ext->rotAngle = &ob->rotAngle;
-    td->ext->quat = nullptr;
+    td_ext->rot = nullptr;
+    td_ext->rotAxis = ob->rotAxis;
+    td_ext->rotAngle = &ob->rotAngle;
+    td_ext->quat = nullptr;
 
-    td->ext->irotAngle = ob->rotAngle;
-    copy_v3_v3(td->ext->irotAxis, ob->rotAxis);
+    td_ext->irotAngle = ob->rotAngle;
+    copy_v3_v3(td_ext->irotAxis, ob->rotAxis);
 /* XXX, not implemented. */
 #if 0
-    td->ext->drotAngle = ob->drotAngle;
-    copy_v3_v3(td->ext->drotAxis, ob->drotAxis);
+    td_ext->drotAngle = ob->drotAngle;
+    copy_v3_v3(td_ext->drotAxis, ob->drotAxis);
 #endif
   }
   else {
-    td->ext->rot = nullptr;
-    td->ext->rotAxis = nullptr;
-    td->ext->rotAngle = nullptr;
-    td->ext->quat = ob->quat;
+    td_ext->rot = nullptr;
+    td_ext->rotAxis = nullptr;
+    td_ext->rotAngle = nullptr;
+    td_ext->quat = ob->quat;
 
-    copy_qt_qt(td->ext->iquat, ob->quat);
-    copy_qt_qt(td->ext->dquat, ob->dquat);
+    copy_qt_qt(td_ext->iquat, ob->quat);
+    copy_qt_qt(td_ext->dquat, ob->dquat);
   }
-  td->ext->rotOrder = ob->rotmode;
+  td_ext->rotOrder = ob->rotmode;
 
-  td->ext->size = ob->scale;
-  copy_v3_v3(td->ext->isize, ob->scale);
-  copy_v3_v3(td->ext->dscale, ob->dscale);
+  td_ext->scale = ob->scale;
+  copy_v3_v3(td_ext->iscale, ob->scale);
+  copy_v3_v3(td_ext->dscale, ob->dscale);
 
   copy_v3_v3(td->center, ob->object_to_world().location());
 
-  copy_m4_m4(td->ext->obmat, ob->object_to_world().ptr());
+  copy_m4_m4(td_ext->obmat, ob->object_to_world().ptr());
 
   /* Is there a need to set the global<->data space conversion matrices? */
   if (ob->parent || constinv) {
@@ -298,8 +298,13 @@ static void ObjectToTransData(TransInfo *t, TransData *td, Object *ob)
   }
 }
 
-static void trans_object_base_deps_flag_prepare(const Scene *scene, ViewLayer *view_layer)
+static void trans_object_base_deps_flag_prepare(const TransInfo *t,
+                                                const Scene *scene,
+                                                ViewLayer *view_layer)
 {
+  if (t->options & CTX_OBMODE_XFORM_OBDATA) {
+    return;
+  }
   BKE_view_layer_synced_ensure(scene, view_layer);
   LISTBASE_FOREACH (Base *, base, BKE_view_layer_object_bases_get(view_layer)) {
     base->object->id.tag &= ~ID_TAG_DOIT;
@@ -318,10 +323,13 @@ static void set_trans_object_base_deps_flag_cb(ID *id, eDepsObjectComponentType 
   id->tag |= ID_TAG_DOIT;
 }
 
-static void flush_trans_object_base_deps_flag(Depsgraph *depsgraph, Object *object)
+static void flush_trans_object_base_deps_flag(const TransInfo *t, Object *object)
 {
+  if (t->options & CTX_OBMODE_XFORM_OBDATA) {
+    return;
+  }
   object->id.tag |= ID_TAG_DOIT;
-  DEG_foreach_dependent_ID_component(depsgraph,
+  DEG_foreach_dependent_ID_component(t->depsgraph,
                                      &object->id,
                                      DEG_OB_COMP_TRANSFORM,
                                      DEG_FOREACH_COMPONENT_IGNORE_TRANSFORM_SOLVERS,
@@ -332,13 +340,13 @@ static void trans_object_base_deps_flag_finish(const TransInfo *t,
                                                const Scene *scene,
                                                ViewLayer *view_layer)
 {
-
-  if ((t->options & CTX_OBMODE_XFORM_OBDATA) == 0) {
-    BKE_view_layer_synced_ensure(scene, view_layer);
-    LISTBASE_FOREACH (Base *, base, BKE_view_layer_object_bases_get(view_layer)) {
-      if (base->object->id.tag & ID_TAG_DOIT) {
-        base->flag_legacy |= BA_SNAP_FIX_DEPS_FIASCO;
-      }
+  if (t->options & CTX_OBMODE_XFORM_OBDATA) {
+    return;
+  }
+  BKE_view_layer_synced_ensure(scene, view_layer);
+  LISTBASE_FOREACH (Base *, base, BKE_view_layer_object_bases_get(view_layer)) {
+    if (base->object->id.tag & ID_TAG_DOIT) {
+      base->flag_legacy |= BA_SNAP_FIX_DEPS_FIASCO;
     }
   }
 }
@@ -366,7 +374,7 @@ static void set_trans_object_base_flags(TransInfo *t)
   /* Make sure depsgraph is here. */
   DEG_graph_relations_update(depsgraph);
   /* Clear all flags we need. It will be used to detect dependencies. */
-  trans_object_base_deps_flag_prepare(scene, view_layer);
+  trans_object_base_deps_flag_prepare(t, scene, view_layer);
   /* Traverse all bases and set all possible flags. */
   BKE_view_layer_synced_ensure(scene, view_layer);
   LISTBASE_FOREACH (Base *, base, BKE_view_layer_object_bases_get(view_layer)) {
@@ -397,7 +405,7 @@ static void set_trans_object_base_flags(TransInfo *t)
           base->flag_legacy |= BA_WAS_SEL;
         }
       }
-      flush_trans_object_base_deps_flag(depsgraph, ob);
+      flush_trans_object_base_deps_flag(t, ob);
     }
   }
   /* Store temporary bits in base indicating that base is being modified
@@ -427,11 +435,9 @@ static int count_proportional_objects(TransInfo *t)
   int total = 0;
   ViewLayer *view_layer = t->view_layer;
   View3D *v3d = static_cast<View3D *>(t->view);
-  Main *bmain = CTX_data_main(t->context);
   Scene *scene = t->scene;
-  Depsgraph *depsgraph = BKE_scene_ensure_depsgraph(bmain, scene, view_layer);
   /* Clear all flags we need. It will be used to detect dependencies. */
-  trans_object_base_deps_flag_prepare(scene, view_layer);
+  trans_object_base_deps_flag_prepare(t, scene, view_layer);
   /* Rotations around local centers are allowed to propagate, so we take all objects. */
   if (!((t->around == V3D_AROUND_LOCAL_ORIGINS) && ELEM(t->mode, TFM_ROTATION, TFM_TRACKBALL))) {
     /* Mark all parents. */
@@ -466,7 +472,7 @@ static int count_proportional_objects(TransInfo *t)
         (base->flag & BASE_SELECTED) == 0 &&
         (BASE_EDITABLE(v3d, base) && BASE_SELECTABLE(v3d, base)))
     {
-      flush_trans_object_base_deps_flag(depsgraph, ob);
+      flush_trans_object_base_deps_flag(t, ob);
       total += 1;
     }
   }
@@ -518,12 +524,10 @@ static void createTransObject(bContext *C, TransInfo *t)
     tc->data_len += count_proportional_objects(t);
   }
 
-  td = tc->data = static_cast<TransData *>(
-      MEM_callocN(tc->data_len * sizeof(TransData), "TransOb"));
-  tx = tc->data_ext = static_cast<TransDataExtension *>(
-      MEM_callocN(tc->data_len * sizeof(TransDataExtension), "TransObExtension"));
+  td = tc->data = MEM_calloc_arrayN<TransData>(tc->data_len, "TransOb");
+  tx = tc->data_ext = MEM_calloc_arrayN<TransDataExtension>(tc->data_len, "TransObExtension");
 
-  TransDataObject *tdo = static_cast<TransDataObject *>(MEM_callocN(sizeof(*tdo), __func__));
+  TransDataObject *tdo = MEM_callocN<TransDataObject>(__func__);
   t->custom.type.data = tdo;
   t->custom.type.free_cb = freeTransObjectCustomData;
 
@@ -536,8 +540,7 @@ static void createTransObject(bContext *C, TransInfo *t)
 
     td->flag = TD_SELECTED;
     td->protectflag = ob->protectflag;
-    td->ext = tx;
-    td->ext->rotOrder = ob->rotmode;
+    tx->rotOrder = ob->rotmode;
 
     if (base->flag & BA_TRANSFORM_CHILD) {
       td->flag |= TD_NOCENTER;
@@ -567,7 +570,7 @@ static void createTransObject(bContext *C, TransInfo *t)
       }
     }
 
-    ObjectToTransData(t, td, ob);
+    ObjectToTransData(t, td, tx, ob);
     td->val = nullptr;
     td++;
     tx++;
@@ -590,10 +593,9 @@ static void createTransObject(bContext *C, TransInfo *t)
           BASE_SELECTABLE(v3d, base))
       {
         td->protectflag = ob->protectflag;
-        td->ext = tx;
-        td->ext->rotOrder = ob->rotmode;
+        tx->rotOrder = ob->rotmode;
 
-        ObjectToTransData(t, td, ob);
+        ObjectToTransData(t, td, tx, ob);
         td->val = nullptr;
         td++;
         tx++;
@@ -908,6 +910,7 @@ static void special_aftertrans_update__object(bContext *C, TransInfo *t)
 
   for (int i = 0; i < tc->data_len; i++) {
     TransData *td = tc->data + i;
+    TransDataExtension *td_ext = tc->data_ext + i;
     ListBase pidlist;
     ob = static_cast<Object *>(td->extra);
 
@@ -947,12 +950,8 @@ static void special_aftertrans_update__object(bContext *C, TransInfo *t)
     if (ob->rigidbody_object && canceled) {
       float ctime = BKE_scene_ctime_get(t->scene);
       if (BKE_rigidbody_check_sim_running(t->scene->rigidbody_world, ctime)) {
-        BKE_rigidbody_aftertrans_update(ob,
-                                        td->ext->oloc,
-                                        td->ext->orot,
-                                        td->ext->oquat,
-                                        td->ext->orotAxis,
-                                        td->ext->orotAngle);
+        BKE_rigidbody_aftertrans_update(
+            ob, td_ext->oloc, td_ext->orot, td_ext->oquat, td_ext->orotAxis, td_ext->orotAngle);
       }
     }
   }

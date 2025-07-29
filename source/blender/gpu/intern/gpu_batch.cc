@@ -39,6 +39,7 @@ void GPU_batch_zero(Batch *batch)
   batch->flag = eGPUBatchFlag(0);
   batch->prim_type = GPUPrimType(0);
   batch->shader = nullptr;
+  batch->procedural_vertices = 0;
 }
 
 Batch *GPU_batch_calloc()
@@ -80,6 +81,24 @@ void GPU_batch_init_ex(Batch *batch,
   batch->prim_type = primitive_type;
   batch->flag = owns_flag | GPU_BATCH_INIT | GPU_BATCH_DIRTY;
   batch->shader = nullptr;
+  batch->procedural_vertices = 0;
+}
+
+Batch *GPU_batch_create_procedural(GPUPrimType primitive_type, int32_t vertex_count)
+{
+  Batch *batch = GPU_batch_calloc();
+  for (auto &v : batch->verts) {
+    v = nullptr;
+  }
+  for (auto &v : batch->inst) {
+    v = nullptr;
+  }
+  batch->elem = nullptr;
+  batch->prim_type = primitive_type;
+  batch->flag = GPU_BATCH_INIT | GPU_BATCH_DIRTY;
+  batch->shader = nullptr;
+  batch->procedural_vertices = vertex_count;
+  return batch;
 }
 
 void GPU_batch_copy(Batch *batch_dst, Batch *batch_src)
@@ -92,6 +111,7 @@ void GPU_batch_copy(Batch *batch_dst, Batch *batch_src)
   for (int v = 1; v < GPU_BATCH_VBO_MAX_LEN; v++) {
     batch_dst->verts[v] = batch_src->verts[v];
   }
+  batch_dst->procedural_vertices = batch_src->procedural_vertices;
 }
 
 void GPU_batch_clear(Batch *batch)
@@ -114,6 +134,7 @@ void GPU_batch_clear(Batch *batch)
     }
   }
   batch->flag = GPU_BATCH_INVALID;
+  batch->procedural_vertices = 0;
 }
 
 void GPU_batch_discard(Batch *batch)
@@ -223,10 +244,12 @@ void GPU_batch_resource_id_buf_set(Batch *batch, GPUStorageBuf *resource_id_buf)
  *
  * \{ */
 
-void GPU_batch_set_shader(Batch *batch, GPUShader *shader)
+void GPU_batch_set_shader(Batch *batch,
+                          GPUShader *shader,
+                          const shader::SpecializationConstants *constants_state)
 {
   batch->shader = shader;
-  GPU_shader_bind(batch->shader);
+  GPU_shader_bind(batch->shader, constants_state);
 }
 
 static uint16_t bind_attribute_as_ssbo(const ShaderInterface *interface,
@@ -245,6 +268,15 @@ static uint16_t bind_attribute_as_ssbo(const ShaderInterface *interface,
   uint16_t bound_attr = 0u;
   for (uint a_idx = 0; a_idx < format->attr_len; a_idx++) {
     const GPUVertAttr *a = &format->attrs[a_idx];
+
+    if (format->deinterleaved) {
+      offset += ((a_idx == 0) ? 0 : format->attrs[a_idx - 1].type.size()) * vbo->vertex_len;
+      stride = a->type.size();
+    }
+    else {
+      offset = a->offset;
+    }
+
     for (uint n_idx = 0; n_idx < a->name_len; n_idx++) {
       const char *name = GPU_vertformat_attr_name_get(format, a, n_idx);
       const ShaderInput *input = interface->ssbo_get(name);
@@ -258,14 +290,6 @@ static uint16_t bind_attribute_as_ssbo(const ShaderInterface *interface,
        */
       uniform_name[9] = '0' + input->location;
 
-      if (format->deinterleaved) {
-        offset += ((a_idx == 0) ? 0 : format->attrs[a_idx - 1].size) * vbo->vertex_len;
-        stride = a->size;
-      }
-      else {
-        offset = a->offset;
-      }
-
       /* Only support 4byte aligned attributes. */
       BLI_assert((stride % 4) == 0);
       BLI_assert((offset % 4) == 0);
@@ -275,13 +299,15 @@ static uint16_t bind_attribute_as_ssbo(const ShaderInterface *interface,
        * But for now, changes are a bit too invasive. Will need to be revisited later on. */
       char uniform_name_len[] = "gpu_attr_0_len";
       uniform_name_len[9] = '0' + input->location;
-      GPU_shader_uniform_1i(shader, uniform_name_len, a->comp_len);
+      GPU_shader_uniform_1i(shader, uniform_name_len, a->type.comp_len());
     }
   }
   return bound_attr;
 }
 
-void GPU_batch_bind_as_resources(Batch *batch, GPUShader *shader)
+void GPU_batch_bind_as_resources(Batch *batch,
+                                 GPUShader *shader,
+                                 const shader::SpecializationConstants *constants)
 {
   const ShaderInterface *interface = unwrap(shader)->interface;
   if (interface->ssbo_attr_mask_ == 0) {
@@ -292,7 +318,7 @@ void GPU_batch_bind_as_resources(Batch *batch, GPUShader *shader)
 
   if (ssbo_attributes & (1 << GPU_SSBO_INDEX_BUF_SLOT)) {
     /* Ensure binding for setting uniforms. This is required by the OpenGL backend. */
-    GPU_shader_bind(shader);
+    GPU_shader_bind(shader, constants);
     if (batch->elem) {
       GPU_indexbuf_bind_as_ssbo(batch->elem, GPU_SSBO_INDEX_BUF_SLOT);
       GPU_shader_uniform_1b(shader, "gpu_index_no_buffer", false);
@@ -322,7 +348,7 @@ void GPU_batch_bind_as_resources(Batch *batch, GPUShader *shader)
 /** \} */
 
 /* -------------------------------------------------------------------- */
-/** \name Drawing / Drawcall functions
+/** \name Drawing / Draw-call functions
  * \{ */
 
 void GPU_batch_draw_parameter_get(Batch *batch,
@@ -379,6 +405,10 @@ blender::IndexRange GPU_batch_draw_expanded_parameter_get(GPUPrimType input_prim
 static void polyline_draw_workaround(
     Batch *batch, int vertex_first, int vertex_count, int instance_first, int instance_count)
 {
+  /* Early out as this can cause crashes on some backend (see #136831). */
+  if (vertex_count == 0) {
+    return;
+  }
   /* Check compatible input primitive. */
   BLI_assert(ELEM(batch->prim_type, GPU_PRIM_LINES, GPU_PRIM_LINE_STRIP, GPU_PRIM_LINE_LOOP));
 
@@ -399,12 +429,11 @@ static void polyline_draw_workaround(
   int id = GPU_vertformat_attr_id_get(format, "color");
   if (id != -1) {
     const GPUVertAttr &attr = format->attrs[id];
-    BLI_assert_msg(ELEM(attr.fetch_mode, GPU_FETCH_INT_TO_FLOAT_UNIT, GPU_FETCH_FLOAT),
+    const bool is_unorm8 = attr.type.format == blender::gpu::VertAttrType::UNORM_8_8_8_8;
+    BLI_assert_msg(is_unorm8 || attr.type.fetch_mode() == GPU_FETCH_FLOAT,
                    "color attribute for polylines can only use GPU_FETCH_INT_TO_FLOAT_UNIT or "
                    "GPU_FETCH_FLOAT");
-    GPU_shader_uniform_1b(batch->shader,
-                          "gpu_attr_1_fetch_unorm8",
-                          (attr.fetch_mode == GPU_FETCH_INT_TO_FLOAT_UNIT));
+    GPU_shader_uniform_1b(batch->shader, "gpu_attr_1_fetch_unorm8", is_unorm8);
   }
 
   GPU_batch_draw_advanced(tri_batch, range.start(), range.size(), instance_first, instance_count);
@@ -453,7 +482,10 @@ void GPU_batch_draw_advanced(
   Context::get()->assert_framebuffer_shader_compatibility(Context::get()->shader);
 
   if (vertex_count == 0) {
-    if (batch->elem) {
+    if (batch->procedural_vertices > 0) {
+      vertex_count = batch->procedural_vertices;
+    }
+    else if (batch->elem) {
       vertex_count = batch->elem_()->index_len_get();
     }
     else {

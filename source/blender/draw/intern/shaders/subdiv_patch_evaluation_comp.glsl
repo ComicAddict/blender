@@ -6,30 +6,17 @@
 
 COMPUTE_SHADER_CREATE_INFO(subdiv_patch_evaluation_fdots_normals)
 
-#if defined(VERTS_EVALUATION)
-float get_flag(int index)
+float2 read_vec2(int index)
 {
-  int char_4 = flags_buffer[index / 4];
-  int flag = (char_4 >> ((index % 4) * 8)) & 0xFF;
-  if (flag >= 128) {
-    flag = -128 + (flag - 128);
-  }
-
-  return float(flag);
-}
-#endif
-
-vec2 read_vec2(int index)
-{
-  vec2 result;
+  float2 result;
   result.x = srcVertexBuffer[index * 2];
   result.y = srcVertexBuffer[index * 2 + 1];
   return result;
 }
 
-vec3 read_vec3(int index)
+float3 read_vec3(int index)
 {
-  vec3 result;
+  float3 result;
   result.x = srcVertexBuffer[index * 3];
   result.y = srcVertexBuffer[index * 3 + 1];
   result.z = srcVertexBuffer[index * 3 + 2];
@@ -37,9 +24,9 @@ vec3 read_vec3(int index)
 }
 
 #if defined(ORCO_EVALUATION)
-vec3 read_vec3_extra(int index)
+float3 read_vec3_extra(int index)
 {
-  vec3 result;
+  float3 result;
   result.x = srcExtraVertexBuffer[index * 3];
   result.y = srcExtraVertexBuffer[index * 3 + 1];
   result.z = srcExtraVertexBuffer[index * 3 + 2];
@@ -58,8 +45,8 @@ OsdPatchParam GetPatchParam(int patchIndex)
 }
 
 /* ------------------------------------------------------------------------------
- * Patch Coordinate lookup. Return an OsdPatchCoord for the given patch_index and uvs.
- * This code is a port of the OpenSubdiv PatchMap lookup code.
+ * Patch Coordinate lookup. Return an #OsdPatchCoord for the given patch_index and UVs.
+ * This code is a port of the #OpenSubdiv PatchMap lookup code.
  */
 
 PatchHandle bogus_patch_handle()
@@ -74,13 +61,13 @@ PatchHandle bogus_patch_handle()
 int transformUVToQuadQuadrant(float median, inout float u, inout float v)
 {
   int uHalf = (u >= median) ? 1 : 0;
-  if (uHalf != 0)
+  if (uHalf != 0) {
     u -= median;
-
+  }
   int vHalf = (v >= median) ? 1 : 0;
-  if (vHalf != 0)
+  if (vHalf != 0) {
     v -= median;
-
+  }
   return (vHalf << 1) | uHalf;
 }
 
@@ -133,10 +120,10 @@ PatchHandle find_patch(int face_index, float u, float v)
     return bogus_patch_handle();
   }
 
-  float median = 0.5;
+  float median = 0.5f;
   bool tri_rotated = false;
 
-  for (int depth = 0; depth <= shader_data.max_depth; ++depth, median *= 0.5) {
+  for (int depth = 0; depth <= shader_data.max_depth; ++depth, median *= 0.5f) {
     int quadrant = shader_data.patches_are_triangular ?
                        transformUVToTriQuadrant(median, u, v, tri_rotated) :
                        transformUVToQuadQuadrant(median, u, v);
@@ -147,6 +134,7 @@ PatchHandle find_patch(int face_index, float u, float v)
 
     node = quad_nodes[get_index(node.child[quadrant])];
   }
+  return bogus_patch_handle();
 }
 
 OsdPatchCoord bogus_patch_coord(int face_index, float u, float v)
@@ -184,7 +172,7 @@ OsdPatchCoord GetPatchCoord(int face_index, float u, float v)
  */
 
 #if defined(FVAR_EVALUATION)
-void evaluate_patches_limits(int patch_index, float u, float v, inout vec2 dst)
+void evaluate_patches_limits(int patch_index, float u, float v, inout float2 dst)
 {
   OsdPatchCoord coord = GetPatchCoord(patch_index, u, v);
   OsdPatchArray array = GetPatchArray(coord.arrayIndex);
@@ -200,13 +188,13 @@ void evaluate_patches_limits(int patch_index, float u, float v, inout vec2 dst)
 
   for (int cv = 0; cv < nPoints; ++cv) {
     int index = patchIndexBuffer[indexBase + cv];
-    vec2 src_fvar = read_vec2(shader_data.src_offset + index);
+    float2 src_fvar = read_vec2(shader_data.src_offset + index);
     dst += src_fvar * wP[cv];
   }
 }
 #else
 void evaluate_patches_limits(
-    int patch_index, float u, float v, inout vec3 dst, inout vec3 du, inout vec3 dv)
+    int patch_index, float u, float v, inout float3 dst, inout float3 du, inout float3 dv)
 {
   OsdPatchCoord coord = GetPatchCoord(patch_index, u, v);
   OsdPatchArray array = GetPatchArray(coord.arrayIndex);
@@ -222,7 +210,7 @@ void evaluate_patches_limits(
 
   for (int cv = 0; cv < nPoints; ++cv) {
     int index = patchIndexBuffer[indexBase + cv];
-    vec3 src_vertex = read_vec3(index);
+    float3 src_vertex = read_vec3(index);
 
     dst += src_vertex * wP[cv];
     du += src_vertex * wDu[cv];
@@ -232,7 +220,7 @@ void evaluate_patches_limits(
 
 #  if defined(ORCO_EVALUATION)
 /* Evaluate the patches limits from the extra source vertex buffer. */
-void evaluate_patches_limits_extra(int patch_index, float u, float v, inout vec3 dst)
+void evaluate_patches_limits_extra(int patch_index, float u, float v, inout float3 dst)
 {
   OsdPatchCoord coord = GetPatchCoord(patch_index, u, v);
   OsdPatchArray array = GetPatchArray(coord.arrayIndex);
@@ -248,7 +236,7 @@ void evaluate_patches_limits_extra(int patch_index, float u, float v, inout vec3
 
   for (int cv = 0; cv < nPoints; ++cv) {
     int index = patchIndexBuffer[indexBase + cv];
-    vec3 src_vertex = read_vec3_extra(index);
+    float3 src_vertex = read_vec3_extra(index);
 
     dst += src_vertex * wP[cv];
   }
@@ -272,10 +260,10 @@ void main()
   uint start_loop_index = quad_index * 4;
 
   for (uint loop_index = start_loop_index; loop_index < start_loop_index + 4; loop_index++) {
-    vec2 fvar = vec2(0.0);
+    float2 fvar = float2(0.0f);
 
     BlenderPatchCoord patch_co = patch_coords[loop_index];
-    vec2 uv = decode_uv(patch_co.encoded_uv);
+    float2 uv = decode_uv(patch_co.encoded_uv);
 
     evaluate_patches_limits(patch_co.patch_index, uv.x, uv.y, fvar);
     output_fvar[shader_data.dst_offset + loop_index] = fvar;
@@ -295,14 +283,14 @@ bool is_face_active(uint coarse_quad_index)
 float get_face_flag(uint coarse_quad_index)
 {
   if (is_face_active(coarse_quad_index)) {
-    return -1.0;
+    return -1.0f;
   }
 
   if (is_face_selected(coarse_quad_index)) {
-    return 1.0;
+    return 1.0f;
   }
 
-  return 0.0;
+  return 0.0f;
 }
 
 bool is_face_hidden(uint coarse_quad_index)
@@ -319,13 +307,13 @@ void main()
   }
 
   BlenderPatchCoord patch_co = patch_coords[coarse_quad_index];
-  vec2 uv = decode_uv(patch_co.encoded_uv);
+  float2 uv = decode_uv(patch_co.encoded_uv);
 
-  vec3 pos = vec3(0.0);
-  vec3 du = vec3(0.0);
-  vec3 dv = vec3(0.0);
+  float3 pos = float3(0.0f);
+  float3 du = float3(0.0f);
+  float3 dv = float3(0.0f);
   evaluate_patches_limits(patch_co.patch_index, uv.x, uv.y, pos, du, dv);
-  vec3 nor = normalize(cross(du, dv));
+  float3 nor = normalize(cross(du, dv));
 
   FDotVert vert;
   vert.x = pos.x;
@@ -362,40 +350,28 @@ void main()
   uint start_loop_index = quad_index * 4;
 
   for (uint loop_index = start_loop_index; loop_index < start_loop_index + 4; loop_index++) {
-    vec3 pos = vec3(0.0);
-    vec3 du = vec3(0.0);
-    vec3 dv = vec3(0.0);
+    float3 pos = float3(0.0f);
+    float3 du = float3(0.0f);
+    float3 dv = float3(0.0f);
 
     BlenderPatchCoord patch_co = patch_coords[loop_index];
-    vec2 uv = decode_uv(patch_co.encoded_uv);
+    float2 uv = decode_uv(patch_co.encoded_uv);
 
     evaluate_patches_limits(patch_co.patch_index, uv.x, uv.y, pos, du, dv);
 
-    /* This will be computed later. */
-    vec3 nor = vec3(0.0);
-
-    int origindex = input_vert_origindex[loop_index];
-    float flag = 0.0;
-    if (origindex == -1) {
-      flag = -1.0;
-    }
-    else {
-      flag = get_flag(origindex);
-    }
-
-    PosNorLoop vertex_data;
-    vertex_data = subdiv_set_vertex_pos(vertex_data, pos);
-    vertex_data = subdiv_set_vertex_nor(vertex_data, nor);
-    vertex_data = subdiv_set_vertex_flag(vertex_data, flag);
-    output_verts[loop_index] = vertex_data;
+    Position position;
+    position.x = pos.x;
+    position.y = pos.y;
+    position.z = pos.z;
+    positions[loop_index] = position;
 
 #  if defined(ORCO_EVALUATION)
-    pos = vec3(0.0);
+    pos = float3(0.0f);
     evaluate_patches_limits_extra(patch_co.patch_index, uv.x, uv.y, pos);
 
-    /* Set w = 0.0 to indicate that this is not a generic attribute.
+    /* Set w = 0.0f to indicate that this is not a generic attribute.
      * See comments in `extract_mesh_vbo_orco.cc`. */
-    vec4 orco_data = vec4(pos, 0.0);
+    float4 orco_data = float4(pos, 0.0f);
     output_orcos[loop_index] = orco_data;
 #  endif
   }

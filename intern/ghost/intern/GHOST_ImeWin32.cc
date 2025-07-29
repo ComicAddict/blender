@@ -42,7 +42,7 @@ void GHOST_ImeWin32::UpdateInputLanguage()
   /* Get the 2-letter ISO-63901 abbreviation of the input locale name. */
   WCHAR language_u16[W32_ISO639_LEN];
   GetLocaleInfoEx(locale, LOCALE_SISO639LANGNAME, language_u16, W32_ISO639_LEN);
-  /* Store this as a UTF-8 string. */
+  /* Store this as a UTF8 string. */
   WideCharToMultiByte(
       CP_UTF8, 0, language_u16, W32_ISO639_LEN, language_, W32_ISO639_LEN, nullptr, nullptr);
 }
@@ -309,12 +309,14 @@ void GHOST_ImeWin32::GetCaret(HIMC imm_context, LPARAM lparam, ImeComposition *c
         if (attribute_data) {
           ::ImmGetCompositionStringW(imm_context, GCS_COMPATTR, attribute_data, attribute_size);
           for (target_start = 0; target_start < attribute_size; ++target_start) {
-            if (IsTargetAttribute(attribute_data[target_start]))
+            if (IsTargetAttribute(attribute_data[target_start])) {
               break;
+            }
           }
           for (target_end = target_start; target_end < attribute_size; ++target_end) {
-            if (!IsTargetAttribute(attribute_data[target_end]))
+            if (!IsTargetAttribute(attribute_data[target_end])) {
               break;
+            }
           }
           if (target_start == attribute_size) {
             /**
@@ -417,18 +419,20 @@ void GHOST_ImeWin32::EndIME(HWND window_handle)
    * For this case, we have to complete the ongoing composition and
    * clean up the resources attached to this object BEFORE DISABLING THE IME.
    */
-  if (!is_enable)
+  if (!is_enable) {
     return;
+  }
   is_enable = false;
   CleanupComposition(window_handle);
   ::ImmAssociateContextEx(window_handle, nullptr, 0);
-  eventImeData.composite_len = 0;
+  eventImeData.composite.clear();
 }
 
 void GHOST_ImeWin32::BeginIME(HWND window_handle, const GHOST_Rect &caret_rect, bool complete)
 {
-  if (is_enable && complete)
+  if (is_enable && complete) {
     return;
+  }
   is_enable = true;
   /**
    * Load the default IME context.
@@ -466,10 +470,12 @@ void GHOST_ImeWin32::BeginIME(HWND window_handle, const GHOST_Rect &caret_rect, 
 
 static void convert_utf16_to_utf8_len(std::wstring s, int &len)
 {
-  if (len >= 0 && len <= s.size())
+  if (len >= 0 && len <= s.size()) {
     len = count_utf_8_from_16(s.substr(0, len).c_str()) - 1;
-  else
+  }
+  else {
     len = -1;
+  }
 }
 
 static size_t updateUtf8Buf(ImeComposition &info)
@@ -487,25 +493,23 @@ void GHOST_ImeWin32::UpdateInfo(HWND window_handle)
 {
   int res = this->GetResult(window_handle, GCS_RESULTSTR, &resultInfo);
   int comp = this->GetComposition(window_handle, GCS_COMPSTR | GCS_COMPATTR, &compInfo);
-  /* convert wchar to utf8 */
+  /* Convert wchar to UTF8. */
   if (res) {
-    eventImeData.result_len = (GHOST_TUserDataPtr)updateUtf8Buf(resultInfo);
-    eventImeData.result = &resultInfo.utf8_buf[0];
+    updateUtf8Buf(resultInfo);
+    eventImeData.result = std::string(&resultInfo.utf8_buf[0]);
   }
   else {
-    eventImeData.result = 0;
-    eventImeData.result_len = 0;
+    eventImeData.result = "";
   }
   if (comp) {
-    eventImeData.composite_len = (GHOST_TUserDataPtr)updateUtf8Buf(compInfo);
-    eventImeData.composite = &compInfo.utf8_buf[0];
+    updateUtf8Buf(compInfo);
+    eventImeData.composite = std::string(&compInfo.utf8_buf[0]);
     eventImeData.cursor_position = compInfo.cursor_position;
     eventImeData.target_start = compInfo.target_start;
     eventImeData.target_end = compInfo.target_end;
   }
   else {
-    eventImeData.composite = 0;
-    eventImeData.composite_len = 0;
+    eventImeData.composite = "";
     eventImeData.cursor_position = -1;
     eventImeData.target_start = -1;
     eventImeData.target_end = -1;

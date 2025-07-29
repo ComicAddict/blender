@@ -40,7 +40,6 @@
 #include "BKE_collection.hh"
 #include "BKE_colortools.hh"
 #include "BKE_deform.hh"
-#include "BKE_gpencil_geom_legacy.h"
 #include "BKE_gpencil_legacy.h"
 #include "BKE_icons.h"
 #include "BKE_idtype.hh"
@@ -58,7 +57,7 @@
 
 #include "BLO_read_write.hh"
 
-static CLG_LogRef LOG = {"bke.gpencil"};
+static CLG_LogRef LOG = {"geom.gpencil"};
 
 static void greasepencil_copy_data(Main * /*bmain*/,
                                    std::optional<Library *> /*owner_library*/,
@@ -263,7 +262,7 @@ static void greasepencil_blend_read_data(BlendDataReader *reader, ID *id)
 }
 
 IDTypeInfo IDType_ID_GD_LEGACY = {
-    /*id_code*/ ID_GD_LEGACY,
+    /*id_code*/ bGPdata::id_type,
     /*id_filter*/ FILTER_ID_GD_LEGACY,
     /*dependencies_id_types*/ FILTER_ID_MA,
     /*main_listbase_index*/ INDEX_ID_GD_LEGACY,
@@ -463,7 +462,7 @@ bGPDframe *BKE_gpencil_frame_addnew(bGPDlayer *gpl, int cframe)
   }
 
   /* allocate memory for this frame */
-  gpf = static_cast<bGPDframe *>(MEM_callocN(sizeof(bGPDframe), "bGPDframe"));
+  gpf = MEM_callocN<bGPDframe>("bGPDframe");
   gpf->framenum = cframe;
 
   /* find appropriate place to add frame */
@@ -573,7 +572,7 @@ bGPDlayer *BKE_gpencil_layer_addnew(bGPdata *gpd,
   }
 
   /* allocate memory for frame and add to end of list */
-  gpl = static_cast<bGPDlayer *>(MEM_callocN(sizeof(bGPDlayer), "bGPDlayer"));
+  gpl = MEM_callocN<bGPDlayer>("bGPDlayer");
 
   gpl_active = BKE_gpencil_layer_active_get(gpd);
 
@@ -780,9 +779,6 @@ bGPDlayer *BKE_gpencil_layer_duplicate(const bGPDlayer *gpl_src,
   /* make a copy of source layer */
   gpl_dst = static_cast<bGPDlayer *>(MEM_dupallocN(gpl_src));
   gpl_dst->prev = gpl_dst->next = nullptr;
-
-  /* Copy masks. */
-  BKE_gpencil_layer_mask_copy(gpl_src, gpl_dst);
 
   /* copy frames */
   BLI_listbase_clear(&gpl_dst->frames);
@@ -1059,78 +1055,6 @@ bGPDlayer *BKE_gpencil_layer_named_get(bGPdata *gpd, const char *name)
   return static_cast<bGPDlayer *>(BLI_findstring(&gpd->layers, name, offsetof(bGPDlayer, info)));
 }
 
-void BKE_gpencil_layer_mask_remove(bGPDlayer *gpl, bGPDlayer_Mask *mask)
-{
-  BLI_freelinkN(&gpl->mask_layers, mask);
-  gpl->act_mask--;
-  CLAMP_MIN(gpl->act_mask, 0);
-}
-
-void BKE_gpencil_layer_mask_remove_ref(bGPdata *gpd, const char *name)
-{
-  bGPDlayer_Mask *mask_next;
-
-  LISTBASE_FOREACH (bGPDlayer *, gpl, &gpd->layers) {
-    for (bGPDlayer_Mask *mask = static_cast<bGPDlayer_Mask *>(gpl->mask_layers.first); mask;
-         mask = mask_next)
-    {
-      mask_next = mask->next;
-      if (STREQ(mask->name, name)) {
-        BKE_gpencil_layer_mask_remove(gpl, mask);
-      }
-    }
-  }
-}
-
-static int gpencil_cb_sort_masks(const void *arg1, const void *arg2)
-{
-  /* sort is inverted as layer list. */
-  const bGPDlayer_Mask *mask1 = static_cast<const bGPDlayer_Mask *>(arg1);
-  const bGPDlayer_Mask *mask2 = static_cast<const bGPDlayer_Mask *>(arg2);
-  int val = 0;
-
-  if (mask1->sort_index < mask2->sort_index) {
-    val = 1;
-  }
-  else if (mask1->sort_index > mask2->sort_index) {
-    val = -1;
-  }
-
-  return val;
-}
-
-void BKE_gpencil_layer_mask_sort(bGPdata *gpd, bGPDlayer *gpl)
-{
-  /* Update sort index. */
-  LISTBASE_FOREACH (bGPDlayer_Mask *, mask, &gpl->mask_layers) {
-    bGPDlayer *gpl_mask = BKE_gpencil_layer_named_get(gpd, mask->name);
-    if (gpl_mask != nullptr) {
-      mask->sort_index = BLI_findindex(&gpd->layers, gpl_mask);
-    }
-    else {
-      mask->sort_index = 0;
-    }
-  }
-  BLI_listbase_sort(&gpl->mask_layers, gpencil_cb_sort_masks);
-}
-
-void BKE_gpencil_layer_mask_sort_all(bGPdata *gpd)
-{
-  LISTBASE_FOREACH (bGPDlayer *, gpl, &gpd->layers) {
-    BKE_gpencil_layer_mask_sort(gpd, gpl);
-  }
-}
-
-void BKE_gpencil_layer_mask_copy(const bGPDlayer *gpl_src, bGPDlayer *gpl_dst)
-{
-  BLI_listbase_clear(&gpl_dst->mask_layers);
-  LISTBASE_FOREACH (bGPDlayer_Mask *, mask_src, &gpl_src->mask_layers) {
-    bGPDlayer_Mask *mask_dst = static_cast<bGPDlayer_Mask *>(MEM_dupallocN(mask_src));
-    mask_dst->prev = mask_dst->next = nullptr;
-    BLI_addtail(&gpl_dst->mask_layers, mask_dst);
-  }
-}
-
 static int gpencil_cb_cmp_frame(void *thunk, const void *a, const void *b)
 {
   const bGPDframe *frame_a = static_cast<const bGPDframe *>(a);
@@ -1197,36 +1121,6 @@ void BKE_gpencil_layer_active_set(bGPdata *gpd, bGPDlayer *active)
   }
 }
 
-void BKE_gpencil_layer_autolock_set(bGPdata *gpd, const bool unlock)
-{
-  BLI_assert(gpd != nullptr);
-
-  if (gpd->flag & GP_DATA_AUTOLOCK_LAYERS) {
-    bGPDlayer *layer_active = BKE_gpencil_layer_active_get(gpd);
-
-    /* Lock all other layers */
-    LISTBASE_FOREACH (bGPDlayer *, gpl, &gpd->layers) {
-      /* unlock active layer */
-      if (gpl == layer_active) {
-        gpl->flag &= ~GP_LAYER_LOCKED;
-      }
-      else {
-        gpl->flag |= GP_LAYER_LOCKED;
-      }
-    }
-  }
-  else {
-    /* If disable is better unlock all layers by default or it looks there is
-     * a problem in the UI because the user expects all layers will be unlocked
-     */
-    if (unlock) {
-      LISTBASE_FOREACH (bGPDlayer *, gpl, &gpd->layers) {
-        gpl->flag &= ~GP_LAYER_LOCKED;
-      }
-    }
-  }
-}
-
 void BKE_gpencil_layer_delete(bGPdata *gpd, bGPDlayer *gpl)
 {
   /* error checking */
@@ -1239,9 +1133,6 @@ void BKE_gpencil_layer_delete(bGPdata *gpd, bGPDlayer *gpl)
 
   /* Free Masks. */
   BKE_gpencil_free_layer_masks(gpl);
-
-  /* Remove any reference to that layer in masking lists. */
-  BKE_gpencil_layer_mask_remove_ref(gpd, gpl->info);
 
   /* free icon providing preview of icon color */
   BKE_icon_delete(gpl->runtime.icon_id);

@@ -311,12 +311,15 @@ def axis_conversion(from_forward='Y', from_up='Z', to_forward='Y', to_up='Z'):
         raise Exception("Invalid axis arguments passed, "
                         "can't use up/forward on the same axis")
 
-    value = reduce(int.__or__, (_axis_convert_num[a] << (i * 3)
-                                for i, a in enumerate((from_forward,
-                                                       from_up,
-                                                       to_forward,
-                                                       to_up,
-                                                       ))))
+    value = reduce(
+        int.__or__,
+        (_axis_convert_num[a] << (i * 3) for i, a in enumerate((
+            from_forward,
+            from_up,
+            to_forward,
+            to_up,
+        )))
+    )
 
     for i, axis_lut in enumerate(_axis_convert_lut):
         if value in axis_lut:
@@ -437,14 +440,14 @@ path_reference_mode = EnumProperty(
     items=(
         ('AUTO', "Auto", "Use relative paths with subdirectories only"),
         ('ABSOLUTE', "Absolute", "Always write absolute paths"),
-        ('RELATIVE', "Relative", "Always write relative paths "
-         "(where possible)"),
+        ('RELATIVE', "Relative", "Write relative paths where possible"),
         ('MATCH', "Match", "Match absolute/relative "
          "setting with input path"),
-        ('STRIP', "Strip Path", "Filename only"),
+        ('STRIP', "Strip", "Filename only"),
         ('COPY', "Copy", "Copy the file to the destination path "
          "(or subdirectory)"),
     ),
+    translation_context=i18n_contexts.editor_filebrowser,
     default='AUTO',
 )
 

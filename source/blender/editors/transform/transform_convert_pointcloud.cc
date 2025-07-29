@@ -53,6 +53,7 @@ static PointCloudTransformData *create_transform_custom_data(TransCustomData &cu
 static void createTransPointCloudVerts(bContext * /*C*/, TransInfo *t)
 {
   MutableSpan<TransDataContainer> trans_data_contrainers(t->data_container, t->data_container_len);
+  const bool use_proportional_edit = (t->flag & T_PROP_EDIT_ALL) != 0;
 
   for (const int i : trans_data_contrainers.index_range()) {
     TransDataContainer &tc = trans_data_contrainers[i];
@@ -61,14 +62,20 @@ static void createTransPointCloudVerts(bContext * /*C*/, TransInfo *t)
     PointCloudTransformData &transform_data = *create_transform_custom_data(tc.custom.type);
     const VArray selection_attr = *attributes.lookup_or_default<bool>(
         ".selection", bke::AttrDomain::Point, true);
-    transform_data.selection = IndexMask::from_bools(selection_attr, transform_data.memory);
-    tc.data_len = transform_data.selection.size();
+    if (use_proportional_edit) {
+      transform_data.selection = IndexMask(pointcloud.totpoint);
+      tc.data_len = transform_data.selection.size();
+    }
+    else {
+      transform_data.selection = IndexMask::from_bools(selection_attr, transform_data.memory);
+      tc.data_len = transform_data.selection.size();
+    }
     if (tc.data_len == 0) {
       tc.custom.type.free_cb(t, &tc, &tc.custom.type);
       continue;
     }
 
-    tc.data = MEM_cnew_array<TransData>(tc.data_len, __func__);
+    tc.data = MEM_calloc_arrayN<TransData>(tc.data_len, __func__);
     MutableSpan<TransData> tc_data = MutableSpan(tc.data, tc.data_len);
 
     transform_data.positions.reinitialize(tc.data_len);
@@ -95,14 +102,20 @@ static void createTransPointCloudVerts(bContext * /*C*/, TransInfo *t)
         td.loc = *elem;
 
         td.flag = 0;
-        td.flag = TD_SELECTED;
+        if (use_proportional_edit) {
+          if (selection_attr[i]) {
+            td.flag = TD_SELECTED;
+          }
+        }
+        else {
+          td.flag = TD_SELECTED;
+        }
 
         if (t->mode == TFM_CURVE_SHRINKFATTEN) {
           float *value = &transform_data.radii[i];
           td.val = value;
           td.ival = *value;
         }
-        td.ext = nullptr;
 
         copy_m3_m3(td.smtx, smtx_base.ptr());
         copy_m3_m3(td.mtx, mtx_base.ptr());

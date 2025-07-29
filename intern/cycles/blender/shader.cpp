@@ -13,7 +13,6 @@
 
 #include "blender/image.h"
 #include "blender/sync.h"
-#include "blender/texture.h"
 #include "blender/util.h"
 
 #include "util/set.h"
@@ -278,7 +277,6 @@ static bool is_image_animated(BL::Image::source_enum b_image_source, BL::ImageUs
 static ShaderNode *add_node(Scene *scene,
                             BL::RenderEngine &b_engine,
                             BL::BlendData &b_data,
-                            BL::Depsgraph &b_depsgraph,
                             BL::Scene &b_scene,
                             ShaderGraph *graph,
                             BL::ShaderNodeTree &b_ntree,
@@ -399,18 +397,6 @@ static ShaderNode *add_node(Scene *scene,
       mix_node->set_use_clamp(b_mix_node.clamp_factor());
       node = mix_node;
     }
-  }
-  else if (b_node.is_a(&RNA_ShaderNodeSeparateRGB)) {
-    node = graph->create_node<SeparateRGBNode>();
-  }
-  else if (b_node.is_a(&RNA_ShaderNodeCombineRGB)) {
-    node = graph->create_node<CombineRGBNode>();
-  }
-  else if (b_node.is_a(&RNA_ShaderNodeSeparateHSV)) {
-    node = graph->create_node<SeparateHSVNode>();
-  }
-  else if (b_node.is_a(&RNA_ShaderNodeCombineHSV)) {
-    node = graph->create_node<CombineHSVNode>();
   }
   else if (b_node.is_a(&RNA_ShaderNodeSeparateColor)) {
     BL::ShaderNodeSeparateColor b_separate_node(b_node);
@@ -747,6 +733,28 @@ static ShaderNode *add_node(Scene *scene,
   else if (b_node.is_a(&RNA_ShaderNodeVolumeAbsorption)) {
     node = graph->create_node<AbsorptionVolumeNode>();
   }
+  else if (b_node.is_a(&RNA_ShaderNodeVolumeCoefficients)) {
+    BL::ShaderNodeVolumeCoefficients b_coeffs_node(b_node);
+    VolumeCoefficientsNode *coeffs = graph->create_node<VolumeCoefficientsNode>();
+    switch (b_coeffs_node.phase()) {
+      case BL::ShaderNodeVolumeCoefficients::phase_HENYEY_GREENSTEIN:
+        coeffs->set_phase(CLOSURE_VOLUME_HENYEY_GREENSTEIN_ID);
+        break;
+      case BL::ShaderNodeVolumeCoefficients::phase_FOURNIER_FORAND:
+        coeffs->set_phase(CLOSURE_VOLUME_FOURNIER_FORAND_ID);
+        break;
+      case BL::ShaderNodeVolumeCoefficients::phase_DRAINE:
+        coeffs->set_phase(CLOSURE_VOLUME_DRAINE_ID);
+        break;
+      case BL::ShaderNodeVolumeCoefficients::phase_RAYLEIGH:
+        coeffs->set_phase(CLOSURE_VOLUME_RAYLEIGH_ID);
+        break;
+      case BL::ShaderNodeVolumeCoefficients::phase_MIE:
+        coeffs->set_phase(CLOSURE_VOLUME_MIE_ID);
+        break;
+    }
+    node = coeffs;
+  }
   else if (b_node.is_a(&RNA_ShaderNodeVolumePrincipled)) {
     PrincipledVolumeNode *principled = graph->create_node<PrincipledVolumeNode>();
     node = principled;
@@ -805,17 +813,15 @@ static ShaderNode *add_node(Scene *scene,
       /* create script node */
       BL::ShaderNodeScript b_script_node(b_node);
 
-      ShaderManager *manager = scene->shader_manager.get();
       const string bytecode_hash = b_script_node.bytecode_hash();
-
       if (!bytecode_hash.empty()) {
         node = OSLShaderManager::osl_node(
-            graph, manager, "", bytecode_hash, b_script_node.bytecode());
+            graph, scene, "", bytecode_hash, b_script_node.bytecode());
       }
       else {
         const string absolute_filepath = blender_absolute_path(
             b_data, b_ntree, b_script_node.filepath());
-        node = OSLShaderManager::osl_node(graph, manager, absolute_filepath, "");
+        node = OSLShaderManager::osl_node(graph, scene, absolute_filepath, "");
       }
     }
 #else
@@ -1025,9 +1031,6 @@ static ShaderNode *add_node(Scene *scene,
     BL::ShaderNodeTexSky b_sky_node(b_node);
     SkyTextureNode *sky = graph->create_node<SkyTextureNode>();
     sky->set_sky_type((NodeSkyType)b_sky_node.sky_type());
-    sky->set_sun_direction(normalize(get_float3(b_sky_node.sun_direction())));
-    sky->set_turbidity(b_sky_node.turbidity());
-    sky->set_ground_albedo(b_sky_node.ground_albedo());
     sky->set_sun_disc(b_sky_node.sun_disc());
     sky->set_sun_size(b_sky_node.sun_size());
     sky->set_sun_intensity(b_sky_node.sun_intensity());
@@ -1085,32 +1088,6 @@ static ShaderNode *add_node(Scene *scene,
     uvm->set_attribute(ustring(b_uvmap_node.uv_map()));
     uvm->set_from_dupli(b_uvmap_node.from_instancer());
     node = uvm;
-  }
-  else if (b_node.is_a(&RNA_ShaderNodeTexPointDensity)) {
-    BL::ShaderNodeTexPointDensity b_point_density_node(b_node);
-    PointDensityTextureNode *point_density = graph->create_node<PointDensityTextureNode>();
-    point_density->set_space((NodeTexVoxelSpace)b_point_density_node.space());
-    point_density->set_interpolation(get_image_interpolation(b_point_density_node));
-    point_density->handle = scene->image_manager->add_image(
-        make_unique<BlenderPointDensityLoader>(b_depsgraph, b_point_density_node),
-        point_density->image_params());
-
-    b_point_density_node.cache_point_density(b_depsgraph);
-    node = point_density;
-
-    /* Transformation form world space to texture space.
-     *
-     * NOTE: Do this after the texture is cached, this is because getting
-     * min/max will need to access this cache.
-     */
-    BL::Object b_ob(b_point_density_node.object());
-    if (b_ob) {
-      float3 loc;
-      float3 size;
-      point_density_texture_space(b_depsgraph, b_point_density_node, loc, size);
-      point_density->set_tfm(transform_translate(-loc) * transform_scale(size) *
-                             transform_inverse(get_transform(b_ob.matrix_world())));
-    }
   }
   else if (b_node.is_a(&RNA_ShaderNodeBevel)) {
     BL::ShaderNodeBevel b_bevel_node(b_node);
@@ -1260,7 +1237,6 @@ static ShaderOutput *node_find_output_by_name(BL::Node b_node,
 static void add_nodes(Scene *scene,
                       BL::RenderEngine &b_engine,
                       BL::BlendData &b_data,
-                      BL::Depsgraph &b_depsgraph,
                       BL::Scene &b_scene,
                       ShaderGraph *graph,
                       BL::ShaderNodeTree &b_ntree,
@@ -1349,7 +1325,6 @@ static void add_nodes(Scene *scene,
         add_nodes(scene,
                   b_engine,
                   b_data,
-                  b_depsgraph,
                   b_scene,
                   graph,
                   b_group_ntree,
@@ -1393,8 +1368,7 @@ static void add_nodes(Scene *scene,
       }
       else {
         BL::ShaderNode b_shader_node(b_node);
-        node = add_node(
-            scene, b_engine, b_data, b_depsgraph, b_scene, graph, b_ntree, b_shader_node);
+        node = add_node(scene, b_engine, b_data, b_scene, graph, b_ntree, b_shader_node);
       }
 
       if (node) {
@@ -1466,21 +1440,12 @@ static void add_nodes(Scene *scene,
 static void add_nodes(Scene *scene,
                       BL::RenderEngine &b_engine,
                       BL::BlendData &b_data,
-                      BL::Depsgraph &b_depsgraph,
                       BL::Scene &b_scene,
                       ShaderGraph *graph,
                       BL::ShaderNodeTree &b_ntree)
 {
   static const ProxyMap empty_proxy_map;
-  add_nodes(scene,
-            b_engine,
-            b_data,
-            b_depsgraph,
-            b_scene,
-            graph,
-            b_ntree,
-            empty_proxy_map,
-            empty_proxy_map);
+  add_nodes(scene, b_engine, b_data, b_scene, graph, b_ntree, empty_proxy_map, empty_proxy_map);
 }
 
 /* Look up and constant fold all references to View Layer attributes. */
@@ -1491,7 +1456,7 @@ void BlenderSync::resolve_view_layer_attributes(Shader *shader,
   bool updated = false;
 
   for (ShaderNode *node : graph->nodes) {
-    if (node->is_a(AttributeNode::node_type)) {
+    if (node->is_a(AttributeNode::get_node_type())) {
       AttributeNode *attr_node = static_cast<AttributeNode *>(node);
 
       std::string real_name;
@@ -1596,7 +1561,7 @@ void BlenderSync::sync_materials(BL::Depsgraph &b_depsgraph, bool update_all)
       if (b_mat.use_nodes() && b_mat.node_tree()) {
         BL::ShaderNodeTree b_ntree(b_mat.node_tree());
 
-        add_nodes(scene, b_engine, b_data, b_depsgraph, b_scene, graph.get(), b_ntree);
+        add_nodes(scene, b_engine, b_data, b_scene, graph.get(), b_ntree);
       }
       else {
         DiffuseBsdfNode *diffuse = graph->create_node<DiffuseBsdfNode>();
@@ -1625,7 +1590,7 @@ void BlenderSync::sync_materials(BL::Depsgraph &b_depsgraph, bool update_all)
        * redundant shader nodes might be removed which prevents loading
        * unnecessary attributes later.
        *
-       * However, since graph simplification also accounts for e.g. mix
+       * However, since graph simplification also accounts for mix
        * weight, this would cause frequent expensive resyncs in interactive
        * sessions, so for those sessions optimization is only performed
        * right before compiling.
@@ -1674,12 +1639,10 @@ void BlenderSync::sync_world(BL::Depsgraph &b_depsgraph, BL::SpaceView3D &b_v3d,
     unique_ptr<ShaderGraph> graph = make_unique<ShaderGraph>();
 
     /* create nodes */
-    if (new_viewport_parameters.use_scene_world && b_world && b_world.use_nodes() &&
-        b_world.node_tree())
-    {
+    if (new_viewport_parameters.use_scene_world && b_world && b_world.node_tree()) {
       BL::ShaderNodeTree b_ntree(b_world.node_tree());
 
-      add_nodes(scene, b_engine, b_data, b_depsgraph, b_scene, graph.get(), b_ntree);
+      add_nodes(scene, b_engine, b_data, b_scene, graph.get(), b_ntree);
 
       /* volume */
       PointerRNA cworld = RNA_pointer_get(&b_world.ptr, "cycles");
@@ -1839,7 +1802,7 @@ void BlenderSync::sync_lights(BL::Depsgraph &b_depsgraph, bool update_all)
 
         BL::ShaderNodeTree b_ntree(b_light.node_tree());
 
-        add_nodes(scene, b_engine, b_data, b_depsgraph, b_scene, graph.get(), b_ntree);
+        add_nodes(scene, b_engine, b_data, b_scene, graph.get(), b_ntree);
       }
       else {
         EmissionNode *emission = graph->create_node<EmissionNode>();

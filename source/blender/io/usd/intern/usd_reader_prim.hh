@@ -74,12 +74,11 @@ struct ImportSettings {
 class USDPrimReader {
 
  protected:
-  std::string name_;
-  pxr::SdfPath prim_path_;
+  StringRefNull name_;
   Object *object_;
   pxr::UsdPrim prim_;
-  const USDImportParams &import_params_;
   USDPrimReader *parent_reader_;
+  const USDImportParams &import_params_;
   const ImportSettings *settings_;
   int refcount_;
   bool is_in_instancer_proto_;
@@ -94,8 +93,8 @@ class USDPrimReader {
 
   virtual bool valid() const;
 
-  virtual void create_object(Main *bmain, double motionSampleTime) = 0;
-  virtual void read_object_data(Main * /*bmain*/, double /*motionSampleTime*/){};
+  virtual void create_object(Main *bmain) = 0;
+  virtual void read_object_data(Main * /*bmain*/, pxr::UsdTimeCode /*time*/){};
 
   Object *object() const;
   void object(Object *ob);
@@ -128,13 +127,13 @@ class USDPrimReader {
   void incref();
   void decref();
 
-  const std::string &name() const
+  StringRefNull name() const
   {
     return name_;
   }
   pxr::SdfPath prim_path() const
   {
-    return prim_path_;
+    return prim_.GetPrimPath();
   }
 
   virtual pxr::SdfPath object_prim_path() const
@@ -176,10 +175,10 @@ class USDPrimReader {
    *
    * \param merge_with_parent: If true, set the properties of the prim's parent
    *                           on the object ID
-   * \param motionSampleTime: The time code for sampling the USD attributes.
+   * \param time: The time code for sampling the USD attributes.
    */
   void set_props(bool merge_with_parent = false,
-                 pxr::UsdTimeCode motionSampleTime = pxr::UsdTimeCode::Default());
+                 pxr::UsdTimeCode time = pxr::UsdTimeCode::Default());
 };
 
 }  // namespace blender::io::usd

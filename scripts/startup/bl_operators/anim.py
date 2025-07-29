@@ -120,8 +120,9 @@ class ANIM_OT_keying_set_export(Operator):
             elif ksp.id.bl_rna.identifier.startswith("CompositorNodeTree"):
                 # Find compositor node-tree using this node tree.
                 for scene in bpy.data.scenes:
-                    if scene.node_tree == ksp.id:
-                        id_bpy_path = "bpy.data.scenes[\"{:s}\"].node_tree".format(escape_identifier(scene.name))
+                    if scene.compositing_node_group == ksp.id:
+                        id_bpy_path = "bpy.data.scenes[\"{:s}\"].compositing_node_group".format(
+                            escape_identifier(scene.name))
                         break
                 else:
                     self.report(
@@ -223,7 +224,10 @@ class NLA_OT_bake(Operator):
     )
     clear_constraints: BoolProperty(
         name="Clear Constraints",
-        description="Remove all constraints from keyed object/bones. To get a correct bake with this setting Visual Keying should be enabled",
+        description=(
+            "Remove all constraints from keyed object/bones. "
+            "To get a correct bake with this setting Visual Keying should be enabled"
+        ),
         default=False,
     )
     clear_parents: BoolProperty(
@@ -497,7 +501,7 @@ class ARMATURE_OT_copy_bone_color_to_selected(Operator):
 
             # Anything else:
             case _:
-                self.report({'ERROR'}, "Cannot do anything in mode {!r}".format(context.mode))
+                self.report({'ERROR'}, rpt_("Cannot do anything in mode {!r}").format(context.mode))
                 return {'CANCELLED'}
 
         if not bone_source:
@@ -676,6 +680,10 @@ class ANIM_OT_slot_new_for_id(Operator):
     Note that _which_ ID should get this slot must be set in the 'animated_id' context pointer, using:
 
     >>> layout.context_pointer_set("animated_id", animated_id)
+
+    When the ID already has a slot assigned, the newly-created slot will be
+    named after it (ensuring uniqueness with a numerical suffix) and any
+    animation data of the assigned slot will be duplicated for the new slot.
     """
     bl_idname = "anim.slot_new_for_id"
     bl_label = "New Slot"
@@ -700,10 +708,15 @@ class ANIM_OT_slot_new_for_id(Operator):
 
     def execute(self, context):
         animated_id = context.animated_id
+        adt = animated_id.animation_data
 
-        action = animated_id.animation_data.action
-        slot = action.slots.new(animated_id.id_type, animated_id.name)
-        animated_id.animation_data.action_slot = slot
+        if adt.action_slot:
+            slot = adt.action_slot.duplicate()
+        else:
+            slot_name = adt.last_slot_identifier[2:] or animated_id.name
+            slot = adt.action.slots.new(animated_id.id_type, slot_name)
+
+        adt.action_slot = slot
         return {'FINISHED'}
 
 

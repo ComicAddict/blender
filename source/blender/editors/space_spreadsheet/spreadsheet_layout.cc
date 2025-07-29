@@ -7,6 +7,8 @@
 
 #include <fmt/format.h>
 
+#include "BLF_api.hh"
+
 #include "BLI_math_matrix.hh"
 #include "BLI_math_quaternion_types.hh"
 #include "BLI_math_vector_types.hh"
@@ -43,7 +45,7 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
   {
     const StringRefNull name = spreadsheet_layout_.columns[column_index].values->name();
     uiBut *but = uiDefIconTextBut(params.block,
-                                  UI_BTYPE_LABEL,
+                                  ButType::Label,
                                   0,
                                   ICON_NONE,
                                   name,
@@ -52,9 +54,14 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
                                   params.width,
                                   params.height,
                                   nullptr,
-                                  0,
-                                  0,
                                   std::nullopt);
+    UI_but_func_tooltip_set(
+        but,
+        [](bContext * /*C*/, void *arg, blender::StringRef /*tip*/) {
+          return *static_cast<std::string *>(arg);
+        },
+        MEM_new<std::string>(__func__, name),
+        [](void *arg) { MEM_delete(static_cast<std::string *>(arg)); });
     /* Center-align column headers. */
     UI_but_drawflag_disable(but, UI_BUT_TEXT_LEFT);
     UI_but_drawflag_disable(but, UI_BUT_TEXT_RIGHT);
@@ -65,7 +72,7 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
     const int real_index = spreadsheet_layout_.row_indices[row_index];
     std::string index_str = std::to_string(real_index);
     uiBut *but = uiDefIconTextBut(params.block,
-                                  UI_BTYPE_LABEL,
+                                  ButType::Label,
                                   0,
                                   ICON_NONE,
                                   index_str,
@@ -74,8 +81,6 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
                                   params.width,
                                   params.height,
                                   nullptr,
-                                  0,
-                                  0,
                                   std::nullopt);
     /* Right-align indices. */
     UI_but_drawflag_enable(but, UI_BUT_TEXT_RIGHT);
@@ -96,7 +101,7 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
       const int value = data.get<int>(real_index);
       const std::string value_str = std::to_string(value);
       uiBut *but = uiDefIconTextBut(params.block,
-                                    UI_BTYPE_LABEL,
+                                    ButType::Label,
                                     0,
                                     ICON_NONE,
                                     value_str,
@@ -105,15 +110,13 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
                                     params.width,
                                     params.height,
                                     nullptr,
-                                    0,
-                                    0,
                                     std::nullopt);
       UI_but_func_tooltip_set(
           but,
           [](bContext * /*C*/, void *argN, const StringRef /*tip*/) {
             return fmt::format("{}", *((int *)argN));
           },
-          MEM_cnew<int>(__func__, value),
+          MEM_dupallocN<int>(__func__, value),
           MEM_freeN);
       /* Right-align Integers. */
       UI_but_drawflag_disable(but, UI_BUT_TEXT_LEFT);
@@ -123,7 +126,7 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
       const int8_t value = data.get<int8_t>(real_index);
       const std::string value_str = std::to_string(value);
       uiBut *but = uiDefIconTextBut(params.block,
-                                    UI_BTYPE_LABEL,
+                                    ButType::Label,
                                     0,
                                     ICON_NONE,
                                     value_str,
@@ -132,8 +135,6 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
                                     params.width,
                                     params.height,
                                     nullptr,
-                                    0,
-                                    0,
                                     std::nullopt);
       /* Right-align Integers. */
       UI_but_drawflag_disable(but, UI_BUT_TEXT_LEFT);
@@ -153,7 +154,7 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
       ss << std::fixed << std::setprecision(3) << value;
       const std::string value_str = ss.str();
       uiBut *but = uiDefIconTextBut(params.block,
-                                    UI_BTYPE_LABEL,
+                                    ButType::Label,
                                     0,
                                     ICON_NONE,
                                     value_str,
@@ -162,15 +163,13 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
                                     params.width,
                                     params.height,
                                     nullptr,
-                                    0,
-                                    0,
                                     std::nullopt);
       UI_but_func_tooltip_set(
           but,
           [](bContext * /*C*/, void *argN, const StringRef /*tip*/) {
             return fmt::format("{:f}", *((float *)argN));
           },
-          MEM_cnew<float>(__func__, value),
+          MEM_dupallocN<float>(__func__, value),
           MEM_freeN);
       /* Right-align Floats. */
       UI_but_drawflag_disable(but, UI_BUT_TEXT_LEFT);
@@ -180,7 +179,7 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
       const bool value = data.get<bool>(real_index);
       const int icon = value ? ICON_CHECKBOX_HLT : ICON_CHECKBOX_DEHLT;
       uiBut *but = uiDefIconTextBut(params.block,
-                                    UI_BTYPE_LABEL,
+                                    ButType::Label,
                                     0,
                                     icon,
                                     "",
@@ -189,8 +188,6 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
                                     params.width,
                                     params.height,
                                     nullptr,
-                                    0,
-                                    0,
                                     std::nullopt);
       UI_but_drawflag_disable(but, UI_BUT_ICON_LEFT);
     }
@@ -222,7 +219,7 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
       const StringRefNull name = value.name().is_empty() ? IFACE_("(Geometry)") : value.name();
       const int icon = get_instance_reference_icon(value);
       uiDefIconTextBut(params.block,
-                       UI_BTYPE_LABEL,
+                       ButType::Label,
                        0,
                        icon,
                        name.c_str(),
@@ -231,13 +228,11 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
                        params.width,
                        params.height,
                        nullptr,
-                       0,
-                       0,
                        std::nullopt);
     }
     else if (data.type().is<std::string>()) {
       uiDefIconTextBut(params.block,
-                       UI_BTYPE_LABEL,
+                       ButType::Label,
                        0,
                        ICON_NONE,
                        data.get<std::string>(real_index),
@@ -246,15 +241,13 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
                        params.width,
                        params.height,
                        nullptr,
-                       0,
-                       0,
                        std::nullopt);
     }
     else if (data.type().is<MStringProperty>()) {
-      MStringProperty *prop = MEM_cnew<MStringProperty>(__func__);
+      MStringProperty *prop = MEM_callocN<MStringProperty>(__func__);
       data.get_to_uninitialized(real_index, prop);
       uiBut *but = uiDefIconTextBut(params.block,
-                                    UI_BTYPE_LABEL,
+                                    ButType::Label,
                                     0,
                                     ICON_NONE,
                                     StringRef(prop->s, prop->s_len),
@@ -263,8 +256,6 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
                                     params.width,
                                     params.height,
                                     nullptr,
-                                    0,
-                                    0,
                                     std::nullopt);
 
       UI_but_func_tooltip_set(
@@ -288,7 +279,7 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
       ss << " " << std::fixed << std::setprecision(3) << value;
       const std::string value_str = ss.str();
       uiBut *but = uiDefIconTextBut(params.block,
-                                    UI_BTYPE_LABEL,
+                                    ButType::Label,
                                     0,
                                     ICON_NONE,
                                     value_str,
@@ -297,8 +288,6 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
                                     segment_width,
                                     params.height,
                                     nullptr,
-                                    0,
-                                    0,
                                     std::nullopt);
 
       UI_but_func_tooltip_set(
@@ -306,7 +295,7 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
           [](bContext * /*C*/, void *argN, const StringRef /*tip*/) {
             return fmt::format("{:f}", *((float *)argN));
           },
-          MEM_cnew<float>(__func__, value),
+          MEM_dupallocN<float>(__func__, value),
           MEM_freeN);
       /* Right-align Floats. */
       UI_but_drawflag_disable(but, UI_BUT_TEXT_LEFT);
@@ -324,7 +313,7 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
       ss << " " << value;
       const std::string value_str = ss.str();
       uiBut *but = uiDefIconTextBut(params.block,
-                                    UI_BTYPE_LABEL,
+                                    ButType::Label,
                                     0,
                                     ICON_NONE,
                                     value_str,
@@ -333,15 +322,13 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
                                     segment_width,
                                     params.height,
                                     nullptr,
-                                    0,
-                                    0,
                                     std::nullopt);
       UI_but_func_tooltip_set(
           but,
           [](bContext * /*C*/, void *argN, const StringRef /*tip*/) {
             return fmt::format("{}", *((int *)argN));
           },
-          MEM_cnew<int>(__func__, value),
+          MEM_dupallocN<int>(__func__, value),
           MEM_freeN);
       /* Right-align Floats. */
       UI_but_drawflag_disable(but, UI_BUT_TEXT_LEFT);
@@ -360,7 +347,7 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
       ss << " " << std::fixed << std::setprecision(3) << value;
       const std::string value_str = ss.str();
       uiBut *but = uiDefIconTextBut(params.block,
-                                    UI_BTYPE_LABEL,
+                                    ButType::Label,
                                     0,
                                     ICON_NONE,
                                     value_str,
@@ -369,8 +356,6 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
                                     segment_width,
                                     params.height,
                                     nullptr,
-                                    0,
-                                    0,
                                     std::nullopt);
       /* Right-align Floats. */
       UI_but_drawflag_disable(but, UI_BUT_TEXT_LEFT);
@@ -396,7 +381,7 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
   void draw_float4x4(const CellDrawParams &params, const float4x4 &value) const
   {
     uiBut *but = uiDefIconTextBut(params.block,
-                                  UI_BTYPE_LABEL,
+                                  ButType::Label,
                                   0,
                                   ICON_NONE,
                                   "...",
@@ -405,8 +390,6 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
                                   params.width,
                                   params.height,
                                   nullptr,
-                                  0,
-                                  0,
                                   std::nullopt);
     /* Center alignment. */
     UI_but_drawflag_disable(but, UI_BUT_TEXT_LEFT);
@@ -422,7 +405,7 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
           ss << value[3];
           return ss.str();
         },
-        MEM_cnew<float4x4>(__func__, value),
+        MEM_dupallocN<float4x4>(__func__, value),
         MEM_freeN);
   }
 
@@ -431,6 +414,180 @@ class SpreadsheetLayoutDrawer : public SpreadsheetDrawer {
     return spreadsheet_layout_.columns[column_index].width;
   }
 };
+
+template<typename T>
+static float estimate_max_column_width(const float min_width,
+                                       const int fontid,
+                                       const std::optional<int64_t> max_sample_size,
+                                       const VArray<T> &data,
+                                       FunctionRef<std::string(const T &)> to_string)
+{
+  if (const std::optional<T> value = data.get_if_single()) {
+    const std::string str = to_string(*value);
+    return std::max(min_width, BLF_width(fontid, str.c_str(), str.size()));
+  }
+  const int sample_size = max_sample_size.value_or(data.size());
+  float width = min_width;
+  for (const int i : data.index_range().take_front(sample_size)) {
+    const std::string str = to_string(data[i]);
+    const float value_width = BLF_width(fontid, str.c_str(), str.size());
+    width = std::max(width, value_width);
+  }
+  return width;
+}
+
+float ColumnValues::fit_column_values_width_px(const std::optional<int64_t> &max_sample_size) const
+{
+  const int fontid = BLF_default();
+  BLF_size(fontid, UI_DEFAULT_TEXT_POINTS * UI_SCALE_FAC);
+
+  auto get_min_width = [&](const float min_width) {
+    return max_sample_size.has_value() ? min_width : 0.0f;
+  };
+
+  const eSpreadsheetColumnValueType column_type = this->type();
+  switch (column_type) {
+    case SPREADSHEET_VALUE_TYPE_BOOL: {
+      return 2.0f * SPREADSHEET_WIDTH_UNIT;
+    }
+    case SPREADSHEET_VALUE_TYPE_FLOAT4X4: {
+      return 2.0f * SPREADSHEET_WIDTH_UNIT;
+    }
+    case SPREADSHEET_VALUE_TYPE_INT8: {
+      return estimate_max_column_width<int8_t>(
+          get_min_width(3 * SPREADSHEET_WIDTH_UNIT),
+          fontid,
+          max_sample_size,
+          data_.typed<int8_t>(),
+          [](const int value) { return fmt::format("{}", value); });
+    }
+    case SPREADSHEET_VALUE_TYPE_INT32: {
+      return estimate_max_column_width<int>(
+          get_min_width(3 * SPREADSHEET_WIDTH_UNIT),
+          fontid,
+          max_sample_size,
+          data_.typed<int>(),
+          [](const int value) { return fmt::format("{}", value); });
+    }
+    case SPREADSHEET_VALUE_TYPE_FLOAT: {
+      return estimate_max_column_width<float>(
+          get_min_width(3 * SPREADSHEET_WIDTH_UNIT),
+          fontid,
+          max_sample_size,
+          data_.typed<float>(),
+          [](const float value) { return fmt::format("{:.3f}", value); });
+    }
+    case SPREADSHEET_VALUE_TYPE_INT32_2D: {
+      return estimate_max_column_width<int2>(
+          get_min_width(3 * SPREADSHEET_WIDTH_UNIT),
+          fontid,
+          max_sample_size,
+          data_.typed<int2>(),
+          [](const int2 value) { return fmt::format("{}  {}", value.x, value.y); });
+    }
+    case SPREADSHEET_VALUE_TYPE_FLOAT2: {
+      return estimate_max_column_width<float2>(
+          get_min_width(6 * SPREADSHEET_WIDTH_UNIT),
+          fontid,
+          max_sample_size,
+          data_.typed<float2>(),
+          [](const float2 value) { return fmt::format("{:.3f}  {:.3f}", value.x, value.y); });
+    }
+    case SPREADSHEET_VALUE_TYPE_FLOAT3: {
+      return estimate_max_column_width<float3>(
+          get_min_width(9 * SPREADSHEET_WIDTH_UNIT),
+          fontid,
+          max_sample_size,
+          data_.typed<float3>(),
+          [](const float3 value) {
+            return fmt::format("{:.3f}  {:.3f}  {:.3f}", value.x, value.y, value.z);
+          });
+    }
+    case SPREADSHEET_VALUE_TYPE_COLOR: {
+      return estimate_max_column_width<ColorGeometry4f>(
+          get_min_width(12 * SPREADSHEET_WIDTH_UNIT),
+          fontid,
+          max_sample_size,
+          data_.typed<ColorGeometry4f>(),
+          [](const ColorGeometry4f value) {
+            return fmt::format(
+                "{:.3f}  {:.3f}  {:.3f}  {:.3f}", value.r, value.g, value.b, value.a);
+          });
+    }
+    case SPREADSHEET_VALUE_TYPE_BYTE_COLOR: {
+      return estimate_max_column_width<ColorGeometry4b>(
+          get_min_width(12 * SPREADSHEET_WIDTH_UNIT),
+          fontid,
+          max_sample_size,
+          data_.typed<ColorGeometry4b>(),
+          [](const ColorGeometry4b value) {
+            return fmt::format("{}  {}  {}  {}", value.r, value.g, value.b, value.a);
+          });
+    }
+    case SPREADSHEET_VALUE_TYPE_QUATERNION: {
+      return estimate_max_column_width<math::Quaternion>(
+          get_min_width(12 * SPREADSHEET_WIDTH_UNIT),
+          fontid,
+          max_sample_size,
+          data_.typed<math::Quaternion>(),
+          [](const math::Quaternion value) {
+            return fmt::format(
+                "{:.3f}  {:.3f}  {:.3f}  {:.3f}", value.x, value.y, value.z, value.w);
+          });
+    }
+    case SPREADSHEET_VALUE_TYPE_INSTANCES: {
+      return UI_ICON_SIZE + 0.5f * UI_UNIT_X +
+             estimate_max_column_width<bke::InstanceReference>(
+                 get_min_width(8 * SPREADSHEET_WIDTH_UNIT),
+                 fontid,
+                 max_sample_size,
+                 data_.typed<bke::InstanceReference>(),
+                 [](const bke::InstanceReference &value) {
+                   const StringRef name = value.name().is_empty() ? IFACE_("(Geometry)") :
+                                                                    value.name();
+                   return name;
+                 });
+    }
+    case SPREADSHEET_VALUE_TYPE_STRING: {
+      if (data_.type().is<std::string>()) {
+        return estimate_max_column_width<std::string>(get_min_width(SPREADSHEET_WIDTH_UNIT),
+                                                      fontid,
+                                                      max_sample_size,
+                                                      data_.typed<std::string>(),
+                                                      [](const StringRef value) { return value; });
+      }
+      if (data_.type().is<MStringProperty>()) {
+        return estimate_max_column_width<MStringProperty>(
+            get_min_width(SPREADSHEET_WIDTH_UNIT),
+            fontid,
+            max_sample_size,
+            data_.typed<MStringProperty>(),
+            [](const MStringProperty &value) { return StringRef(value.s, value.s_len); });
+      }
+      break;
+    }
+    case SPREADSHEET_VALUE_TYPE_UNKNOWN: {
+      break;
+    }
+  }
+  return 2.0f * SPREADSHEET_WIDTH_UNIT;
+}
+
+float ColumnValues::fit_column_width_px(const std::optional<int64_t> &max_sample_size) const
+{
+  const float padding_px = 0.5 * SPREADSHEET_WIDTH_UNIT;
+  const float min_width_px = SPREADSHEET_WIDTH_UNIT;
+
+  const float data_width_px = this->fit_column_values_width_px(max_sample_size);
+
+  const int fontid = BLF_default();
+  BLF_size(fontid, UI_DEFAULT_TEXT_POINTS * UI_SCALE_FAC);
+  const float name_width_px = BLF_width(fontid, name_.data(), name_.size());
+
+  const float width_px = std::max(min_width_px,
+                                  padding_px + std::max(data_width_px, name_width_px));
+  return width_px;
+}
 
 std::unique_ptr<SpreadsheetDrawer> spreadsheet_drawer_from_layout(
     const SpreadsheetLayout &spreadsheet_layout)

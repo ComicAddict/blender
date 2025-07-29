@@ -35,19 +35,19 @@ namespace blender::compositor {
  * to be derived from the compositor_parallel_reduction.glsl shader, see that file for more
  * information. Also see the compositor_parallel_reduction_info.hh file for example shader
  * definitions. */
-static float *parallel_reduction_dispatch(GPUTexture *texture,
+static float *parallel_reduction_dispatch(blender::gpu::Texture *texture,
                                           GPUShader *shader,
-                                          eGPUTextureFormat format)
+                                          blender::gpu::TextureFormat format)
 {
   GPU_shader_uniform_1b(shader, "is_initial_reduction", true);
 
-  GPUTexture *texture_to_reduce = texture;
+  blender::gpu::Texture *texture_to_reduce = texture;
   int2 size_to_reduce = int2(GPU_texture_width(texture), GPU_texture_height(texture));
 
   /* Dispatch the reduction shader until the texture reduces to a single pixel. */
   while (size_to_reduce != int2(1)) {
     const int2 reduced_size = math::divide_ceil(size_to_reduce, int2(16));
-    GPUTexture *reduced_texture = gpu::TexturePool::get().acquire_texture(
+    blender::gpu::Texture *reduced_texture = gpu::TexturePool::get().acquire_texture(
         reduced_size.x, reduced_size.y, format, GPU_TEXTURE_USAGE_GENERAL);
 
     GPU_memory_barrier(GPU_BARRIER_TEXTURE_FETCH);
@@ -581,6 +581,40 @@ float maximum_float(Context &context, const Result &result)
   }
 
   return maximum_float_cpu(result);
+}
+
+static float2 maximum_float2_gpu(Context &context, const Result &result)
+{
+  GPUShader *shader = context.get_shader("compositor_maximum_float2", ResultPrecision::Full);
+  GPU_shader_bind(shader);
+
+  float *reduced_value = parallel_reduction_dispatch(
+      result, shader, Result::gpu_texture_format(ResultType::Float2, ResultPrecision::Full));
+  const float2 maximum = reduced_value;
+  MEM_freeN(reduced_value);
+  GPU_shader_unbind();
+
+  return maximum;
+}
+
+static float2 maximum_float2_cpu(const Result &result)
+{
+  return parallel_reduce(
+      result.domain().size,
+      float2(std::numeric_limits<float>::lowest()),
+      [&](const int2 texel, float2 &accumulated_value) {
+        accumulated_value = math::max(accumulated_value, result.load_pixel<float2>(texel));
+      },
+      [&](const float2 &a, const float2 &b) { return math::max(a, b); });
+}
+
+float2 maximum_float2(Context &context, const Result &result)
+{
+  if (context.use_gpu()) {
+    return maximum_float2_gpu(context, result);
+  }
+
+  return maximum_float2_cpu(result);
 }
 
 static float maximum_float_in_range_gpu(Context &context,

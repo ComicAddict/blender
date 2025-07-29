@@ -36,7 +36,6 @@ from bpy.app.translations import (
     pgettext_iface as iface_,
     pgettext_tip as tip_,
     pgettext_rpt as rpt_,
-
 )
 
 from . import (
@@ -47,7 +46,7 @@ from . import (
 )
 
 rna_prop_url = StringProperty(name="URL", subtype='FILE_PATH', options={'HIDDEN'})
-rna_prop_directory = StringProperty(name="Repo Directory", subtype='FILE_PATH')
+rna_prop_directory = StringProperty(name="Repo Directory", subtype='DIR_PATH')
 rna_prop_repo_index = IntProperty(name="Repo Index", default=-1)
 rna_prop_remote_url = StringProperty(name="Repo URL", subtype='FILE_PATH')
 rna_prop_pkg_id = StringProperty(name="Package ID")
@@ -388,12 +387,16 @@ def extension_url_find_repo_index_and_pkg_id(url):
     repos_all = extension_repos_read()
     repo_cache_store = repo_cache_store_ensure()
 
+    # Regarding `ignore_missing`, set to True, otherwise a user-repository
+    # or a new repository that has not yet been initialize will report errors.
+    # It's OK to silently ignore these.
+
     for repo_index, (
             pkg_manifest_local,
             pkg_manifest_remote,
     ) in enumerate(zip(
-        repo_cache_store.pkg_manifest_from_local_ensure(error_fn=print),
-        repo_cache_store.pkg_manifest_from_remote_ensure(error_fn=print),
+        repo_cache_store.pkg_manifest_from_local_ensure(error_fn=print, ignore_missing=True),
+        repo_cache_store.pkg_manifest_from_remote_ensure(error_fn=print, ignore_missing=True),
         strict=True,
     )):
         # It's possible the remote repo could not be connected to when syncing.
@@ -1729,6 +1732,11 @@ class EXTENSIONS_OT_repo_refresh_all(Operator):
     bl_idname = "extensions.repo_refresh_all"
     bl_label = "Refresh Local"
 
+    use_active_only: BoolProperty(
+        name="Active Only",
+        description="Only refresh the active repository",
+    )
+
     def _exceptions_as_report(self, repo_name, ex):
         self.report({'WARNING'}, "{:s}: {:s}".format(repo_name, str(ex)))
 
@@ -1736,8 +1744,16 @@ class EXTENSIONS_OT_repo_refresh_all(Operator):
         import importlib
         import addon_utils
 
-        repos_all = extension_repos_read()
+        use_active_only = self.use_active_only
+        repos_all = extension_repos_read(use_active_only=use_active_only)
         repo_cache_store = repo_cache_store_ensure()
+
+        if not repos_all:
+            if use_active_only:
+                self.report({'INFO'}, "The active repository has invalid settings")
+            else:
+                assert False, "unreachable"  # Poll prevents this.
+            return {'CANCELLED'}
 
         for repo_item in repos_all:
             # Re-generate JSON meta-data from TOML files (needed for offline repository).
@@ -1903,10 +1919,10 @@ class EXTENSIONS_OT_repo_unlock(Operator):
 
         repo_name, repo_directory, _lock_age, _lock_error = self._repo_vars
         if (error := bl_extension_utils.repo_lock_directory_force_unlock(repo_directory)):
-            self.report({'ERROR'}, "Force unlock failed: {:s}".format(error))
+            self.report({'ERROR'}, rpt_("Force unlock failed: {:s}").format(error))
             return {'CANCELLED'}
 
-        self.report({'INFO'}, "Unlocked: {:s}".format(repo_name))
+        self.report({'INFO'}, rpt_("Unlocked: {:s}").format(repo_name))
         return {'FINISHED'}
 
     def draw(self, _context):
@@ -2442,7 +2458,19 @@ class EXTENSIONS_OT_package_install_files(Operator, _ExtCmdMixIn):
         "repo_directory",
         "pkg_id_sequence"
     )
+
+    # Dropping a file-path stores values in the class instance, values used are as follows:
+    #
+    # - None: Unset (not dropping), this value is read from the class.
+    # - (pkg_id, pkg_type): Drop values have been extracted from the ZIP file.
+    #   Where the `pkg_id` is the ID in the extensions manifest and the `pkg_type`
+    #   is the type of extension see `rna_prop_enable_on_install_type_map` keys.
     _drop_variables = None
+    # Used when dropping legacy add-ons:
+    #
+    # - None: Unset, not dropping a legacy add-on.
+    # - True: Drop treats the `filepath` as a legacy add-on.
+    #   `_drop_variables` will be None.
     _legacy_drop = None
 
     filter_glob: StringProperty(default="*.zip;*.py", options={'HIDDEN'})
@@ -2790,7 +2818,7 @@ class EXTENSIONS_OT_package_install_files(Operator, _ExtCmdMixIn):
                 return {'CANCELLED'}
 
             if isinstance(result := pkg_manifest_dict_from_archive_or_error(filepath), str):
-                self.report({'ERROR'}, "Error in manifest {:s}".format(result))
+                self.report({'ERROR'}, rpt_("Error in manifest {:s}").format(result))
                 return {'CANCELLED'}
 
             pkg_id = result["id"]
@@ -2895,6 +2923,17 @@ class EXTENSIONS_OT_package_install(Operator, _ExtCmdMixIn):
     bl_label = "Install Extension"
     __slots__ = _ExtCmdMixIn.cls_slots
 
+    # Dropping a URL stores values in the class instance, values used are as follows:
+    #
+    # - None: Unset (not-dropping), this value is read from the class.
+    # - A tuple containing values needed to execute the drop:
+    #   `(repo_index: int, repo_name: str, pkg_id: str, item_remote: PkgManifest_Normalized)`.
+    #
+    #   NOTE: these values aren't set immediately when dropping as they
+    #   require the local repository to sync first, so the up to date meta-data
+    #   from the URL can be used to ensure the dropped extension is known
+    #   and any errors are based on up to date information.
+    #
     _drop_variables = None
     # Optional draw & keyword-arguments, return True to terminate drawing.
     _draw_override = None
@@ -3121,7 +3160,7 @@ class EXTENSIONS_OT_package_install(Operator, _ExtCmdMixIn):
                     if python_version
                 ],
         ), str):
-            self.report({'ERROR'}, iface_("The extension is incompatible with this system:\n{:s}").format(error))
+            self.report({'ERROR'}, rpt_("The extension is incompatible with this system:\n{:s}").format(error))
             return {'CANCELLED'}
         del error
 
@@ -3816,7 +3855,7 @@ class EXTENSIONS_OT_repo_lock_all(Operator):
             lock_handle.release()
             return {'CANCELLED'}
 
-        self.report({'INFO'}, "Locked {:d} repos(s)".format(len(lock_result)))
+        self.report({'INFO'}, rpt_("Locked {:d} repos(s)").format(len(lock_result)))
         EXTENSIONS_OT_repo_lock_all.lock = lock_handle
         return {'FINISHED'}
 
@@ -3840,7 +3879,7 @@ class EXTENSIONS_OT_repo_unlock_all(Operator):
             # This isn't canceled, but there were issues unlocking.
             return {'FINISHED'}
 
-        self.report({'INFO'}, "Unlocked {:d} repos(s)".format(len(lock_result)))
+        self.report({'INFO'}, rpt_("Unlocked {:d} repos(s)").format(len(lock_result)))
         return {'FINISHED'}
 
 
@@ -3898,6 +3937,9 @@ class EXTENSIONS_OT_userpref_show_for_update(Operator):
         prefs = context.preferences
 
         prefs.active_section = 'EXTENSIONS'
+
+        # Extensions may be of any type, so show all.
+        wm.extension_type = 'ALL'
 
         # Show only extensions that will be updated.
         wm.extension_show_panel_installed = True

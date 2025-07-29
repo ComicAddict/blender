@@ -254,7 +254,7 @@ static void do_versions_nodetree_multi_file_output_format_2_62_1(Scene *sce, bNo
     if (node->type_legacy == CMP_NODE_OUTPUT_FILE) {
       /* previous CMP_NODE_OUTPUT_FILE nodes get converted to multi-file outputs */
       NodeImageFile *old_data = static_cast<NodeImageFile *>(node->storage);
-      NodeImageMultiFile *nimf = MEM_cnew<NodeImageMultiFile>("node image multi file");
+      NodeImageMultiFile *nimf = MEM_callocN<NodeImageMultiFile>("node image multi file");
       bNodeSocket *old_image = static_cast<bNodeSocket *>(BLI_findlink(&node->inputs, 0));
       bNodeSocket *old_z = static_cast<bNodeSocket *>(BLI_findlink(&node->inputs, 1));
 
@@ -291,19 +291,19 @@ static void do_versions_nodetree_multi_file_output_format_2_62_1(Scene *sce, bNo
 
         nimf->format.imtype = R_IMF_IMTYPE_MULTILAYER;
 
-        SNPRINTF(sockpath, "%s_Image", filename);
+        SNPRINTF_UTF8(sockpath, "%s_Image", filename);
         bNodeSocket *sock = ntreeCompositOutputFileAddSocket(ntree, node, sockpath, &nimf->format);
         /* XXX later do_versions copies path from socket name, need to set this explicitly */
-        STRNCPY(sock->name, sockpath);
+        STRNCPY_UTF8(sock->name, sockpath);
         if (old_image->link) {
           old_image->link->tosock = sock;
           sock->link = old_image->link;
         }
 
-        SNPRINTF(sockpath, "%s_Z", filename);
+        SNPRINTF_UTF8(sockpath, "%s_Z", filename);
         sock = ntreeCompositOutputFileAddSocket(ntree, node, sockpath, &nimf->format);
         /* XXX later do_versions copies path from socket name, need to set this explicitly */
-        STRNCPY(sock->name, sockpath);
+        STRNCPY_UTF8(sock->name, sockpath);
         if (old_z->link) {
           old_z->link->tosock = sock;
           sock->link = old_z->link;
@@ -312,7 +312,7 @@ static void do_versions_nodetree_multi_file_output_format_2_62_1(Scene *sce, bNo
       else {
         bNodeSocket *sock = ntreeCompositOutputFileAddSocket(ntree, node, filename, &nimf->format);
         /* XXX later do_versions copies path from socket name, need to set this explicitly */
-        STRNCPY(sock->name, filename);
+        STRNCPY_UTF8(sock->name, filename);
         if (old_image->link) {
           old_image->link->tosock = sock;
           sock->link = old_image->link;
@@ -370,7 +370,7 @@ static void do_versions_nodetree_multi_file_output_path_2_63_1(bNodeTree *ntree)
       LISTBASE_FOREACH (bNodeSocket *, sock, &node->inputs) {
         NodeImageMultiFileSocket *input = static_cast<NodeImageMultiFileSocket *>(sock->storage);
         /* input file path is stored in dedicated struct now instead socket name */
-        STRNCPY(input->path, sock->name);
+        STRNCPY_UTF8(input->path, sock->name);
       }
     }
   }
@@ -385,7 +385,7 @@ static void do_versions_nodetree_file_output_layers_2_64_5(bNodeTree *ntree)
 
         /* Multi-layer names are stored as separate strings now,
          * used the path string before, so copy it over. */
-        STRNCPY(input->layer, input->path);
+        STRNCPY_UTF8(input->layer, input->path);
 
         /* paths/layer names also have to be unique now, initial check */
         ntreeCompositOutputFileUniquePath(&node->inputs, sock, input->path, '_');
@@ -400,7 +400,7 @@ static void do_versions_nodetree_image_layer_2_64_5(bNodeTree *ntree)
   LISTBASE_FOREACH (bNode *, node, &ntree->nodes) {
     if (node->type_legacy == CMP_NODE_IMAGE) {
       LISTBASE_FOREACH (bNodeSocket *, sock, &node->outputs) {
-        NodeImageLayer *output = MEM_cnew<NodeImageLayer>("node image layer");
+        NodeImageLayer *output = MEM_callocN<NodeImageLayer>("node image layer");
 
         /* Take pass index both from current storage pointer (actually an int). */
         output->pass_index = POINTER_AS_INT(sock->storage);
@@ -418,7 +418,7 @@ static void do_versions_nodetree_frame_2_64_6(bNodeTree *ntree)
     if (node->type_legacy == NODE_FRAME) {
       /* initialize frame node storage data */
       if (node->storage == nullptr) {
-        NodeFrame *data = MEM_cnew<NodeFrame>("frame node storage");
+        NodeFrame *data = MEM_callocN<NodeFrame>("frame node storage");
         node->storage = data;
 
         /* copy current flags */
@@ -629,17 +629,17 @@ static const char *node_get_static_idname(int type, int treetype)
         return "CompositorNodeViewer";
       case CMP_NODE_RGB:
         return "CompositorNodeRGB";
-      case CMP_NODE_VALUE:
+      case CMP_NODE_VALUE_DEPRECATED:
         return "CompositorNodeValue";
-      case CMP_NODE_MIX_RGB:
+      case CMP_NODE_MIX_RGB_DEPRECATED:
         return "CompositorNodeMixRGB";
-      case CMP_NODE_VALTORGB:
+      case CMP_NODE_VALTORGB_DEPRECATED:
         return "CompositorNodeValToRGB";
       case CMP_NODE_RGBTOBW:
         return "CompositorNodeRGBToBW";
       case CMP_NODE_NORMAL:
         return "CompositorNodeNormal";
-      case CMP_NODE_CURVE_VEC:
+      case CMP_NODE_CURVE_VEC_DEPRECATED:
         return "CompositorNodeCurveVec";
       case CMP_NODE_CURVE_RGB:
         return "CompositorNodeCurveRGB";
@@ -649,9 +649,9 @@ static const char *node_get_static_idname(int type, int treetype)
         return "CompositorNodeBlur";
       case CMP_NODE_FILTER:
         return "CompositorNodeFilter";
-      case CMP_NODE_MAP_VALUE:
+      case CMP_NODE_MAP_VALUE_DEPRECATED:
         return "CompositorNodeMapValue";
-      case CMP_NODE_MAP_RANGE:
+      case CMP_NODE_MAP_RANGE_DEPRECATED:
         return "CompositorNodeMapRange";
       case CMP_NODE_TIME:
         return "CompositorNodeTime";
@@ -669,11 +669,11 @@ static const char *node_get_static_idname(int type, int treetype)
         return "CompositorNodeImage";
       case CMP_NODE_R_LAYERS:
         return "CompositorNodeRLayers";
-      case CMP_NODE_COMPOSITE:
+      case CMP_NODE_COMPOSITE_DEPRECATED:
         return "CompositorNodeComposite";
       case CMP_NODE_OUTPUT_FILE:
         return "CompositorNodeOutputFile";
-      case CMP_NODE_TEXTURE:
+      case CMP_NODE_TEXTURE_DEPRECATED:
         return "CompositorNodeTexture";
       case CMP_NODE_TRANSLATE:
         return "CompositorNodeTranslate";
@@ -723,7 +723,7 @@ static const char *node_get_static_idname(int type, int treetype)
         return "CompositorNodeDisplace";
       case CMP_NODE_COMBHSVA_LEGACY:
         return "CompositorNodeCombHSVA";
-      case CMP_NODE_MATH:
+      case CMP_NODE_MATH_DEPRECATED:
         return "CompositorNodeMath";
       case CMP_NODE_LUMA_MATTE:
         return "CompositorNodeLumaMatte";
@@ -913,27 +913,25 @@ static void do_versions_nodetree_customnodes(bNodeTree *ntree, int /*is_group*/)
 
     /* node type idname */
     LISTBASE_FOREACH (bNode *, node, &ntree->nodes) {
-      BLI_strncpy(node->idname,
-                  node_get_static_idname(node->type_legacy, ntree->type),
-                  sizeof(node->idname));
+      STRNCPY_UTF8(node->idname, node_get_static_idname(node->type_legacy, ntree->type));
 
       /* existing old nodes have been initialized already */
       node->flag |= NODE_INIT;
 
       /* sockets idname */
       LISTBASE_FOREACH (bNodeSocket *, sock, &node->inputs) {
-        STRNCPY(sock->idname, node_socket_get_static_idname(sock).c_str());
+        STRNCPY_UTF8(sock->idname, node_socket_get_static_idname(sock).c_str());
       }
       LISTBASE_FOREACH (bNodeSocket *, sock, &node->outputs) {
-        STRNCPY(sock->idname, node_socket_get_static_idname(sock).c_str());
+        STRNCPY_UTF8(sock->idname, node_socket_get_static_idname(sock).c_str());
       }
     }
     /* tree sockets idname */
     LISTBASE_FOREACH (bNodeSocket *, sock, &ntree->inputs_legacy) {
-      STRNCPY(sock->idname, node_socket_get_static_idname(sock).c_str());
+      STRNCPY_UTF8(sock->idname, node_socket_get_static_idname(sock).c_str());
     }
     LISTBASE_FOREACH (bNodeSocket *, sock, &ntree->outputs_legacy) {
-      STRNCPY(sock->idname, node_socket_get_static_idname(sock).c_str());
+      STRNCPY_UTF8(sock->idname, node_socket_get_static_idname(sock).c_str());
     }
   }
 
@@ -960,7 +958,7 @@ static void do_versions_nodetree_customnodes(bNodeTree *ntree, int /*is_group*/)
   {
     LISTBASE_FOREACH (bNode *, node, &ntree->nodes) {
       LISTBASE_FOREACH (bNodeSocket *, sock, &node->inputs) {
-        STRNCPY(sock->identifier, sock->name);
+        STRNCPY_UTF8(sock->identifier, sock->name);
         BLI_uniquename(&node->inputs,
                        sock,
                        "socket",
@@ -969,7 +967,7 @@ static void do_versions_nodetree_customnodes(bNodeTree *ntree, int /*is_group*/)
                        sizeof(sock->identifier));
       }
       LISTBASE_FOREACH (bNodeSocket *, sock, &node->outputs) {
-        STRNCPY(sock->identifier, sock->name);
+        STRNCPY_UTF8(sock->identifier, sock->name);
         BLI_uniquename(&node->outputs,
                        sock,
                        "socket",
@@ -979,7 +977,7 @@ static void do_versions_nodetree_customnodes(bNodeTree *ntree, int /*is_group*/)
       }
     }
     LISTBASE_FOREACH (bNodeSocket *, sock, &ntree->inputs_legacy) {
-      STRNCPY(sock->identifier, sock->name);
+      STRNCPY_UTF8(sock->identifier, sock->name);
       BLI_uniquename(&ntree->inputs_legacy,
                      sock,
                      "socket",
@@ -988,7 +986,7 @@ static void do_versions_nodetree_customnodes(bNodeTree *ntree, int /*is_group*/)
                      sizeof(sock->identifier));
     }
     LISTBASE_FOREACH (bNodeSocket *, sock, &ntree->outputs_legacy) {
-      STRNCPY(sock->identifier, sock->name);
+      STRNCPY_UTF8(sock->identifier, sock->name);
       BLI_uniquename(&ntree->outputs_legacy,
                      sock,
                      "socket",
@@ -999,12 +997,40 @@ static void do_versions_nodetree_customnodes(bNodeTree *ntree, int /*is_group*/)
   }
 }
 
+/* Sync functions update formula parameters for other modes, such that the result is comparable.
+ * Note that the results are not exactly the same due to differences in color handling
+ * (sRGB conversion happens for LGG),
+ * but this keeps settings comparable. */
+static void color_balance_node_cdl_from_lgg(bNode *node)
+{
+  NodeColorBalance *n = (NodeColorBalance *)node->storage;
+
+  for (int c = 0; c < 3; c++) {
+    n->slope[c] = (2.0f - n->lift[c]) * n->gain[c];
+    n->offset[c] = (n->lift[c] - 1.0f) * n->gain[c];
+    n->power[c] = (n->gamma[c] != 0.0f) ? 1.0f / n->gamma[c] : 1000000.0f;
+  }
+}
+
+static void color_balance_node_lgg_from_cdl(bNode *node)
+{
+  NodeColorBalance *n = (NodeColorBalance *)node->storage;
+
+  for (int c = 0; c < 3; c++) {
+    float d = n->slope[c] + n->offset[c];
+    n->lift[c] = (d != 0.0f ? n->slope[c] + 2.0f * n->offset[c] / d : 0.0f);
+    n->gain[c] = d;
+    n->gamma[c] = (n->power[c] != 0.0f) ? 1.0f / n->power[c] : 1000000.0f;
+  }
+}
+
 static bool strip_colorbalance_update_cb(Strip *strip, void * /*user_data*/)
 {
   StripData *data = strip->data;
 
   if (data && data->color_balance) {
-    SequenceModifierData *smd = SEQ_modifier_new(strip, nullptr, seqModifierType_ColorBalance);
+    StripModifierData *smd = blender::seq::modifier_new(
+        strip, nullptr, seqModifierType_ColorBalance);
     ColorBalanceModifierData *cbmd = (ColorBalanceModifierData *)smd;
 
     cbmd->color_balance = *data->color_balance;
@@ -1029,7 +1055,7 @@ static bool strip_set_alpha_mode_cb(Strip *strip, void * /*user_data*/)
     strip->alpha_mode = SEQ_ALPHA_STRAIGHT;
   }
   else {
-    SEQ_alpha_mode_from_file_extension(strip);
+    blender::seq::alpha_mode_from_file_extension(strip);
   }
   return true;
 }
@@ -1052,16 +1078,16 @@ static bNodeSocket *version_make_socket_stub(const char *idname,
                                              const void *default_value,
                                              const IDProperty *prop)
 {
-  bNodeSocket *socket = MEM_cnew<bNodeSocket>(__func__);
+  bNodeSocket *socket = MEM_callocN<bNodeSocket>(__func__);
   socket->runtime = MEM_new<blender::bke::bNodeSocketRuntime>(__func__);
-  STRNCPY(socket->idname, idname);
+  STRNCPY_UTF8(socket->idname, idname);
   socket->type = int(type);
   socket->in_out = int(in_out);
 
   socket->limit = (in_out == SOCK_IN ? 1 : 0xFFF);
 
-  STRNCPY(socket->identifier, identifier);
-  STRNCPY(socket->name, name);
+  STRNCPY_UTF8(socket->identifier, identifier);
+  STRNCPY_UTF8(socket->name, name);
   socket->storage = nullptr;
   socket->flag |= SOCK_COLLAPSED;
 
@@ -1081,17 +1107,17 @@ static bNode *version_add_group_in_out_node(bNodeTree *ntree, const int type)
   ListBase *node_socket_list = nullptr;
   eNodeSocketInOut socket_in_out = SOCK_IN;
 
-  bNode *node = MEM_cnew<bNode>("new node");
+  bNode *node = MEM_callocN<bNode>("new node");
   switch (type) {
     case NODE_GROUP_INPUT:
-      STRNCPY(node->idname, "NodeGroupInput");
+      STRNCPY_UTF8(node->idname, "NodeGroupInput");
       ntree_socket_list = &ntree->inputs_legacy;
       /* Group input has only outputs. */
       node_socket_list = &node->outputs;
       socket_in_out = SOCK_OUT;
       break;
     case NODE_GROUP_OUTPUT:
-      STRNCPY(node->idname, "NodeGroupOutput");
+      STRNCPY_UTF8(node->idname, "NodeGroupOutput");
       ntree_socket_list = &ntree->outputs_legacy;
       /* Group output has only inputs. */
       node_socket_list = &node->inputs;
@@ -1434,7 +1460,7 @@ void blo_do_versions_260(FileData *fd, Library * /*lib*/, Main *bmain)
 
   if (!MAIN_VERSION_FILE_ATLEAST(bmain, 261, 3)) {
     {
-      /* convert extended ascii to utf-8 for text editor */
+      /* Convert extended ASCII to UTF8 for text editor. */
       CLANG_FORMAT_NOP_WORKAROUND;
       LISTBASE_FOREACH (Text *, text, &bmain->texts) {
         if (!(text->flags & TXT_ISEXT)) {
@@ -1528,7 +1554,7 @@ void blo_do_versions_260(FileData *fd, Library * /*lib*/, Main *bmain)
     LISTBASE_FOREACH (Scene *, scene, &bmain->scenes) {
       LISTBASE_FOREACH (KeyingSet *, ks, &scene->keyingsets) {
         if (!ks->idname[0]) {
-          STRNCPY(ks->idname, ks->name);
+          STRNCPY_UTF8(ks->idname, ks->name);
         }
       }
     }
@@ -1789,7 +1815,7 @@ void blo_do_versions_260(FileData *fd, Library * /*lib*/, Main *bmain)
         LISTBASE_FOREACH (bNode *, node, &ntree->nodes) {
           if (node->type_legacy == CMP_NODE_DILATEERODE) {
             if (node->storage == nullptr) {
-              NodeDilateErode *data = MEM_cnew<NodeDilateErode>(__func__);
+              NodeDilateErode *data = MEM_callocN<NodeDilateErode>(__func__);
               data->falloff = PROP_SMOOTH;
               node->storage = data;
             }
@@ -1832,7 +1858,7 @@ void blo_do_versions_260(FileData *fd, Library * /*lib*/, Main *bmain)
         LISTBASE_FOREACH (bNode *, node, &ntree->nodes) {
           if (node->type_legacy == CMP_NODE_MASK) {
             if (node->storage == nullptr) {
-              NodeMask *data = MEM_cnew<NodeMask>(__func__);
+              NodeMask *data = MEM_callocN<NodeMask>(__func__);
               /* move settings into own struct */
               data->size_x = int(node->custom3);
               data->size_y = int(node->custom4);
@@ -1849,7 +1875,8 @@ void blo_do_versions_260(FileData *fd, Library * /*lib*/, Main *bmain)
   if (!MAIN_VERSION_FILE_ATLEAST(bmain, 263, 18)) {
     LISTBASE_FOREACH (Scene *, scene, &bmain->scenes) {
       if (scene->ed) {
-        SEQ_for_each_callback(&scene->ed->seqbase, strip_colorbalance_update_cb, nullptr);
+        blender::seq::for_each_callback(
+            &scene->ed->seqbase, strip_colorbalance_update_cb, nullptr);
       }
     }
   }
@@ -1886,7 +1913,7 @@ void blo_do_versions_260(FileData *fd, Library * /*lib*/, Main *bmain)
          * crazy anyway and think it's fair enough to break compatibility in that cases.
          */
 
-        STRNCPY(ima->colorspace_settings.name, "Raw");
+        STRNCPY_UTF8(ima->colorspace_settings.name, "Raw");
       }
     }
   }
@@ -1961,7 +1988,7 @@ void blo_do_versions_260(FileData *fd, Library * /*lib*/, Main *bmain)
                 fmd->domain->flame_vorticity = 0.5f;
                 fmd->domain->flame_ignition = 1.25f;
                 fmd->domain->flame_max_temp = 1.75f;
-                fmd->domain->adapt_threshold = 0.02f;
+                fmd->domain->adapt_threshold = 0.002f;
                 fmd->domain->adapt_margin = 4;
                 fmd->domain->flame_smoke_color[0] = 0.7f;
                 fmd->domain->flame_smoke_color[1] = 0.7f;
@@ -2088,7 +2115,7 @@ void blo_do_versions_260(FileData *fd, Library * /*lib*/, Main *bmain)
   if (!MAIN_VERSION_FILE_ATLEAST(bmain, 265, 5)) {
     LISTBASE_FOREACH (Scene *, scene, &bmain->scenes) {
       if (scene->ed) {
-        SEQ_for_each_callback(&scene->ed->seqbase, strip_set_alpha_mode_cb, nullptr);
+        blender::seq::for_each_callback(&scene->ed->seqbase, strip_set_alpha_mode_cb, nullptr);
       }
 
       if (scene->r.bake_samples == 0) {
@@ -2116,24 +2143,6 @@ void blo_do_versions_260(FileData *fd, Library * /*lib*/, Main *bmain)
         }
       }
     }
-
-    FOREACH_NODETREE_BEGIN (bmain, ntree, id) {
-      if (ntree->type == NTREE_COMPOSIT) {
-        LISTBASE_FOREACH (bNode *, node, &ntree->nodes) {
-          if (node->type_legacy == CMP_NODE_IMAGE) {
-            Image *image = static_cast<Image *>(
-                blo_do_versions_newlibadr(fd, &ntree->id, ID_IS_LINKED(ntree), node->id));
-
-            if (image) {
-              if ((image->flag & IMA_DO_PREMUL) == 0 && image->alpha_mode == IMA_ALPHA_STRAIGHT) {
-                node->custom1 |= CMP_NODE_IMAGE_USE_STRAIGHT_OUTPUT;
-              }
-            }
-          }
-        }
-      }
-    }
-    FOREACH_NODETREE_END;
   }
   else if (!MAIN_VERSION_FILE_ATLEAST(bmain, 266, 1)) {
     /* texture use alpha was removed for 2.66 but added back again for 2.66a,
@@ -2196,7 +2205,7 @@ void blo_do_versions_260(FileData *fd, Library * /*lib*/, Main *bmain)
       if (ntree->type == NTREE_COMPOSIT) {
         LISTBASE_FOREACH (bNode *, node, &ntree->nodes) {
           if (node->type_legacy == CMP_NODE_TRANSLATE && node->storage == nullptr) {
-            node->storage = MEM_cnew<NodeTranslateData>("node translate data");
+            node->storage = MEM_callocN<NodeTranslateData>("node translate data");
           }
         }
       }
@@ -2227,13 +2236,13 @@ void blo_do_versions_260(FileData *fd, Library * /*lib*/, Main *bmain)
             /* convert deprecated treetype setting to tree_idname */
             switch (snode->treetype) {
               case NTREE_COMPOSIT:
-                STRNCPY(snode->tree_idname, "CompositorNodeTree");
+                STRNCPY_UTF8(snode->tree_idname, "CompositorNodeTree");
                 break;
               case NTREE_SHADER:
-                STRNCPY(snode->tree_idname, "ShaderNodeTree");
+                STRNCPY_UTF8(snode->tree_idname, "ShaderNodeTree");
                 break;
               case NTREE_TEXTURE:
-                STRNCPY(snode->tree_idname, "TextureNodeTree");
+                STRNCPY_UTF8(snode->tree_idname, "TextureNodeTree");
                 break;
             }
           }
@@ -2675,7 +2684,7 @@ void blo_do_versions_260(FileData *fd, Library * /*lib*/, Main *bmain)
             NodeColorBalance *n = static_cast<NodeColorBalance *>(node->storage);
             if (node->custom1 == 0) {
               /* LGG mode stays the same, just init CDL settings */
-              ntreeCompositColorBalanceSyncFromLGG(ntree, node);
+              color_balance_node_cdl_from_lgg(node);
             }
             else if (node->custom1 == 1) {
               /* CDL previously used same variables as LGG, copy them over
@@ -2684,7 +2693,7 @@ void blo_do_versions_260(FileData *fd, Library * /*lib*/, Main *bmain)
               copy_v3_v3(n->offset, n->lift);
               copy_v3_v3(n->power, n->gamma);
               copy_v3_v3(n->slope, n->gain);
-              ntreeCompositColorBalanceSyncFromCDL(ntree, node);
+              color_balance_node_lgg_from_cdl(node);
             }
           }
         }
@@ -2784,7 +2793,7 @@ void blo_do_versions_260(FileData *fd, Library * /*lib*/, Main *bmain)
 
       LISTBASE_FOREACH (Scene *, scene, &bmain->scenes) {
         if (scene->ed) {
-          SEQ_for_each_callback(&scene->ed->seqbase, strip_set_wipe_angle_cb, nullptr);
+          blender::seq::for_each_callback(&scene->ed->seqbase, strip_set_wipe_angle_cb, nullptr);
         }
       }
 

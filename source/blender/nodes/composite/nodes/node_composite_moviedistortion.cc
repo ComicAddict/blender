@@ -16,6 +16,7 @@
 #include "BKE_tracking.h"
 
 #include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "GPU_shader.hh"
@@ -35,8 +36,9 @@ static void cmp_node_moviedistortion_declare(NodeDeclarationBuilder &b)
 {
   b.add_input<decl::Color>("Image")
       .default_value({0.8f, 0.8f, 0.8f, 1.0f})
-      .compositor_domain_priority(0);
-  b.add_output<decl::Color>("Image");
+      .structure_type(StructureType::Dynamic);
+
+  b.add_output<decl::Color>("Image").structure_type(StructureType::Dynamic);
 }
 
 static void init(const bContext *C, PointerRNA *ptr)
@@ -74,7 +76,7 @@ static void node_composit_buts_moviedistortion(uiLayout *layout, bContext *C, Po
     return;
   }
 
-  uiItemR(layout, ptr, "distortion_type", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  layout->prop(ptr, "distortion_type", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
 }
 
 using namespace blender::compositor;
@@ -85,10 +87,10 @@ class MovieDistortionOperation : public NodeOperation {
 
   void execute() override
   {
-    Result &input_image = get_input("Image");
-    Result &output_image = get_result("Image");
-    if (input_image.is_single_value() || !get_movie_clip()) {
-      input_image.pass_through(output_image);
+    const Result &input_image = this->get_input("Image");
+    if (input_image.is_single_value() || !this->get_movie_clip()) {
+      Result &output_image = this->get_result("Image");
+      output_image.share_data(input_image);
       return;
     }
 
@@ -163,7 +165,7 @@ static NodeOperation *get_compositor_operation(Context &context, DNode node)
 
 }  // namespace blender::nodes::node_composite_moviedistortion_cc
 
-void register_node_type_cmp_moviedistortion()
+static void register_node_type_cmp_moviedistortion()
 {
   namespace file_ns = blender::nodes::node_composite_moviedistortion_cc;
 
@@ -184,3 +186,4 @@ void register_node_type_cmp_moviedistortion()
 
   blender::bke::node_register_type(ntype);
 }
+NOD_REGISTER_NODE(register_node_type_cmp_moviedistortion)

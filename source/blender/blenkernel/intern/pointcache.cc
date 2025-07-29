@@ -89,6 +89,8 @@
 #  include "LzmaLib.h"
 #endif
 
+#include <zstd.h>
+
 #define PTCACHE_DATA_FROM(data, type, from) \
   if (data[type]) { \
     memcpy(data[type], from, ptcache_data_size[type]); \
@@ -106,7 +108,7 @@
 /* could be made into a pointcache option */
 #define DURIAN_POINTCACHE_LIB_OK 1
 
-static CLG_LogRef LOG = {"bke.pointcache"};
+static CLG_LogRef LOG = {"physics.pointcache"};
 
 static int ptcache_data_size[] = {
     sizeof(uint),     /* BPHYS_DATA_INDEX */
@@ -163,8 +165,7 @@ static int ptcache_basic_header_write(PTCacheFile *pf)
 }
 static void ptcache_add_extra_data(PTCacheMem *pm, uint type, uint count, void *data)
 {
-  PTCacheExtra *extra = static_cast<PTCacheExtra *>(
-      MEM_callocN(sizeof(PTCacheExtra), "Point cache: extra data descriptor"));
+  PTCacheExtra *extra = MEM_callocN<PTCacheExtra>("Point cache: extra data descriptor");
 
   extra->type = type;
   extra->totdata = count;
@@ -339,7 +340,7 @@ static void ptcache_particle_read(
 
   if (old_data) {
     /* old format cache */
-    memcpy(&pa->state, old_data, sizeof(ParticleKey));
+    pa->state = *reinterpret_cast<const ParticleKey *>(old_data);
     return;
   }
 
@@ -422,9 +423,9 @@ static void ptcache_particle_interpolate(int index,
     return;
   }
 
-  memcpy(keys + 1, &pa->state, sizeof(ParticleKey));
+  keys[1] = pa->state;
   if (old_data) {
-    memcpy(keys + 2, old_data, sizeof(ParticleKey));
+    keys[2] = *reinterpret_cast<const ParticleKey *>(old_data);
   }
   else {
     BKE_ptcache_make_particle_key(keys + 2, 0, data, cfra2);
@@ -681,7 +682,7 @@ static void ptcache_dynamicpaint_error(const ID * /*owner_id*/,
 static int ptcache_dynamicpaint_write(PTCacheFile *pf, void *dp_v)
 {
   DynamicPaintSurface *surface = (DynamicPaintSurface *)dp_v;
-  int cache_compress = PTCACHE_COMPRESS_LZO;
+  int cache_compress = PTCACHE_COMPRESS_ZSTD_FAST;
 
   /* version header */
   ptcache_file_write(pf, DPAINT_CACHE_VERSION, 1, sizeof(char[4]));
@@ -707,11 +708,22 @@ static int ptcache_dynamicpaint_write(PTCacheFile *pf, void *dp_v)
       return 0;
     }
 
-    out = (uchar *)MEM_callocN(LZO_OUT_LEN(in_len), "pointcache_lzo_buffer");
+    if (cache_compress == PTCACHE_COMPRESS_ZSTD_FAST) {
+      const size_t out_len = ZSTD_compressBound(in_len);
+      blender::Array<uchar> out_data(out_len);
+      ptcache_file_compressed_write(pf,
+                                    static_cast<uchar *>(surface->data->type_data),
+                                    in_len,
+                                    out_data.data(),
+                                    cache_compress);
+    }
+    else {
+      out = (uchar *)MEM_callocN(LZO_OUT_LEN(in_len), "pointcache_lzo_buffer");
 
-    ptcache_file_compressed_write(
-        pf, (uchar *)surface->data->type_data, in_len, out, cache_compress);
-    MEM_freeN(out);
+      ptcache_file_compressed_write(
+          pf, (uchar *)surface->data->type_data, in_len, out, cache_compress);
+      MEM_freeN(out);
+    }
   }
   return 1;
 }
@@ -752,8 +764,13 @@ static int ptcache_dynamicpaint_read(PTCacheFile *pf, void *dp_v)
       return 0;
     }
 
-    ptcache_file_compressed_read(
-        pf, (uchar *)surface->data->type_data, data_len * surface->data->total_points);
+    int ret = ptcache_file_compressed_read(pf,
+                                           static_cast<uchar *>(surface->data->type_data),
+                                           data_len * surface->data->total_points);
+    if (ret) {
+      CLOG_ERROR(&LOG, "Dynamic Paint: Unable to read the compressed cache data");
+      return 0;
+    }
   }
   return 1;
 }
@@ -1248,7 +1265,7 @@ void BKE_ptcache_ids_from_object(ListBase *lb, Object *ob, Scene *scene, int dup
 {
   lb->first = lb->last = nullptr;
   foreach_object_ptcache(scene, ob, duplis, [&](PTCacheID &pid, ModifierData * /*md*/) -> bool {
-    PTCacheID *own_pid = static_cast<PTCacheID *>(MEM_mallocN(sizeof(PTCacheID), "PTCacheID"));
+    PTCacheID *own_pid = MEM_mallocN<PTCacheID>("PTCacheID");
     *own_pid = pid;
     BLI_addtail(lb, own_pid);
     return true;
@@ -1389,7 +1406,7 @@ static size_t ptcache_filepath_ext_append(PTCacheID *pid,
             filename_ext, MAX_PTCACHE_FILE - len, "_%02u%s", pid->stack_index, ext);
       }
       else {
-        len += BLI_snprintf_rlen(filename_ext, MAX_PTCACHE_FILE - len, "%s", ext);
+        len += BLI_strncpy_rlen(filename_ext, ext, MAX_PTCACHE_FILE - len);
       }
     }
     else {
@@ -1489,7 +1506,7 @@ static PTCacheFile *ptcache_file_open(PTCacheID *pid, int mode, int cfra)
     return nullptr;
   }
 
-  pf = static_cast<PTCacheFile *>(MEM_mallocN(sizeof(PTCacheFile), "PTCacheFile"));
+  pf = MEM_mallocN<PTCacheFile>("PTCacheFile");
   pf->fp = fp;
   pf->old_format = 0;
   pf->frame = cfra;
@@ -1509,11 +1526,8 @@ static int ptcache_file_compressed_read(PTCacheFile *pf, uchar *result, uint len
   int r = 0;
   uchar compressed = 0;
   size_t in_len;
-#ifdef WITH_LZO
-  size_t out_len = len;
-#endif
   uchar *in;
-  uchar *props = static_cast<uchar *>(MEM_callocN(sizeof(char[16]), "tmp"));
+  uchar *props = MEM_calloc_arrayN<uchar>(16, "tmp");
 
   ptcache_file_read(pf, &compressed, 1, sizeof(uchar));
   if (compressed) {
@@ -1524,14 +1538,15 @@ static int ptcache_file_compressed_read(PTCacheFile *pf, uchar *result, uint len
       /* do nothing */
     }
     else {
-      in = (uchar *)MEM_callocN(sizeof(uchar) * in_len, "pointcache_compressed_buffer");
+      in = MEM_calloc_arrayN<uchar>(in_len, "pointcache_compressed_buffer");
       ptcache_file_read(pf, in, in_len, sizeof(uchar));
-#ifdef WITH_LZO
+#if 0  // #ifdef WITH_LZO
       if (compressed == 1) {
+        size_t out_len = len;
         r = lzo1x_decompress_safe(in, (lzo_uint)in_len, result, (lzo_uint *)&out_len, nullptr);
       }
 #endif
-#ifdef WITH_LZMA
+#if 0  // #ifdef WITH_LZMA
       if (compressed == 2) {
         size_t sizeOfIt;
         size_t leni = in_len, leno = len;
@@ -1541,6 +1556,15 @@ static int ptcache_file_compressed_read(PTCacheFile *pf, uchar *result, uint len
         r = LzmaUncompress(result, &leno, in, &leni, props, sizeOfIt);
       }
 #endif
+      if (compressed & PTCACHE_COMPRESS_ZSTD) {
+        const size_t err = ZSTD_decompress(result, len, in, in_len);
+        r = ZSTD_isError(err);
+      }
+      else {
+        /* We are trying to read an unsupported compression format. */
+        BLI_assert_unreachable();
+        r = 1;
+      }
       MEM_freeN(in);
     }
   }
@@ -1558,12 +1582,12 @@ static int ptcache_file_compressed_write(
   int r = 0;
   uchar compressed = 0;
   size_t out_len = 0;
-  uchar *props = static_cast<uchar *>(MEM_callocN(sizeof(char[16]), "tmp"));
+  uchar *props = MEM_calloc_arrayN<uchar>(16, "tmp");
   size_t sizeOfIt = 5;
 
   (void)mode; /* unused when building w/o compression */
 
-#ifdef WITH_LZO
+#if 0  // #ifdef WITH_LZO
   out_len = LZO_OUT_LEN(in_len);
   if (mode == PTCACHE_COMPRESS_LZO) {
     LZO_HEAP_ALLOC(wrkmem, LZO1X_MEM_COMPRESS);
@@ -1577,9 +1601,8 @@ static int ptcache_file_compressed_write(
     }
   }
 #endif
-#ifdef WITH_LZMA
+#if 0  // #ifdef WITH_LZMA
   if (mode == PTCACHE_COMPRESS_LZMA) {
-
     r = LzmaCompress(out,
                      &out_len,
                      in,
@@ -1602,6 +1625,30 @@ static int ptcache_file_compressed_write(
     }
   }
 #endif
+  if (mode & PTCACHE_COMPRESS_ZSTD) {
+    /* TODO: Don't recaculate out_len here after lzo and lzma has been removed. */
+    out_len = ZSTD_compressBound(in_len);
+    if (ZSTD_isError(out_len)) {
+      compressed = 0;
+    }
+    else {
+      /* Zero means default compression. At the time of writing this is level 3. */
+      int compression_level = 0;
+      compressed = PTCACHE_COMPRESS_ZSTD_FAST;
+      if (mode == PTCACHE_COMPRESS_ZSTD_SLOW) {
+        compression_level = 22;
+        compressed = PTCACHE_COMPRESS_ZSTD_SLOW;
+      }
+      r = ZSTD_compress(out, out_len, in, in_len, compression_level);
+      if (ZSTD_isError(r)) {
+        compressed = 0;
+      }
+      else {
+        out_len = r;
+        r = 0;
+      }
+    }
+  }
 
   ptcache_file_write(pf, &compressed, 1, sizeof(uchar));
   if (compressed) {
@@ -1953,7 +2000,7 @@ static PTCacheMem *ptcache_disk_frame_to_mem(PTCacheID *pid, int cfra)
   }
 
   if (!error) {
-    pm = static_cast<PTCacheMem *>(MEM_callocN(sizeof(PTCacheMem), "Pointcache mem"));
+    pm = MEM_callocN<PTCacheMem>("Pointcache mem");
 
     pm->totpoint = pf->totpoint;
     pm->data_types = pf->data_types;
@@ -1962,10 +2009,10 @@ static PTCacheMem *ptcache_disk_frame_to_mem(PTCacheID *pid, int cfra)
     ptcache_data_alloc(pm);
 
     if (pf->flag & PTCACHE_TYPEFLAG_COMPRESS) {
-      for (i = 0; i < BPHYS_TOT_DATA; i++) {
+      for (i = 0; !error && i < BPHYS_TOT_DATA; i++) {
         uint out_len = pm->totpoint * ptcache_data_size[i];
         if (pf->data_types & (1 << i)) {
-          ptcache_file_compressed_read(pf, (uchar *)(pm->data[i]), out_len);
+          error = ptcache_file_compressed_read(pf, static_cast<uchar *>(pm->data[i]), out_len);
         }
       }
     }
@@ -1988,9 +2035,8 @@ static PTCacheMem *ptcache_disk_frame_to_mem(PTCacheID *pid, int cfra)
   if (!error && pf->flag & PTCACHE_TYPEFLAG_EXTRADATA) {
     uint extratype = 0;
 
-    while (ptcache_file_read(pf, &extratype, 1, sizeof(uint))) {
-      PTCacheExtra *extra = static_cast<PTCacheExtra *>(
-          MEM_callocN(sizeof(PTCacheExtra), "Pointcache extradata"));
+    while (!error && ptcache_file_read(pf, &extratype, 1, sizeof(uint))) {
+      PTCacheExtra *extra = MEM_callocN<PTCacheExtra>("Pointcache extradata");
 
       extra->type = extratype;
 
@@ -2000,8 +2046,9 @@ static PTCacheMem *ptcache_disk_frame_to_mem(PTCacheID *pid, int cfra)
                                 "Pointcache extradata->data");
 
       if (pf->flag & PTCACHE_TYPEFLAG_COMPRESS) {
-        ptcache_file_compressed_read(
-            pf, (uchar *)(extra->data), extra->totdata * ptcache_extra_datasize[extra->type]);
+        error = ptcache_file_compressed_read(pf,
+                                             static_cast<uchar *>(extra->data),
+                                             extra->totdata * ptcache_extra_datasize[extra->type]);
       }
       else {
         ptcache_file_read(pf, extra->data, extra->totdata, ptcache_extra_datasize[extra->type]);
@@ -2063,10 +2110,21 @@ static int ptcache_mem_frame_to_disk(PTCacheID *pid, PTCacheMem *pm)
       for (i = 0; i < BPHYS_TOT_DATA; i++) {
         if (pm->data[i]) {
           uint in_len = pm->totpoint * ptcache_data_size[i];
-          uchar *out = (uchar *)MEM_callocN(LZO_OUT_LEN(in_len) * 4, "pointcache_lzo_buffer");
-          ptcache_file_compressed_write(
-              pf, (uchar *)(pm->data[i]), in_len, out, pid->cache->compression);
-          MEM_freeN(out);
+          if (pid->cache->compression & PTCACHE_COMPRESS_ZSTD) {
+            const size_t out_len = ZSTD_compressBound(in_len);
+            blender::Array<uchar> out_data(out_len);
+            ptcache_file_compressed_write(pf,
+                                          static_cast<uchar *>(pm->data[i]),
+                                          in_len,
+                                          out_data.data(),
+                                          pid->cache->compression);
+          }
+          else {
+            uchar *out = (uchar *)MEM_callocN(LZO_OUT_LEN(in_len) * 4, "pointcache_lzo_buffer");
+            ptcache_file_compressed_write(
+                pf, (uchar *)(pm->data[i]), in_len, out, pid->cache->compression);
+            MEM_freeN(out);
+          }
         }
       }
     }
@@ -2099,10 +2157,21 @@ static int ptcache_mem_frame_to_disk(PTCacheID *pid, PTCacheMem *pm)
 
       if (pid->cache->compression) {
         uint in_len = extra->totdata * ptcache_extra_datasize[extra->type];
-        uchar *out = (uchar *)MEM_callocN(LZO_OUT_LEN(in_len) * 4, "pointcache_lzo_buffer");
-        ptcache_file_compressed_write(
-            pf, (uchar *)(extra->data), in_len, out, pid->cache->compression);
-        MEM_freeN(out);
+        if (pid->cache->compression & PTCACHE_COMPRESS_ZSTD) {
+          const size_t out_len = ZSTD_compressBound(in_len);
+          blender::Array<uchar> out_data(out_len);
+          ptcache_file_compressed_write(pf,
+                                        static_cast<uchar *>(extra->data),
+                                        in_len,
+                                        out_data.data(),
+                                        pid->cache->compression);
+        }
+        else {
+          uchar *out = (uchar *)MEM_callocN(LZO_OUT_LEN(in_len) * 4, "pointcache_lzo_buffer");
+          ptcache_file_compressed_write(
+              pf, (uchar *)(extra->data), in_len, out, pid->cache->compression);
+          MEM_freeN(out);
+        }
       }
       else {
         ptcache_file_write(pf, extra->data, extra->totdata, ptcache_extra_datasize[extra->type]);
@@ -2422,7 +2491,7 @@ static int ptcache_write(PTCacheID *pid, int cfra, int overwrite)
   int totpoint = pid->totpoint(pid->calldata, cfra);
   int i, error = 0;
 
-  pm = static_cast<PTCacheMem *>(MEM_callocN(sizeof(PTCacheMem), "Pointcache mem"));
+  pm = MEM_callocN<PTCacheMem>("Pointcache mem");
 
   pm->totpoint = pid->totwrite(pid->calldata, cfra);
   pm->data_types = cfra ? pid->data_types : pid->info_types;
@@ -2825,8 +2894,8 @@ void BKE_ptcache_id_time(
     uint end = cache->endframe;
 
     cache->cached_frames_len = cache->endframe - cache->startframe + 1;
-    cache->cached_frames = static_cast<char *>(
-        MEM_callocN(sizeof(char) * cache->cached_frames_len, "cached frames array"));
+    cache->cached_frames = MEM_calloc_arrayN<char>(cache->cached_frames_len,
+                                                   "cached frames array");
 
     if (pid->cache->flag & PTCACHE_DISK_CACHE) {
       /* mode is same as fopen's modes */
@@ -3023,7 +3092,7 @@ PointCache *BKE_ptcache_add(ListBase *ptcaches)
 {
   PointCache *cache;
 
-  cache = static_cast<PointCache *>(MEM_callocN(sizeof(PointCache), "PointCache"));
+  cache = MEM_callocN<PointCache>("PointCache");
   cache->startframe = 1;
   cache->endframe = 250;
   cache->step = 1;
@@ -3360,7 +3429,7 @@ void BKE_ptcache_bake(PTCacheBaker *baker)
            * PTCacheID is in a fully evaluated state. */
           PTCacheID pid_eval;
           Object *ob = reinterpret_cast<Object *>(pid->owner_id);
-          Object *ob_eval = DEG_get_evaluated_object(depsgraph, ob);
+          Object *ob_eval = DEG_get_evaluated(depsgraph, ob);
           ParticleSystem *psys = static_cast<ParticleSystem *>(pid->calldata);
           ParticleSystem *psys_eval = psys_eval_get(depsgraph, ob, psys);
           BKE_ptcache_id_from_particles(&pid_eval, ob_eval, psys_eval);
@@ -3403,7 +3472,7 @@ void BKE_ptcache_bake(PTCacheBaker *baker)
                * PTCacheID is in a fully evaluated state. */
               PTCacheID pid_eval;
               Object *ob = reinterpret_cast<Object *>(pid->owner_id);
-              Object *ob_eval = DEG_get_evaluated_object(depsgraph, ob);
+              Object *ob_eval = DEG_get_evaluated(depsgraph, ob);
               ParticleSystem *psys = static_cast<ParticleSystem *>(pid->calldata);
               ParticleSystem *psys_eval = psys_eval_get(depsgraph, ob, psys);
               BKE_ptcache_id_from_particles(&pid_eval, ob_eval, psys_eval);

@@ -9,7 +9,7 @@
 #include "NOD_rna_define.hh"
 #include "NOD_socket_search_link.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "RNA_enum_types.hh"
@@ -26,7 +26,9 @@ static void node_declare(NodeDeclarationBuilder &b)
 {
   const bNode *node = b.node_or_null();
 
-  b.add_input<decl::Geometry>("Mesh").supported_type(GeometryComponent::Type::Mesh);
+  b.add_input<decl::Geometry>("Mesh")
+      .supported_type(GeometryComponent::Type::Mesh)
+      .description("Mesh to find the closest surface point on");
   if (node != nullptr) {
     const eCustomDataType data_type = eCustomDataType(node->custom1);
     b.add_input(data_type, "Value").hide_value().field_on_all();
@@ -36,7 +38,7 @@ static void node_declare(NodeDeclarationBuilder &b)
       .field_on_all()
       .description(
           "Splits the faces of the input mesh into groups which can be sampled individually");
-  b.add_input<decl::Vector>("Sample Position").implicit_field(implicit_field_inputs::position);
+  b.add_input<decl::Vector>("Sample Position").implicit_field(NODE_DEFAULT_INPUT_POSITION_FIELD);
   b.add_input<decl::Int>("Sample Group ID").hide_value().supports_field();
 
   if (node != nullptr) {
@@ -51,7 +53,7 @@ static void node_declare(NodeDeclarationBuilder &b)
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "data_type", UI_ITEM_NONE, "", ICON_NONE);
+  layout->prop(ptr, "data_type", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
@@ -196,7 +198,7 @@ static void node_geo_exec(GeoNodeExecParams params)
     return;
   }
 
-  auto nearest_op = FieldOperation::Create(
+  auto nearest_op = FieldOperation::from(
       std::make_shared<SampleNearestSurfaceFunction>(geometry,
                                                      params.extract_input<Field<int>>("Group ID")),
       {params.extract_input<Field<float3>>("Sample Position"),
@@ -205,12 +207,12 @@ static void node_geo_exec(GeoNodeExecParams params)
   Field<float3> nearest_positions(nearest_op, 1);
   Field<bool> is_valid(nearest_op, 2);
 
-  Field<float3> bary_weights = Field<float3>(FieldOperation::Create(
+  Field<float3> bary_weights = Field<float3>(FieldOperation::from(
       std::make_shared<bke::mesh_surface_sample::BaryWeightFromPositionFn>(geometry),
       {nearest_positions, triangle_indices}));
 
   GField field = params.extract_input<GField>("Value");
-  auto sample_op = FieldOperation::Create(
+  auto sample_op = FieldOperation::from(
       std::make_shared<bke::mesh_surface_sample::BaryWeightSampleFn>(geometry, std::move(field)),
       {triangle_indices, bary_weights});
 

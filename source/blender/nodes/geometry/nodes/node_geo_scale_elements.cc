@@ -14,7 +14,7 @@
 
 #include "DNA_mesh_types.h"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "GEO_mesh_selection.hh"
@@ -27,12 +27,18 @@ namespace blender::nodes::node_geo_scale_elements_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Geometry>("Geometry").supported_type(GeometryComponent::Type::Mesh);
+  b.use_custom_socket_order();
+  b.allow_any_socket_order();
+  b.add_default_layout();
+  b.add_input<decl::Geometry>("Geometry")
+      .supported_type(GeometryComponent::Type::Mesh)
+      .description("Geometry to scale elements of");
+  b.add_output<decl::Geometry>("Geometry").propagate_all().align_with_previous();
   b.add_input<decl::Bool>("Selection").default_value(true).hide_value().field_on_all();
   b.add_input<decl::Float>("Scale", "Scale").default_value(1.0f).min(0.0f).field_on_all();
   b.add_input<decl::Vector>("Center")
       .subtype(PROP_TRANSLATION)
-      .implicit_field_on_all(implicit_field_inputs::position)
+      .implicit_field_on_all(NODE_DEFAULT_INPUT_POSITION_FIELD)
       .description(
           "Origin of the scaling for each element. If multiple elements are connected, their "
           "center is averaged");
@@ -42,7 +48,6 @@ static void node_declare(NodeDeclarationBuilder &b)
                    .description("Direction in which to scale the element")
                    .make_available(
                        [](bNode &node) { node.custom2 = GEO_NODE_SCALE_ELEMENTS_SINGLE_AXIS; });
-  b.add_output<decl::Geometry>("Geometry").propagate_all();
 
   const bNode *node = b.node_or_null();
   if (node != nullptr) {
@@ -53,8 +58,8 @@ static void node_declare(NodeDeclarationBuilder &b)
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "domain", UI_ITEM_NONE, "", ICON_NONE);
-  uiItemR(layout, ptr, "scale_mode", UI_ITEM_NONE, "", ICON_NONE);
+  layout->prop(ptr, "domain", UI_ITEM_NONE, "", ICON_NONE);
+  layout->prop(ptr, "scale_mode", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
@@ -136,7 +141,7 @@ static Array<int> reverse_indices_in_groups(const Span<int> group_indices,
    * atomically by many threads in parallel. `calloc` can be measurably faster than a parallel fill
    * of zero. Alternatively the offsets could be copied and incremented directly, but the cost of
    * the copy is slightly higher than the cost of `calloc`. */
-  int *counts = MEM_cnew_array<int>(size_t(offsets.size()), __func__);
+  int *counts = MEM_calloc_arrayN<int>(offsets.size(), __func__);
   BLI_SCOPED_DEFER([&]() { MEM_freeN(counts); })
   Array<int> results(group_indices.size());
   threading::parallel_for(group_indices.index_range(), 1024, [&](const IndexRange range) {
@@ -182,7 +187,7 @@ template<typename T> static T gather_mean(const VArray<T> &values, const Span<in
 
   T value;
   devirtualize_varray(values, [&](const auto values) {
-    const auto accumulator = threading::parallel_reduce<MeanAccumulator>(
+    const auto accumulator = threading::parallel_deterministic_reduce<MeanAccumulator>(
         indices.index_range(),
         2048,
         MeanAccumulator(T(), 0),

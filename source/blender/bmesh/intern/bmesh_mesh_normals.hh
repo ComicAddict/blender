@@ -52,7 +52,7 @@ void BM_verts_calc_normal_vcos(BMesh *bm,
 /**
  * \brief BMesh Compute Loop Normals from/to external data.
  *
- * Compute split normals, i.e. vertex normals associated with each poly (hence 'loop normals').
+ * Compute custom normals, i.e. vertex normals associated with each poly (hence 'loop normals').
  * Useful to materialize sharp edges (or non-smooth faces) without actually modifying the geometry
  * (splitting edges).
  */
@@ -98,7 +98,7 @@ bool BM_custom_loop_normals_to_vector_layer(BMesh *bm);
 void BM_custom_loop_normals_from_vector_layer(BMesh *bm, bool add_sharp_edges);
 
 /**
- * Define sharp edges as needed to mimic 'autosmooth' from angle threshold.
+ * Define sharp edges as needed to mimic auto-smooth from angle threshold.
  *
  * Used when defining an empty custom loop normals data layer,
  * to keep same shading as with auto-smooth!

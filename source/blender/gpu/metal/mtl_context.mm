@@ -98,13 +98,13 @@ void MTLContext::set_ghost_context(GHOST_ContextHandle ghostCtxHandle)
   mtl_front_left->remove_all_attachments();
   mtl_back_left->remove_all_attachments();
 
-  GHOST_ContextCGL *ghost_cgl_ctx = dynamic_cast<GHOST_ContextCGL *>(ghost_ctx);
-  if (ghost_cgl_ctx != nullptr) {
-    default_fbo_mtltexture_ = ghost_cgl_ctx->metalOverlayTexture();
+  GHOST_ContextMTL *ghost_mtl_ctx = dynamic_cast<GHOST_ContextMTL *>(ghost_ctx);
+  if (ghost_mtl_ctx != nullptr) {
+    default_fbo_mtltexture_ = ghost_mtl_ctx->metalOverlayTexture();
 
-    MTL_LOG_INFO(
-        "Binding GHOST context CGL %p to GPU context %p. (Device: %p, queue: %p, texture: %p)",
-        ghost_cgl_ctx,
+    MTL_LOG_DEBUG(
+        "Binding GHOST context MTL %p to GPU context %p. (Device: %p, queue: %p, texture: %p)",
+        ghost_mtl_ctx,
         this,
         this->device,
         this->queue,
@@ -113,9 +113,9 @@ void MTLContext::set_ghost_context(GHOST_ContextHandle ghostCtxHandle)
     /* Check if the GHOST Context provides a default framebuffer: */
     if (default_fbo_mtltexture_) {
 
-      /* Release old GPUTexture handle */
+      /* Release old gpu::Texture handle */
       if (default_fbo_gputexture_) {
-        GPU_texture_free(wrap(static_cast<Texture *>(default_fbo_gputexture_)));
+        GPU_texture_free(default_fbo_gputexture_);
         default_fbo_gputexture_ = nullptr;
       }
 
@@ -124,8 +124,10 @@ void MTLContext::set_ghost_context(GHOST_ContextHandle ghostCtxHandle)
 
       /*** Create front and back-buffers ***/
       /* Create gpu::MTLTexture objects */
-      default_fbo_gputexture_ = new gpu::MTLTexture(
-          "MTL_BACKBUFFER", GPU_RGBA16F, GPU_TEXTURE_2D, default_fbo_mtltexture_);
+      default_fbo_gputexture_ = new gpu::MTLTexture("MTL_BACKBUFFER",
+                                                    TextureFormat::SFLOAT_16_16_16_16,
+                                                    GPU_TEXTURE_2D,
+                                                    default_fbo_mtltexture_);
 
       /* Update frame-buffers with new texture attachments. */
       mtl_front_left->add_color_attachment(default_fbo_gputexture_, 0, 0, 0);
@@ -138,15 +140,21 @@ void MTLContext::set_ghost_context(GHOST_ContextHandle ghostCtxHandle)
 
       /* Add default texture for cases where no other framebuffer is bound */
       if (!default_fbo_gputexture_) {
-        default_fbo_gputexture_ = static_cast<gpu::MTLTexture *>(unwrap(GPU_texture_create_2d(
-            __func__, 16, 16, 1, GPU_RGBA16F, GPU_TEXTURE_USAGE_GENERAL, nullptr)));
+        default_fbo_gputexture_ = static_cast<gpu::MTLTexture *>(
+            GPU_texture_create_2d(__func__,
+                                  16,
+                                  16,
+                                  1,
+                                  TextureFormat::SFLOAT_16_16_16_16,
+                                  GPU_TEXTURE_USAGE_GENERAL,
+                                  nullptr));
       }
       mtl_back_left->add_color_attachment(default_fbo_gputexture_, 0, 0, 0);
 
-      MTL_LOG_INFO(
+      MTL_LOG_DEBUG(
           "-- Bound context %p for GPU context: %p is offscreen and does not have a default "
           "framebuffer",
-          ghost_cgl_ctx,
+          ghost_mtl_ctx,
           this);
 #ifndef NDEBUG
       this->label = @"Offscreen Metal Context";
@@ -154,11 +162,11 @@ void MTLContext::set_ghost_context(GHOST_ContextHandle ghostCtxHandle)
     }
   }
   else {
-    MTL_LOG_INFO(
-        " Failed to bind GHOST context to MTLContext -- GHOST_ContextCGL is null "
-        "(GhostContext: %p, GhostContext_CGL: %p)",
+    MTL_LOG_DEBUG(
+        " Failed to bind GHOST context to MTLContext -- GHOST_ContextMTL is null "
+        "(GhostContext: %p, GhostContext_MTL: %p)",
         ghost_ctx,
-        ghost_cgl_ctx);
+        ghost_mtl_ctx);
     BLI_assert(false);
   }
 }
@@ -213,7 +221,7 @@ MTLContext::MTLContext(void *ghost_window, void *ghost_context)
     ghost_context = (ghostWin ? ghostWin->getContext() : nullptr);
   }
   BLI_assert(ghost_context);
-  this->ghost_context_ = static_cast<GHOST_ContextCGL *>(ghost_context);
+  this->ghost_context_ = static_cast<GHOST_ContextMTL *>(ghost_context);
   this->queue = (id<MTLCommandQueue>)this->ghost_context_->metalCommandQueue();
   this->device = (id<MTLDevice>)this->ghost_context_->metalDevice();
   BLI_assert(this->queue);
@@ -266,13 +274,6 @@ MTLContext::MTLContext(void *ghost_window, void *ghost_context)
 
   /* Initialize samplers. */
   this->sampler_state_cache_init();
-
-  if (GPU_use_parallel_compilation()) {
-    compiler = new MTLShaderCompiler();
-  }
-  else {
-    compiler = new ShaderCompilerGeneric();
-  }
 }
 
 MTLContext::~MTLContext()
@@ -291,12 +292,12 @@ MTLContext::~MTLContext()
   /* Wait for all GPU work to finish. */
   main_command_buffer.wait_until_active_command_buffers_complete();
 
-  /* Free framebuffers in base class. */
-  free_framebuffers();
+  /* Free textures and frame-buffers in base class. */
+  free_resources();
 
   /* Release context textures. */
   if (default_fbo_gputexture_) {
-    GPU_texture_free(wrap(static_cast<Texture *>(default_fbo_gputexture_)));
+    GPU_texture_free(default_fbo_gputexture_);
     default_fbo_gputexture_ = nullptr;
   }
   if (default_fbo_mtltexture_) {
@@ -382,7 +383,7 @@ MTLContext::~MTLContext()
     [this->device release];
   }
 
-  delete compiler;
+  this->process_frame_timings();
 }
 
 void MTLContext::begin_frame()
@@ -405,6 +406,8 @@ void MTLContext::end_frame()
 
   /* Increment frame counter. */
   is_inside_frame_ = false;
+
+  this->process_frame_timings();
 }
 
 void MTLContext::check_error(const char * /*info*/)
@@ -616,26 +619,26 @@ gpu::MTLTexture *MTLContext::get_dummy_texture(eGPUTextureType type,
     return dummy_tex;
   }
   /* Determine format for dummy texture. */
-  eGPUTextureFormat format = GPU_RGBA8;
+  TextureFormat format = TextureFormat::UNORM_8_8_8_8;
   switch (sampler_format) {
     case GPU_SAMPLER_TYPE_FLOAT:
-      format = GPU_RGBA8;
+      format = TextureFormat::UNORM_8_8_8_8;
       break;
     case GPU_SAMPLER_TYPE_INT:
-      format = GPU_RGBA8I;
+      format = TextureFormat::SINT_8_8_8_8;
       break;
     case GPU_SAMPLER_TYPE_UINT:
-      format = GPU_RGBA8UI;
+      format = TextureFormat::UINT_8_8_8_8;
       break;
     case GPU_SAMPLER_TYPE_DEPTH:
-      format = GPU_DEPTH32F_STENCIL8;
+      format = TextureFormat::SFLOAT_32_DEPTH_UINT_8;
       break;
     default:
       BLI_assert_unreachable();
   }
 
   /* Create dummy texture based on desired type. */
-  GPUTexture *tex = nullptr;
+  gpu::Texture *tex = nullptr;
   eGPUTextureUsage usage = GPU_TEXTURE_USAGE_GENERAL;
   switch (type) {
     case GPU_TEXTURE_1D:
@@ -663,29 +666,24 @@ gpu::MTLTexture *MTLContext::get_dummy_texture(eGPUTextureType type,
       if (!dummy_verts_[sampler_format]) {
         GPU_vertformat_clear(&dummy_vertformat_[sampler_format]);
 
-        GPUVertCompType comp_type = GPU_COMP_F32;
-        GPUVertFetchMode fetch_mode = GPU_FETCH_FLOAT;
+        VertAttrType attr_type = VertAttrType::SFLOAT_32_32_32_32;
 
         switch (sampler_format) {
           case GPU_SAMPLER_TYPE_FLOAT:
           case GPU_SAMPLER_TYPE_DEPTH:
-            comp_type = GPU_COMP_F32;
-            fetch_mode = GPU_FETCH_FLOAT;
+            attr_type = VertAttrType::SFLOAT_32_32_32_32;
             break;
           case GPU_SAMPLER_TYPE_INT:
-            comp_type = GPU_COMP_I32;
-            fetch_mode = GPU_FETCH_INT;
+            attr_type = VertAttrType::SINT_32_32_32_32;
             break;
           case GPU_SAMPLER_TYPE_UINT:
-            comp_type = GPU_COMP_U32;
-            fetch_mode = GPU_FETCH_INT;
+            attr_type = VertAttrType::UINT_32_32_32_32;
             break;
           default:
             BLI_assert_unreachable();
         }
 
-        GPU_vertformat_attr_add(
-            &dummy_vertformat_[sampler_format], "dummy", comp_type, 4, fetch_mode);
+        GPU_vertformat_attr_add(&dummy_vertformat_[sampler_format], "dummy", attr_type);
         dummy_verts_[sampler_format] = GPU_vertbuf_create_with_format_ex(
             dummy_vertformat_[sampler_format],
             GPU_USAGE_STATIC | GPU_USAGE_FLAG_BUFFER_TEXTURE_ONLY);
@@ -707,8 +705,8 @@ void MTLContext::free_dummy_resources()
   for (int format = 0; format < GPU_SAMPLER_TYPE_MAX; format++) {
     for (int tex = 0; tex < GPU_TEXTURE_BUFFER; tex++) {
       if (dummy_textures_[format][tex]) {
-        GPU_texture_free(
-            reinterpret_cast<GPUTexture *>(static_cast<Texture *>(dummy_textures_[format][tex])));
+        GPU_texture_free(reinterpret_cast<gpu::Texture *>(
+            static_cast<Texture *>(dummy_textures_[format][tex])));
         dummy_textures_[format][tex] = nullptr;
       }
     }
@@ -716,6 +714,13 @@ void MTLContext::free_dummy_resources()
       GPU_vertbuf_discard(dummy_verts_[format]);
     }
   }
+}
+
+void MTLContext::specialization_constants_set(
+    const shader::SpecializationConstants *constants_state)
+{
+  this->constants_state = (constants_state != nullptr) ? *constants_state :
+                                                         shader::SpecializationConstants{};
 }
 
 /** \} */
@@ -998,8 +1003,8 @@ bool MTLContext::ensure_render_pipeline_state(MTLPrimitiveType mtl_prim_type)
     /* Bind Null attribute buffer, if needed. */
     if (pipeline_state_instance->null_attribute_buffer_index >= 0) {
       if (G.debug & G_DEBUG_GPU) {
-        MTL_LOG_INFO("Binding null attribute buffer at index: %d",
-                     pipeline_state_instance->null_attribute_buffer_index);
+        MTL_LOG_DEBUG("Binding null attribute buffer at index: %d",
+                      pipeline_state_instance->null_attribute_buffer_index);
       }
       rps.bind_vertex_buffer(this->get_null_attribute_buffer(),
                              0,
@@ -2194,11 +2199,10 @@ const MTLComputePipelineStateInstance *MTLContext::ensure_compute_pipeline_state
   MTLShader *active_shader = this->pipeline_state.active_shader;
 
   /* Set descriptor to default shader constants . */
-  MTLComputePipelineStateDescriptor compute_pipeline_descriptor(active_shader->constants.values);
+  MTLComputePipelineStateDescriptor compute_pipeline_descriptor(this->constants_state.values);
 
   const MTLComputePipelineStateInstance *compute_pso_inst =
-      this->pipeline_state.active_shader->bake_compute_pipeline_state(this,
-                                                                      compute_pipeline_descriptor);
+      active_shader->bake_compute_pipeline_state(this, compute_pipeline_descriptor);
 
   if (compute_pso_inst == nullptr || compute_pso_inst->pso == nil) {
     MTL_LOG_WARNING("No valid compute PSO for compute dispatch!", );
@@ -2706,8 +2710,8 @@ void present(MTLRenderPassDescriptor *blit_descriptor,
     /* Decrement count */
     ctx->main_command_buffer.dec_active_command_buffer_count();
 
-    MTL_LOG_INFO("Active command buffers: %d",
-                 int(MTLCommandBufferManager::num_active_cmd_bufs_in_system));
+    MTL_LOG_DEBUG("Active command buffers: %d",
+                  int(MTLCommandBufferManager::num_active_cmd_bufs_in_system));
 
     /* Drawable count and latency management. */
     MTLContext::max_drawables_in_flight--;
@@ -2717,10 +2721,10 @@ void present(MTLRenderPassDescriptor *blit_descriptor,
                                          .count();
     MTLContext::latency_resolve_average(microseconds_per_frame);
 
-    MTL_LOG_INFO("Frame Latency: %f ms  (Rolling avg: %f ms Drawables: %d)",
-                 ((float)microseconds_per_frame) / 1000.0f,
-                 ((float)MTLContext::avg_drawable_latency_us) / 1000.0f,
-                 perf_max_drawables);
+    MTL_LOG_DEBUG("Frame Latency: %f ms  (Rolling avg: %f ms Drawables: %d)",
+                  ((float)microseconds_per_frame) / 1000.0f,
+                  ((float)MTLContext::avg_drawable_latency_us) / 1000.0f,
+                  perf_max_drawables);
   }];
 
   [cmdbuf commit];

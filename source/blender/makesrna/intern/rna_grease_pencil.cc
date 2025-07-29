@@ -20,6 +20,20 @@
 
 #include "WM_api.hh"
 
+const EnumPropertyItem rna_enum_stroke_depth_order_items[] = {
+    {0,
+     "2D",
+     0,
+     "2D Layers",
+     "Display strokes using Grease Pencil layer order and stroke order to define depth"},
+    {GREASE_PENCIL_STROKE_ORDER_3D,
+     "3D",
+     0,
+     "3D Location",
+     "Display strokes using real 3D position in 3D space"},
+    {0, nullptr, 0, nullptr, nullptr},
+};
+
 #ifdef RNA_RUNTIME
 
 #  include <fmt/format.h>
@@ -389,10 +403,31 @@ static void rna_iterator_grease_pencil_layers_begin(CollectionPropertyIterator *
 {
   using namespace blender::bke::greasepencil;
   GreasePencil *grease_pencil = rna_grease_pencil(ptr);
+  const blender::Span<const Layer *> layers = grease_pencil->layers();
+
+  iter->internal.count.item = 0;
+  iter->valid = !layers.is_empty();
+}
+
+static void rna_iterator_grease_pencil_layers_next(CollectionPropertyIterator *iter)
+{
+  using namespace blender::bke::greasepencil;
+  GreasePencil *grease_pencil = static_cast<GreasePencil *>(iter->parent.data);
+  const blender::Span<const Layer *> layers = grease_pencil->layers();
+
+  iter->internal.count.item++;
+  iter->valid = layers.index_range().contains(iter->internal.count.item);
+}
+
+static PointerRNA rna_iterator_grease_pencil_layers_get(CollectionPropertyIterator *iter)
+{
+  using namespace blender::bke::greasepencil;
+  GreasePencil *grease_pencil = static_cast<GreasePencil *>(iter->parent.data);
   blender::Span<Layer *> layers = grease_pencil->layers_for_write();
 
-  rna_iterator_array_begin(
-      iter, ptr, (void *)layers.data(), sizeof(Layer *), layers.size(), false, nullptr);
+  return RNA_pointer_create_discrete(iter->parent.owner_id,
+                                     &RNA_GreasePencilLayer,
+                                     static_cast<void *>(layers[iter->internal.count.item]));
 }
 
 static int rna_iterator_grease_pencil_layers_length(PointerRNA *ptr)
@@ -481,7 +516,7 @@ static void rna_GreasePencilLayer_tint_color_set(PointerRNA *ptr, const float *v
           grease_pencil.attributes_for_write().lookup_or_add_for_write_span<ColorGeometry4f>(
               "tint_color",
               bke::AttrDomain::Layer,
-              bke::AttributeInitVArray(VArray<ColorGeometry4f>::ForSingle(
+              bke::AttributeInitVArray(VArray<ColorGeometry4f>::from_single(
                   ColorGeometry4f(0.0f, 0.0f, 0.0f, 0.0f), grease_pencil.layers().size()))))
   {
     copy_v3_v3(tint_colors.span[layer_idx], values);
@@ -514,7 +549,7 @@ static void rna_GreasePencilLayer_tint_factor_set(PointerRNA *ptr, const float v
           grease_pencil.attributes_for_write().lookup_or_add_for_write_span<ColorGeometry4f>(
               "tint_color",
               bke::AttrDomain::Layer,
-              bke::AttributeInitVArray(VArray<ColorGeometry4f>::ForSingle(
+              bke::AttributeInitVArray(VArray<ColorGeometry4f>::from_single(
                   ColorGeometry4f(0.0f, 0.0f, 0.0f, 0.0f), grease_pencil.layers().size()))))
   {
     tint_colors.span[layer_idx][3] = value;
@@ -548,7 +583,7 @@ static void rna_GreasePencilLayer_radius_offset_set(PointerRNA *ptr, const float
               "radius_offset",
               bke::AttrDomain::Layer,
               bke::AttributeInitVArray(
-                  VArray<float>::ForSingle(0.0f, grease_pencil.layers().size()))))
+                  VArray<float>::from_single(0.0f, grease_pencil.layers().size()))))
   {
     radius_offsets.span[layer_idx] = value;
     radius_offsets.finish();
@@ -628,11 +663,31 @@ static void rna_iterator_grease_pencil_layer_groups_begin(CollectionPropertyIter
 {
   using namespace blender::bke::greasepencil;
   GreasePencil *grease_pencil = rna_grease_pencil(ptr);
+  const blender::Span<const LayerGroup *> groups = grease_pencil->layer_groups();
 
+  iter->internal.count.item = 0;
+  iter->valid = !groups.is_empty();
+}
+
+static void rna_iterator_grease_pencil_layer_groups_next(CollectionPropertyIterator *iter)
+{
+  using namespace blender::bke::greasepencil;
+  GreasePencil *grease_pencil = static_cast<GreasePencil *>(iter->parent.data);
+  const blender::Span<const LayerGroup *> groups = grease_pencil->layer_groups();
+
+  iter->internal.count.item++;
+  iter->valid = groups.index_range().contains(iter->internal.count.item);
+}
+
+static PointerRNA rna_iterator_grease_pencil_layer_groups_get(CollectionPropertyIterator *iter)
+{
+  using namespace blender::bke::greasepencil;
+  GreasePencil *grease_pencil = static_cast<GreasePencil *>(iter->parent.data);
   blender::Span<LayerGroup *> groups = grease_pencil->layer_groups_for_write();
 
-  rna_iterator_array_begin(
-      iter, ptr, (void *)groups.data(), sizeof(LayerGroup *), groups.size(), false, nullptr);
+  return RNA_pointer_create_discrete(iter->parent.owner_id,
+                                     &RNA_GreasePencilLayerGroup,
+                                     static_cast<void *>(groups[iter->internal.count.item]));
 }
 
 static int rna_iterator_grease_pencil_layer_groups_length(PointerRNA *ptr)
@@ -926,6 +981,7 @@ static void rna_def_grease_pencil_tree_node(BlenderRNA *brna)
   RNA_def_property_struct_type(prop, "GreasePencilTreeNode");
   RNA_def_property_ui_text(prop, "Next Node", "The layer tree node after (i.e. above) this one");
   RNA_def_property_clear_flag(prop, PROP_EDITABLE | PROP_ANIMATABLE);
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_NO_COMPARISON);
 
   /* Previous tree node. */
   prop = RNA_def_property(srna, "prev_node", PROP_POINTER, PROP_NONE);
@@ -934,6 +990,7 @@ static void rna_def_grease_pencil_tree_node(BlenderRNA *brna)
   RNA_def_property_ui_text(
       prop, "Previous Node", "The layer tree node before (i.e. below) this one");
   RNA_def_property_clear_flag(prop, PROP_EDITABLE | PROP_ANIMATABLE);
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_NO_COMPARISON);
 
   /* Parent group. */
   prop = RNA_def_property(srna, "parent_group", PROP_POINTER, PROP_NONE);
@@ -942,6 +999,7 @@ static void rna_def_grease_pencil_tree_node(BlenderRNA *brna)
       prop, "rna_GreasePencilTreeNode_parent_layer_group_get", nullptr, nullptr, nullptr);
   RNA_def_property_ui_text(prop, "Parent Layer Group", "The parent group of this layer tree node");
   RNA_def_property_clear_flag(prop, PROP_EDITABLE | PROP_ANIMATABLE);
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_NO_COMPARISON);
 }
 
 static void rna_def_grease_pencil_layer(BlenderRNA *brna)
@@ -1133,11 +1191,6 @@ static void rna_def_grease_pencil_layer(BlenderRNA *brna)
   RNA_def_property_float_funcs(
       prop, "rna_GreasePencilLayer_matrix_parent_inverse_get", nullptr, nullptr);
 
-  prop = RNA_def_property(srna, "channel_color", PROP_FLOAT, PROP_COLOR);
-  RNA_def_property_float_sdna(prop, "GreasePencilLayerTreeNode", "color");
-  RNA_def_property_array(prop, 3);
-  RNA_def_property_update(prop, NC_GPENCIL | NA_EDITED, nullptr);
-
   RNA_api_grease_pencil_layer(srna);
 }
 
@@ -1192,7 +1245,7 @@ static void rna_def_grease_pencil_layer_group(BlenderRNA *brna)
   prop = RNA_def_property(srna, "is_expanded", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(
       prop, "GreasePencilLayerTreeNode", "flag", GP_LAYER_TREE_NODE_EXPANDED);
-  RNA_def_property_ui_text(prop, "Expanded", "The layer groups is expanded in the UI");
+  RNA_def_property_ui_text(prop, "Expanded", "The layer group is expanded in the UI");
   RNA_def_property_flag(prop, PROP_LIB_EXCEPTION);
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_boolean_funcs(prop, nullptr, "rna_GreasePencilLayerGroup_is_expanded_set");
@@ -1202,11 +1255,6 @@ static void rna_def_grease_pencil_layer_group(BlenderRNA *brna)
   prop = RNA_def_property(srna, "color_tag", PROP_ENUM, PROP_NONE);
   RNA_def_property_enum_funcs(prop, "rna_group_color_tag_get", "rna_group_color_tag_set", nullptr);
   RNA_def_property_enum_items(prop, enum_layergroup_color_items);
-
-  prop = RNA_def_property(srna, "channel_color", PROP_FLOAT, PROP_COLOR);
-  RNA_def_property_float_sdna(prop, "GreasePencilLayerTreeNode", "color");
-  RNA_def_property_array(prop, 3);
-  RNA_def_property_update(prop, NC_GPENCIL | NA_EDITED, nullptr);
 }
 
 static void rna_def_grease_pencil_layer_groups(BlenderRNA *brna, PropertyRNA *cprop)
@@ -1378,16 +1426,6 @@ static void rna_def_grease_pencil_data(BlenderRNA *brna)
   StructRNA *srna;
   PropertyRNA *prop;
 
-  static const EnumPropertyItem prop_stroke_depth_order_items[] = {
-      {0, "2D", 0, "2D Layers", "Display strokes using Grease Pencil layers to define order"},
-      {GREASE_PENCIL_STROKE_ORDER_3D,
-       "3D",
-       0,
-       "3D Location",
-       "Display strokes using real 3D position in 3D space"},
-      {0, nullptr, 0, nullptr, nullptr},
-  };
-
   srna = RNA_def_struct(brna, "GreasePencilv3", "ID");
   RNA_def_struct_sdna(srna, "GreasePencil");
   RNA_def_struct_ui_text(srna, "Grease Pencil", "Grease Pencil data-block");
@@ -1420,9 +1458,9 @@ static void rna_def_grease_pencil_data(BlenderRNA *brna)
   RNA_def_property_struct_type(prop, "GreasePencilLayer");
   RNA_def_property_collection_funcs(prop,
                                     "rna_iterator_grease_pencil_layers_begin",
-                                    "rna_iterator_array_next",
-                                    "rna_iterator_array_end",
-                                    "rna_iterator_array_dereference_get",
+                                    "rna_iterator_grease_pencil_layers_next",
+                                    nullptr,
+                                    "rna_iterator_grease_pencil_layers_get",
                                     "rna_iterator_grease_pencil_layers_length",
                                     nullptr, /* TODO */
                                     nullptr, /* TODO */
@@ -1435,9 +1473,9 @@ static void rna_def_grease_pencil_data(BlenderRNA *brna)
   RNA_def_property_struct_type(prop, "GreasePencilLayerGroup");
   RNA_def_property_collection_funcs(prop,
                                     "rna_iterator_grease_pencil_layer_groups_begin",
-                                    "rna_iterator_array_next",
-                                    "rna_iterator_array_end",
-                                    "rna_iterator_array_dereference_get",
+                                    "rna_iterator_grease_pencil_layer_groups_next",
+                                    nullptr,
+                                    "rna_iterator_grease_pencil_layer_groups_get",
                                     "rna_iterator_grease_pencil_layer_groups_length",
                                     nullptr, /* TODO */
                                     nullptr, /* TODO */
@@ -1456,7 +1494,7 @@ static void rna_def_grease_pencil_data(BlenderRNA *brna)
   /* Uses a single flag, because the depth order can only be 2D or 3D. */
   prop = RNA_def_property(srna, "stroke_depth_order", PROP_ENUM, PROP_NONE);
   RNA_def_property_enum_bitflag_sdna(prop, nullptr, "flag");
-  RNA_def_property_enum_items(prop, prop_stroke_depth_order_items);
+  RNA_def_property_enum_items(prop, rna_enum_stroke_depth_order_items);
   RNA_def_property_ui_text(
       prop,
       "Stroke Depth Order",

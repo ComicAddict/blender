@@ -172,7 +172,8 @@ static int mouse_nla_tracks(bContext *C, bAnimContext *ac, int track_index, shor
     case ANIMTYPE_PALETTE:
     case ANIMTYPE_DSHAIR:
     case ANIMTYPE_DSPOINTCLOUD:
-    case ANIMTYPE_DSVOLUME: {
+    case ANIMTYPE_DSVOLUME:
+    case ANIMTYPE_DSLIGHTPROBE: {
       /* sanity checking... */
       if (ale->adt) {
         /* select/deselect */
@@ -284,7 +285,9 @@ static int mouse_nla_tracks(bContext *C, bAnimContext *ac, int track_index, shor
 /* ------------------- */
 
 /* handle clicking */
-static int nlatracks_mouseclick_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus nlatracks_mouseclick_invoke(bContext *C,
+                                                    wmOperator *op,
+                                                    const wmEvent *event)
 {
   bAnimContext ac;
   ARegion *region;
@@ -341,7 +344,7 @@ void NLA_OT_channels_click(wmOperatorType *ot)
   ot->idname = "NLA_OT_channels_click";
   ot->description = "Handle clicks to select NLA tracks";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->invoke = nlatracks_mouseclick_invoke;
   ot->poll = ED_operator_nla_active;
 
@@ -358,7 +361,7 @@ void NLA_OT_channels_click(wmOperatorType *ot)
 
 /* ******************** Action Push Down ******************************** */
 
-static int nlatracks_pushdown_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus nlatracks_pushdown_exec(bContext *C, wmOperator *op)
 {
   bAnimContext ac;
   ID *id = nullptr;
@@ -493,7 +496,7 @@ static bool nla_action_unlink_poll(bContext *C)
   return false;
 }
 
-static int nla_action_unlink_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus nla_action_unlink_exec(bContext *C, wmOperator *op)
 {
   PointerRNA adt_ptr;
 
@@ -517,7 +520,7 @@ static int nla_action_unlink_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-static int nla_action_unlink_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus nla_action_unlink_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   /* NOTE: this is hardcoded to match the behavior for the unlink button
    * (in `interface_templates.cc`). */
@@ -639,7 +642,7 @@ bool nlaedit_add_tracks_empty(bAnimContext *ac)
 
 /* ----- */
 
-static int nlaedit_add_tracks_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus nlaedit_add_tracks_exec(bContext *C, wmOperator *op)
 {
   bAnimContext ac;
   bool above_sel = RNA_boolean_get(op->ptr, "above_selected");
@@ -680,7 +683,7 @@ void NLA_OT_tracks_add(wmOperatorType *ot)
   ot->idname = "NLA_OT_tracks_add";
   ot->description = "Add NLA-Tracks above/after the selected tracks";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = nlaedit_add_tracks_exec;
   ot->poll = nlaop_poll_tweakmode_off;
 
@@ -698,7 +701,7 @@ void NLA_OT_tracks_add(wmOperatorType *ot)
 /* ******************** Delete Tracks Operator ***************************** */
 /* Delete selected NLA Tracks */
 
-static int nlaedit_delete_tracks_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus nlaedit_delete_tracks_exec(bContext *C, wmOperator * /*op*/)
 {
   bAnimContext ac;
 
@@ -758,7 +761,7 @@ void NLA_OT_tracks_delete(wmOperatorType *ot)
   ot->idname = "NLA_OT_tracks_delete";
   ot->description = "Delete selected NLA-Tracks and the strips they contain";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = nlaedit_delete_tracks_exec;
   ot->poll = nlaop_poll_tweakmode_off;
 
@@ -777,7 +780,7 @@ void NLA_OT_tracks_delete(wmOperatorType *ot)
  *       common use case, we now have a nice shortcut again.
  */
 
-static int nlaedit_objects_add_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus nlaedit_objects_add_exec(bContext *C, wmOperator * /*op*/)
 {
   bAnimContext ac;
 
@@ -813,7 +816,7 @@ void NLA_OT_selected_objects_add(wmOperatorType *ot)
   ot->idname = "NLA_OT_selected_objects_add";
   ot->description = "Make selected objects appear in NLA Editor by adding Animation Data";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = nlaedit_objects_add_exec;
   ot->poll = nlaop_poll_tweakmode_off;
 

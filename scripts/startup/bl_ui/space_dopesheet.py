@@ -17,6 +17,11 @@ from bl_ui.properties_data_grease_pencil import (
     GreasePencil_LayerDisplayPanel,
 )
 
+from bl_ui.utils import (
+    PlayheadSnappingPanel,
+)
+from bl_ui.space_time import playback_controls
+
 from rna_prop_ui import PropertyPanel
 
 #######################################
@@ -122,6 +127,8 @@ class DopesheetFilterPopoverBase:
             flow.prop(dopesheet, "show_pointclouds", text="Point Clouds")
         if bpy.data.volumes:
             flow.prop(dopesheet, "show_volumes", text="Volumes")
+        if bpy.data.lightprobes:
+            flow.prop(dopesheet, "show_lightprobes", text="Light Probes")
 
         # data types
         flow.prop(dopesheet, "show_worlds", text="Worlds")
@@ -203,17 +210,18 @@ class DOPESHEET_HT_header(Header):
         layout.template_header()
 
         if st.mode == 'TIMELINE':
-            from bl_ui.space_time import (
-                TIME_MT_editor_menus,
-                TIME_HT_editor_buttons,
-            )
+            from bl_ui.space_time import TIME_MT_editor_menus
             TIME_MT_editor_menus.draw_collapsible(context, layout)
-            TIME_HT_editor_buttons.draw_header(context, layout)
+            playback_controls(layout, context)
         else:
             layout.prop(st, "ui_mode", text="")
 
             DOPESHEET_MT_editor_menus.draw_collapsible(context, layout)
             DOPESHEET_HT_editor_buttons.draw_header(context, layout)
+
+
+class DOPESHEET_PT_playhead_snapping(PlayheadSnappingPanel, Panel):
+    bl_space_type = 'DOPESHEET_EDITOR'
 
 
 # Header for "normal" dopesheet editor modes (e.g. Dope Sheet, Action, Shape Keys, etc.)
@@ -277,6 +285,8 @@ class DOPESHEET_HT_editor_buttons:
                 text="",
             )
 
+        layout.popover(panel="DOPESHEET_PT_playhead_snapping")
+
         row = layout.row(align=True)
         row.prop(tool_settings, "use_proportional_action", text="", icon_only=True)
         sub = row.row(align=True)
@@ -326,6 +336,16 @@ class DOPESHEET_HT_editor_buttons:
             case _:
                 print("Dope Sheet mode '{:s}' not expected to have an Action selector".format(st.mode))
                 return context.object
+
+
+class DOPESHEET_HT_playback_controls(Header):
+    bl_space_type = 'DOPESHEET_EDITOR'
+    bl_region_type = 'FOOTER'
+
+    def draw(self, context):
+        layout = self.layout
+
+        playback_controls(layout, context)
 
 
 class DOPESHEET_PT_snapping(Panel):
@@ -394,6 +414,7 @@ class DOPESHEET_MT_view(Menu):
         layout.prop(st, "show_region_ui")
         layout.prop(st, "show_region_hud")
         layout.prop(st, "show_region_channels")
+        layout.prop(st, "show_region_footer")
         layout.separator()
 
         layout.operator("action.view_selected")
@@ -436,6 +457,9 @@ class DOPESHEET_MT_view(Menu):
         props.value = 'GRAPH_EDITOR'
         layout.separator()
 
+        layout.menu("DOPESHEET_MT_cache")
+        layout.separator()
+
         layout.menu("INFO_MT_area")
 
 
@@ -453,6 +477,29 @@ class DOPESHEET_MT_view_pie(Menu):
             pie.operator("anim.scene_range_frame", text="Frame Preview Range")
         else:
             pie.operator("anim.scene_range_frame", text="Frame Scene Range")
+
+
+class DOPESHEET_MT_cache(Menu):
+    bl_label = "Cache"
+
+    def draw(self, context):
+        layout = self.layout
+
+        st = context.space_data
+
+        layout.prop(st, "show_cache")
+
+        layout.separator()
+
+        col = layout.column()
+        col.enabled = st.show_cache
+        col.prop(st, "cache_softbody")
+        col.prop(st, "cache_particles")
+        col.prop(st, "cache_cloth")
+        col.prop(st, "cache_simulation_nodes")
+        col.prop(st, "cache_smoke")
+        col.prop(st, "cache_dynamicpaint")
+        col.prop(st, "cache_rigidbody")
 
 
 class DOPESHEET_MT_select(Menu):
@@ -978,9 +1025,11 @@ class DOPESHEET_PT_grease_pencil_layer_display(
 
 classes = (
     DOPESHEET_HT_header,
+    DOPESHEET_HT_playback_controls,
     DOPESHEET_PT_proportional_edit,
     DOPESHEET_MT_editor_menus,
     DOPESHEET_MT_view,
+    DOPESHEET_MT_cache,
     DOPESHEET_MT_select,
     DOPESHEET_MT_marker,
     DOPESHEET_MT_channel,
@@ -1004,6 +1053,7 @@ classes = (
     DOPESHEET_PT_grease_pencil_layer_adjustments,
     DOPESHEET_PT_grease_pencil_layer_relations,
     DOPESHEET_PT_grease_pencil_layer_display,
+    DOPESHEET_PT_playhead_snapping,
 )
 
 if __name__ == "__main__":  # only for live edit.

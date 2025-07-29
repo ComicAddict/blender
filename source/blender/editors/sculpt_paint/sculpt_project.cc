@@ -213,7 +213,7 @@ static void gesture_end(bContext &C, gesture::GestureData &gesture_data)
 static void init_operation(gesture::GestureData &gesture_data, wmOperator & /*op*/)
 {
   gesture_data.operation = reinterpret_cast<gesture::Operation *>(
-      MEM_cnew<ProjectOperation>(__func__));
+      MEM_callocN<ProjectOperation>(__func__));
 
   ProjectOperation *project_operation = (ProjectOperation *)gesture_data.operation;
 
@@ -222,7 +222,7 @@ static void init_operation(gesture::GestureData &gesture_data, wmOperator & /*op
   project_operation->operation.end = gesture_end;
 }
 
-static int gesture_line_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus gesture_line_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   const View3D *v3d = CTX_wm_view3d(C);
   const Base *base = CTX_data_active_base(C);
@@ -233,7 +233,7 @@ static int gesture_line_invoke(bContext *C, wmOperator *op, const wmEvent *event
   return WM_gesture_straightline_active_side_invoke(C, op, event);
 }
 
-static int gesture_line_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus gesture_line_exec(bContext *C, wmOperator *op)
 {
   std::unique_ptr<gesture::GestureData> gesture_data = gesture::init_from_line(C, op);
   if (!gesture_data) {

@@ -7,7 +7,7 @@
 
 #include "NOD_rna_define.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "RNA_enum_types.hh"
@@ -26,7 +26,11 @@ enum class SelectionType {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Geometry>("Geometry");
+  b.use_custom_socket_order();
+  b.allow_any_socket_order();
+  b.add_default_layout();
+  b.add_input<decl::Geometry>("Geometry").description("Geometry to update the selection of");
+  b.add_output<decl::Geometry>("Geometry").align_with_previous();
   if (const bNode *node = b.node_or_null()) {
     switch (SelectionType(node->custom2)) {
       case SelectionType::Boolean:
@@ -37,13 +41,12 @@ static void node_declare(NodeDeclarationBuilder &b)
         break;
     }
   }
-  b.add_output<decl::Geometry>("Geometry");
 }
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "domain", UI_ITEM_NONE, "", ICON_NONE);
-  uiItemR(layout, ptr, "selection_type", UI_ITEM_NONE, "", ICON_NONE);
+  layout->prop(ptr, "domain", UI_ITEM_NONE, "", ICON_NONE);
+  layout->prop(ptr, "selection_type", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
@@ -59,7 +62,7 @@ static GField clamp_selection(const GField &selection)
   }
   static auto clamp = mf::build::SI1_SO<float, float>(
       "Clamp", [](const float value) { return std::clamp(value, 0.0f, 1.0f); });
-  return Field<bool>(FieldOperation::Create(clamp, {selection}));
+  return Field<float>(FieldOperation::from(clamp, {selection}));
 }
 
 static GField invert_selection(const GField &selection)
@@ -67,12 +70,12 @@ static GField invert_selection(const GField &selection)
   if (selection.cpp_type().is<bool>()) {
     static auto invert = mf::build::SI1_SO<bool, bool>("Invert Selection",
                                                        [](const bool value) { return !value; });
-    return GField(FieldOperation::Create(invert, {selection}));
+    return GField(FieldOperation::from(invert, {selection}));
   }
 
   static auto invert = mf::build::SI1_SO<float, float>(
       "Invert Selection", [](const float value) { return 1.0f - value; });
-  return GField(FieldOperation::Create(invert, {selection}));
+  return GField(FieldOperation::from(invert, {selection}));
 }
 
 static void node_geo_exec(GeoNodeExecParams params)
@@ -82,9 +85,9 @@ static void node_geo_exec(GeoNodeExecParams params)
   }
   GeometrySet geometry = params.extract_input<GeometrySet>("Geometry");
   const eObjectMode mode = params.user_data()->call_data->operator_data->mode;
-  if (mode == OB_MODE_OBJECT) {
+  if (ELEM(mode, OB_MODE_OBJECT, OB_MODE_PAINT_GREASE_PENCIL)) {
     params.error_message_add(NodeWarningType::Error,
-                             "Selection control is not supported in object mode");
+                             "Selection control is not supported in this mode");
     params.set_output("Geometry", std::move(geometry));
     return;
   }
@@ -162,6 +165,17 @@ static void node_geo_exec(GeoNodeExecParams params)
       if (domain == AttrDomain::Point) {
         bke::try_capture_field_on_geometry(
             geometry.get_component_for_write<PointCloudComponent>(), ".selection", domain, field);
+      }
+    }
+    if (geometry.has_grease_pencil()) {
+      /* Grease Pencil only supports boolean selection. */
+      const Field<bool> field = conversions.try_convert(selection, CPPType::get<bool>());
+      if (ELEM(domain, AttrDomain::Point, AttrDomain::Curve)) {
+        bke::try_capture_field_on_geometry(
+            geometry.get_component_for_write<GreasePencilComponent>(),
+            ".selection",
+            domain,
+            field);
       }
     }
   });

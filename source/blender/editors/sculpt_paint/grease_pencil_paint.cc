@@ -12,6 +12,7 @@
 #include "BKE_geometry_set.hh"
 #include "BKE_grease_pencil.hh"
 #include "BKE_grease_pencil_vertex_groups.hh"
+#include "BKE_lib_id.hh"
 #include "BKE_material.hh"
 #include "BKE_paint.hh"
 #include "BKE_scene.hh"
@@ -137,39 +138,86 @@ static void morph_points_to_curve(Span<float2> src, Span<float2> target, Mutable
   dst.last() = src.last();
 }
 
+/** Creates a temporary brush with the fill guide settings. */
+static Brush *create_fill_guide_brush()
+{
+  Brush *fill_guides_brush = BKE_id_new_nomain<Brush>("Draw Fill Guides");
+  fill_guides_brush->ob_mode = OB_MODE_PAINT_GREASE_PENCIL;
+
+  if (fill_guides_brush->gpencil_settings == nullptr) {
+    BKE_brush_init_gpencil_settings(fill_guides_brush);
+  }
+  BrushGpencilSettings *settings = fill_guides_brush->gpencil_settings;
+
+  BKE_curvemapping_init(settings->curve_sensitivity);
+  BKE_curvemapping_init(settings->curve_strength);
+  BKE_curvemapping_init(settings->curve_jitter);
+  BKE_curvemapping_init(settings->curve_rand_pressure);
+  BKE_curvemapping_init(settings->curve_rand_strength);
+  BKE_curvemapping_init(settings->curve_rand_uv);
+  BKE_curvemapping_init(fill_guides_brush->curve_rand_hue);
+  BKE_curvemapping_init(fill_guides_brush->curve_rand_saturation);
+  BKE_curvemapping_init(fill_guides_brush->curve_rand_value);
+
+  fill_guides_brush->flag |= BRUSH_LOCK_SIZE;
+  fill_guides_brush->unprojected_radius = 0.005f;
+
+  settings->flag &= ~GP_BRUSH_USE_PRESSURE;
+
+  settings->brush_draw_mode = GP_BRUSH_MODE_VERTEXCOLOR;
+  /* TODO: Use theme setting. */
+  copy_v3_fl3(fill_guides_brush->rgb, 0.0f, 1.0f, 1.0f);
+  settings->vertex_factor = 1.0f;
+
+  settings->active_smooth = 0.35f;
+  settings->hardness = 1.0f;
+  fill_guides_brush->spacing = 100;
+
+  settings->flag |= GP_BRUSH_GROUP_SETTINGS;
+  settings->simplify_px = 0.4f;
+
+  return fill_guides_brush;
+}
+
 class PaintOperation : public GreasePencilStrokeOperation {
  private:
-  /* Screen space coordinates from input samples. */
+  bke::greasepencil::Drawing *drawing_;
+  int frame_number_;
+  Vector<ed::greasepencil::MutableDrawingInfo> multi_frame_drawings_;
+
+  /** Screen space coordinates from input samples. */
   Vector<float2> screen_space_coords_orig_;
 
-  /* Temporary vector of curve fitted screen space coordinates per input sample from the active
-   * smoothing window. The length of this depends on `active_smooth_start_index_`. */
+  /**
+   * Temporary vector of curve fitted screen space coordinates per input sample from the active
+   * smoothing window. The length of this depends on `active_smooth_start_index_`.
+   */
   Vector<Vector<float2>> screen_space_curve_fitted_coords_;
-  /* Temporary vector of screen space offsets  */
+  /** Temporary vector of screen space offsets. */
   Vector<float2> screen_space_jitter_offsets_;
-  /* Projection planes for every point in "Stroke" placement mode. */
+  /** Projection planes for every point in "Stroke" placement mode. */
   Vector<std::optional<float>> stroke_placement_depths_;
 
-  /* Screen space coordinates after smoothing. */
+  /** Screen space coordinates after smoothing. */
   Vector<float2> screen_space_smoothed_coords_;
-  /* Screen space coordinates after smoothing and jittering. */
+  /** Screen space coordinates after smoothing and jittering. */
   Vector<float2> screen_space_final_coords_;
 
-  /* The start index of the smoothing window. */
+  /** The start index of the smoothing window. */
   int active_smooth_start_index_ = 0;
   blender::float4x2 texture_space_ = float4x2::identity();
 
-  /* Helper class to project screen space coordinates to 3d. */
+  /** Helper class to project screen space coordinates to 3d. */
   ed::greasepencil::DrawingPlacement placement_;
-  /* Last valid stroke intersection, for use in Stroke projection mode. */
+  /** Last valid stroke intersection, for use in Stroke projection mode. */
   std::optional<float> last_stroke_placement_depth_;
-  /* Point index of the last valid stroke placement. */
+  /** Point index of the last valid stroke placement. */
   std::optional<int> last_stroke_placement_point_;
 
-  /* Direction the pen is moving in smoothed over time. */
+  /** Direction the pen is moving in smoothed over time. */
   float2 smoothed_pen_direction_ = float2(0.0f);
 
-  /* Accumulated distance along the stroke. */
+  /** Accumulated distance along the stroke. */
   float accum_distance_ = 0.0f;
 
   RandomNumberGenerator rng_;
@@ -182,29 +230,34 @@ class PaintOperation : public GreasePencilStrokeOperation {
   float stroke_random_sat_factor_;
   float stroke_random_val_factor_;
 
-  /* The current time at which the paint operation begins. */
+  /** The current time at which the paint operation begins. */
   double start_time_;
-  /* Current delta time from #start_time_, updated after each extension sample. */
+  /** Current delta time from #start_time_, updated after each extension sample. */
   double delta_time_;
 
-  /* Whether the operation was temporarily called from tools other than draw tool. */
-  bool temp_draw_;
+  /** Set to true when the paint operation is used to draw fill guides. */
+  bool do_fill_guides_;
 
   friend struct PaintOperationExecutor;
+
+  Brush *saved_active_brush_;
+  Brush *fill_guides_brush_;
 
  public:
   void on_stroke_begin(const bContext &C, const InputSample &start_sample) override;
   void on_stroke_extended(const bContext &C, const InputSample &extension_sample) override;
   void on_stroke_done(const bContext &C) override;
 
-  PaintOperation(const bool temp_draw = false) : temp_draw_(temp_draw) {}
+  PaintOperation(const bool do_fill_guides = false) : do_fill_guides_(do_fill_guides) {}
 
   bool update_stroke_depth_placement(const bContext &C, const InputSample &sample);
-  /* Returns the range of actually reprojected points. */
+  /** Returns the range of actually reprojected points. */
   IndexRange interpolate_stroke_depth(const bContext &C,
                                       std::optional<int> start_point,
                                       float from_depth,
                                       float to_depth);
+  void toggle_fill_guides_brush_on(const bContext &C);
+  void toggle_fill_guides_brush_off(const bContext &C);
 };
 
 /**
@@ -218,21 +271,19 @@ struct PaintOperationExecutor {
   Brush *brush_;
 
   BrushGpencilSettings *settings_;
+  std::optional<BrushColorJitterSettings> jitter_settings_;
+
   ColorGeometry4f vertex_color_ = ColorGeometry4f(0.0f, 0.0f, 0.0f, 0.0f);
   ColorGeometry4f fill_color_ = ColorGeometry4f(0.0f, 0.0f, 0.0f, 0.0f);
   float softness_;
+  float aspect_ratio_;
 
   bool use_vertex_color_;
   bool use_settings_random_;
 
-  bke::greasepencil::Drawing *drawing_;
-
   PaintOperationExecutor(const bContext &C)
   {
     scene_ = CTX_data_scene(&C);
-    Object *object = CTX_data_active_object(&C);
-    GreasePencil *grease_pencil = static_cast<GreasePencil *>(object->data);
-
     Paint *paint = &scene_->toolsettings->gp_paint->paint;
     brush_ = BKE_paint_brush(paint);
     settings_ = brush_->gpencil_settings;
@@ -251,164 +302,8 @@ struct PaintOperationExecutor {
       }
     }
     softness_ = 1.0f - settings_->hardness;
-
-    BLI_assert(grease_pencil->has_active_layer());
-    drawing_ = grease_pencil->get_editable_drawing_at(*grease_pencil->get_active_layer(),
-                                                      scene_->r.cfra);
-    BLI_assert(drawing_ != nullptr);
-  }
-
-  float randomize_radius(PaintOperation &self,
-                         const float distance,
-                         const float radius,
-                         const float pressure)
-  {
-    if (!use_settings_random_ || !(settings_->draw_random_press > 0.0f)) {
-      return radius;
-    }
-    float random_factor = 0.0f;
-    if ((settings_->flag2 & GP_BRUSH_USE_PRESS_AT_STROKE) == 0) {
-      /* TODO: This should be exposed as a setting to scale the noise along the stroke. */
-      constexpr float noise_scale = 1 / 20.0f;
-      random_factor = noise::perlin_signed(
-          float2(distance * noise_scale, self.stroke_random_radius_factor_));
-    }
-    else {
-      random_factor = self.stroke_random_radius_factor_;
-    }
-
-    if ((settings_->flag2 & GP_BRUSH_USE_PRESSURE_RAND_PRESS) != 0) {
-      random_factor *= BKE_curvemapping_evaluateF(settings_->curve_rand_pressure, 0, pressure);
-    }
-
-    const float randomized_radius = math::interpolate(
-        radius, radius * (1.0f + random_factor), settings_->draw_random_press);
-    return math::max(randomized_radius, 0.0f);
-  }
-
-  float randomize_opacity(PaintOperation &self,
-                          const float distance,
-                          const float opacity,
-                          const float pressure)
-  {
-    if (!use_settings_random_ || !(settings_->draw_random_strength > 0.0f)) {
-      return opacity;
-    }
-    float random_factor = 0.0f;
-    if ((settings_->flag2 & GP_BRUSH_USE_STRENGTH_AT_STROKE) == 0) {
-      /* TODO: This should be exposed as a setting to scale the noise along the stroke. */
-      constexpr float noise_scale = 1 / 20.0f;
-      random_factor = noise::perlin_signed(
-          float2(distance * noise_scale, self.stroke_random_opacity_factor_));
-    }
-    else {
-      random_factor = self.stroke_random_opacity_factor_;
-    }
-
-    if ((settings_->flag2 & GP_BRUSH_USE_STRENGTH_RAND_PRESS) != 0) {
-      random_factor *= BKE_curvemapping_evaluateF(settings_->curve_rand_strength, 0, pressure);
-    }
-
-    const float randomized_opacity = math::interpolate(
-        opacity, opacity + random_factor, settings_->draw_random_strength);
-    return math::clamp(randomized_opacity, 0.0f, 1.0f);
-  }
-
-  float randomize_rotation(PaintOperation &self, const float pressure)
-  {
-    if (!use_settings_random_ || !(settings_->uv_random > 0.0f)) {
-      return 0.0f;
-    }
-    float random_factor = 0.0f;
-    if ((settings_->flag2 & GP_BRUSH_USE_UV_AT_STROKE) == 0) {
-      random_factor = self.rng_.get_float() * 2.0f - 1.0f;
-    }
-    else {
-      random_factor = self.stroke_random_rotation_factor_;
-    }
-
-    if ((settings_->flag2 & GP_BRUSH_USE_UV_RAND_PRESS) != 0) {
-      random_factor *= BKE_curvemapping_evaluateF(settings_->curve_rand_uv, 0, pressure);
-    }
-
-    const float random_rotation = random_factor * math::numbers::pi;
-    return math::interpolate(0.0f, random_rotation, settings_->uv_random);
-  }
-
-  ColorGeometry4f randomize_color(PaintOperation &self,
-                                  const float distance,
-                                  const ColorGeometry4f color,
-                                  const float pressure)
-  {
-    if (!use_settings_random_ ||
-        !(settings_->random_hue > 0.0f || settings_->random_saturation > 0.0f ||
-          settings_->random_value > 0.0f))
-    {
-      return color;
-    }
-    /* TODO: This should be exposed as a setting to scale the noise along the stroke. */
-    constexpr float noise_scale = 1 / 20.0f;
-
-    float random_hue = 0.0f;
-    if ((settings_->flag2 & GP_BRUSH_USE_HUE_AT_STROKE) == 0) {
-      random_hue = noise::perlin_signed(
-          float2(distance * noise_scale, self.stroke_random_hue_factor_));
-    }
-    else {
-      random_hue = self.stroke_random_hue_factor_;
-    }
-
-    float random_saturation = 0.0f;
-    if ((settings_->flag2 & GP_BRUSH_USE_SAT_AT_STROKE) == 0) {
-      random_saturation = noise::perlin_signed(
-          float2(distance * noise_scale, self.stroke_random_sat_factor_));
-    }
-    else {
-      random_saturation = self.stroke_random_sat_factor_;
-    }
-
-    float random_value = 0.0f;
-    if ((settings_->flag2 & GP_BRUSH_USE_VAL_AT_STROKE) == 0) {
-      random_value = noise::perlin_signed(
-          float2(distance * noise_scale, self.stroke_random_val_factor_));
-    }
-    else {
-      random_value = self.stroke_random_val_factor_;
-    }
-
-    if ((settings_->flag2 & GP_BRUSH_USE_HUE_RAND_PRESS) != 0) {
-      random_hue *= BKE_curvemapping_evaluateF(settings_->curve_rand_hue, 0, pressure);
-    }
-    if ((settings_->flag2 & GP_BRUSH_USE_SAT_RAND_PRESS) != 0) {
-      random_saturation *= BKE_curvemapping_evaluateF(
-          settings_->curve_rand_saturation, 0, pressure);
-    }
-    if ((settings_->flag2 & GP_BRUSH_USE_VAL_RAND_PRESS) != 0) {
-      random_value *= BKE_curvemapping_evaluateF(settings_->curve_rand_value, 0, pressure);
-    }
-
-    float3 hsv;
-    rgb_to_hsv_v(color, hsv);
-
-    hsv += float3(random_hue * settings_->random_hue,
-                  random_saturation * settings_->random_saturation,
-                  random_value * settings_->random_value);
-
-    /* Wrap hue. */
-    if (hsv[0] > 1.0f) {
-      hsv[0] -= 1.0f;
-    }
-    else if (hsv[0] < 0.0f) {
-      hsv[0] += 1.0f;
-    }
-
-    hsv[1] = math::clamp(hsv[1], 0.0f, 1.0f);
-    hsv[2] = math::clamp(hsv[2], 0.0f, 1.0f);
-
-    ColorGeometry4f random_color;
-    hsv_to_rgb_v(hsv, random_color);
-    random_color.a = color.a;
-    return random_color;
+    aspect_ratio_ = settings_->aspect_ratio[0] / math::max(settings_->aspect_ratio[1], 1e-8f);
+    jitter_settings_ = BKE_brush_color_jitter_get_settings(paint, brush_);
   }
 
   void process_start_sample(PaintOperation &self,
@@ -442,21 +337,31 @@ struct PaintOperationExecutor {
         start_location,
         self.placement_.to_world_space(),
         settings_);
-    start_radius = randomize_radius(self, 0.0f, start_radius, start_sample.pressure);
+    start_radius = ed::greasepencil::randomize_radius(
+        *settings_, self.stroke_random_radius_factor_, 0.0f, start_radius, start_sample.pressure);
 
     float start_opacity = ed::greasepencil::opacity_from_input_sample(
         start_sample.pressure, brush_, settings_);
-    start_opacity = randomize_opacity(self, 0.0f, start_opacity, start_sample.pressure);
+    start_opacity = ed::greasepencil::randomize_opacity(*settings_,
+                                                        self.stroke_random_opacity_factor_,
+                                                        0.0f,
+                                                        start_opacity,
+                                                        start_sample.pressure);
 
-    /* Do not allow pressure opacity when drawing tool was invoked temporarily. */
-    const float fill_opacity = (!self.temp_draw_) ? start_opacity : 1.0f;
-
-    const float start_rotation = randomize_rotation(self, start_sample.pressure);
+    const float start_rotation = ed::greasepencil::randomize_rotation(
+        *settings_, self.rng_, self.stroke_random_rotation_factor_, start_sample.pressure);
+    Scene *scene = CTX_data_scene(&C);
     if (use_vertex_color_) {
-      vertex_color_ = randomize_color(self, 0.0f, vertex_color_, start_sample.pressure);
+      vertex_color_ = ed::greasepencil::randomize_color(*settings_,
+                                                        jitter_settings_,
+                                                        self.stroke_random_hue_factor_,
+                                                        self.stroke_random_sat_factor_,
+                                                        self.stroke_random_val_factor_,
+                                                        0.0f,
+                                                        vertex_color_,
+                                                        start_sample.pressure);
     }
 
-    Scene *scene = CTX_data_scene(&C);
     const bool on_back = (scene->toolsettings->gpencil_flags & GP_TOOL_FLAG_PAINT_ONBACK) != 0;
 
     self.screen_space_coords_orig_.append(start_coords);
@@ -466,7 +371,7 @@ struct PaintOperationExecutor {
     self.screen_space_final_coords_.append(start_coords);
 
     /* Resize the curves geometry so there is one more curve with a single point. */
-    bke::CurvesGeometry &curves = drawing_->strokes_for_write();
+    bke::CurvesGeometry &curves = self.drawing_->strokes_for_write();
     ed::greasepencil::add_single_curve(curves, on_back == false);
 
     const int active_curve = on_back ? curves.curves_range().first() :
@@ -478,15 +383,15 @@ struct PaintOperationExecutor {
     Set<std::string> curve_attributes_to_skip;
     bke::MutableAttributeAccessor attributes = curves.attributes_for_write();
     curves.positions_for_write()[last_active_point] = start_location;
-    drawing_->radii_for_write()[last_active_point] = start_radius;
-    drawing_->opacities_for_write()[last_active_point] = start_opacity;
+    self.drawing_->radii_for_write()[last_active_point] = start_radius;
+    self.drawing_->opacities_for_write()[last_active_point] = start_opacity;
     point_attributes_to_skip.add_multiple({"position", "radius", "opacity"});
     if (use_vertex_color_ || attributes.contains("vertex_color")) {
-      drawing_->vertex_colors_for_write()[last_active_point] = vertex_color_;
+      self.drawing_->vertex_colors_for_write()[last_active_point] = vertex_color_;
       point_attributes_to_skip.add("vertex_color");
     }
     if (use_fill || attributes.contains("fill_color")) {
-      drawing_->fill_colors_for_write()[active_curve] = fill_color_;
+      self.drawing_->fill_colors_for_write()[active_curve] = fill_color_;
       curve_attributes_to_skip.add("fill_color");
     }
     if (bke::SpanAttributeWriter<float> delta_times =
@@ -520,6 +425,13 @@ struct PaintOperationExecutor {
       u_scale.span[active_curve] = 1.0f;
       curve_attributes_to_skip.add("u_scale");
       u_scale.finish();
+    }
+    if (bke::SpanAttributeWriter<float> aspect_ratio =
+            attributes.lookup_or_add_for_write_span<float>("aspect_ratio", bke::AttrDomain::Curve))
+    {
+      aspect_ratio.span[active_curve] = aspect_ratio_;
+      curve_attributes_to_skip.add("aspect_ratio");
+      aspect_ratio.finish();
     }
 
     if (settings_->uv_random > 0.0f || attributes.contains("rotation")) {
@@ -558,9 +470,9 @@ struct PaintOperationExecutor {
               attributes.lookup_or_add_for_write_span<float>(
                   "fill_opacity",
                   bke::AttrDomain::Curve,
-                  bke::AttributeInitVArray(VArray<float>::ForSingle(1.0f, curves.curves_num()))))
+                  bke::AttributeInitVArray(VArray<float>::from_single(1.0f, curves.curves_num()))))
       {
-        fill_opacities.span[active_curve] = fill_opacity;
+        fill_opacities.span[active_curve] = start_opacity;
         curve_attributes_to_skip.add("fill_opacity");
         fill_opacities.finish();
       }
@@ -573,6 +485,17 @@ struct PaintOperationExecutor {
       init_times.span[active_curve] = float(uint64_t(self.start_time_ * 1e3)) / float(1e3);
       curve_attributes_to_skip.add("init_time");
       init_times.finish();
+    }
+
+    if (self.do_fill_guides_) {
+      if (bke::SpanAttributeWriter<bool> is_fill_boundary =
+              attributes.lookup_or_add_for_write_span<bool>(".is_fill_guide",
+                                                            bke::AttrDomain::Curve))
+      {
+        is_fill_boundary.span[active_curve] = true;
+        curve_attributes_to_skip.add(".is_fill_guide");
+        is_fill_boundary.finish();
+      }
     }
 
     curves.curve_types_for_write()[active_curve] = CURVE_TYPE_POLY;
@@ -599,7 +522,7 @@ struct PaintOperationExecutor {
         bke::attribute_filter_from_skip_ref(curve_attributes_to_skip),
         IndexRange(active_curve, 1));
 
-    drawing_->tag_topology_changed();
+    self.drawing_->tag_topology_changed();
   }
 
   void active_smoothing(PaintOperation &self, const IndexRange smooth_window)
@@ -628,7 +551,7 @@ struct PaintOperationExecutor {
     geometry::gaussian_blur_1D(
         coords_to_smooth,
         pre_blur_iterations,
-        VArray<float>::ForSingle(settings_->active_smooth, smooth_window.size()),
+        VArray<float>::from_single(settings_->active_smooth, smooth_window.size()),
         true,
         true,
         false,
@@ -764,7 +687,7 @@ struct PaintOperationExecutor {
     const float brush_radius_px = brush_radius_to_pixel_radius(
         rv3d, brush_, math::transform_point(self.placement_.to_world_space(), position));
 
-    bke::CurvesGeometry &curves = drawing_->strokes_for_write();
+    bke::CurvesGeometry &curves = self.drawing_->strokes_for_write();
     OffsetIndices<int> points_by_curve = curves.points_by_curve();
     bke::MutableAttributeAccessor attributes = curves.attributes_for_write();
 
@@ -774,9 +697,9 @@ struct PaintOperationExecutor {
     const int last_active_point = curve_points.last();
 
     const float2 prev_coords = self.screen_space_coords_orig_.last();
-    float prev_radius = drawing_->radii()[last_active_point];
-    const float prev_opacity = drawing_->opacities()[last_active_point];
-    const ColorGeometry4f prev_vertex_color = drawing_->vertex_colors()[last_active_point];
+    float prev_radius = self.drawing_->radii()[last_active_point];
+    const float prev_opacity = self.drawing_->opacities()[last_active_point];
+    const ColorGeometry4f prev_vertex_color = self.drawing_->vertex_colors()[last_active_point];
 
     const bool is_first_sample = (curve_points.size() == 1);
 
@@ -825,21 +748,28 @@ struct PaintOperationExecutor {
         curves.positions_for_write()[last_active_point] = position;
       }
       if (use_settings_random_ && settings_->draw_random_press > 0.0f) {
-        radius = randomize_radius(self, self.accum_distance_, radius, extension_sample.pressure);
+        radius = ed::greasepencil::randomize_radius(*settings_,
+                                                    self.stroke_random_radius_factor_,
+                                                    self.accum_distance_,
+                                                    radius,
+                                                    extension_sample.pressure);
       }
       if (use_settings_random_ && settings_->draw_random_strength > 0.0f) {
-        opacity = randomize_opacity(
-            self, self.accum_distance_, opacity, extension_sample.pressure);
+        opacity = ed::greasepencil::randomize_opacity(*settings_,
+                                                      self.stroke_random_opacity_factor_,
+                                                      self.accum_distance_,
+                                                      opacity,
+                                                      extension_sample.pressure);
       }
-      drawing_->radii_for_write()[last_active_point] = math::max(radius, prev_radius);
-      drawing_->opacities_for_write()[last_active_point] = math::max(opacity, prev_opacity);
+      self.drawing_->radii_for_write()[last_active_point] = math::max(radius, prev_radius);
+      self.drawing_->opacities_for_write()[last_active_point] = math::max(opacity, prev_opacity);
       return;
     }
 
     /* Adjust the first points radius based on the computed angle. */
     if (is_first_sample && settings_->draw_angle_factor > 0.0f) {
-      drawing_->radii_for_write()[last_active_point] *= radius_factor;
-      prev_radius = drawing_->radii()[last_active_point];
+      self.drawing_->radii_for_write()[last_active_point] *= radius_factor;
+      prev_radius = self.drawing_->radii()[last_active_point];
     }
 
     /* Clamp the number of points within a pixel in screen space. */
@@ -862,8 +792,8 @@ struct PaintOperationExecutor {
     Array<float2> new_screen_space_coords(new_points_num);
     MutableSpan<float3> positions = curves.positions_for_write();
     MutableSpan<float3> new_positions = positions.slice(new_points);
-    MutableSpan<float> new_radii = drawing_->radii_for_write().slice(new_points);
-    MutableSpan<float> new_opacities = drawing_->opacities_for_write().slice(new_points);
+    MutableSpan<float> new_radii = self.drawing_->radii_for_write().slice(new_points);
+    MutableSpan<float> new_opacities = self.drawing_->opacities_for_write().slice(new_points);
 
     /* Interpolate the screen space positions. */
     linear_interpolation<float2>(prev_coords, coords, new_screen_space_coords, is_first_sample);
@@ -872,8 +802,12 @@ struct PaintOperationExecutor {
     /* Randomize radii. */
     if (use_settings_random_ && settings_->draw_random_press > 0.0f) {
       for (const int i : IndexRange(new_points_num)) {
-        new_radii[i] = randomize_radius(
-            self, self.accum_distance_ + max_spacing_px * i, radius, extension_sample.pressure);
+        new_radii[i] = ed::greasepencil::randomize_radius(*settings_,
+                                                          self.stroke_random_radius_factor_,
+                                                          self.accum_distance_ +
+                                                              max_spacing_px * i,
+                                                          radius,
+                                                          extension_sample.pressure);
       }
     }
     else {
@@ -883,8 +817,12 @@ struct PaintOperationExecutor {
     /* Randomize opacities. */
     if (use_settings_random_ && settings_->draw_random_strength > 0.0f) {
       for (const int i : IndexRange(new_points_num)) {
-        new_opacities[i] = randomize_opacity(
-            self, self.accum_distance_ + max_spacing_px * i, opacity, extension_sample.pressure);
+        new_opacities[i] = ed::greasepencil::randomize_opacity(*settings_,
+                                                               self.stroke_random_opacity_factor_,
+                                                               self.accum_distance_ +
+                                                                   max_spacing_px * i,
+                                                               opacity,
+                                                               extension_sample.pressure);
       }
     }
     else {
@@ -898,7 +836,11 @@ struct PaintOperationExecutor {
       {
         const MutableSpan<float> new_rotations = rotations.span.slice(new_points);
         for (const int i : IndexRange(new_points_num)) {
-          new_rotations[i] = randomize_rotation(self, extension_sample.pressure);
+          new_rotations[i] = ed::greasepencil::randomize_rotation(
+              *settings_,
+              self.rng_,
+              self.stroke_random_rotation_factor_,
+              extension_sample.pressure);
         }
         point_attributes_to_skip.add("rotation");
         rotations.finish();
@@ -907,14 +849,19 @@ struct PaintOperationExecutor {
 
     /* Randomize vertex color. */
     if (use_vertex_color_ || attributes.contains("vertex_color")) {
-      MutableSpan<ColorGeometry4f> new_vertex_colors = drawing_->vertex_colors_for_write().slice(
-          new_points);
+      MutableSpan<ColorGeometry4f> new_vertex_colors =
+          self.drawing_->vertex_colors_for_write().slice(new_points);
       if (use_settings_random_ || attributes.contains("vertex_color")) {
         for (const int i : IndexRange(new_points_num)) {
-          new_vertex_colors[i] = randomize_color(self,
-                                                 self.accum_distance_ + max_spacing_px * i,
-                                                 vertex_color_,
-                                                 extension_sample.pressure);
+          new_vertex_colors[i] = ed::greasepencil::randomize_color(*settings_,
+                                                                   jitter_settings_,
+                                                                   self.stroke_random_hue_factor_,
+                                                                   self.stroke_random_sat_factor_,
+                                                                   self.stroke_random_val_factor_,
+                                                                   self.accum_distance_ +
+                                                                       max_spacing_px * i,
+                                                                   vertex_color_,
+                                                                   extension_sample.pressure);
         }
       }
       else {
@@ -1034,7 +981,8 @@ struct PaintOperationExecutor {
         bke::attribute_filter_from_skip_ref(point_attributes_to_skip),
         curves.points_range().take_back(new_points_num));
 
-    drawing_->set_texture_matrices({self.texture_space_}, IndexRange::from_single(active_curve));
+    self.drawing_->set_texture_matrices({self.texture_space_},
+                                        IndexRange::from_single(active_curve));
   }
 
   void execute(PaintOperation &self, const bContext &C, const InputSample &extension_sample)
@@ -1044,10 +992,10 @@ struct PaintOperationExecutor {
 
     this->process_extension_sample(self, C, extension_sample);
 
-    const bke::CurvesGeometry &curves = drawing_->strokes();
+    const bke::CurvesGeometry &curves = self.drawing_->strokes();
     const int active_curve = on_back ? curves.curves_range().first() :
                                        curves.curves_range().last();
-    drawing_->tag_topology_changed(IndexRange::from_single(active_curve));
+    self.drawing_->tag_topology_changed(IndexRange::from_single(active_curve));
   }
 };
 
@@ -1139,16 +1087,11 @@ IndexRange PaintOperation::interpolate_stroke_depth(const bContext &C,
   using namespace blender::bke;
 
   Scene *scene = CTX_data_scene(&C);
-  Object *object = CTX_data_active_object(&C);
-  GreasePencil &grease_pencil = *static_cast<GreasePencil *>(object->data);
   const bool on_back = (scene->toolsettings->gpencil_flags & GP_TOOL_FLAG_PAINT_ONBACK) != 0;
 
-  /* Grease Pencil should have an active layer. */
-  BLI_assert(grease_pencil.has_active_layer());
-  bke::greasepencil::Layer &active_layer = *grease_pencil.get_active_layer();
   /* Drawing should exist. */
-  bke::greasepencil::Drawing &drawing = *grease_pencil.get_editable_drawing_at(active_layer,
-                                                                               scene->r.cfra);
+  BLI_assert(drawing_);
+  bke::greasepencil::Drawing &drawing = *drawing_;
   const int active_curve = on_back ? drawing.strokes().curves_range().first() :
                                      drawing.strokes().curves_range().last();
   const offset_indices::OffsetIndices<int> points_by_curve = drawing.strokes().points_by_curve();
@@ -1185,6 +1128,29 @@ IndexRange PaintOperation::interpolate_stroke_depth(const bContext &C,
   return active_points;
 }
 
+void PaintOperation::toggle_fill_guides_brush_on(const bContext &C)
+{
+  Paint *paint = BKE_paint_get_active_from_context(&C);
+  Brush *current_brush = BKE_paint_brush(paint);
+
+  fill_guides_brush_ = create_fill_guide_brush();
+  BLI_assert(fill_guides_brush_ != nullptr);
+  BKE_paint_brush_set(paint, fill_guides_brush_);
+
+  saved_active_brush_ = current_brush;
+}
+
+void PaintOperation::toggle_fill_guides_brush_off(const bContext &C)
+{
+  Paint *paint = BKE_paint_get_active_from_context(&C);
+  BLI_assert(saved_active_brush_ != nullptr);
+  BKE_paint_brush_set(paint, saved_active_brush_);
+  saved_active_brush_ = nullptr;
+  /* Free the temporary brush. */
+  BKE_id_free_ex(nullptr, fill_guides_brush_, LIB_ID_FREE_NO_MAIN, false);
+  fill_guides_brush_ = nullptr;
+}
+
 void PaintOperation::on_stroke_begin(const bContext &C, const InputSample &start_sample)
 {
   Depsgraph *depsgraph = CTX_data_depsgraph_pointer(&C);
@@ -1192,8 +1158,12 @@ void PaintOperation::on_stroke_begin(const bContext &C, const InputSample &start
   View3D *view3d = CTX_wm_view3d(&C);
   Scene *scene = CTX_data_scene(&C);
   Object *object = CTX_data_active_object(&C);
-  Object *eval_object = DEG_get_evaluated_object(depsgraph, object);
+  Object *eval_object = DEG_get_evaluated(depsgraph, object);
   GreasePencil *grease_pencil = static_cast<GreasePencil *>(object->data);
+
+  if (do_fill_guides_) {
+    this->toggle_fill_guides_brush_on(C);
+  }
 
   Paint *paint = &scene->toolsettings->gp_paint->paint;
   Brush *brush = BKE_paint_brush(paint);
@@ -1209,10 +1179,11 @@ void PaintOperation::on_stroke_begin(const bContext &C, const InputSample &start
   BKE_curvemapping_init(settings->curve_rand_pressure);
   BKE_curvemapping_init(settings->curve_rand_strength);
   BKE_curvemapping_init(settings->curve_rand_uv);
-  BKE_curvemapping_init(settings->curve_rand_hue);
-  BKE_curvemapping_init(settings->curve_rand_saturation);
-  BKE_curvemapping_init(settings->curve_rand_value);
+  BKE_curvemapping_init(brush->curve_rand_hue);
+  BKE_curvemapping_init(brush->curve_rand_saturation);
+  BKE_curvemapping_init(brush->curve_rand_value);
 
+  BLI_assert(grease_pencil->has_active_layer());
   const bke::greasepencil::Layer &layer = *grease_pencil->get_active_layer();
   /* Initialize helper class for projecting screen space coordinates. */
   placement_ = ed::greasepencil::DrawingPlacement(*scene, *region, *view3d, *eval_object, &layer);
@@ -1248,6 +1219,11 @@ void PaintOperation::on_stroke_begin(const bContext &C, const InputSample &start
       CTX_data_main(&C), object, brush);
   const int material_index = BKE_object_material_index_get(object, material);
   const bool use_fill = (material->gp_style->flag & GP_MATERIAL_FILL_SHOW) != 0;
+
+  frame_number_ = scene->r.cfra;
+  drawing_ = grease_pencil->get_editable_drawing_at(layer, frame_number_);
+  multi_frame_drawings_ = ed::greasepencil::retrieve_editable_drawings(*scene, *grease_pencil);
+  BLI_assert(drawing_ != nullptr);
 
   /* We're now starting to draw. */
   grease_pencil->runtime->is_drawing_stroke = true;
@@ -1285,7 +1261,7 @@ static void smooth_stroke(bke::greasepencil::Drawing &drawing,
   const IndexRange stroke = IndexRange::from_single(active_curve);
   const offset_indices::OffsetIndices<int> points_by_curve = drawing.strokes().points_by_curve();
   const VArray<bool> cyclic = curves.cyclic();
-  const VArray<bool> point_selection = VArray<bool>::ForSingle(true, curves.points_num());
+  const VArray<bool> point_selection = VArray<bool>::from_single(true, curves.points_num());
 
   bke::MutableAttributeAccessor attributes = curves.attributes_for_write();
   bke::GSpanAttributeWriter positions = attributes.lookup_for_write_span("position");
@@ -1535,7 +1511,7 @@ static void deselect_stroke(const bContext &C,
       scene->toolsettings);
 
   bke::GSpanAttributeWriter selection = ed::curves::ensure_selection_attribute(
-      curves, selection_domain, CD_PROP_BOOL);
+      curves, selection_domain, bke::AttrType::Bool);
 
   if (selection_domain == bke::AttrDomain::Curve) {
     ed::curves::fill_selection_false(selection.span.slice(IndexRange::from_single(active_curve)));
@@ -1698,8 +1674,7 @@ void PaintOperation::on_stroke_done(const bContext &C)
   BLI_assert(grease_pencil.has_active_layer());
   bke::greasepencil::Layer &active_layer = *grease_pencil.get_active_layer();
   /* Drawing should exist. */
-  bke::greasepencil::Drawing &drawing = *grease_pencil.get_editable_drawing_at(active_layer,
-                                                                               scene->r.cfra);
+  bke::greasepencil::Drawing &drawing = *drawing_;
   const int active_curve = on_back ? drawing.strokes().curves_range().first() :
                                      drawing.strokes().curves_range().last();
   const offset_indices::OffsetIndices<int> points_by_curve = drawing.strokes().points_by_curve();
@@ -1770,23 +1745,23 @@ void PaintOperation::on_stroke_done(const bContext &C)
 
   if (use_multi_frame_editing) {
     append_stroke_to_multiframe_drawings(
-        drawing.strokes(),
-        active_curve,
-        scene->r.cfra,
-        on_back,
-        ed::greasepencil::retrieve_editable_drawings(*scene, grease_pencil));
+        drawing.strokes(), active_curve, frame_number_, on_back, multi_frame_drawings_);
   }
 
   /* Now we're done drawing. */
   grease_pencil.runtime->is_drawing_stroke = false;
 
+  if (do_fill_guides_) {
+    this->toggle_fill_guides_brush_off(C);
+  }
+
   DEG_id_tag_update(&grease_pencil.id, ID_RECALC_GEOMETRY);
   WM_event_add_notifier(&C, NC_GEOM | ND_DATA, &grease_pencil.id);
 }
 
-std::unique_ptr<GreasePencilStrokeOperation> new_paint_operation(const bool temp_draw)
+std::unique_ptr<GreasePencilStrokeOperation> new_paint_operation(const bool do_fill_guides)
 {
-  return std::make_unique<PaintOperation>(temp_draw);
+  return std::make_unique<PaintOperation>(do_fill_guides);
 }
 
 }  // namespace blender::ed::sculpt_paint::greasepencil

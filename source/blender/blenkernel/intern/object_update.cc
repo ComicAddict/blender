@@ -22,7 +22,6 @@
 #include "BKE_curves.h"
 #include "BKE_displist.h"
 #include "BKE_editmesh.hh"
-#include "BKE_gpencil_legacy.h"
 #include "BKE_grease_pencil.h"
 #include "BKE_grease_pencil.hh"
 #include "BKE_lattice.hh"
@@ -143,13 +142,6 @@ void BKE_object_handle_data_update(Depsgraph *depsgraph, Scene *scene, Object *o
       cddata_masks.fmask |= CD_MASK_PROP_ALL;
       cddata_masks.pmask |= CD_MASK_PROP_ALL;
       cddata_masks.lmask |= CD_MASK_PROP_ALL;
-
-      /* Make sure Freestyle edge/face marks appear in evaluated mesh (see #40315).
-       * Due to Line Art implementation, edge marks should also be shown in viewport. */
-#ifdef WITH_FREESTYLE
-      cddata_masks.emask |= CD_MASK_FREESTYLE_EDGE;
-      cddata_masks.pmask |= CD_MASK_FREESTYLE_FACE;
-#endif
       if (DEG_get_mode(depsgraph) == DAG_EVAL_RENDER) {
         /* Always compute orcos for render. */
         cddata_masks.vmask |= CD_MASK_ORCO;
@@ -222,7 +214,7 @@ void BKE_object_handle_data_update(Depsgraph *depsgraph, Scene *scene, Object *o
   }
 
   if (DEG_is_active(depsgraph)) {
-    Object *object_orig = DEG_get_original_object(ob);
+    Object *object_orig = DEG_get_original(ob);
     object_orig->runtime->bounds_eval = BKE_object_evaluated_geometry_bounds(ob);
   }
 }
@@ -232,7 +224,7 @@ void BKE_object_sync_to_original(Depsgraph *depsgraph, Object *object)
   if (!DEG_is_active(depsgraph)) {
     return;
   }
-  Object *object_orig = DEG_get_original_object(object);
+  Object *object_orig = DEG_get_original(object);
   /* Base flags. */
   object_orig->base_flag = object->base_flag;
   /* Transformation flags. */

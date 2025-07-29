@@ -15,12 +15,13 @@
 #include "BLI_listbase.h"
 #include "BLI_math_vector.h"
 #include "BLI_rect.h"
-#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 #include "BLI_utildefines.h"
 
 #include "BLT_translation.hh"
 
 #include "BKE_context.hh"
+#include "BKE_global.hh"
 #include "BKE_image.hh"
 #include "BKE_screen.hh"
 
@@ -120,7 +121,7 @@ static void draw_overshoot_triangle(const uint8_t color[4],
                                     const float y)
 {
   const uint shdr_pos_2d = GPU_vertformat_attr_add(
-      immVertexFormat(), "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+      immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
   immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
   GPU_blend(GPU_BLEND_ALPHA);
   GPU_polygon_smooth(true);
@@ -364,10 +365,10 @@ static void slider_draw(const bContext * /*C*/, ARegion *region, void *arg)
   char factor_string[256];
   switch (slider->slider_mode) {
     case SLIDER_MODE_PERCENT:
-      SNPRINTF(factor_string, "%.0f %s", slider->factor * 100, slider->unit_string);
+      SNPRINTF_UTF8(factor_string, "%.0f %s", slider->factor * 100, slider->unit_string);
       break;
     case SLIDER_MODE_FLOAT:
-      SNPRINTF(factor_string, "%.1f %s", slider->factor, slider->unit_string);
+      SNPRINTF_UTF8(factor_string, "%.1f %s", slider->factor, slider->unit_string);
       break;
   }
 
@@ -459,8 +460,10 @@ tSlider *ED_slider_create(bContext *C)
     LISTBASE_FOREACH (ARegion *, region, &slider->area->regionbase) {
       if (region->regiontype == RGN_TYPE_HEADER) {
         slider->region_header = region;
-        slider->draw_handle = ED_region_draw_cb_activate(
-            region->runtime->type, slider_draw, slider, REGION_DRAW_POST_PIXEL);
+        if (!G.background) {
+          slider->draw_handle = ED_region_draw_cb_activate(
+              region->runtime->type, slider_draw, slider, REGION_DRAW_POST_PIXEL);
+        }
       }
     }
   }
@@ -520,41 +523,41 @@ void ED_slider_status_string_get(const tSlider *slider,
 
   if (slider->allow_overshoot_lower || slider->allow_overshoot_upper) {
     if (slider->overshoot) {
-      STRNCPY(overshoot_str, IFACE_("[E] - Disable overshoot"));
+      STRNCPY_UTF8(overshoot_str, IFACE_("[E] - Disable overshoot"));
     }
     else {
-      STRNCPY(overshoot_str, IFACE_("[E] - Enable overshoot"));
+      STRNCPY_UTF8(overshoot_str, IFACE_("[E] - Enable overshoot"));
     }
   }
   else {
-    STRNCPY(overshoot_str, IFACE_("Overshoot disabled"));
+    STRNCPY_UTF8(overshoot_str, IFACE_("Overshoot disabled"));
   }
 
   if (slider->precision) {
-    STRNCPY(precision_str, IFACE_("[Shift] - Precision active"));
+    STRNCPY_UTF8(precision_str, IFACE_("[Shift] - Precision active"));
   }
   else {
-    STRNCPY(precision_str, IFACE_("Shift - Hold for precision"));
+    STRNCPY_UTF8(precision_str, IFACE_("Shift - Hold for precision"));
   }
 
   if (slider->allow_increments) {
     if (slider->increments) {
-      STRNCPY(increments_str, IFACE_(" | [Ctrl] - Increments active"));
+      STRNCPY_UTF8(increments_str, IFACE_(" | [Ctrl] - Increments active"));
     }
     else {
-      STRNCPY(increments_str, IFACE_(" | Ctrl - Hold for increments"));
+      STRNCPY_UTF8(increments_str, IFACE_(" | Ctrl - Hold for increments"));
     }
   }
   else {
     increments_str[0] = '\0';
   }
 
-  BLI_snprintf(status_string,
-               size_of_status_string,
-               "%s | %s%s",
-               overshoot_str,
-               precision_str,
-               increments_str);
+  BLI_snprintf_utf8(status_string,
+                    size_of_status_string,
+                    "%s | %s%s",
+                    overshoot_str,
+                    precision_str,
+                    increments_str);
 }
 
 void ED_slider_status_get(const tSlider *slider, WorkspaceStatus &status)
@@ -646,7 +649,7 @@ SliderMode ED_slider_mode_get(const tSlider *slider)
 
 void ED_slider_unit_set(tSlider *slider, const char *unit)
 {
-  STRNCPY(slider->unit_string, unit);
+  STRNCPY_UTF8(slider->unit_string, unit);
 }
 
 void ED_slider_property_label_set(tSlider *slider, const char *property_label)
@@ -666,7 +669,7 @@ void ED_region_draw_mouse_line_cb(const bContext *C, ARegion *region, void *arg_
   };
 
   const uint shdr_pos = GPU_vertformat_attr_add(
-      immVertexFormat(), "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+      immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
 
   GPU_line_width(1.0f);
 
@@ -704,7 +707,7 @@ static const char *meta_data_list[] = {
     "Scene",
 };
 
-BLI_INLINE bool metadata_is_valid(ImBuf *ibuf, char *r_str, short index, int offset)
+BLI_INLINE bool metadata_is_valid(const ImBuf *ibuf, char *r_str, short index, int offset)
 {
   return (IMB_metadata_get_field(
               ibuf->metadata, meta_data_list[index], r_str + offset, MAX_METADATA_STR - offset) &&
@@ -741,13 +744,13 @@ static void metadata_custom_draw_fields(const char *field, const char *value, vo
   }
   MetadataCustomDrawContext *ctx = (MetadataCustomDrawContext *)ctx_v;
   char temp_str[MAX_METADATA_STR];
-  SNPRINTF(temp_str, "%s: %s", field, value);
+  SNPRINTF_UTF8(temp_str, "%s: %s", field, value);
   BLF_position(ctx->fontid, ctx->xmin, ctx->ymin + ctx->current_y, 0.0f);
   BLF_draw(ctx->fontid, temp_str, sizeof(temp_str));
   ctx->current_y += ctx->vertical_offset;
 }
 
-static void metadata_draw_imbuf(ImBuf *ibuf, const rctf *rect, int fontid, const bool is_top)
+static void metadata_draw_imbuf(const ImBuf *ibuf, const rctf *rect, int fontid, const bool is_top)
 {
   char temp_str[MAX_METADATA_STR];
   int ofs_y = 0;
@@ -767,14 +770,14 @@ static void metadata_draw_imbuf(ImBuf *ibuf, const rctf *rect, int fontid, const
       /* first line */
       if (i == 0) {
         bool do_newline = false;
-        int len = SNPRINTF_RLEN(temp_str, "%s: ", meta_data_list[0]);
+        int len = SNPRINTF_UTF8_RLEN(temp_str, "%s: ", meta_data_list[0]);
         if (metadata_is_valid(ibuf, temp_str, 0, len)) {
           BLF_position(fontid, xmin, ymax - vertical_offset, 0.0f);
           BLF_draw(fontid, temp_str, sizeof(temp_str));
           do_newline = true;
         }
 
-        len = SNPRINTF_RLEN(temp_str, "%s: ", meta_data_list[1]);
+        len = SNPRINTF_UTF8_RLEN(temp_str, "%s: ", meta_data_list[1]);
         if (metadata_is_valid(ibuf, temp_str, 1, len)) {
           int line_width = BLF_width(fontid, temp_str, sizeof(temp_str));
           BLF_position(fontid, xmax - line_width, ymax - vertical_offset, 0.0f);
@@ -787,7 +790,7 @@ static void metadata_draw_imbuf(ImBuf *ibuf, const rctf *rect, int fontid, const
         }
       } /* Strip */
       else if (ELEM(i, 1, 2)) {
-        int len = SNPRINTF_RLEN(temp_str, "%s: ", meta_data_list[i + 1]);
+        int len = SNPRINTF_UTF8_RLEN(temp_str, "%s: ", meta_data_list[i + 1]);
         if (metadata_is_valid(ibuf, temp_str, i + 1, len)) {
           BLF_position(fontid, xmin, ymax - vertical_offset - ofs_y, 0.0f);
           BLF_draw(fontid, temp_str, sizeof(temp_str));
@@ -795,7 +798,7 @@ static void metadata_draw_imbuf(ImBuf *ibuf, const rctf *rect, int fontid, const
         }
       } /* Note (wrapped) */
       else if (i == 3) {
-        int len = SNPRINTF_RLEN(temp_str, "%s: ", meta_data_list[i + 1]);
+        int len = SNPRINTF_UTF8_RLEN(temp_str, "%s: ", meta_data_list[i + 1]);
         if (metadata_is_valid(ibuf, temp_str, i + 1, len)) {
           ResultBLF info;
           BLF_enable(fontid, BLF_WORD_WRAP);
@@ -808,7 +811,7 @@ static void metadata_draw_imbuf(ImBuf *ibuf, const rctf *rect, int fontid, const
         }
       }
       else {
-        int len = SNPRINTF_RLEN(temp_str, "%s: ", meta_data_list[i + 1]);
+        int len = SNPRINTF_UTF8_RLEN(temp_str, "%s: ", meta_data_list[i + 1]);
         if (metadata_is_valid(ibuf, temp_str, i + 1, len)) {
           int line_width = BLF_width(fontid, temp_str, sizeof(temp_str));
           BLF_position(fontid, xmax - line_width, ymax - vertical_offset - ofs_y, 0.0f);
@@ -829,7 +832,7 @@ static void metadata_draw_imbuf(ImBuf *ibuf, const rctf *rect, int fontid, const
     int ofs_x = 0;
     ofs_y = ctx.current_y;
     for (int i = 5; i < 10; i++) {
-      int len = SNPRINTF_RLEN(temp_str, "%s: ", meta_data_list[i]);
+      int len = SNPRINTF_UTF8_RLEN(temp_str, "%s: ", meta_data_list[i]);
       if (metadata_is_valid(ibuf, temp_str, i, len)) {
         BLF_position(fontid, xmin + ofs_x, ymin + ofs_y, 0.0f);
         BLF_draw(fontid, temp_str, sizeof(temp_str));
@@ -853,7 +856,7 @@ static void metadata_custom_count_fields(const char *field, const char * /*value
   ctx->count++;
 }
 
-static float metadata_box_height_get(ImBuf *ibuf, int fontid, const bool is_top)
+static float metadata_box_height_get(const ImBuf *ibuf, int fontid, const bool is_top)
 {
   const float height = BLF_height_max(fontid);
   const float margin = (height / 8);
@@ -906,8 +909,126 @@ static float metadata_box_height_get(ImBuf *ibuf, int fontid, const bool is_top)
   return 0;
 }
 
+static void text_info_row(const char *text,
+                          const int text_len,
+                          int col1,
+                          int col2,
+                          int row,
+                          const int size_x,
+                          const int size_y)
+{
+  const int font_id = BLF_default();
+  float text_color[4];
+
+  UI_GetThemeColor4fv(TH_TEXT_HI, text_color);
+  BLF_color4fv(font_id, text_color);
+
+  /* Ensure text is visible against bright background. */
+  const float shadow_color[4] = {0.0f, 0.0f, 0.0f, 0.8f};
+  BLF_enable(font_id, BLF_SHADOW);
+  BLF_shadow_offset(font_id, 0, 0);
+  BLF_shadow(font_id, FontShadowType::Outline, shadow_color);
+
+  BLF_position(font_id, col1, row, 0.0f);
+  BLF_draw(font_id, IFACE_(text), text_len);
+  BLF_position(font_id, col2, row, 0.0f);
+  char draw_text[MAX_NAME];
+  SNPRINTF_UTF8(draw_text, "%d x %d", size_x, size_y);
+  BLF_draw(font_id, draw_text, sizeof(draw_text));
+
+  BLF_disable(font_id, BLF_SHADOW);
+}
+
+void ED_region_image_overlay_info_text_draw(const int render_size_x,
+                                            const int render_size_y,
+
+                                            const int viewer_size_x,
+                                            const int viewer_size_y,
+
+                                            const int draw_offset_x,
+                                            const int draw_offset_y)
+{
+  BLF_set_default();
+  const int font_id = BLF_default();
+  int overlay_lineheight = (UI_style_get()->widget.points * UI_SCALE_FAC * 1.6f);
+
+  const char render_size_name[MAX_NAME] = "Render Size";
+  const char viewer_size_name[MAX_NAME] = "Image Size";
+
+  const int render_size_width = BLF_width(font_id, render_size_name, sizeof(render_size_name));
+  const int viewer_size_width = BLF_width(font_id, viewer_size_name, sizeof(viewer_size_name));
+  int longest_label = max_ii(render_size_width, viewer_size_width);
+
+  int col1 = draw_offset_x;
+  int col2 = draw_offset_x + longest_label + (0.5 * U.widget_unit);
+
+  text_info_row(render_size_name,
+                sizeof(render_size_name),
+                col1,
+                col2,
+                draw_offset_y - overlay_lineheight,
+                render_size_x,
+                render_size_y);
+
+  text_info_row(viewer_size_name,
+                sizeof(viewer_size_name),
+                col1,
+                col2,
+                draw_offset_y - overlay_lineheight * 2,
+                viewer_size_x,
+                viewer_size_y);
+}
+
+void ED_region_image_render_region_draw(
+    int x, int y, const rcti *frame, float zoomx, float zoomy, float passepartout_alpha)
+{
+  GPU_matrix_push();
+
+  /* Offset and zoom using GPU viewport. */
+  const auto frame_width = BLI_rcti_size_x(frame);
+  const auto frame_height = BLI_rcti_size_y(frame);
+  GPU_matrix_translate_2f(x, y);
+  GPU_matrix_scale_2f(zoomx, zoomy);
+
+  GPUVertFormat *format = immVertexFormat();
+  uint pos = GPU_vertformat_attr_add(format, "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
+
+  immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
+  GPU_blend(GPU_BLEND_ALPHA);
+
+  const float x1 = frame->xmin - frame_width / 2;
+  const float x2 = frame->xmax - frame_width / 2;
+  const float y1 = frame->ymin - frame_height / 2;
+  const float y2 = frame->ymax - frame_height / 2;
+
+  /* Darken the area outside the frame. */
+  if (passepartout_alpha > 0) {
+    /* Using a sufficiently large number instead of numeric_limits::infinity(), to avoid comparison
+     * issues and different behavior around large numbers on different platforms. */
+    constexpr float inf = 10e5;
+    immUniformColor4f(0.0f, 0.0f, 0.0f, passepartout_alpha);
+    immRectf(pos, -inf, y2, inf, inf);
+    immRectf(pos, -inf, y1, inf, -inf);
+    immRectf(pos, -inf, y1, x1, y2);
+    immRectf(pos, x2, y1, inf, y2);
+  }
+
+  float wire_color[3];
+  UI_GetThemeColor3fv(TH_WIRE_EDIT, wire_color);
+  immUniformColor4f(wire_color[0], wire_color[1], wire_color[2], 1);
+
+  /* The bounding box must be drawn last to ensure it remains visible
+   * when passepartout_alpha > 0. */
+  imm_draw_box_wire_2d(pos, x1, y1, x2, y2);
+
+  immUnbindProgram();
+  GPU_blend(GPU_BLEND_NONE);
+
+  GPU_matrix_pop();
+}
+
 void ED_region_image_metadata_draw(
-    int x, int y, ImBuf *ibuf, const rctf *frame, float zoomx, float zoomy)
+    int x, int y, const ImBuf *ibuf, const rctf *frame, float zoomx, float zoomy)
 {
   const uiStyle *style = UI_style_get_dpi();
 
@@ -935,7 +1056,7 @@ void ED_region_image_metadata_draw(
     BLI_rctf_init(&rect, frame->xmin, frame->xmax, frame->ymax, frame->ymax + box_y);
     /* draw top box */
     GPUVertFormat *format = immVertexFormat();
-    uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+    uint pos = GPU_vertformat_attr_add(format, "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
     immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
     immUniformThemeColorAlpha(TH_METADATA_BG, 1.0f);
     immRectf(pos, rect.xmin, rect.ymin, rect.xmax, rect.ymax);
@@ -960,7 +1081,7 @@ void ED_region_image_metadata_draw(
     BLI_rctf_init(&rect, frame->xmin, frame->xmax, frame->ymin - box_y, frame->ymin);
     /* draw top box */
     GPUVertFormat *format = immVertexFormat();
-    uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+    uint pos = GPU_vertformat_attr_add(format, "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
     immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
     immUniformThemeColorAlpha(TH_METADATA_BG, 1.0f);
     immRectf(pos, rect.xmin, rect.ymin, rect.xmax, rect.ymax);

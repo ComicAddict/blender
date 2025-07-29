@@ -35,6 +35,8 @@
 
 #include "BLT_translation.hh"
 
+#include "DNA_material_types.h"
+
 #include "RNA_access.hh"
 #include "RNA_enum_types.hh"
 
@@ -278,11 +280,13 @@ static void populate_curve_props_for_nurbs(const bke::CurvesGeometry &curves,
   orders.resize(num_curves);
 
   const Span<float3> positions = curves.positions();
+  const Span<float> custom_knots = curves.nurbs_custom_knots();
 
   VArray<int8_t> geom_orders = curves.nurbs_orders();
   VArray<int8_t> knots_modes = curves.nurbs_knots_modes();
 
   const OffsetIndices points_by_curve = curves.points_by_curve();
+  const OffsetIndices custom_knots_by_curve = curves.nurbs_custom_knots_by_curve();
   for (const int i_curve : curves.curves_range()) {
     const IndexRange points = points_by_curve[i_curve];
     for (const int i_point : points) {
@@ -300,7 +304,13 @@ static void populate_curve_props_for_nurbs(const bke::CurvesGeometry &curves,
 
     const int knots_num = bke::curves::nurbs::knots_num(tot_points, order, is_cyclic);
     Array<float> temp_knots(knots_num);
-    bke::curves::nurbs::calculate_knots(tot_points, mode, order, is_cyclic, temp_knots);
+    bke::curves::nurbs::load_curve_knots(mode,
+                                         tot_points,
+                                         order,
+                                         is_cyclic,
+                                         custom_knots_by_curve[i_curve],
+                                         custom_knots,
+                                         temp_knots);
 
     /* Knots should be the concatenation of all batched curves.
      * https://graphics.pixar.com/usd/dev/api/class_usd_geom_nurbs_curves.html#details */
@@ -331,31 +341,31 @@ void USDCurvesWriter::set_writer_attributes_for_nurbs(
     const pxr::UsdGeomNurbsCurves &usd_nurbs_curves,
     const pxr::VtArray<double> &knots,
     const pxr::VtArray<int> &orders,
-    const pxr::UsdTimeCode timecode)
+    const pxr::UsdTimeCode time)
 {
   pxr::UsdAttribute attr_knots = usd_nurbs_curves.CreateKnotsAttr(pxr::VtValue(), true);
-  usd_value_writer_.SetAttribute(attr_knots, pxr::VtValue(knots), timecode);
+  usd_value_writer_.SetAttribute(attr_knots, pxr::VtValue(knots), time);
   pxr::UsdAttribute attr_order = usd_nurbs_curves.CreateOrderAttr(pxr::VtValue(), true);
-  usd_value_writer_.SetAttribute(attr_order, pxr::VtValue(orders), timecode);
+  usd_value_writer_.SetAttribute(attr_order, pxr::VtValue(orders), time);
 }
 
 void USDCurvesWriter::set_writer_attributes(pxr::UsdGeomCurves &usd_curves,
                                             pxr::VtArray<pxr::GfVec3f> &verts,
                                             pxr::VtIntArray &control_point_counts,
                                             pxr::VtArray<float> &widths,
-                                            const pxr::UsdTimeCode timecode,
+                                            const pxr::UsdTimeCode time,
                                             const pxr::TfToken interpolation)
 {
   pxr::UsdAttribute attr_points = usd_curves.CreatePointsAttr(pxr::VtValue(), true);
-  set_attribute(attr_points, verts, timecode, usd_value_writer_);
+  set_attribute(attr_points, verts, time, usd_value_writer_);
 
   pxr::UsdAttribute attr_vertex_counts = usd_curves.CreateCurveVertexCountsAttr(pxr::VtValue(),
                                                                                 true);
-  set_attribute(attr_vertex_counts, control_point_counts, timecode, usd_value_writer_);
+  set_attribute(attr_vertex_counts, control_point_counts, time, usd_value_writer_);
 
   if (!widths.empty()) {
     pxr::UsdAttribute attr_widths = usd_curves.CreateWidthsAttr(pxr::VtValue(), true);
-    set_attribute(attr_widths, widths, timecode, usd_value_writer_);
+    set_attribute(attr_widths, widths, time, usd_value_writer_);
 
     usd_curves.SetWidthsInterpolation(interpolation);
   }
@@ -419,7 +429,7 @@ void USDCurvesWriter::write_generic_data(const bke::CurvesGeometry &curves,
                 "Attribute '%s' (Blender domain %d, type %d) cannot be converted to USD",
                 attr.name.c_str(),
                 int8_t(attr.domain),
-                attr.data_type);
+                int(attr.data_type));
     return;
   }
 
@@ -428,15 +438,14 @@ void USDCurvesWriter::write_generic_data(const bke::CurvesGeometry &curves,
     return;
   }
 
-  const pxr::UsdTimeCode timecode = get_export_time_code();
+  const pxr::UsdTimeCode time = get_export_time_code();
   const pxr::TfToken pv_name(
       make_safe_name(attr.name, usd_export_context_.export_params.allow_unicode));
   const pxr::UsdGeomPrimvarsAPI pv_api = pxr::UsdGeomPrimvarsAPI(usd_curves);
 
   pxr::UsdGeomPrimvar pv_attr = pv_api.CreatePrimvar(pv_name, *pv_type, *pv_interp);
 
-  copy_blender_attribute_to_primvar(
-      attribute, attr.data_type, timecode, pv_attr, usd_value_writer_);
+  copy_blender_attribute_to_primvar(attribute, attr.data_type, time, pv_attr, usd_value_writer_);
 }
 
 void USDCurvesWriter::write_uv_data(const bke::AttributeIter &attr,
@@ -447,7 +456,7 @@ void USDCurvesWriter::write_uv_data(const bke::AttributeIter &attr,
     return;
   }
 
-  const pxr::UsdTimeCode timecode = get_export_time_code();
+  const pxr::UsdTimeCode time = get_export_time_code();
   const pxr::TfToken pv_name(
       make_safe_name(attr.name, usd_export_context_.export_params.allow_unicode));
   const pxr::UsdGeomPrimvarsAPI pv_api = pxr::UsdGeomPrimvarsAPI(usd_curves);
@@ -455,7 +464,7 @@ void USDCurvesWriter::write_uv_data(const bke::AttributeIter &attr,
   pxr::UsdGeomPrimvar pv_uv = pv_api.CreatePrimvar(
       pv_name, pxr::SdfValueTypeNames->TexCoord2fArray, pxr::UsdGeomTokens->uniform);
 
-  copy_blender_buffer_to_primvar<float2, pxr::GfVec2f>(buffer, timecode, pv_uv, usd_value_writer_);
+  copy_blender_buffer_to_primvar<float2, pxr::GfVec2f>(buffer, time, pv_uv, usd_value_writer_);
 }
 
 void USDCurvesWriter::write_velocities(const bke::CurvesGeometry &curves,
@@ -472,9 +481,9 @@ void USDCurvesWriter::write_velocities(const bke::CurvesGeometry &curves,
   pxr::VtVec3fArray usd_velocities;
   usd_velocities.assign(data.begin(), data.end());
 
-  pxr::UsdTimeCode timecode = get_export_time_code();
+  pxr::UsdTimeCode time = get_export_time_code();
   pxr::UsdAttribute attr_vel = usd_curves.CreateVelocitiesAttr(pxr::VtValue(), true);
-  set_attribute(attr_vel, usd_velocities, timecode, usd_value_writer_);
+  set_attribute(attr_vel, usd_velocities, time, usd_value_writer_);
 }
 
 void USDCurvesWriter::write_custom_data(const bke::CurvesGeometry &curves,
@@ -491,7 +500,7 @@ void USDCurvesWriter::write_custom_data(const bke::CurvesGeometry &curves,
     }
 
     /* Spline UV data */
-    if (iter.domain == bke::AttrDomain::Curve && iter.data_type == CD_PROP_FLOAT2) {
+    if (iter.domain == bke::AttrDomain::Curve && iter.data_type == bke::AttrType::Float2) {
       if (usd_export_context_.export_params.export_uvmaps) {
         this->write_uv_data(iter, usd_curves);
       }
@@ -547,7 +556,7 @@ void USDCurvesWriter::do_write(HierarchyContext &context)
     return;
   }
 
-  const pxr::UsdTimeCode timecode = get_export_time_code();
+  const pxr::UsdTimeCode time = get_export_time_code();
   const int8_t curve_type = curves.curve_types()[0];
 
   if (first_frame_curve_type == -1) {
@@ -568,7 +577,7 @@ void USDCurvesWriter::do_write(HierarchyContext &context)
                 "%s on frame %f",
                 IFACE_(first_frame_curve_type_name),
                 IFACE_(current_curve_type_name),
-                timecode.GetValue());
+                time.GetValue());
     return;
   }
 
@@ -619,7 +628,7 @@ void USDCurvesWriter::do_write(HierarchyContext &context)
       populate_curve_props_for_nurbs(
           curves, verts, control_point_counts, widths, knots, orders, interpolation, is_cyclic);
 
-      set_writer_attributes_for_nurbs(usd_nurbs_curves, knots, orders, timecode);
+      set_writer_attributes_for_nurbs(usd_nurbs_curves, knots, orders, time);
 
       break;
     }
@@ -628,7 +637,7 @@ void USDCurvesWriter::do_write(HierarchyContext &context)
   }
 
   this->set_writer_attributes(
-      *usd_curves, verts, control_point_counts, widths, timecode, interpolation);
+      *usd_curves, verts, control_point_counts, widths, time, interpolation);
 
   this->assign_materials(context, *usd_curves);
 
@@ -636,9 +645,9 @@ void USDCurvesWriter::do_write(HierarchyContext &context)
   this->write_custom_data(curves, *usd_curves);
 
   auto prim = usd_curves->GetPrim();
-  write_id_properties(prim, curves_id->id, timecode);
+  write_id_properties(prim, curves_id->id, time);
 
-  this->author_extent(*usd_curves, curves.bounds_min_max(), timecode);
+  this->author_extent(*usd_curves, curves.bounds_min_max(), time);
 }
 
 void USDCurvesWriter::assign_materials(const HierarchyContext &context,

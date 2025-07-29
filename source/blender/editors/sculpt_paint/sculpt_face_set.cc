@@ -44,6 +44,7 @@
 #include "BKE_object.hh"
 #include "BKE_paint.hh"
 #include "BKE_paint_bvh.hh"
+#include "BKE_paint_types.hh"
 #include "BKE_subdiv_ccg.hh"
 
 #include "DEG_depsgraph.hh"
@@ -55,7 +56,6 @@
 
 #include "mesh_brush_common.hh"
 #include "paint_hide.hh"
-#include "sculpt_automask.hh"
 #include "sculpt_boundary.hh"
 #include "sculpt_gesture.hh"
 #include "sculpt_intern.hh"
@@ -101,7 +101,8 @@ int find_next_available_id(Object &object)
       const int cd_offset = CustomData_get_offset_named(
           &bm.pdata, CD_PROP_INT32, ".sculpt_face_set");
       if (cd_offset == -1) {
-        return 1;
+        /* Default face set ID is 1, so the next available id should never be 1 */
+        return 2;
       }
       int next_face_set = 1;
       BMIter iter;
@@ -141,8 +142,8 @@ int active_update_and_get(bContext *C, Object &ob, const float mval[2])
     return SCULPT_FACE_SET_NONE;
   }
 
-  SculptCursorGeometryInfo gi;
-  if (!SCULPT_cursor_geometry_info_update(C, &gi, mval, false)) {
+  CursorGeometryInfo gi;
+  if (!cursor_geometry_info_update(C, &gi, mval, false)) {
     return SCULPT_FACE_SET_NONE;
   }
 
@@ -158,7 +159,7 @@ bool create_face_sets_mesh(Object &object)
   }
   attributes.add<int>(".sculpt_face_set",
                       bke::AttrDomain::Face,
-                      bke::AttributeInitVArray(VArray<int>::ForSingle(1, mesh.faces_num)));
+                      bke::AttributeInitVArray(VArray<int>::from_single(1, mesh.faces_num)));
   mesh.face_sets_color_default = 1;
   return true;
 }
@@ -169,7 +170,7 @@ bke::SpanAttributeWriter<int> ensure_face_sets_mesh(Mesh &mesh)
   if (!attributes.contains(".sculpt_face_set")) {
     attributes.add<int>(".sculpt_face_set",
                         bke::AttrDomain::Face,
-                        bke::AttributeInitVArray(VArray<int>::ForSingle(1, mesh.faces_num)));
+                        bke::AttributeInitVArray(VArray<int>::from_single(1, mesh.faces_num)));
     mesh.face_sets_color_default = 1;
   }
   return attributes.lookup_or_add_for_write_span<int>(".sculpt_face_set", bke::AttrDomain::Face);
@@ -400,7 +401,7 @@ static void clear_face_sets(const Depsgraph &depsgraph, Object &object, const In
   attributes.remove(".sculpt_face_set");
 }
 
-static int create_op_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus create_op_exec(bContext *C, wmOperator *op)
 {
   const Scene &scene = *CTX_data_scene(C);
   Object &object = *CTX_data_active_object(C);
@@ -697,7 +698,7 @@ Set<int> gather_hidden_face_sets(const Span<bool> hide_poly, const Span<int> fac
   return hidden_face_sets;
 }
 
-static int init_op_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus init_op_exec(bContext *C, wmOperator *op)
 {
   const Scene &scene = *CTX_data_scene(C);
   Object &ob = *CTX_data_active_object(C);
@@ -981,7 +982,7 @@ static void show_all(Depsgraph &depsgraph, Object &object, const IndexMask &node
   }
 }
 
-static int change_visibility_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus change_visibility_exec(bContext *C, wmOperator *op)
 {
   const Scene &scene = *CTX_data_scene(C);
   Object &object = *CTX_data_active_object(C);
@@ -1064,17 +1065,18 @@ static int change_visibility_exec(bContext *C, wmOperator *op)
   /* For modes that use the cursor active vertex, update the rotation origin for viewport
    * navigation. */
   if (ELEM(mode, VisibilityMode::Toggle, VisibilityMode::ShowActive)) {
-    UnifiedPaintSettings *ups = &CTX_data_tool_settings(C)->unified_paint_settings;
+    Paint *paint = BKE_paint_get_active_from_context(C);
+    bke::PaintRuntime *paint_runtime = paint->runtime;
     if (std::holds_alternative<std::monostate>(ss.active_vert())) {
-      ups->last_stroke_valid = false;
+      paint_runtime->last_stroke_valid = false;
     }
     else {
       float location[3];
       copy_v3_v3(location, ss.active_vert_position(depsgraph, object));
       mul_m4_v3(object.object_to_world().ptr(), location);
-      copy_v3_v3(ups->average_stroke_accum, location);
-      ups->average_stroke_counter = 1;
-      ups->last_stroke_valid = true;
+      copy_v3_v3(paint_runtime->average_stroke_accum, location);
+      paint_runtime->average_stroke_counter = 1;
+      paint_runtime->last_stroke_valid = true;
     }
   }
 
@@ -1088,7 +1090,7 @@ static int change_visibility_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-static int change_visibility_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus change_visibility_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   Object &ob = *CTX_data_active_object(C);
 
@@ -1100,10 +1102,10 @@ static int change_visibility_invoke(bContext *C, wmOperator *op, const wmEvent *
 
   /* Update the active vertex and Face Set using the cursor position to avoid relying on the paint
    * cursor updates. */
-  SculptCursorGeometryInfo sgi;
+  CursorGeometryInfo cgi;
   const float mval_fl[2] = {float(event->mval[0]), float(event->mval[1])};
-  SCULPT_vertex_random_access_ensure(ob);
-  SCULPT_cursor_geometry_info_update(C, &sgi, mval_fl, false);
+  vert_random_access_ensure(ob);
+  cursor_geometry_info_update(C, &cgi, mval_fl, false);
 
   return change_visibility_exec(C, op);
 }
@@ -1141,7 +1143,7 @@ void SCULPT_OT_face_set_change_visibility(wmOperatorType *ot)
   RNA_def_enum(ot->srna, "mode", modes, int(VisibilityMode::Toggle), "Mode", "");
 }
 
-static int randomize_colors_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus randomize_colors_exec(bContext *C, wmOperator * /*op*/)
 {
   Object &ob = *CTX_data_active_object(C);
 
@@ -1517,7 +1519,7 @@ static bool edit_op_init(bContext *C, wmOperator *op)
   return true;
 }
 
-static int edit_op_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus edit_op_exec(bContext *C, wmOperator *op)
 {
   if (!edit_op_init(C, op)) {
     return OPERATOR_CANCELLED;
@@ -1550,7 +1552,7 @@ static int edit_op_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-static int edit_op_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus edit_op_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   Depsgraph *depsgraph = CTX_data_depsgraph_pointer(C);
   Object &ob = *CTX_data_active_object(C);
@@ -1565,9 +1567,9 @@ static int edit_op_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 
   /* Update the current active Face Set and Vertex as the operator can be used directly from the
    * tool without brush cursor. */
-  SculptCursorGeometryInfo sgi;
+  CursorGeometryInfo cgi;
   const float mval_fl[2] = {float(event->mval[0]), float(event->mval[1])};
-  if (!SCULPT_cursor_geometry_info_update(C, &sgi, mval_fl, false)) {
+  if (!cursor_geometry_info_update(C, &cgi, mval_fl, false)) {
     /* The cursor is not over the mesh. Cancel to avoid editing the last updated Face Set ID. */
     return OPERATOR_CANCELLED;
   }
@@ -1739,11 +1741,9 @@ static void gesture_apply_bmesh(gesture::GestureData &gesture_data, const IndexM
   FaceSetOperation *face_set_operation = (FaceSetOperation *)gesture_data.operation;
   const Depsgraph &depsgraph = *gesture_data.vc.depsgraph;
   const int new_face_set = face_set_operation->new_face_set_id;
-  SculptSession &ss = *gesture_data.ss;
   bke::pbvh::Tree &pbvh = *bke::object::pbvh_get(*gesture_data.vc.obact);
   MutableSpan<bke::pbvh::BMeshNode> nodes = pbvh.nodes<bke::pbvh::BMeshNode>();
-  BMesh *bm = ss.bm;
-  const int offset = CustomData_get_offset_named(&bm->pdata, CD_PROP_INT32, ".sculpt_face_set");
+  const int offset = face_set::ensure_face_sets_bmesh(*gesture_data.vc.obact);
 
   Array<bool> node_changed(node_mask.min_array_size(), false);
 
@@ -1799,7 +1799,7 @@ static void init_operation(gesture::GestureData &gesture_data, wmOperator & /*op
 {
   Object &object = *gesture_data.vc.obact;
   gesture_data.operation = reinterpret_cast<gesture::Operation *>(
-      MEM_cnew<FaceSetOperation>(__func__));
+      MEM_callocN<FaceSetOperation>(__func__));
 
   FaceSetOperation *face_set_operation = (FaceSetOperation *)gesture_data.operation;
 
@@ -1810,7 +1810,7 @@ static void init_operation(gesture::GestureData &gesture_data, wmOperator & /*op
   face_set_operation->new_face_set_id = face_set::find_next_available_id(object);
 }
 
-static int gesture_box_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus gesture_box_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   const View3D *v3d = CTX_wm_view3d(C);
   const Base *base = CTX_data_active_base(C);
@@ -1821,7 +1821,7 @@ static int gesture_box_invoke(bContext *C, wmOperator *op, const wmEvent *event)
   return WM_gesture_box_invoke(C, op, event);
 }
 
-static int gesture_box_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus gesture_box_exec(bContext *C, wmOperator *op)
 {
   std::unique_ptr<gesture::GestureData> gesture_data = gesture::init_from_box(C, op);
   if (!gesture_data) {
@@ -1832,7 +1832,7 @@ static int gesture_box_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-static int gesture_lasso_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus gesture_lasso_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   const View3D *v3d = CTX_wm_view3d(C);
   const Base *base = CTX_data_active_base(C);
@@ -1843,7 +1843,7 @@ static int gesture_lasso_invoke(bContext *C, wmOperator *op, const wmEvent *even
   return WM_gesture_lasso_invoke(C, op, event);
 }
 
-static int gesture_lasso_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus gesture_lasso_exec(bContext *C, wmOperator *op)
 {
   std::unique_ptr<gesture::GestureData> gesture_data = gesture::init_from_lasso(C, op);
   if (!gesture_data) {
@@ -1854,7 +1854,7 @@ static int gesture_lasso_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-static int gesture_line_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus gesture_line_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   const View3D *v3d = CTX_wm_view3d(C);
   const Base *base = CTX_data_active_base(C);
@@ -1865,7 +1865,7 @@ static int gesture_line_invoke(bContext *C, wmOperator *op, const wmEvent *event
   return WM_gesture_straightline_active_side_invoke(C, op, event);
 }
 
-static int gesture_line_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus gesture_line_exec(bContext *C, wmOperator *op)
 {
   std::unique_ptr<gesture::GestureData> gesture_data = gesture::init_from_line(C, op);
   if (!gesture_data) {
@@ -1876,7 +1876,7 @@ static int gesture_line_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-static int gesture_polyline_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus gesture_polyline_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   const View3D *v3d = CTX_wm_view3d(C);
   const Base *base = CTX_data_active_base(C);
@@ -1887,7 +1887,7 @@ static int gesture_polyline_invoke(bContext *C, wmOperator *op, const wmEvent *e
   return WM_gesture_polyline_invoke(C, op, event);
 }
 
-static int gesture_polyline_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus gesture_polyline_exec(bContext *C, wmOperator *op)
 {
   std::unique_ptr<gesture::GestureData> gesture_data = gesture::init_from_polyline(C, op);
   if (!gesture_data) {

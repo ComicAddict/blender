@@ -42,6 +42,12 @@ struct Global {
   char filepath_last_image[/*FILE_MAX*/ 1024];
   /** Last used location for library link/append. */
   char filepath_last_library[/*FILE_MAX*/ 1024];
+  /**
+   * Last saved location for .blend files.
+   * This is used for recovery in case of a crash.
+   * It is set when a .blend file is loaded or when saving (manually or through autosave).
+   */
+  char filepath_last_blend[/*FILE_MAX*/ 1024];
 
   /**
    * Strings of recently opened files to show in the file menu.
@@ -63,14 +69,6 @@ struct Global {
    * (which use background mode by definition).
    */
   bool background;
-
-  /**
-   * When true, suppress any non-error print messages such as files saves, loaded, quitting etc.
-   * This is used so command line tools can control output without unnecessary noise.
-   *
-   * \note This should only be used to suppress printing (not reports or other kinds of logging).
-   */
-  bool quiet;
 
   /**
    * Skip reading the startup file and user preferences.
@@ -168,13 +166,6 @@ struct Global {
   char autoexec_fail[200];
 
   /**
-   * Has there been an opengl deprecation call detected when running on a none OpenGL backend.
-   */
-  bool opengl_deprecation_usage_detected;
-  const char *opengl_deprecation_usage_filename;
-  int opengl_deprecation_usage_lineno;
-
-  /**
    * Triggers a GPU capture if the name matches a DebugScope.
    * Set using `--debug-gpu-scope-capture "debug_scope"`.
    */
@@ -263,7 +254,7 @@ enum {
                        G_DEBUG_DEPSGRAPH_TIME | G_DEBUG_DEPSGRAPH_UID),
   G_DEBUG_SIMDATA = (1 << 15),                     /* sim debug data display */
   G_DEBUG_GPU = (1 << 16),                         /* gpu debug */
-  G_DEBUG_IO = (1 << 17),                          /* IO Debugging (for Collada, ...). */
+  G_DEBUG_IO = (1 << 17),                          /* IO Debugging. */
   G_DEBUG_GPU_FORCE_WORKAROUNDS = (1 << 18),       /* Force GPU workarounds bypassing detection. */
   G_DEBUG_GPU_FORCE_VULKAN_LOCAL_READ = (1 << 19), /* Force GPU dynamic rendering local read. */
   G_DEBUG_GPU_COMPILE_SHADERS = (1 << 20),         /* Compile all statically defined shaders. . */

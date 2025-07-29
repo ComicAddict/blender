@@ -13,6 +13,8 @@
 /* For #UsdGeomXformable. */
 #include <pxr/usd/usdGeom/xformable.h>
 
+struct Main;
+
 namespace blender::io::usd {
 
 /**
@@ -37,12 +39,15 @@ class USDXformReader : public USDPrimReader {
   {
   }
 
-  void create_object(Main *bmain, double motionSampleTime) override;
-  void read_object_data(Main *bmain, double motionSampleTime) override;
+  void create_object(Main *bmain) override;
+  void read_object_data(Main *bmain, pxr::UsdTimeCode time) override;
 
   pxr::SdfPath object_prim_path() const override;
 
-  void read_matrix(float r_mat[4][4], float time, float scale, bool *r_is_constant) const;
+  void read_matrix(float r_mat[4][4],
+                   pxr::UsdTimeCode time,
+                   float scale,
+                   bool *r_is_constant) const;
 
   bool use_parent_xform() const
   {
@@ -70,7 +75,7 @@ class USDXformReader : public USDPrimReader {
    *         - A boolean flag indicating whether the matrix
    *           is constant over time.
    */
-  virtual std::optional<XformResult> get_local_usd_xform(float time) const;
+  virtual std::optional<XformResult> get_local_usd_xform(pxr::UsdTimeCode time) const;
 
  private:
   pxr::UsdGeomXformable get_xformable() const;

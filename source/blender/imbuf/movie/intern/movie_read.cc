@@ -16,7 +16,10 @@
 #include <sys/types.h>
 
 #include "BLI_path_utils.hh"
+#include "BLI_span.hh"
 #include "BLI_string.h"
+#include "BLI_string_utf8.h"
+#include "BLI_task.hh"
 #include "BLI_threads.h"
 #include "BLI_utildefines.h"
 
@@ -53,6 +56,8 @@ extern "C" {
 #ifdef WITH_FFMPEG
 static void free_anim_ffmpeg(MovieReader *anim);
 #endif
+
+static bool anim_getnew(MovieReader *anim);
 
 void MOV_close(MovieReader *anim)
 {
@@ -97,9 +102,51 @@ IDProperty *MOV_load_metadata(MovieReader *anim)
   return anim->metadata;
 }
 
+static void probe_video_colorspace(MovieReader *anim, char r_colorspace_name[IM_MAX_SPACE])
+{
+  /* Use default role as fallback (i.e. it is an unknown combination of colorspace and primaries)
+   */
+  BLI_strncpy_utf8(r_colorspace_name,
+                   IMB_colormanagement_role_colorspace_name_get(COLOR_ROLE_DEFAULT_BYTE),
+                   IM_MAX_SPACE);
+
+  if (anim->state == MovieReader::State::Uninitialized) {
+    if (!anim_getnew(anim)) {
+      return;
+    }
+  }
+
+#ifdef WITH_FFMPEG
+  const AVColorTransferCharacteristic color_trc = anim->pCodecCtx->color_trc;
+  const AVColorSpace colorspace = anim->pCodecCtx->colorspace;
+  const AVColorPrimaries color_primaries = anim->pCodecCtx->color_primaries;
+
+  if (color_trc == AVCOL_TRC_ARIB_STD_B67 && color_primaries == AVCOL_PRI_BT2020 &&
+      colorspace == AVCOL_SPC_BT2020_NCL)
+  {
+    const char *hlg_name = IMB_colormanagement_get_rec2100_hlg_display_colorspace();
+    if (hlg_name) {
+      BLI_strncpy_utf8(r_colorspace_name, hlg_name, IM_MAX_SPACE);
+    }
+    return;
+  }
+
+  if (color_trc == AVCOL_TRC_SMPTEST2084 && color_primaries == AVCOL_PRI_BT2020 &&
+      colorspace == AVCOL_SPC_BT2020_NCL)
+  {
+    const char *pq_name = IMB_colormanagement_get_rec2100_pq_display_colorspace();
+    if (pq_name) {
+      BLI_strncpy_utf8(r_colorspace_name, pq_name, IM_MAX_SPACE);
+    }
+    return;
+  }
+#endif /* WITH_FFMPEG */
+}
+
 MovieReader *MOV_open_file(const char *filepath,
-                           int ib_flags,
-                           int streamindex,
+                           const int ib_flags,
+                           const int streamindex,
+                           const bool keep_original_colorspace,
                            char colorspace[IM_MAX_SPACE])
 {
   MovieReader *anim;
@@ -108,18 +155,27 @@ MovieReader *MOV_open_file(const char *filepath,
 
   anim = MEM_new<MovieReader>("anim struct");
   if (anim != nullptr) {
-    if (colorspace) {
-      colorspace_set_default_role(colorspace, IM_MAX_SPACE, COLOR_ROLE_DEFAULT_BYTE);
-      STRNCPY(anim->colorspace, colorspace);
-    }
-    else {
-      colorspace_set_default_role(
-          anim->colorspace, sizeof(anim->colorspace), COLOR_ROLE_DEFAULT_BYTE);
-    }
 
     STRNCPY(anim->filepath, filepath);
     anim->ib_flags = ib_flags;
     anim->streamindex = streamindex;
+    anim->keep_original_colorspace = keep_original_colorspace;
+
+    if (colorspace && colorspace[0] != '\0') {
+      /* Use colorspace from argument, if provided. */
+      STRNCPY_UTF8(anim->colorspace, colorspace);
+    }
+    else {
+      /* Try to initialize colorspace from the FFmpeg stream by interpreting color information from
+       * it. */
+      char file_colorspace[IM_MAX_SPACE];
+      probe_video_colorspace(anim, file_colorspace);
+      STRNCPY_UTF8(anim->colorspace, file_colorspace);
+      if (colorspace) {
+        /* Copy the used colorspace into output argument. */
+        BLI_strncpy_utf8(colorspace, file_colorspace, IM_MAX_SPACE);
+      }
+    }
   }
   return anim;
 }
@@ -446,10 +502,10 @@ static int startffmpeg(MovieReader *anim)
     av_image_fill_arrays(
         anim->pFrameDeinterlaced->data,
         anim->pFrameDeinterlaced->linesize,
-        static_cast<const uint8_t *>(MEM_callocN(
+        MEM_calloc_arrayN<uint8_t>(
             av_image_get_buffer_size(
                 anim->pCodecCtx->pix_fmt, anim->pCodecCtx->width, anim->pCodecCtx->height, 1),
-            "ffmpeg deinterlace")),
+            "ffmpeg deinterlace"),
         anim->pCodecCtx->pix_fmt,
         anim->pCodecCtx->width,
         anim->pCodecCtx->height,
@@ -463,9 +519,13 @@ static int startffmpeg(MovieReader *anim)
   anim->img_convert_ctx = ffmpeg_sws_get_context(anim->x,
                                                  anim->y,
                                                  anim->pCodecCtx->pix_fmt,
+                                                 anim->pCodecCtx->color_range == AVCOL_RANGE_JPEG,
+                                                 anim->pCodecCtx->colorspace,
                                                  anim->x,
                                                  anim->y,
                                                  anim->pFrameRGB->format,
+                                                 false,
+                                                 -1,
                                                  SWS_POINT | SWS_FULL_CHR_H_INT |
                                                      SWS_ACCURATE_RND);
 
@@ -484,38 +544,6 @@ static int startffmpeg(MovieReader *anim)
     av_frame_free(&anim->pFrame_backup);
     anim->pCodecCtx = nullptr;
     return -1;
-  }
-
-  /* Try do detect if input has 0-255 YCbCR range (JFIF, JPEG, Motion-JPEG). */
-  int srcRange, dstRange, brightness, contrast, saturation;
-  int *table;
-  const int *inv_table;
-  if (!sws_getColorspaceDetails(anim->img_convert_ctx,
-                                (int **)&inv_table,
-                                &srcRange,
-                                &table,
-                                &dstRange,
-                                &brightness,
-                                &contrast,
-                                &saturation))
-  {
-    srcRange = srcRange || anim->pCodecCtx->color_range == AVCOL_RANGE_JPEG;
-    inv_table = sws_getCoefficients(anim->pCodecCtx->colorspace);
-
-    if (sws_setColorspaceDetails(anim->img_convert_ctx,
-                                 (int *)inv_table,
-                                 srcRange,
-                                 table,
-                                 dstRange,
-                                 brightness,
-                                 contrast,
-                                 saturation))
-    {
-      fprintf(stderr, "Warning: Could not set libswscale colorspace details.\n");
-    }
-  }
-  else {
-    fprintf(stderr, "Warning: Could not set libswscale colorspace details.\n");
   }
 
   return 0;
@@ -574,6 +602,96 @@ static AVFrame *ffmpeg_double_buffer_frame_fallback_get(MovieReader *anim)
   return nullptr;
 }
 
+/* Convert from ffmpeg planar GBRA layout to ImBuf interleaved RGBA, applying
+ * video rotation in the same go if needed. */
+static void float_planar_to_interleaved(const AVFrame *frame, const int rotation, ImBuf *ibuf)
+{
+  using namespace blender;
+  const size_t src_linesize = frame->linesize[0];
+  BLI_assert_msg(frame->linesize[1] == src_linesize && frame->linesize[2] == src_linesize &&
+                     frame->linesize[3] == src_linesize,
+                 "ffmpeg frame should be 4 same size planes for a floating point image case");
+  threading::parallel_for(IndexRange(ibuf->y), 256, [&](const IndexRange y_range) {
+    const int size_x = ibuf->x;
+    const int size_y = ibuf->y;
+    if (rotation == 90) {
+      /* 90 degree rotation. */
+      for (const int64_t y : y_range) {
+        int64_t src_offset = src_linesize * (size_y - y - 1);
+        const float *src_g = reinterpret_cast<const float *>(frame->data[0] + src_offset);
+        const float *src_b = reinterpret_cast<const float *>(frame->data[1] + src_offset);
+        const float *src_r = reinterpret_cast<const float *>(frame->data[2] + src_offset);
+        const float *src_a = reinterpret_cast<const float *>(frame->data[3] + src_offset);
+        float *dst = ibuf->float_buffer.data + (y + (size_x - 1) * size_y) * 4;
+        for (int x = 0; x < size_x; x++) {
+          dst[0] = *src_r++;
+          dst[1] = *src_g++;
+          dst[2] = *src_b++;
+          dst[3] = *src_a++;
+          dst -= size_y * 4;
+        }
+      }
+    }
+    else if (rotation == 180) {
+      /* 180 degree rotation. */
+      for (const int64_t y : y_range) {
+        int64_t src_offset = src_linesize * (size_y - y - 1);
+        const float *src_g = reinterpret_cast<const float *>(frame->data[0] + src_offset);
+        const float *src_b = reinterpret_cast<const float *>(frame->data[1] + src_offset);
+        const float *src_r = reinterpret_cast<const float *>(frame->data[2] + src_offset);
+        const float *src_a = reinterpret_cast<const float *>(frame->data[3] + src_offset);
+        float *dst = ibuf->float_buffer.data + ((size_y - y - 1) * size_x + size_x - 1) * 4;
+        for (int x = 0; x < size_x; x++) {
+          dst[0] = *src_r++;
+          dst[1] = *src_g++;
+          dst[2] = *src_b++;
+          dst[3] = *src_a++;
+          dst -= 4;
+        }
+      }
+    }
+    else if (rotation == 270) {
+      /* 270 degree rotation. */
+      for (const int64_t y : y_range) {
+        int64_t src_offset = src_linesize * (size_y - y - 1);
+        const float *src_g = reinterpret_cast<const float *>(frame->data[0] + src_offset);
+        const float *src_b = reinterpret_cast<const float *>(frame->data[1] + src_offset);
+        const float *src_r = reinterpret_cast<const float *>(frame->data[2] + src_offset);
+        const float *src_a = reinterpret_cast<const float *>(frame->data[3] + src_offset);
+        float *dst = ibuf->float_buffer.data + (size_y - y - 1) * 4;
+        for (int x = 0; x < size_x; x++) {
+          dst[0] = *src_r++;
+          dst[1] = *src_g++;
+          dst[2] = *src_b++;
+          dst[3] = *src_a++;
+          dst += size_y * 4;
+        }
+      }
+    }
+    else if (rotation == 0) {
+      /* No rotation. */
+      for (const int64_t y : y_range) {
+        int64_t src_offset = src_linesize * (size_y - y - 1);
+        const float *src_g = reinterpret_cast<const float *>(frame->data[0] + src_offset);
+        const float *src_b = reinterpret_cast<const float *>(frame->data[1] + src_offset);
+        const float *src_r = reinterpret_cast<const float *>(frame->data[2] + src_offset);
+        const float *src_a = reinterpret_cast<const float *>(frame->data[3] + src_offset);
+        float *dst = ibuf->float_buffer.data + size_x * y * 4;
+        for (int x = 0; x < size_x; x++) {
+          *dst++ = *src_r++;
+          *dst++ = *src_g++;
+          *dst++ = *src_b++;
+          *dst++ = *src_a++;
+        }
+      }
+    }
+  });
+
+  if (ELEM(rotation, 90, 270)) {
+    std::swap(ibuf->x, ibuf->y);
+  }
+}
+
 /**
  * Postprocess the image in anim->pFrame and do color conversion and de-interlacing stuff.
  *
@@ -616,32 +734,16 @@ static void ffmpeg_postprocess(MovieReader *anim, AVFrame *input, ImBuf *ibuf)
     }
   }
 
+  bool already_rotated = false;
   if (anim->is_float) {
-    /* Float images are converted into planar BGRA layout by swscale (since
+    /* Float images are converted into planar GBRA layout by swscale (since
      * it does not support direct YUV->RGBA float interleaved conversion).
      * Do vertical flip and interleave into RGBA manually. */
     /* Decode, then do vertical flip into destination. */
     ffmpeg_sws_scale_frame(anim->img_convert_ctx, anim->pFrameRGB, input);
 
-    const size_t src_linesize = anim->pFrameRGB->linesize[0];
-    BLI_assert_msg(anim->pFrameRGB->linesize[1] == src_linesize &&
-                       anim->pFrameRGB->linesize[2] == src_linesize &&
-                       anim->pFrameRGB->linesize[3] == src_linesize,
-                   "ffmpeg frame should be 4 same size planes for a floating point image case");
-    for (int y = 0; y < ibuf->y; y++) {
-      size_t src_offset = src_linesize * (ibuf->y - y - 1);
-      const float *src_g = reinterpret_cast<const float *>(anim->pFrameRGB->data[0] + src_offset);
-      const float *src_b = reinterpret_cast<const float *>(anim->pFrameRGB->data[1] + src_offset);
-      const float *src_r = reinterpret_cast<const float *>(anim->pFrameRGB->data[2] + src_offset);
-      const float *src_a = reinterpret_cast<const float *>(anim->pFrameRGB->data[3] + src_offset);
-      float *dst = ibuf->float_buffer.data + ibuf->x * y * 4;
-      for (int x = 0; x < ibuf->x; x++) {
-        *dst++ = *src_r++;
-        *dst++ = *src_g++;
-        *dst++ = *src_b++;
-        *dst++ = *src_a++;
-      }
-    }
+    float_planar_to_interleaved(anim->pFrameRGB, anim->video_rotation, ibuf);
+    already_rotated = true;
   }
   else {
     /* If final destination image layout matches that of decoded RGB frame (including
@@ -698,7 +800,7 @@ static void ffmpeg_postprocess(MovieReader *anim, AVFrame *input, ImBuf *ibuf)
   }
 
   /* Rotate video if display matrix is multiple of 90 degrees. */
-  if (ELEM(anim->video_rotation, 90, 180, 270)) {
+  if (!already_rotated && ELEM(anim->video_rotation, 90, 180, 270)) {
     IMB_rotate_orthogonal(ibuf, anim->video_rotation);
   }
 }
@@ -1200,11 +1302,9 @@ static ImBuf *ffmpeg_fetchibuf(MovieReader *anim, int position, IMB_Timecode_Typ
       MEM_mallocN_aligned(pixel_size * anim->x * anim->y, align, "ffmpeg ibuf"));
   if (anim->is_float) {
     IMB_assign_float_buffer(cur_frame_final, (float *)buffer_data, IB_TAKE_OWNERSHIP);
-    cur_frame_final->float_buffer.colorspace = colormanage_colorspace_get_named(anim->colorspace);
   }
   else {
     IMB_assign_byte_buffer(cur_frame_final, buffer_data, IB_TAKE_OWNERSHIP);
-    cur_frame_final->byte_buffer.colorspace = colormanage_colorspace_get_named(anim->colorspace);
   }
 
   AVFrame *final_frame = ffmpeg_frame_by_pts_get(anim, pts_to_search);
@@ -1218,6 +1318,30 @@ static ImBuf *ffmpeg_fetchibuf(MovieReader *anim, int position, IMB_Timecode_Typ
    * this case skip post-processing and return current image buffer. */
   if (final_frame != nullptr) {
     ffmpeg_postprocess(anim, final_frame, cur_frame_final);
+  }
+
+  if (anim->is_float) {
+    if (anim->keep_original_colorspace) {
+      /* Movie has been explicitly requested to keep original colorspace, regardless of the nature
+       * of the buffer. */
+      cur_frame_final->float_buffer.colorspace = colormanage_colorspace_get_named(
+          anim->colorspace);
+    }
+    else {
+      /* Float buffers are expected to be in the scene linear color space.
+       * Linearize the buffer if it is in a different space.
+       *
+       * It might not be the most optimal thing to do from the playback performance in the
+       * sequencer perspective, but it ensures that other areas in Blender do not run into obscure
+       * color space mismatches. */
+      colormanage_imbuf_make_linear(cur_frame_final, anim->colorspace);
+    }
+  }
+  else {
+    /* Colorspace conversion is lossy for byte buffers, so only assign the colorspace.
+     * It is up to artists to ensure operations on byte buffers do not involve mixing different
+     * colorspaces. */
+    cur_frame_final->byte_buffer.colorspace = colormanage_colorspace_get_named(anim->colorspace);
   }
 
   anim->cur_position = position;
@@ -1287,11 +1411,11 @@ ImBuf *MOV_decode_preview_frame(MovieReader *anim)
 
     char value[128];
     IMB_metadata_ensure(&ibuf->metadata);
-    SNPRINTF(value, "%i", anim->x);
+    SNPRINTF_UTF8(value, "%i", anim->x);
     IMB_metadata_set_field(ibuf->metadata, "Thumb::Video::Width", value);
-    SNPRINTF(value, "%i", anim->y);
+    SNPRINTF_UTF8(value, "%i", anim->y);
     IMB_metadata_set_field(ibuf->metadata, "Thumb::Video::Height", value);
-    SNPRINTF(value, "%i", anim->duration_in_frames);
+    SNPRINTF_UTF8(value, "%i", anim->duration_in_frames);
     IMB_metadata_set_field(ibuf->metadata, "Thumb::Video::Frames", value);
 
 #ifdef WITH_FFMPEG
@@ -1300,9 +1424,9 @@ ImBuf *MOV_decode_preview_frame(MovieReader *anim)
       AVRational frame_rate = av_guess_frame_rate(anim->pFormatCtx, v_st, nullptr);
       if (frame_rate.num != 0) {
         double duration = anim->duration_in_frames / av_q2d(frame_rate);
-        SNPRINTF(value, "%g", av_q2d(frame_rate));
+        SNPRINTF_UTF8(value, "%g", av_q2d(frame_rate));
         IMB_metadata_set_field(ibuf->metadata, "Thumb::Video::FPS", value);
-        SNPRINTF(value, "%g", duration);
+        SNPRINTF_UTF8(value, "%g", duration);
         IMB_metadata_set_field(ibuf->metadata, "Thumb::Video::Duration", value);
         IMB_metadata_set_field(ibuf->metadata, "Thumb::Video::Codec", anim->pCodec->long_name);
       }
@@ -1356,7 +1480,8 @@ ImBuf *MOV_decode_frame(MovieReader *anim,
 #endif
 
   if (ibuf) {
-    SNPRINTF(ibuf->filepath, "%s.%04d", anim->filepath, anim->cur_position + 1);
+    STRNCPY(ibuf->filepath, anim->filepath);
+    ibuf->fileframe = anim->cur_position + 1;
   }
   return ibuf;
 }

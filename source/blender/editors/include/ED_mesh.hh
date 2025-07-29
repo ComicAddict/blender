@@ -8,9 +8,14 @@
 
 #pragma once
 
+#include "BKE_attribute.hh"
+
 #include "BLI_compiler_attrs.h"
 #include "BLI_math_vector_types.hh"
 #include "BLI_span.hh"
+#include "BLI_virtual_array.hh"
+
+#include "DNA_windowmanager_enums.h"
 
 struct ARegion;
 struct BMBVHTree;
@@ -265,13 +270,13 @@ bool EDBM_unified_findnearest_from_raycast(ViewContext *vc,
                                            BMEdge **r_eed,
                                            BMFace **r_efa);
 
-bool EDBM_select_pick(bContext *C, const int mval[2], const SelectPick_Params *params);
+bool EDBM_select_pick(bContext *C, const int mval[2], const SelectPick_Params &params);
 
 /**
  * When switching select mode, makes sure selection is consistent for editing
  * also for paranoia checks to make sure edge or face mode works.
  */
-void EDBM_selectmode_set(BMEditMesh *em);
+void EDBM_selectmode_set(BMEditMesh *em, short selectmode);
 /**
  * Expand & Contract the Selection
  * (used when changing modes and Ctrl key held)
@@ -289,14 +294,24 @@ void EDBM_selectmode_set(BMEditMesh *em);
 void EDBM_selectmode_convert(BMEditMesh *em, short selectmode_old, short selectmode_new);
 
 /**
- * User access this.
+ * Select-mode setting utility.
+ * This operates on tool-settings and all objects passed in.
+ */
+bool EDBM_selectmode_set_multi_ex(Scene *scene,
+                                  blender::Span<Object *> objects,
+                                  const short selectmode);
+/**
+ * High level select-mode setting utility.
+ * This operates on tool-settings and all edit-mode objects.
  */
 bool EDBM_selectmode_set_multi(bContext *C, short selectmode);
 /**
- * User facing function, does notification.
+ * User facing function, handles notification.
+ *
+ * \param selectmode_toggle: The mode to adjust based on `action`, must not contain mixed flags.
  */
 bool EDBM_selectmode_toggle_multi(
-    bContext *C, short selectmode_new, int action, bool use_extend, bool use_expand);
+    bContext *C, short selectmode_toggle, int action, bool use_extend, bool use_expand);
 
 /**
  * Use to disable a select-mode if its enabled, Using another mode as a fallback
@@ -385,7 +400,7 @@ void paintface_flush_flags(bContext *C, Object *ob, bool flush_selection, bool f
  */
 bool paintface_mouse_select(bContext *C,
                             const int mval[2],
-                            const SelectPick_Params *params,
+                            const SelectPick_Params &params,
                             Object *ob);
 bool paintface_deselect_all_visible(bContext *C, Object *ob, int action, bool flush_flags);
 void paintface_select_linked(bContext *C, Object *ob, const int mval[2], bool select);
@@ -456,12 +471,14 @@ void ED_mesh_faces_remove(Mesh *mesh, ReportList *reports, int count);
 
 void ED_mesh_geometry_clear(Mesh *mesh);
 
-bool *ED_mesh_uv_map_vert_select_layer_ensure(Mesh *mesh, int uv_index);
-bool *ED_mesh_uv_map_edge_select_layer_ensure(Mesh *mesh, int uv_index);
-bool *ED_mesh_uv_map_pin_layer_ensure(Mesh *mesh, int uv_index);
-const bool *ED_mesh_uv_map_vert_select_layer_get(const Mesh *mesh, int uv_index);
-const bool *ED_mesh_uv_map_edge_select_layer_get(const Mesh *mesh, int uv_index);
-const bool *ED_mesh_uv_map_pin_layer_get(const Mesh *mesh, int uv_index);
+blender::bke::AttributeWriter<bool> ED_mesh_uv_map_vert_select_layer_ensure(Mesh *mesh,
+                                                                            int uv_index);
+blender::bke::AttributeWriter<bool> ED_mesh_uv_map_edge_select_layer_ensure(Mesh *mesh,
+                                                                            int uv_index);
+blender::bke::AttributeWriter<bool> ED_mesh_uv_map_pin_layer_ensure(Mesh *mesh, int uv_index);
+blender::VArray<bool> ED_mesh_uv_map_vert_select_layer_get(const Mesh *mesh, int uv_index);
+blender::VArray<bool> ED_mesh_uv_map_edge_select_layer_get(const Mesh *mesh, int uv_index);
+blender::VArray<bool> ED_mesh_uv_map_pin_layer_get(const Mesh *mesh, int uv_index);
 
 void ED_mesh_uv_ensure(Mesh *mesh, const char *name);
 int ED_mesh_uv_add(
@@ -515,10 +532,12 @@ void EDBM_redo_state_free(BMBackup *backup) ATTR_NONNULL(1);
 
 /* `meshtools.cc` */
 
-int ED_mesh_join_objects_exec(bContext *C, wmOperator *op);
-int ED_mesh_shapes_join_objects_exec(bContext *C, wmOperator *op);
+wmOperatorStatus ED_mesh_join_objects_exec(bContext *C, wmOperator *op);
+wmOperatorStatus ED_mesh_shapes_join_objects_exec(bContext *C,
+                                                  bool ensure_keys_exist,
+                                                  ReportList *reports);
 
-/* mirror lookup api */
+/* Mirror lookup API. */
 
 /* Spatial Mirror */
 void ED_mesh_mirror_spatial_table_begin(Object *ob, BMEditMesh *em, Mesh *mesh_eval);

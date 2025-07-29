@@ -28,7 +28,7 @@ ccl_device void integrator_volume_stack_update_for_subsurface(KernelGlobals kg,
 
   Ray volume_ray ccl_optional_struct_init;
   volume_ray.P = from_P;
-  volume_ray.D = normalize_len(to_P - from_P, &volume_ray.tmax);
+  volume_ray.D = safe_normalize_len(to_P - from_P, &volume_ray.tmax);
   volume_ray.tmin = 0.0f;
   volume_ray.self.object = INTEGRATOR_STATE(state, isect, object);
   volume_ray.self.prim = INTEGRATOR_STATE(state, isect, prim);
@@ -239,8 +239,7 @@ ccl_device void integrator_intersect_volume_stack(KernelGlobals kg, IntegratorSt
 #  endif
   {
     /* Volume stack init for camera rays, continue with intersection of camera ray. */
-    integrator_path_next(kg,
-                         state,
+    integrator_path_next(state,
                          DEVICE_KERNEL_INTEGRATOR_INTERSECT_VOLUME_STACK,
                          DEVICE_KERNEL_INTEGRATOR_INTERSECT_CLOSEST);
   }

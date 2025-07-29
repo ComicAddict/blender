@@ -141,7 +141,7 @@ static char *generate(blender::Map<std::string, std::string> &messages, size_t *
     return a.key < b.key;
   });
 
-  Offset *offsets = MEM_cnew_array<Offset>(num_keys, __func__);
+  Offset *offsets = MEM_calloc_arrayN<Offset>(num_keys, __func__);
   uint32_t tot_keys_len = 0;
   uint32_t tot_vals_len = 0;
 
@@ -149,7 +149,7 @@ static char *generate(blender::Map<std::string, std::string> &messages, size_t *
     Offset &off = offsets[i];
 
     /* For each string, we need size and file offset.
-     * Each string is nullptr terminated; the nullptr does not count into the size. */
+     * Each string is null terminated; the null does not count into the size. */
     off.key_offset = tot_keys_len;
     off.key_len = uint32_t(items[i].key.size());
     tot_keys_len += off.key_len + 1;
@@ -170,7 +170,7 @@ static char *generate(blender::Map<std::string, std::string> &messages, size_t *
 
   /* Final buffer representing the binary MO file. */
   *r_output_size = valstart + tot_vals_len;
-  char *output = MEM_cnew_array<char>(*r_output_size, __func__);
+  char *output = MEM_calloc_arrayN<char>(*r_output_size, __func__);
   char *h = output;
   char *ik = output + idx_keystart;
   char *iv = output + idx_valstart;
@@ -249,7 +249,7 @@ static int make(const char *input_file_name, const char *output_file_name)
   const size_t msgid_plural_len = strlen(msgid_plural_kw);
   const size_t msgstr_len = strlen(msgstr_kw);
 
-  /* NOTE: For now, we assume file encoding is always utf-8. */
+  /* NOTE: For now, we assume file encoding is always UTF8. */
 
   eSectionType section = SECTION_NONE;
   bool is_plural = false;

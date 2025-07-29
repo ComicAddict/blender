@@ -358,7 +358,8 @@ class NWAttributeMenu(bpy.types.Menu):
         return (space.type == 'NODE_EDITOR'
                 and space.node_tree is not None
                 and space.node_tree.library is None
-                and space.tree_type == 'ShaderNodeTree')
+                and space.tree_type == 'ShaderNodeTree'
+                and space.shader_type == 'OBJECT')
 
     def draw(self, context):
         l = self.layout
@@ -418,7 +419,7 @@ def attr_nodes_menu_func(self, context):
 
 def multipleimages_menu_func(self, context):
     col = self.layout.column(align=True)
-    col.operator(operators.NWAddMultipleImages.bl_idname, text="Multiple Images")
+    col.operator("node.add_image", text="Multiple Images")
     col.operator(operators.NWAddSequence.bl_idname, text="Image Sequence")
     col.separator()
 
@@ -433,8 +434,8 @@ def save_viewer_menu_func(self, context):
             and space.node_tree is not None
             and space.node_tree.library is None
             and space.tree_type == 'CompositorNodeTree'
-            and context.scene.node_tree.nodes.active
-            and context.scene.node_tree.nodes.active.type == "VIEWER"):
+            and context.scene.compositing_node_group.nodes.active
+            and context.scene.compositing_node_group.nodes.active.type == "VIEWER"):
         self.layout.operator(operators.NWSaveViewer.bl_idname, icon='FILE_IMAGE')
 
 

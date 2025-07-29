@@ -31,12 +31,12 @@
 
 namespace blender::ed::sculpt_paint::smooth {
 
-template<typename T> T calc_average(const Span<T> positions, const Span<int> indices)
+template<typename T> T calc_average(const Span<T> values, const Span<int> indices)
 {
-  const float factor = math::rcp(float(indices.size()));
+  const float factor = math::safe_rcp(float(indices.size()));
   T result{};
   for (const int i : indices) {
-    result += positions[i] * factor;
+    result += values[i] * factor;
   }
   return result;
 }
@@ -78,7 +78,6 @@ void neighbor_data_average_mesh(const Span<T> src,
   BLI_assert(vert_neighbors.size() == dst.size());
 
   for (const int i : vert_neighbors.index_range()) {
-    BLI_assert(!vert_neighbors[i].is_empty());
     dst[i] = calc_average(src, vert_neighbors[i]);
   }
 }
@@ -103,17 +102,22 @@ static float3 average_positions(const CCGKey &key,
   return result;
 }
 
-void neighbor_position_average_interior_grids(const OffsetIndices<int> faces,
-                                              const Span<int> corner_verts,
-                                              const BitSpan boundary_verts,
-                                              const SubdivCCG &subdiv_ccg,
-                                              const Span<int> grids,
-                                              const MutableSpan<float3> new_positions)
+template<bool use_factors>
+static void neighbor_position_average_interior_grids_impl(const OffsetIndices<int> faces,
+                                                          const Span<int> corner_verts,
+                                                          const BitSpan boundary_verts,
+                                                          const SubdivCCG &subdiv_ccg,
+                                                          const Span<int> grids,
+                                                          const Span<float> factors,
+                                                          const MutableSpan<float3> new_positions)
 {
   const CCGKey key = BKE_subdiv_ccg_key_top_level(subdiv_ccg);
   const Span<float3> positions = subdiv_ccg.positions;
 
   BLI_assert(grids.size() * key.grid_area == new_positions.size());
+  if constexpr (use_factors) {
+    BLI_assert(new_positions.size() == factors.size());
+  }
 
   for (const int i : grids.index_range()) {
     const int node_verts_start = i * key.grid_area;
@@ -127,6 +131,13 @@ void neighbor_position_average_interior_grids(const OffsetIndices<int> faces,
         const int offset = CCG_grid_xy_to_index(key.grid_size, x, y);
         const int node_vert_index = node_verts_start + offset;
         const int vert = grid_range[offset];
+
+        if constexpr (use_factors) {
+          if (factors[node_vert_index] == 0.0f) {
+            new_positions[node_vert_index] = positions[vert];
+            continue;
+          }
+        }
 
         SubdivCCGCoord coord{};
         coord.grid_index = grid;
@@ -163,6 +174,29 @@ void neighbor_position_average_interior_grids(const OffsetIndices<int> faces,
   }
 }
 
+void neighbor_position_average_interior_grids(const OffsetIndices<int> faces,
+                                              const Span<int> corner_verts,
+                                              const BitSpan boundary_verts,
+                                              const SubdivCCG &subdiv_ccg,
+                                              const Span<int> grids,
+                                              const MutableSpan<float3> new_positions)
+{
+  neighbor_position_average_interior_grids_impl<false>(
+      faces, corner_verts, boundary_verts, subdiv_ccg, grids, {}, new_positions);
+}
+
+void neighbor_position_average_interior_grids(const OffsetIndices<int> faces,
+                                              const Span<int> corner_verts,
+                                              const BitSpan boundary_verts,
+                                              const SubdivCCG &subdiv_ccg,
+                                              const Span<int> grids,
+                                              const Span<float> factors,
+                                              const MutableSpan<float3> new_positions)
+{
+  neighbor_position_average_interior_grids_impl<true>(
+      faces, corner_verts, boundary_verts, subdiv_ccg, grids, factors, new_positions);
+}
+
 template<typename T>
 void average_data_grids(const SubdivCCG &subdiv_ccg,
                         const Span<T> src,
@@ -194,11 +228,9 @@ void average_data_grids(const SubdivCCG &subdiv_ccg,
 
         T sum{};
         for (const SubdivCCGCoord neighbor : neighbors.coords) {
-          const int index = neighbor.grid_index * key.grid_area +
-                            CCG_grid_xy_to_index(key.grid_size, neighbor.x, neighbor.y);
-          sum += src[index];
+          sum += src[neighbor.to_index(key)];
         }
-        dst[node_vert_index] = sum / neighbors.coords.size();
+        dst[node_vert_index] = math::safe_divide(sum, float(neighbors.coords.size()));
       }
     }
   }
@@ -207,7 +239,7 @@ void average_data_grids(const SubdivCCG &subdiv_ccg,
 template<typename T>
 void average_data_bmesh(const Span<T> src, const Set<BMVert *, 0> &verts, const MutableSpan<T> dst)
 {
-  Vector<BMVert *, 64> neighbor_data;
+  BMeshNeighborVerts neighbor_data;
 
   int i = 0;
   for (BMVert *vert : verts) {
@@ -216,7 +248,7 @@ void average_data_bmesh(const Span<T> src, const Set<BMVert *, 0> &verts, const 
     for (const BMVert *neighbor : neighbors) {
       sum += src[BM_elem_index_get(neighbor)];
     }
-    dst[i] = sum / neighbors.size();
+    dst[i] = math::safe_divide(sum, float(neighbors.size()));
     i++;
   }
 }
@@ -238,7 +270,7 @@ template void average_data_bmesh<float3>(Span<float3> src,
 
 static float3 average_positions(const Span<const BMVert *> verts)
 {
-  const float factor = math::rcp(float(verts.size()));
+  const float factor = math::safe_rcp(float(verts.size()));
   float3 result(0);
   for (const BMVert *vert : verts) {
     result += float3(vert->co) * factor;
@@ -250,7 +282,7 @@ void neighbor_position_average_bmesh(const Set<BMVert *, 0> &verts,
                                      const MutableSpan<float3> new_positions)
 {
   BLI_assert(verts.size() == new_positions.size());
-  Vector<BMVert *, 64> neighbor_data;
+  BMeshNeighborVerts neighbor_data;
 
   int i = 0;
   for (BMVert *vert : verts) {
@@ -260,14 +292,27 @@ void neighbor_position_average_bmesh(const Set<BMVert *, 0> &verts,
   }
 }
 
-void neighbor_position_average_interior_bmesh(const Set<BMVert *, 0> &verts,
-                                              const MutableSpan<float3> new_positions)
+template<bool use_factors>
+static void neighbor_position_average_interior_bmesh_impl(const Set<BMVert *, 0> &verts,
+                                                          const Span<float> factors,
+                                                          const MutableSpan<float3> new_positions)
 {
   BLI_assert(verts.size() == new_positions.size());
-  Vector<BMVert *, 64> neighbor_data;
+  if constexpr (use_factors) {
+    BLI_assert(new_positions.size() == factors.size());
+  }
+  BMeshNeighborVerts neighbor_data;
 
   int i = 0;
   for (BMVert *vert : verts) {
+    if constexpr (use_factors) {
+      if (factors[i] == 0.0f) {
+        new_positions[i] = float3(vert->co);
+        i++;
+        continue;
+      }
+    }
+
     const Span<BMVert *> neighbors = vert_neighbors_get_interior_bmesh(*vert, neighbor_data);
     if (neighbors.is_empty()) {
       new_positions[i] = float3(vert->co);
@@ -277,6 +322,18 @@ void neighbor_position_average_interior_bmesh(const Set<BMVert *, 0> &verts,
     }
     i++;
   }
+}
+void neighbor_position_average_interior_bmesh(const Set<BMVert *, 0> &verts,
+                                              const Span<float> factors,
+                                              const MutableSpan<float3> new_positions)
+{
+  neighbor_position_average_interior_bmesh_impl<true>(verts, factors, new_positions);
+}
+
+void neighbor_position_average_interior_bmesh(const Set<BMVert *, 0> &verts,
+                                              const MutableSpan<float3> new_positions)
+{
+  neighbor_position_average_interior_bmesh_impl<false>(verts, {}, new_positions);
 }
 
 void bmesh_four_neighbor_average(float avg[3], const float3 &direction, const BMVert *v)
@@ -340,7 +397,7 @@ void neighbor_color_average(const OffsetIndices<int> faces,
       sum += color::color_vert_get(
           faces, corner_verts, vert_to_face_map, color_attribute, color_domain, vert);
     }
-    smooth_colors[i] = sum / neighbors.size();
+    smooth_colors[i] = math::safe_divide(sum, float(neighbors.size()));
   }
 }
 
@@ -538,7 +595,7 @@ void calc_relaxed_translations_grids(const SubdivCCG &subdiv_ccg,
 
         SubdivCCGNeighbors neighbor_storage;
         BKE_subdiv_ccg_neighbor_coords_get(subdiv_ccg, coord, false, neighbor_storage);
-        Vector<SubdivCCGCoord, 256> &neighbors = neighbor_storage.coords;
+        SubdivCCGNeighborCoords &neighbors = neighbor_storage.coords;
 
         /* Don't modify corner vertices */
         if (neighbors.size() <= 2) {
@@ -602,7 +659,7 @@ void calc_relaxed_translations_bmesh(const Set<BMVert *, 0> &verts,
   BLI_assert(verts.size() == factors.size());
   BLI_assert(verts.size() == translations.size());
 
-  Vector<BMVert *, 64> neighbors;
+  BMeshNeighborVerts neighbors;
 
   int i = 0;
   for (BMVert *vert : verts) {

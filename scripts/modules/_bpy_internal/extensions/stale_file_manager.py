@@ -151,7 +151,7 @@ class StaleFiles:
 
                 # Ensure the `base_directory` & `path_abs` they are not the same.
                 # One could be forgiven for thinking they must never be the same since `path`
-                # is known not be be an empty string, one would be mistaken!
+                # is known not be an empty string, one would be mistaken!
                 # WIN32 which considers `C:\path\` the same as `C:\path\. ` to be the same.
                 # Therefor, literal lines containing any combination of trailing full-stop
                 # or space characters would be considered files that cannot be removed.
@@ -162,7 +162,7 @@ class StaleFiles:
                 #
                 # If this ever did happen besides potentially trying to remove `base_directory`,
                 # this path could be treated as a file which could not be removed and queued for
-                # removal again causing a single space (for e.g.) to be left in the stale file,
+                # removal again causing a single space (for example) to be left in the stale file,
                 # trying to be removed every startup and failing.
                 # Avoid all these issues by checking the path doesn't resolve to being the same path as it's parent.
                 is_same = False

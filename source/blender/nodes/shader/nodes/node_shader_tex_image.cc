@@ -18,14 +18,14 @@ namespace blender::nodes::node_shader_tex_image_cc {
 static void sh_node_tex_image_declare(NodeDeclarationBuilder &b)
 {
   b.is_function_node();
-  b.add_input<decl::Vector>("Vector").implicit_field(implicit_field_inputs::position);
+  b.add_input<decl::Vector>("Vector").implicit_field(NODE_DEFAULT_INPUT_POSITION_FIELD);
   b.add_output<decl::Color>("Color").no_muted_links();
   b.add_output<decl::Float>("Alpha").no_muted_links();
 }
 
 static void node_shader_init_tex_image(bNodeTree * /*ntree*/, bNode *node)
 {
-  NodeTexImage *tex = MEM_cnew<NodeTexImage>(__func__);
+  NodeTexImage *tex = MEM_callocN<NodeTexImage>(__func__);
   BKE_texture_mapping_default(&tex->base.tex_mapping, TEXMAP_TYPE_POINT);
   BKE_texture_colormapping_default(&tex->base.color_mapping);
   BKE_imageuser_default(&tex->iuser);

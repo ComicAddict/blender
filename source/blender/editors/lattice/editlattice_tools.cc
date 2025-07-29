@@ -48,7 +48,7 @@ static bool make_regular_poll(bContext *C)
   return (ob && ob->type == OB_LATTICE);
 }
 
-static int make_regular_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus make_regular_exec(bContext *C, wmOperator *op)
 {
   const Scene *scene = CTX_data_scene(C);
   ViewLayer *view_layer = CTX_data_view_layer(C);
@@ -99,7 +99,7 @@ void LATTICE_OT_make_regular(wmOperatorType *ot)
   ot->description = "Set UVW control points a uniform distance apart";
   ot->idname = "LATTICE_OT_make_regular";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->exec = make_regular_exec;
   ot->poll = make_regular_poll;
 
@@ -196,7 +196,7 @@ static void lattice_swap_point_pairs(
   lattice_flip_point_value(lt, u1, v1, w1, mid, axis);
 }
 
-static int lattice_flip_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus lattice_flip_exec(bContext *C, wmOperator *op)
 {
   const Scene *scene = CTX_data_scene(C);
   ViewLayer *view_layer = CTX_data_view_layer(C);
@@ -344,7 +344,7 @@ void LATTICE_OT_flip(wmOperatorType *ot)
   ot->description = "Mirror all control points without inverting the lattice deform";
   ot->idname = "LATTICE_OT_flip";
 
-  /* api callbacks */
+  /* API callbacks. */
   ot->poll = ED_operator_editlattice;
   ot->invoke = WM_menu_invoke;
   ot->exec = lattice_flip_exec;

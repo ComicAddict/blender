@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "BLI_mutex.hh"
+
 #include "vk_common.hh"
 
 #include "vk_descriptor_pools.hh"
@@ -23,8 +25,6 @@ template<typename Item> class TimelineResources : Vector<std::pair<TimelineValue
  public:
   void append_timeline(TimelineValue timeline, Item item)
   {
-    BLI_assert_msg(this->is_empty() || this->last().first <= timeline,
-                   "Timeline must be added in order");
     this->append(std::pair(timeline, item));
   }
 
@@ -76,6 +76,7 @@ template<typename Item> class TimelineResources : Vector<std::pair<TimelineValue
  */
 class VKDiscardPool {
   friend class VKDevice;
+  friend class VKBackend;
 
  private:
   TimelineResources<std::pair<VkImage, VmaAllocation>> images_;
@@ -83,11 +84,13 @@ class VKDiscardPool {
   TimelineResources<VkImageView> image_views_;
   TimelineResources<VkBufferView> buffer_views_;
   TimelineResources<VkShaderModule> shader_modules_;
+  TimelineResources<VkPipeline> pipelines_;
   TimelineResources<VkPipelineLayout> pipeline_layouts_;
   TimelineResources<VkRenderPass> render_passes_;
   TimelineResources<VkFramebuffer> framebuffers_;
+  TimelineResources<VkDescriptorPool> descriptor_pools_;
 
-  std::mutex mutex_;
+  Mutex mutex_;
 
   TimelineValue timeline_ = UINT64_MAX;
 
@@ -99,9 +102,11 @@ class VKDiscardPool {
   void discard_buffer(VkBuffer vk_buffer, VmaAllocation vma_allocation);
   void discard_buffer_view(VkBufferView vk_buffer_view);
   void discard_shader_module(VkShaderModule vk_shader_module);
+  void discard_pipeline(VkPipeline vk_pipeline);
   void discard_pipeline_layout(VkPipelineLayout vk_pipeline_layout);
   void discard_framebuffer(VkFramebuffer vk_framebuffer);
   void discard_render_pass(VkRenderPass vk_render_pass);
+  void discard_descriptor_pool(VkDescriptorPool vk_descriptor_pool);
 
   /**
    * Move discarded resources from src_pool into this.
@@ -111,15 +116,28 @@ class VKDiscardPool {
    * swap chain discard pool.
    *
    * All moved items will receive a new timeline.
+   *
+   * Function must be externally synced (
+   *
+   * <source>
+   * {
+   *   std::scoped_lock lock(pool.mutex_get()));
+   *   pool.move_data(src_pool, timeline);
+   * }
+   * </source>
    */
   void move_data(VKDiscardPool &src_pool, TimelineValue timeline);
+  inline Mutex &mutex_get()
+  {
+    return mutex_;
+  }
   void destroy_discarded_resources(VKDevice &device, bool force = false);
 
   /**
    * Returns the discard pool for the current thread.
    *
    * When active thread has a context it uses the context discard pool.
-   * Otherwise the device discard pool is used.
+   * Otherwise a device discard pool is used.
    */
   static VKDiscardPool &discard_pool_get();
 };

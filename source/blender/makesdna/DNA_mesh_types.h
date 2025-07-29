@@ -9,6 +9,7 @@
 #pragma once
 
 #include "DNA_ID.h"
+#include "DNA_attribute_types.h"
 #include "DNA_customdata_types.h"
 #include "DNA_defs.h"
 #include "DNA_session_uid_types.h"
@@ -20,6 +21,7 @@
 
 #  include "BLI_math_vector_types.hh"
 #  include "BLI_memory_counter_fwd.hh"
+#  include "BLI_vector_set.hh"
 
 namespace blender {
 template<typename T> struct Bounds;
@@ -55,7 +57,11 @@ struct MFace;
 struct Material;
 
 typedef struct Mesh {
+#ifdef __cplusplus
   DNA_DEFINE_CXX_METHODS(Mesh)
+  /** See #ID_Type comment for why this is here. */
+  static constexpr ID_Type id_type = ID_ME;
+#endif
 
   ID id;
   /** Animation data (must be immediately after id for utilities to use it). */
@@ -88,6 +94,12 @@ typedef struct Mesh {
    * Avoid accessing directly when possible.
    */
   int *face_offset_indices;
+
+  /**
+   * Vertex, edge, face, and corner generic attributes. Currently unused at runtime, but used for
+   * forward compatibility when reading files (see #122398).
+   */
+  struct AttributeStorage attribute_storage;
 
   CustomData vert_data;
   CustomData edge_data;
@@ -167,6 +179,17 @@ typedef struct Mesh {
   char *default_color_attribute;
 
   /**
+   * The UV map currently selected in the list and edited by a user.
+   * Currently only used for file reading/writing (see #AttributeStorage).
+   */
+  char *active_uv_map_attribute;
+  /**
+   * The UV map used by default (i.e. for rendering) if no name is given explicitly.
+   * Currently only used for file reading/writing (see #AttributeStorage).
+   */
+  char *default_uv_map_attribute;
+
+  /**
    * User-defined symmetry flag (#eMeshSymmetryType) that causes editing operations to maintain
    * symmetrical geometry. Supported by operations such as transform and weight-painting.
    */
@@ -218,7 +241,8 @@ typedef struct Mesh {
   /* Deprecated size of #fdata. */
   int totface_legacy;
 
-  char _pad1[4];
+  char _pad1;
+  int8_t radial_symmetry[3];
 
   /**
    * Data that isn't saved in files, including caches of derived data, temporary data to improve
@@ -312,6 +336,9 @@ typedef struct Mesh {
   /** Get the largest material index used by the mesh or `nullopt` if it has no faces. */
   std::optional<int> material_index_max() const;
 
+  /** Get all the material indices actually used by the mesh. */
+  const blender::VectorSet<int> &material_indices_used() const;
+
   /**
    * Cached map containing the index of the face using each face corner.
    */
@@ -388,17 +415,21 @@ typedef struct Mesh {
    * Normal direction of faces, defined by positions and the winding direction of face corners.
    */
   blender::Span<blender::float3> face_normals() const;
+  blender::Span<blender::float3> face_normals_true() const;
   /**
    * Normal direction of vertices, defined as the weighted average of face normals
    * surrounding each vertex and the normalized position for loose vertices.
    */
   blender::Span<blender::float3> vert_normals() const;
+  blender::Span<blender::float3> vert_normals_true() const;
   /**
    * Normal direction at each face corner. Defined by a combination of face normals, vertex
    * normals, the `sharp_edge` and `sharp_face` attributes, and potentially by custom normals.
    *
    * \note Because of the large memory requirements of storing normals per face corner, prefer
-   * using #face_normals() or #vert_normals() when possible (see #normals_domain()).
+   * using #face_normals() or #vert_normals() when possible (see #normals_domain()). For this
+   * reason, the "true" face corner normals aren't cached, since they're just the same as the
+   * corresponding face normals.
    */
   blender::Span<blender::float3> corner_normals() const;
 
@@ -523,10 +554,10 @@ enum {
 };
 
 /** #SubsurfModifierData.subdivType */
-enum {
+typedef enum MeshSubdivType {
   ME_CC_SUBSURF = 0,
   ME_SIMPLE_SUBSURF = 1,
-};
+} MeshSubdivType;
 
 /** #Mesh.symmetry */
 typedef enum eMeshSymmetryType {

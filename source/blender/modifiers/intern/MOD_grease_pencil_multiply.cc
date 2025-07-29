@@ -26,7 +26,7 @@
 
 #include "GEO_realize_instances.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "BLT_translation.hh"
@@ -243,36 +243,33 @@ static void panel_draw(const bContext *C, Panel *panel)
   PointerRNA ob_ptr;
   PointerRNA *ptr = modifier_panel_get_property_pointers(panel, &ob_ptr);
 
-  uiLayoutSetPropSep(layout, true);
+  layout->use_property_split_set(true);
 
-  uiItemR(layout, ptr, "duplicates", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "duplicates", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
-  uiLayout *col = uiLayoutColumn(layout, false);
-  uiLayoutSetActive(col, RNA_int_get(ptr, "duplicates") > 0);
-  uiItemR(col, ptr, "distance", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-  uiItemR(col, ptr, "offset", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
+  uiLayout *col = &layout->column(false);
+  col->active_set(RNA_int_get(ptr, "duplicates") > 0);
+  col->prop(ptr, "distance", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  col->prop(ptr, "offset", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
+  PanelLayout fade_panel_layout = layout->panel_prop_with_bool_header(
+      C, ptr, "open_fading_panel", ptr, "use_fade", IFACE_("Fade"));
+  if (uiLayout *fade_panel = fade_panel_layout.body) {
+    uiLayout *sub = &fade_panel->column(false);
+    sub->active_set(RNA_boolean_get(ptr, "use_fade"));
 
-  if (uiLayout *fade_panel =
-          uiLayoutPanelPropWithBoolHeader(
-              C, layout, ptr, "open_fading_panel", ptr, "use_fade", IFACE_("Fade"))
-              .body)
-  {
-    uiLayout *sub = uiLayoutColumn(fade_panel, false);
-    uiLayoutSetActive(sub, RNA_boolean_get(ptr, "use_fade"));
-
-    uiItemR(sub, ptr, "fading_center", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-    uiItemR(sub, ptr, "fading_thickness", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
-    uiItemR(sub, ptr, "fading_opacity", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
+    sub->prop(ptr, "fading_center", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    sub->prop(ptr, "fading_thickness", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
+    sub->prop(ptr, "fading_opacity", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
   }
 
-  if (uiLayout *influence_panel = uiLayoutPanelProp(
-          C, layout, ptr, "open_influence_panel", IFACE_("Influence")))
+  if (uiLayout *influence_panel = layout->panel_prop(
+          C, ptr, "open_influence_panel", IFACE_("Influence")))
   {
     modifier::greasepencil::draw_layer_filter_settings(C, influence_panel, ptr);
     modifier::greasepencil::draw_material_filter_settings(C, influence_panel, ptr);
   }
 
-  modifier_panel_end(layout, ptr);
+  modifier_error_message_draw(layout, ptr);
 }
 
 static void panel_register(ARegionType *region_type)

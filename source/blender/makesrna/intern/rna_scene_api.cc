@@ -97,9 +97,16 @@ static void rna_Scene_uvedit_aspect(Scene * /*scene*/, Object *ob, float aspect[
   aspect[0] = aspect[1] = 1.0f;
 }
 
-static void rna_SceneRender_get_frame_path(
-    RenderData *rd, Main *bmain, int frame, bool preview, const char *view, char *filepath)
+static void rna_SceneRender_get_frame_path(ID *id,
+                                           RenderData *rd,
+                                           Main *bmain,
+                                           ReportList *reports,
+                                           int frame,
+                                           bool preview,
+                                           const char *view,
+                                           char *filepath)
 {
+  Scene *scene = reinterpret_cast<Scene *>(id);
   const char *suffix = BKE_scene_multiview_view_suffix_get(rd, view);
 
   /* avoid nullptr pointer */
@@ -108,17 +115,29 @@ static void rna_SceneRender_get_frame_path(
   }
 
   if (BKE_imtype_is_movie(rd->im_format.imtype)) {
-    MOV_filepath_from_settings(filepath, rd, preview != 0, suffix);
+    MOV_filepath_from_settings(filepath, scene, rd, preview != 0, suffix, reports);
   }
   else {
-    BKE_image_path_from_imformat(filepath,
-                                 rd->pic,
-                                 BKE_main_blendfile_path(bmain),
-                                 (frame == INT_MIN) ? rd->cfra : frame,
-                                 &rd->im_format,
-                                 (rd->scemode & R_EXTENSION) != 0,
-                                 true,
-                                 suffix);
+    blender::bke::path_templates::VariableMap template_variables;
+    BKE_add_template_variables_general(template_variables, &scene->id);
+    BKE_add_template_variables_for_render_path(template_variables, *scene);
+
+    const char *relbase = BKE_main_blendfile_path(bmain);
+
+    const blender::Vector<blender::bke::path_templates::Error> errors =
+        BKE_image_path_from_imformat(filepath,
+                                     rd->pic,
+                                     relbase,
+                                     &template_variables,
+                                     (frame == INT_MIN) ? rd->cfra : frame,
+                                     &rd->im_format,
+                                     (rd->scemode & R_EXTENSION) != 0,
+                                     true,
+                                     suffix);
+
+    if (!errors.is_empty()) {
+      BKE_report_path_template_errors(reports, RPT_ERROR, rd->pic, errors);
+    }
   }
 }
 
@@ -158,7 +177,7 @@ static void rna_Scene_ray_cast(Scene *scene,
   blender::ed::transform::snap_object_context_destroy(sctx);
 
   if (r_ob != nullptr && *r_ob != nullptr) {
-    *r_ob = DEG_get_original_object(*r_ob);
+    *r_ob = DEG_get_original(*r_ob);
   }
 
   if (ret) {
@@ -175,7 +194,7 @@ static void rna_Scene_ray_cast(Scene *scene,
 
 static void rna_Scene_sequencer_editing_free(Scene *scene)
 {
-  SEQ_editing_free(scene, true);
+  blender::seq::editing_free(scene, true);
 }
 
 #  ifdef WITH_ALEMBIC
@@ -331,7 +350,7 @@ void RNA_api_scene(StructRNA *srna)
   RNA_def_function_output(func, parm);
 
   /* Sequencer. */
-  func = RNA_def_function(srna, "sequence_editor_create", "SEQ_editing_ensure");
+  func = RNA_def_function(srna, "sequence_editor_create", "blender::seq::editing_ensure");
   RNA_def_function_ui_description(func, "Ensure sequence editor is valid in this scene");
   parm = RNA_def_pointer(
       func, "sequence_editor", "SequenceEditor", "", "New sequence editor data or nullptr");
@@ -349,7 +368,7 @@ void RNA_api_scene(StructRNA *srna)
   parm = RNA_def_string(
       func, "filepath", nullptr, FILE_MAX, "File Path", "File path to write Alembic file");
   RNA_def_parameter_flags(parm, PropertyFlag(0), PARM_REQUIRED);
-  RNA_def_property_subtype(parm, PROP_FILEPATH); /* allow non utf8 */
+  RNA_def_property_subtype(parm, PROP_FILEPATH); /* Allow non UTF8. */
 
   RNA_def_int(func, "frame_start", 1, INT_MIN, INT_MAX, "Start", "Start Frame", INT_MIN, INT_MAX);
   RNA_def_int(func, "frame_end", 1, INT_MIN, INT_MAX, "End", "End Frame", INT_MIN, INT_MAX);
@@ -424,7 +443,7 @@ void RNA_api_scene_render(StructRNA *srna)
   PropertyRNA *parm;
 
   func = RNA_def_function(srna, "frame_path", "rna_SceneRender_get_frame_path");
-  RNA_def_function_flag(func, FUNC_USE_MAIN);
+  RNA_def_function_flag(func, FUNC_USE_SELF_ID | FUNC_USE_MAIN | FUNC_USE_REPORTS);
   RNA_def_function_ui_description(
       func, "Return the absolute path to the filename to be written for a given frame");
   RNA_def_int(func,

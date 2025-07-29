@@ -42,7 +42,6 @@
 
 #include "mesh_brush_common.hh"
 #include "paint_intern.hh"
-#include "sculpt_automask.hh"
 #include "sculpt_gesture.hh"
 #include "sculpt_intern.hh"
 #include "sculpt_islands.hh"
@@ -505,7 +504,7 @@ static void partialvis_all_update_bmesh(const Depsgraph &depsgraph,
       depsgraph, ob, node_mask, action, [](const BMVert * /*vert*/) { return true; });
 }
 
-static int hide_show_all_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus hide_show_all_exec(bContext *C, wmOperator *op)
 {
   const Scene &scene = *CTX_data_scene(C);
   Object &ob = *CTX_data_active_object(C);
@@ -622,7 +621,7 @@ static void partialvis_masked_update_bmesh(const Depsgraph &depsgraph,
   partialvis_update_bmesh_nodes(depsgraph, ob, node_mask, action, mask_test_fn);
 }
 
-static int hide_show_masked_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus hide_show_masked_exec(bContext *C, wmOperator *op)
 {
   const Scene &scene = *CTX_data_scene(C);
   Object &ob = *CTX_data_active_object(C);
@@ -783,7 +782,7 @@ static void invert_visibility_bmesh(const Depsgraph &depsgraph,
   pbvh.tag_visibility_changed(node_mask);
 }
 
-static int visibility_invert_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus visibility_invert_exec(bContext *C, wmOperator *op)
 {
   const Scene &scene = *CTX_data_scene(C);
   Object &object = *CTX_data_active_object(C);
@@ -1085,7 +1084,7 @@ static Array<bool> duplicate_visibility_bmesh(const Object &object)
   const SculptSession &ss = *object.sculpt;
   BMesh &bm = *ss.bm;
   Array<bool> result(bm.totvert);
-  BM_mesh_elem_table_ensure(&bm, BM_VERT);
+  vert_random_access_ensure(const_cast<Object &>(object));
   for (const int i : result.index_range()) {
     result[i] = BM_elem_flag_test_bool(BM_vert_at_index(&bm, i), BM_ELEM_HIDDEN);
   }
@@ -1102,7 +1101,7 @@ static void grow_shrink_visibility_bmesh(const Depsgraph &depsgraph,
     UNUSED_VARS(i);
     const Array<bool> prev_visibility = duplicate_visibility_bmesh(object);
     partialvis_update_bmesh_nodes(depsgraph, object, node_mask, action, [&](BMVert *vert) {
-      Vector<BMVert *, 64> neighbors;
+      BMeshNeighborVerts neighbors;
       for (BMVert *neighbor : vert_neighbors_get_bmesh(*vert, neighbors)) {
         if (prev_visibility[BM_elem_index_get(neighbor)] == action_to_hide(action)) {
           return true;
@@ -1113,7 +1112,7 @@ static void grow_shrink_visibility_bmesh(const Depsgraph &depsgraph,
   }
 }
 
-static int visibility_filter_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus visibility_filter_exec(bContext *C, wmOperator *op)
 {
   const Scene &scene = *CTX_data_scene(C);
   Object &object = *CTX_data_active_object(C);
@@ -1319,7 +1318,7 @@ static void hide_show_init_properties(bContext & /*C*/,
                                       wmOperator &op)
 {
   gesture_data.operation = reinterpret_cast<gesture::Operation *>(
-      MEM_cnew<HideShowOperation>(__func__));
+      MEM_callocN<HideShowOperation>(__func__));
 
   HideShowOperation *operation = reinterpret_cast<HideShowOperation *>(gesture_data.operation);
 
@@ -1331,7 +1330,7 @@ static void hide_show_init_properties(bContext & /*C*/,
   gesture_data.selection_type = gesture::SelectionType(RNA_enum_get(op.ptr, "area"));
 }
 
-static int hide_show_gesture_box_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus hide_show_gesture_box_exec(bContext *C, wmOperator *op)
 {
   std::unique_ptr<gesture::GestureData> gesture_data = gesture::init_from_box(C, op);
   if (!gesture_data) {
@@ -1342,7 +1341,7 @@ static int hide_show_gesture_box_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-static int hide_show_gesture_lasso_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus hide_show_gesture_lasso_exec(bContext *C, wmOperator *op)
 {
   std::unique_ptr<gesture::GestureData> gesture_data = gesture::init_from_lasso(C, op);
   if (!gesture_data) {
@@ -1353,7 +1352,7 @@ static int hide_show_gesture_lasso_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-static int hide_show_gesture_line_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus hide_show_gesture_line_exec(bContext *C, wmOperator *op)
 {
   std::unique_ptr<gesture::GestureData> gesture_data = gesture::init_from_line(C, op);
   if (!gesture_data) {
@@ -1364,7 +1363,7 @@ static int hide_show_gesture_line_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-static int hide_show_gesture_polyline_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus hide_show_gesture_polyline_exec(bContext *C, wmOperator *op)
 {
   std::unique_ptr<gesture::GestureData> gesture_data = gesture::init_from_polyline(C, op);
   if (!gesture_data) {

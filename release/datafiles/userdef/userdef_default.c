@@ -7,10 +7,9 @@
 /* For constants. */
 #include "BLI_math_constants.h"
 
-#include "DNA_anim_types.h"
-#include "DNA_curve_types.h"
-#include "DNA_space_types.h"
-#include "DNA_userdef_types.h"
+#include "DNA_anim_enums.h"
+#include "DNA_curve_enums.h"
+#include "DNA_space_enums.h"
 
 #include "BKE_blender_version.h"
 
@@ -21,7 +20,8 @@
 const UserDef U_default = {
     .versionfile = BLENDER_FILE_VERSION,
     .subversionfile = BLENDER_FILE_SUBVERSION,
-    .flag = (USER_AUTOSAVE | USER_TOOLTIPS | USER_RELPATHS | USER_RELEASECONFIRM),
+    .flag = (USER_AUTOSAVE | USER_TOOLTIPS | USER_RELPATHS | USER_RELEASECONFIRM |
+             USER_SCRIPT_AUTOEXEC_DISABLE),
     .dupflag = USER_DUP_MESH | USER_DUP_CURVE | USER_DUP_SURF | USER_DUP_LATTICE | USER_DUP_FONT |
                USER_DUP_MBALL | USER_DUP_LAMP | USER_DUP_ARM | USER_DUP_CAMERA | USER_DUP_SPEAKER |
                USER_DUP_ACT | USER_DUP_LIGHTPROBE | USER_DUP_GPENCIL | USER_DUP_CURVES |
@@ -66,6 +66,7 @@ const UserDef U_default = {
 
     .ui_scale = 1.0,
     .ui_line_width = 0,
+    .border_width = 2,
 
     /** Default so DPI is detected automatically. */
     .dpi = 0,
@@ -115,7 +116,8 @@ const UserDef U_default = {
 #else
     .gpu_backend = GPU_BACKEND_OPENGL,
 #endif
-    .max_shader_compilation_subprocesses = 0,
+    .gpu_shader_workers = 0,
+    .shader_compilation_method = USER_SHADER_COMPILE_THREAD,
 
     /** Initialized by: #BKE_studiolight_default. */
     .light_param = {{0}},
@@ -153,16 +155,11 @@ const UserDef U_default = {
     .tablet_api = USER_TABLET_AUTOMATIC,
     .pressure_threshold_max = 1.0,
     .pressure_softness = 0.0,
-    .ndof_sensitivity = 4.0,
-    .ndof_orbit_sensitivity = 4.0,
+    .ndof_translation_sensitivity = 4.0,
+    .ndof_rotation_sensitivity = 4.0,
     .ndof_deadzone = 0.0,
-    .ndof_flag = (NDOF_SHOW_GUIDE_ORBIT_CENTER | NDOF_ORBIT_CENTER_AUTO | NDOF_MODE_ORBIT |
-                  NDOF_LOCK_HORIZON | NDOF_SHOULD_PAN | NDOF_SHOULD_ZOOM | NDOF_SHOULD_ROTATE |
-                  /* Software from the driver authors follows this convention
-                   * so invert this by default, see: #67579. */
-                  NDOF_ROTX_INVERT_AXIS | NDOF_ROTY_INVERT_AXIS | NDOF_ROTZ_INVERT_AXIS |
-                  NDOF_PANX_INVERT_AXIS | NDOF_PANY_INVERT_AXIS | NDOF_PANZ_INVERT_AXIS |
-                  NDOF_ZOOM_INVERT | NDOF_CAMERA_PAN_ZOOM),
+    .ndof_flag = (NDOF_SHOW_GUIDE_ORBIT_CENTER | NDOF_ORBIT_CENTER_AUTO | NDOF_LOCK_HORIZON |
+                  NDOF_SHOULD_PAN | NDOF_SHOULD_ZOOM | NDOF_SHOULD_ROTATE | NDOF_CAMERA_PAN_ZOOM),
     .image_draw_method = IMAGE_DRAW_METHOD_AUTO,
     .glalphaclip = 0.004,
     .autokey_mode = (AUTOKEY_MODE_NORMAL & ~AUTOKEY_ON),
@@ -228,10 +225,6 @@ const UserDef U_default = {
             .temp_win_sizey = 600,
         },
 
-    .sequencer_disk_cache_dir = "",
-    .sequencer_disk_cache_compression = 0,
-    .sequencer_disk_cache_size_limit = 100,
-    .sequencer_disk_cache_flag = 0,
     .sequencer_proxy_setup = USER_SEQ_PROXY_SETUP_AUTOMATIC,
 
     .collection_instance_empty_size = 1.0f,
@@ -239,7 +232,7 @@ const UserDef U_default = {
     .statusbar_flag = STATUSBAR_SHOW_VERSION | STATUSBAR_SHOW_EXTENSIONS_UPDATES,
     .file_preview_type = USER_FILE_PREVIEW_AUTO,
 
-    .sequencer_editor_flag = USER_SEQ_ED_SIMPLE_TWEAKING | USER_SEQ_ED_CONNECT_STRIPS_BY_DEFAULT,
+    .sequencer_editor_flag = USER_SEQ_ED_CONNECT_STRIPS_BY_DEFAULT,
 
     .runtime =
         {

@@ -22,6 +22,7 @@
 #include "WM_api.hh"
 
 struct bContext;
+struct BrushColorJitterSettings;
 struct BrushGpencilSettings;
 struct Main;
 struct Object;
@@ -40,12 +41,13 @@ struct BVHTree;
 struct GreasePencilLineartModifierData;
 struct RV3DMatrixStore;
 
-namespace blender::bke {
+namespace blender {
+class RandomNumberGenerator;
+namespace bke {
 enum class AttrDomain : int8_t;
 class CurvesGeometry;
-namespace crazyspace {
-}
-}  // namespace blender::bke
+}  // namespace bke
+}  // namespace blender
 
 enum {
   LAYER_REORDER_ABOVE,
@@ -59,7 +61,7 @@ enum {
 /**
  * Join selected objects. Called from #OBJECT_OT_join.
  */
-int ED_grease_pencil_join_objects_exec(bContext *C, wmOperator *op);
+wmOperatorStatus ED_grease_pencil_join_objects_exec(bContext *C, wmOperator *op);
 
 void ED_operatortypes_grease_pencil();
 void ED_operatortypes_grease_pencil_draw();
@@ -98,6 +100,11 @@ blender::bke::AttrDomain ED_grease_pencil_vertex_selection_domain_get(
     const ToolSettings *tool_settings);
 blender::bke::AttrDomain ED_grease_pencil_selection_domain_get(const ToolSettings *tool_settings,
                                                                const Object *object);
+/**
+ * True if any vertex mask selection is used.
+ */
+bool ED_grease_pencil_any_vertex_mask_selection(const ToolSettings *tool_settings);
+
 /**
  * True if segment selection is enabled.
  */
@@ -174,6 +181,7 @@ class DrawingPlacement {
   /**
    * Projects a screen space coordinate to the local drawing space.
    */
+  float3 project(float2 co, bool &clipped) const;
   float3 project(float2 co) const;
   void project(Span<float2> src, MutableSpan<float3> dst) const;
   /**
@@ -316,7 +324,9 @@ bool grease_pencil_context_poll(bContext *C);
 bool active_grease_pencil_poll(bContext *C);
 bool active_grease_pencil_material_poll(bContext *C);
 bool editable_grease_pencil_poll(bContext *C);
+bool editable_grease_pencil_with_region_view3d_poll(bContext *C);
 bool active_grease_pencil_layer_poll(bContext *C);
+bool active_grease_pencil_layer_group_poll(bContext *C);
 bool editable_grease_pencil_point_selection_poll(bContext *C);
 bool grease_pencil_selection_poll(bContext *C);
 bool grease_pencil_painting_poll(bContext *C);
@@ -332,12 +342,12 @@ float radius_from_input_sample(const RegionView3D *rv3d,
                                const ARegion *region,
                                const Brush *brush,
                                float pressure,
-                               float3 location,
-                               float4x4 to_world,
+                               const float3 &location,
+                               const float4x4 &to_world,
                                const BrushGpencilSettings *settings);
-int grease_pencil_draw_operator_invoke(bContext *C,
-                                       wmOperator *op,
-                                       bool use_duplicate_previous_key);
+wmOperatorStatus grease_pencil_draw_operator_invoke(bContext *C,
+                                                    wmOperator *op,
+                                                    bool use_duplicate_previous_key);
 float4x2 calculate_texture_space(const Scene *scene,
                                  const ARegion *region,
                                  const float2 &mouse,
@@ -428,6 +438,7 @@ IndexMask retrieve_editable_and_selected_elements(Object &object,
                                                   int layer_index,
                                                   bke::AttrDomain selection_domain,
                                                   IndexMaskMemory &memory);
+bool has_editable_layer(const GreasePencil &grease_pencil);
 
 void create_blank(Main &bmain, Object &object, int frame_number);
 void create_stroke(Main &bmain, Object &object, const float4x4 &matrix, int frame_number);
@@ -928,5 +939,86 @@ void add_single_curve(bke::CurvesGeometry &curves, bool at_end);
  * \note Does not initialize the new points.
  */
 void resize_single_curve(bke::CurvesGeometry &curves, bool at_end, int new_points_num);
+
+/**
+ * Calculate a randomized radius value for a point.
+ * \param stroke_factor: Random seed value in [-1, 1] per stroke.
+ * \param distance: Screen-space length in pixels along the curve.
+ * \param radius: Base radius to be randomized.
+ * \param pressure: Pressure factor.
+ */
+float randomize_radius(const BrushGpencilSettings &settings,
+                       float stroke_factor,
+                       float distance,
+                       float radius,
+                       float pressure);
+/**
+ * Calculate a randomized opacity value for a point.
+ * \param stroke_factor: Random seed value in [-1, 1] per stroke.
+ * \param distance: Screen-space length in pixels along the curve.
+ * \param opacity: Base opacity to be randomized.
+ * \param pressure: Pressure factor.
+ */
+float randomize_opacity(const BrushGpencilSettings &settings,
+                        float stroke_factor,
+                        float distance,
+                        float opacity,
+                        float pressure);
+/**
+ * Calculate a randomized rotation for a point.
+ * \param stroke_factor: Random seed value in [-1, 1] per stroke.
+ * \param distance: Screen-space length in pixels along the curve.
+ * \param pressure: Pressure factor.
+ */
+float randomize_rotation(const BrushGpencilSettings &settings,
+                         float stroke_factor,
+                         float distance,
+                         float pressure);
+/**
+ * Calculate a randomized rotation for a point.
+ * \param rng: Random number generator instance.
+ * \param stroke_factor: Random seed value in [-1, 1] per stroke.
+ * \param pressure: Pressure factor.
+ */
+float randomize_rotation(const BrushGpencilSettings &settings,
+                         blender::RandomNumberGenerator &rng,
+                         float stroke_factor,
+                         float pressure);
+/**
+ * Calculate a randomized opacity value for a point.
+ * \param stroke_hue_factor: Random seed value in [-1, 1] per stroke for color hue.
+ * \param stroke_saturation_factor: Random seed value in [-1, 1] per stroke for color saturation.
+ * \param stroke_value_factor: Random seed value in [-1, 1] per stroke for color value.
+ * \param distance: Screen-space length in pixels along the curve.
+ * \param color: Base color to be randomized.
+ * \param pressure: Pressure factor.
+ */
+ColorGeometry4f randomize_color(const BrushGpencilSettings &settings,
+                                const std::optional<BrushColorJitterSettings> &jitter,
+                                float stroke_hue_factor,
+                                float stroke_saturation_factor,
+                                float stroke_value_factor,
+                                float distance,
+                                ColorGeometry4f color,
+                                float pressure);
+
+/**
+ * Applies the \a eval_grease_pencil onto the \a orig_grease_pencil at the \a eval_frame.
+ * The \a orig_grease_pencil is modified in-place.
+ * The mapping between the layers is created based on the layer name.
+ * \param eval_grease_pencil: The source Grease Pencil data.
+ * \param eval_frame: The frame at which to apply the data.
+ * \param orig_layers: Selection of original layers to modify.
+ * \param orig_grease_pencil: The destination Grease Pencil data.
+ */
+void apply_eval_grease_pencil_data(const GreasePencil &eval_grease_pencil,
+                                   int eval_frame,
+                                   const IndexMask &orig_layers,
+                                   GreasePencil &orig_grease_pencil);
+
+/**
+ * Remove all the strokes that are marked as fill guides.
+ */
+bool remove_fill_guides(bke::CurvesGeometry &curves);
 
 }  // namespace blender::ed::greasepencil

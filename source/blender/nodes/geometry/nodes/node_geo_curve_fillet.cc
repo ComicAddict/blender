@@ -8,7 +8,7 @@
 
 #include "BKE_grease_pencil.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "GEO_fillet_curves.hh"
@@ -21,8 +21,13 @@ NODE_STORAGE_FUNCS(NodeGeometryCurveFillet)
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Geometry>("Curve").supported_type(
-      {GeometryComponent::Type::Curve, GeometryComponent::Type::GreasePencil});
+  b.use_custom_socket_order();
+  b.allow_any_socket_order();
+  b.add_default_layout();
+  b.add_input<decl::Geometry>("Curve")
+      .supported_type({GeometryComponent::Type::Curve, GeometryComponent::Type::GreasePencil})
+      .description("Curves to generated rounded corners on");
+  b.add_output<decl::Geometry>("Curve").propagate_all().align_with_previous();
   auto &count_input = b.add_input<decl::Int>("Count")
                           .default_value(1)
                           .min(1)
@@ -39,7 +44,6 @@ static void node_declare(NodeDeclarationBuilder &b)
       .field_on_all();
   b.add_input<decl::Bool>("Limit Radius")
       .description("Limit the maximum value of the radius in order to avoid overlapping fillets");
-  b.add_output<decl::Geometry>("Curve").propagate_all();
 
   const bNode *node = b.node_or_null();
   if (node != nullptr) {
@@ -50,12 +54,12 @@ static void node_declare(NodeDeclarationBuilder &b)
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "mode", UI_ITEM_R_EXPAND, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "mode", UI_ITEM_R_EXPAND, std::nullopt, ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
 {
-  NodeGeometryCurveFillet *data = MEM_cnew<NodeGeometryCurveFillet>(__func__);
+  NodeGeometryCurveFillet *data = MEM_callocN<NodeGeometryCurveFillet>(__func__);
   data->mode = GEO_NODE_CURVE_FILLET_BEZIER;
   node->storage = data;
 }

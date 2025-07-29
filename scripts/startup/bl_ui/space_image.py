@@ -109,7 +109,6 @@ class IMAGE_MT_view(Menu):
             layout.separator()
 
         if paint.brush and (context.image_paint_object or sima.mode == 'PAINT'):
-            layout.prop(uv, "show_texpaint")
             layout.prop(tool_settings, "show_uv_local_view", text="Show Same Material")
 
         layout.menu("INFO_MT_area")
@@ -285,9 +284,9 @@ class IMAGE_MT_image_invert(Menu):
 
         layout.separator()
 
-        layout.operator("image.invert", text="Invert Red Channel", icon='COLOR_RED').invert_r = True
-        layout.operator("image.invert", text="Invert Green Channel", icon='COLOR_GREEN').invert_g = True
-        layout.operator("image.invert", text="Invert Blue Channel", icon='COLOR_BLUE').invert_b = True
+        layout.operator("image.invert", text="Invert Red Channel", icon='RGB_RED').invert_r = True
+        layout.operator("image.invert", text="Invert Green Channel", icon='RGB_GREEN').invert_g = True
+        layout.operator("image.invert", text="Invert Blue Channel", icon='RGB_BLUE').invert_b = True
         layout.operator("image.invert", text="Invert Alpha Channel", icon='IMAGE_ALPHA').invert_a = True
 
 
@@ -348,6 +347,7 @@ class IMAGE_MT_uvs_snap(Menu):
 
 class IMAGE_MT_uvs_mirror(Menu):
     bl_label = "Mirror"
+    bl_translation_context = i18n_contexts.operator_default
 
     def draw(self, _context):
         layout = self.layout
@@ -445,6 +445,10 @@ class IMAGE_MT_uvs(Menu):
 
         layout.separator()
 
+        layout.operator("uv.rip_move")
+
+        layout.separator()
+
         layout.prop(uv, "use_live_unwrap")
         layout.menu("IMAGE_MT_uvs_unwrap")
 
@@ -470,7 +474,9 @@ class IMAGE_MT_uvs(Menu):
         layout.separator()
 
         layout.operator("uv.minimize_stretch")
+        layout.operator_context = 'INVOKE_REGION_WIN'
         layout.operator("uv.stitch")
+        layout.operator_context = 'EXEC_REGION_WIN'
         layout.menu("IMAGE_MT_uvs_align")
         layout.operator("uv.align_rotation")
 
@@ -527,9 +533,17 @@ class IMAGE_MT_uvs_select_mode(Menu):
             props.value = 'FACE'
             props.data_path = "tool_settings.uv_select_mode"
 
-            props = layout.operator("wm.context_set_string", text="Island", icon='UV_ISLANDSEL')
-            props.value = 'ISLAND'
-            props.data_path = "tool_settings.uv_select_mode"
+        layout.separator()
+
+        is_select_island_supported = True
+        if tool_settings.use_uv_select_sync:
+            mesh_select_mode = tool_settings.mesh_select_mode
+            if mesh_select_mode[0] or mesh_select_mode[1]:
+                is_select_island_supported = False
+
+        row = layout.row()
+        row.active = is_select_island_supported
+        row.prop(tool_settings, "use_uv_select_island", text="Island")
 
 
 class IMAGE_MT_uvs_context_menu(Menu):
@@ -550,7 +564,7 @@ class IMAGE_MT_uvs_context_menu(Menu):
                 is_vert_mode = uv_select_mode == 'VERTEX'
                 is_edge_mode = uv_select_mode == 'EDGE'
                 # is_face_mode = uv_select_mode == 'FACE'
-                # is_island_mode = uv_select_mode == 'ISLAND'
+                # is_island_mode = ts.use_uv_select_island
 
             # Add
             layout.operator("uv.unwrap")
@@ -589,7 +603,9 @@ class IMAGE_MT_uvs_context_menu(Menu):
 
             # Remove
             layout.menu("IMAGE_MT_uvs_merge")
+            layout.operator_context = 'INVOKE_REGION_WIN'
             layout.operator("uv.stitch")
+            layout.operator_context = 'EXEC_REGION_WIN'
             layout.menu("IMAGE_MT_uvs_split")
 
 
@@ -618,14 +634,14 @@ class IMAGE_MT_uvs_snap_pie(Menu):
         layout.operator_context = 'EXEC_REGION_WIN'
 
         pie.operator(
-            "uv.snap_selected",
-            text="Selected to Pixels",
-            icon='RESTRICT_SELECT_OFF',
-        ).target = 'PIXELS'
-        pie.operator(
             "uv.snap_cursor",
             text="Cursor to Pixels",
             icon='PIVOT_CURSOR',
+        ).target = 'PIXELS'
+        pie.operator(
+            "uv.snap_selected",
+            text="Selected to Pixels",
+            icon='RESTRICT_SELECT_OFF',
         ).target = 'PIXELS'
         pie.operator(
             "uv.snap_cursor",
@@ -856,6 +872,19 @@ class IMAGE_HT_header(Header):
 
             if tool_settings.use_uv_select_sync:
                 layout.template_edit_mode_selection()
+
+                # Currently this only works for face-select mode.
+                mesh_select_mode = tool_settings.mesh_select_mode
+                row = layout.row()
+                if mesh_select_mode[0] or mesh_select_mode[1]:
+                    row.active = False
+                row.prop(tool_settings, "use_uv_select_island", icon_only=True)
+
+                # Currently this only works for edge-select & face-select modes.
+                row = layout.row()
+                if mesh_select_mode[0]:
+                    row.active = False
+                row.prop(tool_settings, "uv_sticky_select_mode", icon_only=True)
             else:
                 row = layout.row(align=True)
                 uv_select_mode = tool_settings.uv_select_mode[:]
@@ -865,9 +894,8 @@ class IMAGE_HT_header(Header):
                              depress=(uv_select_mode == 'EDGE')).type = 'EDGE'
                 row.operator("uv.select_mode", text="", icon='UV_FACESEL',
                              depress=(uv_select_mode == 'FACE')).type = 'FACE'
-                row.operator("uv.select_mode", text="", icon='UV_ISLANDSEL',
-                             depress=(uv_select_mode == 'ISLAND')).type = 'ISLAND'
 
+                layout.prop(tool_settings, "use_uv_select_island", icon_only=True)
                 layout.prop(tool_settings, "uv_sticky_select_mode", icon_only=True)
 
         IMAGE_MT_editor_menus.draw_collapsible(context, layout)
@@ -1575,7 +1603,7 @@ class IMAGE_PT_overlay(Panel):
     bl_space_type = 'IMAGE_EDITOR'
     bl_region_type = 'HEADER'
     bl_label = "Overlays"
-    bl_ui_units_x = 13
+    bl_ui_units_x = 14
 
     def draw(self, context):
         pass
@@ -1682,7 +1710,7 @@ class IMAGE_PT_overlay_uv_edit_geometry(Panel):
         row.prop(uvedit, "show_faces", text="Faces")
 
 
-class IMAGE_PT_overlay_texture_paint(Panel):
+class IMAGE_PT_overlay_uv_display(Panel):
     bl_space_type = 'IMAGE_EDITOR'
     bl_region_type = 'HEADER'
     bl_label = "Geometry"
@@ -1691,7 +1719,7 @@ class IMAGE_PT_overlay_texture_paint(Panel):
     @classmethod
     def poll(cls, context):
         sima = context.space_data
-        return (sima and (sima.show_paint))
+        return (sima and sima.mode in {'UV', 'PAINT'} and not (sima.show_uvedit or sima.show_render))
 
     def draw(self, context):
         layout = self.layout
@@ -1701,7 +1729,8 @@ class IMAGE_PT_overlay_texture_paint(Panel):
         overlay = sima.overlay
 
         layout.active = overlay.show_overlays
-        layout.prop(uvedit, "show_texpaint")
+        layout.prop(uvedit, "show_uv")
+        layout.prop(uvedit, "uv_face_opacity")
 
 
 class IMAGE_PT_overlay_image(Panel):
@@ -1719,6 +1748,40 @@ class IMAGE_PT_overlay_image(Panel):
 
         layout.active = overlay.show_overlays
         layout.prop(uvedit, "show_metadata")
+
+
+class IMAGE_PT_overlay_render_guides(Panel):
+    bl_space_type = 'IMAGE_EDITOR'
+    bl_region_type = 'HEADER'
+    bl_label = "Guides"
+    bl_parent_id = "IMAGE_PT_overlay"
+
+    @classmethod
+    def poll(cls, context):
+        sima = context.space_data
+        return (
+            (sima.mode in {'MASK', 'VIEW'}) and
+            (image := sima.image) is not None and
+            (image.source == 'VIEWER') and
+            (image.type == 'COMPOSITING')
+        )
+
+    def draw(self, context):
+        layout = self.layout
+
+        sima = context.space_data
+        overlay = sima.overlay
+
+        layout.active = overlay.show_overlays
+
+        row = layout.row(align=True)
+        layout.prop(overlay, "show_text_info")
+
+        row = layout.row(align=True)
+        row.prop(overlay, "show_render_size")
+        subrow = row.row()
+        subrow.active = overlay.show_render_size
+        subrow.prop(overlay, "passepartout_alpha", text="Passepartout")
 
 
 # Grease Pencil properties
@@ -1739,7 +1802,6 @@ class ImageAssetShelf(BrushAssetShelf):
 class IMAGE_AST_brush_paint(ImageAssetShelf, AssetShelf):
     mode_prop = "use_paint_image"
     brush_type_prop = "image_brush_type"
-    tool_prop = "image_tool"
 
     @classmethod
     def poll(cls, context):
@@ -1814,8 +1876,9 @@ classes = (
     IMAGE_PT_overlay_guides,
     IMAGE_PT_overlay_uv_stretch,
     IMAGE_PT_overlay_uv_edit_geometry,
-    IMAGE_PT_overlay_texture_paint,
+    IMAGE_PT_overlay_uv_display,
     IMAGE_PT_overlay_image,
+    IMAGE_PT_overlay_render_guides,
     IMAGE_AST_brush_paint,
 )
 

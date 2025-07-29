@@ -85,6 +85,7 @@ GHOST_TSuccess GHOST_ContextGLX::activateDrawingContext()
   if (m_display == nullptr) {
     return GHOST_kFailure;
   }
+  active_context_ = this;
   return ::glXMakeCurrent(m_display, m_window, m_context) ? GHOST_kSuccess : GHOST_kFailure;
 }
 
@@ -93,6 +94,7 @@ GHOST_TSuccess GHOST_ContextGLX::releaseDrawingContext()
   if (m_display == nullptr) {
     return GHOST_kFailure;
   }
+  active_context_ = nullptr;
   return ::glXMakeCurrent(m_display, None, nullptr) ? GHOST_kSuccess : GHOST_kFailure;
 }
 
@@ -163,11 +165,13 @@ GHOST_TSuccess GHOST_ContextGLX::initializeDrawingContext()
     }
 
 #ifdef WITH_GLEW_ES
-    if (!GLXEW_EXT_create_context_es_profile && profileBitES && m_contextMajorVersion == 1)
+    if (!GLXEW_EXT_create_context_es_profile && profileBitES && m_contextMajorVersion == 1) {
       fprintf(stderr, "Warning! OpenGL ES profile not available.\n");
+    }
 
-    if (!GLXEW_EXT_create_context_es2_profile && profileBitES && m_contextMajorVersion == 2)
+    if (!GLXEW_EXT_create_context_es2_profile && profileBitES && m_contextMajorVersion == 2) {
       fprintf(stderr, "Warning! OpenGL ES2 profile not available.\n");
+    }
 #endif
 
     int profileMask = 0;
@@ -180,8 +184,9 @@ GHOST_TSuccess GHOST_ContextGLX::initializeDrawingContext()
     }
 
 #ifdef WITH_GLEW_ES
-    if (GLXEW_EXT_create_context_es_profile && profileBitES)
+    if (GLXEW_EXT_create_context_es_profile && profileBitES) {
       profileMask |= profileBitES;
+    }
 #endif
 
     if (profileMask != m_contextProfileMask) {
@@ -296,6 +301,7 @@ GHOST_TSuccess GHOST_ContextGLX::initializeDrawingContext()
 
   GHOST_X11_ERROR_HANDLERS_RESTORE(handler_store);
 
+  active_context_ = this;
   return success;
 }
 

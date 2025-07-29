@@ -176,8 +176,8 @@ static void image_sample_apply(bContext *C, wmOperator *op, const wmEvent *event
   }
 
   int offset[2];
-  offset[0] = image->runtime.backdrop_offset[0];
-  offset[1] = image->runtime.backdrop_offset[1];
+  offset[0] = image->runtime->backdrop_offset[0];
+  offset[1] = image->runtime->backdrop_offset[1];
 
   int x = int(uv[0] * ibuf->x), y = int(uv[1] * ibuf->y);
 
@@ -198,8 +198,8 @@ static void image_sample_apply(bContext *C, wmOperator *op, const wmEvent *event
     info->use_default_view = (image->flag & IMA_VIEW_AS_RENDER) ? false : true;
 
     rcti sample_rect;
-    sample_rect.xmin = max_ii(0, x - image->runtime.backdrop_offset[0] - info->sample_size / 2);
-    sample_rect.ymin = max_ii(0, y - image->runtime.backdrop_offset[1] - info->sample_size / 2);
+    sample_rect.xmin = max_ii(0, x - image->runtime->backdrop_offset[0] - info->sample_size / 2);
+    sample_rect.ymin = max_ii(0, y - image->runtime->backdrop_offset[1] - info->sample_size / 2);
     /* image_sample_rect_color_*() expects a rect, but we only want to retrieve a single value, so
      * create a sample rect with size 1. */
     sample_rect.xmax = sample_rect.xmin;
@@ -276,9 +276,9 @@ static void image_sample_apply(bContext *C, wmOperator *op, const wmEvent *event
 
 static void sequencer_sample_apply(bContext *C, wmOperator *op, const wmEvent *event)
 {
-  Scene *scene = CTX_data_scene(C);
+  Scene *scene = CTX_data_sequencer_scene(C);
   ARegion *region = CTX_wm_region(C);
-  ImBuf *ibuf = sequencer_ibuf_get(C, scene->r.cfra, 0, nullptr);
+  ImBuf *ibuf = blender::ed::vse::sequencer_ibuf_get(C, scene->r.cfra, nullptr);
   ImageSampleInfo *info = static_cast<ImageSampleInfo *>(op->customdata);
   float fx, fy;
 
@@ -341,7 +341,7 @@ static void sequencer_sample_apply(bContext *C, wmOperator *op, const wmEvent *e
 
       /* sequencer's image buffers are in non-linear space, need to make them linear */
       copy_v4_v4(info->linearcol, info->colf);
-      SEQ_render_pixel_from_sequencer_space_v4(scene, info->linearcol);
+      blender::seq::render_pixel_from_sequencer_space_v4(scene, info->linearcol);
 
       info->color_manage = true;
     }
@@ -410,7 +410,7 @@ void ED_imbuf_sample_draw(const bContext *C, ARegion *region, void *arg_info)
 
       SpaceImage *sima = CTX_wm_space_image(C);
       GPUVertFormat *format = immVertexFormat();
-      uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+      uint pos = GPU_vertformat_attr_add(format, "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
 
       const float color[3] = {1, 1, 1};
       immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
@@ -445,7 +445,7 @@ void ED_imbuf_sample_exit(bContext *C, wmOperator *op)
   MEM_freeN(info);
 }
 
-int ED_imbuf_sample_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+wmOperatorStatus ED_imbuf_sample_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   ARegion *region = CTX_wm_region(C);
   ScrArea *area = CTX_wm_area(C);
@@ -470,8 +470,7 @@ int ED_imbuf_sample_invoke(bContext *C, wmOperator *op, const wmEvent *event)
     }
   }
 
-  ImageSampleInfo *info = static_cast<ImageSampleInfo *>(
-      MEM_callocN(sizeof(ImageSampleInfo), "ImageSampleInfo"));
+  ImageSampleInfo *info = MEM_callocN<ImageSampleInfo>("ImageSampleInfo");
 
   info->art = region->runtime->type;
   info->draw_handle = ED_region_draw_cb_activate(
@@ -486,7 +485,7 @@ int ED_imbuf_sample_invoke(bContext *C, wmOperator *op, const wmEvent *event)
   return OPERATOR_RUNNING_MODAL;
 }
 
-int ED_imbuf_sample_modal(bContext *C, wmOperator *op, const wmEvent *event)
+wmOperatorStatus ED_imbuf_sample_modal(bContext *C, wmOperator *op, const wmEvent *event)
 {
   switch (event->type) {
     case LEFTMOUSE:
@@ -499,6 +498,9 @@ int ED_imbuf_sample_modal(bContext *C, wmOperator *op, const wmEvent *event)
     case MOUSEMOVE:
       ed_imbuf_sample_apply(C, op, event);
       break;
+    default: {
+      break;
+    }
   }
 
   return OPERATOR_RUNNING_MODAL;
@@ -538,7 +540,7 @@ bool ED_imbuf_sample_poll(bContext *C)
       if (sseq->mainb != SEQ_DRAW_IMG_IMBUF) {
         return false;
       }
-      if (SEQ_editing_get(CTX_data_scene(C)) == nullptr) {
+      if (blender::seq::editing_get(CTX_data_sequencer_scene(C)) == nullptr) {
         return false;
       }
       ARegion *region = CTX_wm_region(C);

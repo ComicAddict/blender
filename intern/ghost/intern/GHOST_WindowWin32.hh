@@ -77,7 +77,6 @@ class GHOST_WindowWin32 : public GHOST_Window {
                     GHOST_TWindowState state,
                     GHOST_TDrawingContextType type,
                     bool wantStereoVisual,
-                    bool alphaBackground,
                     GHOST_WindowWin32 *parentWindow,
                     bool is_debug,
                     bool dialog,
@@ -291,16 +290,6 @@ class GHOST_WindowWin32 : public GHOST_Window {
    */
   GHOST_TabletData getTabletData();
 
-  GHOST_TSuccess beginFullScreen() const
-  {
-    return GHOST_kFailure;
-  }
-
-  GHOST_TSuccess endFullScreen() const
-  {
-    return GHOST_kFailure;
-  }
-
   void updateDPI();
 
   uint16_t getDPIHint() override;
@@ -369,13 +358,11 @@ class GHOST_WindowWin32 : public GHOST_Window {
    * Sets the cursor shape on the window using
    * native window system calls.
    */
-  GHOST_TSuccess setWindowCustomCursorShape(uint8_t *bitmap,
-                                            uint8_t *mask,
-                                            int sizex,
-                                            int sizey,
-                                            int hotX,
-                                            int hotY,
-                                            bool canInvertColor);
+  GHOST_TSuccess setWindowCustomCursorShape(const uint8_t *bitmap,
+                                            const uint8_t *mask,
+                                            const int size[2],
+                                            const int hot_spot[2],
+                                            bool can_invert_color);
 
   /* Registration of the AppModel Properties that govern the taskbar button and jump lists. */
   void registerWindowAppUserModelProperties();
@@ -404,8 +391,6 @@ class GHOST_WindowWin32 : public GHOST_Window {
   int m_nPressedButtons;
   /** HCURSOR structure of the custom cursor. */
   HCURSOR m_customCursor;
-  /** Request GL context with alpha channel. */
-  bool m_wantAlphaBackground;
 
   /** ITaskbarList3 structure for progress bar. */
   ITaskbarList3 *m_Bar;

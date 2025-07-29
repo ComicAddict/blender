@@ -24,6 +24,7 @@
 #include "RNA_define.hh"
 
 #include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 
 #include "WM_api.hh"
 
@@ -102,7 +103,7 @@ static bool has_anything_selected(const Span<PointCloud *> pointclouds)
   });
 }
 
-static int select_all_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus select_all_exec(bContext *C, wmOperator *op)
 {
   int action = RNA_enum_get(op->ptr, "action");
 
@@ -139,7 +140,7 @@ static void POINTCLOUD_OT_select_all(wmOperatorType *ot)
   WM_operator_properties_select_all(ot);
 }
 
-static int select_random_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus select_random_exec(bContext *C, wmOperator *op)
 {
   const int seed = RNA_int_get(op->ptr, "seed");
   const float probability = RNA_float_get(op->ptr, "probability");
@@ -151,7 +152,8 @@ static int select_random_exec(bContext *C, wmOperator *op)
                                               .complement(IndexRange(pointcloud->totpoint),
                                                           memory);
     const bool was_anything_selected = has_anything_selected(*pointcloud);
-    bke::GSpanAttributeWriter selection = ensure_selection_attribute(*pointcloud, CD_PROP_BOOL);
+    bke::GSpanAttributeWriter selection = ensure_selection_attribute(*pointcloud,
+                                                                     bke::AttrType::Bool);
     if (!was_anything_selected) {
       pointcloud::fill_selection_true(selection.span);
     }
@@ -171,8 +173,8 @@ static void select_random_ui(bContext * /*C*/, wmOperator *op)
 {
   uiLayout *layout = op->layout;
 
-  uiItemR(layout, op->ptr, "seed", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-  uiItemR(layout, op->ptr, "probability", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
+  layout->prop(op->ptr, "seed", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(op->ptr, "probability", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
 }
 
 static void POINTCLOUD_OT_select_random(wmOperatorType *ot)
@@ -209,7 +211,7 @@ static void POINTCLOUD_OT_select_random(wmOperatorType *ot)
 
 namespace pointcloud_delete {
 
-static int delete_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus delete_exec(bContext *C, wmOperator * /*op*/)
 {
   for (PointCloud *pointcloud : get_unique_editable_pointclouds(*C)) {
     if (remove_selection(*pointcloud)) {

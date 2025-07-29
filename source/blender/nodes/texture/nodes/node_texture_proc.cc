@@ -45,8 +45,7 @@ static void do_proc(float *result,
   TexResult texres;
   int textype;
 
-  textype = multitex_nodes(
-      tex, p->co, p->dxt, p->dyt, p->osatex, &texres, thread, 0, p->mtex, nullptr);
+  textype = multitex_nodes(tex, p->co, &texres, thread, 0, p->mtex, nullptr);
 
   if (textype & TEX_RGB) {
     copy_v4_v4(result, texres.trgba);
@@ -240,7 +239,7 @@ ProcDef(stucci);
 
 static void init(bNodeTree * /*ntree*/, bNode *node)
 {
-  Tex *tex = static_cast<Tex *>(MEM_callocN(sizeof(Tex), "Tex"));
+  Tex *tex = MEM_callocN<Tex>("Tex");
   node->storage = tex;
 
   BKE_texture_default(tex);

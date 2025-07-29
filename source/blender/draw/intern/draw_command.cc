@@ -45,9 +45,13 @@ static gpu::Batch *procedural_batch_get(GPUPrimType primitive)
 
 void ShaderBind::execute(RecordingState &state) const
 {
-  if (assign_if_different(state.shader, shader)) {
-    GPU_shader_bind(shader);
+  state.shader_use_specialization = !GPU_shader_get_default_constant_state(shader).is_empty();
+  if (assign_if_different(state.shader, shader) || state.shader_use_specialization) {
+    GPU_shader_bind(shader, state.specialization_constants_get());
   }
+  /* Signal that we can reload the default for a different specialization later on.
+   * However, we keep the specialization_constants state around for compute shaders. */
+  state.specialization_constants_in_use = false;
 }
 
 void FramebufferBind::execute() const
@@ -129,42 +133,47 @@ void PushConstant::execute(RecordingState &state) const
   }
 }
 
-void SpecializeConstant::execute() const
+void SpecializeConstant::execute(command::RecordingState &state) const
 {
   /* All specialization constants should exist as they are not optimized out like uniforms. */
   BLI_assert(location != -1);
 
+  if (state.specialization_constants_in_use == false) {
+    state.specialization_constants = GPU_shader_get_default_constant_state(this->shader);
+    state.specialization_constants_in_use = true;
+  }
+
   switch (type) {
     case SpecializeConstant::Type::IntValue:
-      GPU_shader_constant_int_ex(shader, location, int_value);
+      state.specialization_constants.set_value(location, int_value);
       break;
     case SpecializeConstant::Type::IntReference:
-      GPU_shader_constant_int_ex(shader, location, *int_ref);
+      state.specialization_constants.set_value(location, *int_ref);
       break;
     case SpecializeConstant::Type::UintValue:
-      GPU_shader_constant_uint_ex(shader, location, uint_value);
+      state.specialization_constants.set_value(location, uint_value);
       break;
     case SpecializeConstant::Type::UintReference:
-      GPU_shader_constant_uint_ex(shader, location, *uint_ref);
+      state.specialization_constants.set_value(location, *uint_ref);
       break;
     case SpecializeConstant::Type::FloatValue:
-      GPU_shader_constant_float_ex(shader, location, float_value);
+      state.specialization_constants.set_value(location, float_value);
       break;
     case SpecializeConstant::Type::FloatReference:
-      GPU_shader_constant_float_ex(shader, location, *float_ref);
+      state.specialization_constants.set_value(location, *float_ref);
       break;
     case SpecializeConstant::Type::BoolValue:
-      GPU_shader_constant_bool_ex(shader, location, bool_value);
+      state.specialization_constants.set_value(location, bool_value);
       break;
     case SpecializeConstant::Type::BoolReference:
-      GPU_shader_constant_bool_ex(shader, location, *bool_ref);
+      state.specialization_constants.set_value(location, *bool_ref);
       break;
   }
 }
 
 void Draw::execute(RecordingState &state) const
 {
-  state.front_facing_set(handle.has_inverted_handedness());
+  state.front_facing_set(res_index.has_inverted_handedness());
 
   if (GPU_shader_draw_parameters_support() == false) {
     GPU_batch_resource_id_buf_set(batch, state.resource_id_buf);
@@ -172,13 +181,15 @@ void Draw::execute(RecordingState &state) const
 
   /* Use same logic as in `finalize_commands`. */
   uint instance_first = 0;
-  if (handle.raw > 0) {
+  if (res_index.raw > 0) {
     instance_first = state.instance_offset;
     state.instance_offset += instance_len;
   }
 
+  GPU_shader_get_default_constant_state(state.shader).is_empty();
+
   if (is_primitive_expansion()) {
-    /* Expanded drawcall. */
+    /* Expanded draw-call. */
     IndexRange expanded_range = GPU_batch_draw_expanded_parameter_get(
         batch->prim_type,
         GPUPrimType(expand_prim_type),
@@ -191,16 +202,16 @@ void Draw::execute(RecordingState &state) const
       return;
     }
 
-    GPU_batch_bind_as_resources(batch, state.shader);
+    GPU_batch_bind_as_resources(batch, state.shader, state.specialization_constants_get());
 
     gpu::Batch *gpu_batch = procedural_batch_get(GPUPrimType(expand_prim_type));
-    GPU_batch_set_shader(gpu_batch, state.shader);
+    GPU_batch_set_shader(gpu_batch, state.shader, state.specialization_constants_get());
     GPU_batch_draw_advanced(
         gpu_batch, expanded_range.start(), expanded_range.size(), instance_first, instance_len);
   }
   else {
-    /* Regular drawcall. */
-    GPU_batch_set_shader(batch, state.shader);
+    /* Regular draw-call. */
+    GPU_batch_set_shader(batch, state.shader, state.specialization_constants_get());
     GPU_batch_draw_advanced(batch, vertex_first, vertex_len, instance_first, instance_len);
   }
 }
@@ -219,7 +230,8 @@ void DrawMulti::execute(RecordingState &state) const
 
       if (GPUPrimType(group.desc.expand_prim_type) != GPU_PRIM_NONE) {
         /* Bind original batch as resource and use a procedural batch to issue the draw-call. */
-        GPU_batch_bind_as_resources(group.desc.gpu_batch, state.shader);
+        GPU_batch_bind_as_resources(
+            group.desc.gpu_batch, state.shader, state.specialization_constants_get());
         batch = procedural_batch_get(GPUPrimType(group.desc.expand_prim_type));
       }
 
@@ -227,7 +239,7 @@ void DrawMulti::execute(RecordingState &state) const
         GPU_batch_resource_id_buf_set(batch, state.resource_id_buf);
       }
 
-      GPU_batch_set_shader(batch, state.shader);
+      GPU_batch_set_shader(batch, state.shader, state.specialization_constants_get());
 
       constexpr intptr_t stride = sizeof(DrawCommand);
       /* We have 2 indirect command reserved per draw group. */
@@ -251,7 +263,7 @@ void DrawMulti::execute(RecordingState &state) const
 
 void DrawIndirect::execute(RecordingState &state) const
 {
-  state.front_facing_set(handle.has_inverted_handedness());
+  state.front_facing_set(res_index.has_inverted_handedness());
 
   GPU_batch_draw_indirect(batch, *indirect_buf, 0);
 }
@@ -259,16 +271,18 @@ void DrawIndirect::execute(RecordingState &state) const
 void Dispatch::execute(RecordingState &state) const
 {
   if (is_reference) {
-    GPU_compute_dispatch(state.shader, size_ref->x, size_ref->y, size_ref->z);
+    GPU_compute_dispatch(
+        state.shader, size_ref->x, size_ref->y, size_ref->z, state.specialization_constants_get());
   }
   else {
-    GPU_compute_dispatch(state.shader, size.x, size.y, size.z);
+    GPU_compute_dispatch(
+        state.shader, size.x, size.y, size.z, state.specialization_constants_get());
   }
 }
 
 void DispatchIndirect::execute(RecordingState &state) const
 {
-  GPU_compute_dispatch_indirect(state.shader, *indirect_buf);
+  GPU_compute_dispatch_indirect(state.shader, *indirect_buf, state.specialization_constants_get());
 }
 
 void Barrier::execute() const
@@ -305,6 +319,13 @@ void StateSet::execute(RecordingState &recording_state) const
                 to_stencil_op(new_state),
                 to_provoking_vertex(new_state));
 
+  if (new_state & DRW_STATE_CLIP_CONTROL_UNIT_RANGE) {
+    GPU_clip_control_unit_range(true);
+  }
+  else {
+    GPU_clip_control_unit_range(false);
+  }
+
   if (new_state & DRW_STATE_SHADOW_OFFSET) {
     GPU_shadow_offset(true);
   }
@@ -334,7 +355,6 @@ void StateSet::execute(RecordingState &recording_state) const
   }
 }
 
-/* Set state of the GPU module manually. */
 void StateSet::set(DRWState state)
 {
   RecordingState recording_state;
@@ -563,7 +583,7 @@ std::string Draw::serialize() const
   std::string vert_first = (vertex_first == uint(-1)) ? "from_batch" :
                                                         std::to_string(vertex_first);
   return std::string(".draw(inst_len=") + inst_len + ", vert_len=" + vert_len +
-         ", vert_first=" + vert_first + ", res_id=" + std::to_string(handle.resource_index()) +
+         ", vert_first=" + vert_first + ", res_id=" + std::to_string(res_index.resource_index()) +
          ")";
 }
 
@@ -578,7 +598,7 @@ std::string DrawMulti::serialize(const std::string &line_prefix) const
   std::sort(
       prototypes.begin(), prototypes.end(), [](const DrawPrototype &a, const DrawPrototype &b) {
         return (a.group_id < b.group_id) ||
-               (a.group_id == b.group_id && a.res_handle > b.res_handle);
+               (a.group_id == b.group_id && a.res_index > b.res_index);
       });
 
   /* Compute prefix sum to have correct offsets. */
@@ -602,11 +622,11 @@ std::string DrawMulti::serialize(const std::string &line_prefix) const
     if (grp.back_facing_counter > 0) {
       for (DrawPrototype &proto : prototypes.slice_safe({offset, grp.back_facing_counter})) {
         BLI_assert(proto.group_id == group_index);
-        ResourceHandle handle(proto.res_handle);
-        BLI_assert(handle.has_inverted_handedness());
+        ResourceIndex res_index(proto.res_index);
+        BLI_assert(res_index.has_inverted_handedness());
         ss << std::endl
            << line_prefix << "    .proto(instance_len=" << std::to_string(proto.instance_len)
-           << ", resource_id=" << std::to_string(handle.resource_index()) << ", back_face)";
+           << ", resource_id=" << std::to_string(res_index.resource_index()) << ", back_face)";
       }
       offset += grp.back_facing_counter;
     }
@@ -614,11 +634,11 @@ std::string DrawMulti::serialize(const std::string &line_prefix) const
     if (grp.front_facing_counter > 0) {
       for (DrawPrototype &proto : prototypes.slice_safe({offset, grp.front_facing_counter})) {
         BLI_assert(proto.group_id == group_index);
-        ResourceHandle handle(proto.res_handle);
-        BLI_assert(!handle.has_inverted_handedness());
+        ResourceIndex res_index(proto.res_index);
+        BLI_assert(!res_index.has_inverted_handedness());
         ss << std::endl
            << line_prefix << "    .proto(instance_len=" << std::to_string(proto.instance_len)
-           << ", resource_id=" << std::to_string(handle.resource_index()) << ", front_face)";
+           << ", resource_id=" << std::to_string(res_index.resource_index()) << ", front_face)";
       }
     }
 
@@ -736,12 +756,12 @@ void DrawCommandBuf::finalize_commands(Vector<Header, 0> &headers,
       cmd.vertex_len = batch_vert_len;
     }
 
-    /* NOTE: Only do this if a handle is present. If a drawcall is using instancing with null
+    /* NOTE: Only do this if a handle is present. If a draw-call is using instancing with null
      * handle, the shader should not rely on `resource_id` at ***all***. This allows procedural
-     * instanced drawcalls with lots of instances with no overhead. */
+     * instanced draw-calls with lots of instances with no overhead. */
     /* TODO(fclem): Think about either fixing this feature or removing support for instancing all
      * together. */
-    if (cmd.handle.raw > 0) {
+    if (cmd.res_index.raw > 0) {
       /* Save correct offset to start of resource_id buffer region for this draw. */
       uint instance_first = resource_id_count;
       resource_id_count += cmd.instance_len;
@@ -749,7 +769,7 @@ void DrawCommandBuf::finalize_commands(Vector<Header, 0> &headers,
       resource_id_buf.get_or_resize(resource_id_count - 1);
 
       /* Copy the resource id for all instances. */
-      uint index = cmd.handle.resource_index();
+      uint index = cmd.res_index.resource_index();
       for (int i = instance_first; i < (instance_first + cmd.instance_len); i++) {
         resource_id_buf[i] = index;
       }
@@ -762,7 +782,7 @@ void DrawCommandBuf::generate_commands(Vector<Header, 0> &headers,
                                        SubPassVector &sub_passes)
 {
   /* First instance ID contains the null handle with identity transform.
-   * This is referenced for drawcalls with no handle. */
+   * This is referenced for draw-calls with no handle. */
   resource_id_buf_.get_or_resize(0) = 0;
   resource_id_count_ = 1;
   finalize_commands(headers, commands, sub_passes, resource_id_count_, resource_id_buf_);
@@ -812,7 +832,7 @@ void DrawMultiBuf::generate_commands(Vector<Header, 0> & /*headers*/,
     UNUSED_VARS_NDEBUG(batch_inst_len);
 
     if (group.desc.expand_prim_type != GPU_PRIM_NONE) {
-      /* Expanded drawcall. */
+      /* Expanded draw-call. */
       IndexRange vert_range = GPU_batch_draw_expanded_parameter_get(
           group.desc.gpu_batch->prim_type,
           GPUPrimType(group.desc.expand_prim_type),
@@ -822,7 +842,7 @@ void DrawMultiBuf::generate_commands(Vector<Header, 0> & /*headers*/,
 
       group.vertex_first = vert_range.start();
       group.vertex_len = vert_range.size();
-      /* Override base index to -1 as the generated drawcall will not use an index buffer and do
+      /* Override base index to -1 as the generated draw-call will not use an index buffer and do
        * the indirection manually inside the shader. */
       group.base_index = -1;
     }

@@ -121,8 +121,8 @@ static VChar *vfont_char_find(const VFontData *vfd, char32_t charcode)
 static VChar *vfont_char_ensure_with_lock(VFont *vfont, char32_t charcode)
 {
   VChar *che;
-  VFontData *vfd = vfont->data;
-  if (vfd) {
+  if (vfont && vfont->data) {
+    VFontData *vfd = vfont->data;
     BLI_rw_mutex_lock(&vfont_rwlock, THREAD_LOCK_READ);
     che = vfont_char_find(vfd, charcode);
     BLI_rw_mutex_unlock(&vfont_rwlock);
@@ -302,7 +302,7 @@ static Nurb *build_underline(Curve *cu,
   Nurb *nu;
   BPoint *bp;
 
-  nu = (Nurb *)MEM_callocN(sizeof(Nurb), "underline_nurb");
+  nu = MEM_callocN<Nurb>("underline_nurb");
   nu->resolu = cu->resolu;
   nu->bezt = nullptr;
   nu->knotsu = nu->knotsv = nullptr;
@@ -316,7 +316,7 @@ static Nurb *build_underline(Curve *cu,
   nu->orderv = 1;
   nu->flagu = CU_NURB_CYCLIC;
 
-  bp = (BPoint *)MEM_calloc_arrayN(4, sizeof(BPoint), "underline_bp");
+  bp = MEM_calloc_arrayN<BPoint>(4, "underline_bp");
 
   copy_v4_fl4(bp[0].vec, rect->xmin, (rect->ymax + yofs), 0.0f, 1.0f);
   copy_v4_fl4(bp[1].vec, rect->xmax, (rect->ymax + yofs), 0.0f, 1.0f);
@@ -388,7 +388,7 @@ static void vfont_char_build_impl(Curve *cu,
   while (nu_from_vchar) {
     const BezTriple *bezt_from_vchar = nu_from_vchar->bezt;
     if (bezt_from_vchar) {
-      Nurb *nu = (Nurb *)MEM_mallocN(sizeof(Nurb), "duplichar_nurb");
+      Nurb *nu = MEM_mallocN<Nurb>("duplichar_nurb");
       if (nu == nullptr) {
         break;
       }
@@ -406,7 +406,7 @@ static void vfont_char_build_impl(Curve *cu,
       }
       int u = nu->pntsu;
 
-      BezTriple *bezt = (BezTriple *)MEM_malloc_arrayN(u, sizeof(BezTriple), "duplichar_bezt2");
+      BezTriple *bezt = MEM_malloc_arrayN<BezTriple>(size_t(u), "duplichar_bezt2");
       if (bezt == nullptr) {
         MEM_freeN(nu);
         break;
@@ -601,8 +601,6 @@ static void vfont_info_context_init(VFontInfoContext *vfinfo_ctx, const Curve *c
   BLI_assert(!vfinfo_ctx->vfont);
   BLI_assert(!vfinfo_ctx->vfd);
 
-  /* The caller must ensure this is never null. */
-  BLI_assert(cu->vfont);
   vfinfo_ctx->vfont = cu->vfont;
   vfinfo_ctx->vfd = vfont_data_ensure_with_lock(vfinfo_ctx->vfont);
 }
@@ -743,8 +741,7 @@ static bool vfont_to_curve(Object *ob,
     slen = cu->len_char32;
 
     /* Create unicode string. */
-    mem_tmp = static_cast<char32_t *>(
-        MEM_malloc_arrayN((slen + 1), sizeof(*mem_tmp), "convertedmem"));
+    mem_tmp = MEM_malloc_arrayN<char32_t>(size_t(slen) + 1, "convertedmem");
     if (!mem_tmp) {
       return false;
     }
@@ -752,8 +749,7 @@ static bool vfont_to_curve(Object *ob,
     BLI_str_utf8_as_utf32(mem_tmp, cu->str, slen + 1);
 
     if (cu->strinfo == nullptr) { /* Should only ever happen with old files. */
-      cu->strinfo = static_cast<CharInfo *>(
-          MEM_calloc_arrayN((slen + 4), sizeof(CharInfo), "strinfo compat"));
+      cu->strinfo = MEM_calloc_arrayN<CharInfo>(size_t(slen) + 4, "strinfo compat");
     }
     custrinfo = cu->strinfo;
     if (!custrinfo) {
@@ -765,8 +761,7 @@ static bool vfont_to_curve(Object *ob,
   }
 
   if (cu->tb == nullptr) {
-    cu->tb = static_cast<TextBox *>(
-        MEM_calloc_arrayN(MAXTEXTBOX, sizeof(TextBox), "TextBox compat"));
+    cu->tb = MEM_calloc_arrayN<TextBox>(MAXTEXTBOX, "TextBox compat");
   }
 
   if (ef != nullptr && ob != nullptr) {
@@ -776,8 +771,7 @@ static bool vfont_to_curve(Object *ob,
 
     if (BKE_vfont_select_get(ob, &selstart, &selend)) {
       ef->selboxes_len = (selend - selstart) + 1;
-      ef->selboxes = static_cast<EditFontSelBox *>(
-          MEM_calloc_arrayN(ef->selboxes_len, sizeof(EditFontSelBox), "font selboxes"));
+      ef->selboxes = MEM_calloc_arrayN<EditFontSelBox>(ef->selboxes_len, "font selboxes");
     }
     else {
       ef->selboxes_len = 0;
@@ -788,12 +782,10 @@ static bool vfont_to_curve(Object *ob,
   }
 
   /* Calculate the offset and rotation of each char. */
-  ct = chartransdata = static_cast<CharTrans *>(
-      MEM_calloc_arrayN((slen + 1), sizeof(CharTrans), "buildtext"));
+  ct = chartransdata = MEM_calloc_arrayN<CharTrans>(size_t(slen) + 1, "buildtext");
 
   /* We assume the worst case: 1 character per line (is freed at end anyway). */
-  lineinfo = static_cast<TempLineInfo *>(
-      MEM_malloc_arrayN((slen * 2 + 1), sizeof(*lineinfo), "lineinfo"));
+  lineinfo = MEM_malloc_arrayN<TempLineInfo>(size_t(slen) * 2 + 1, "lineinfo");
 
   linedist = cu->linedist;
 
@@ -813,8 +805,8 @@ static bool vfont_to_curve(Object *ob,
   TextBoxBounds_ForCursor *tb_bounds_for_cursor = nullptr;
   if (cursor_params != nullptr) {
     if (cu->textoncurve == nullptr && (cu->totbox > 1) && (slen > 0)) {
-      tb_bounds_for_cursor = static_cast<TextBoxBounds_ForCursor *>(
-          MEM_malloc_arrayN(cu->totbox, sizeof(TextBoxBounds_ForCursor), "TextboxBounds_Cursor"));
+      tb_bounds_for_cursor = MEM_malloc_arrayN<TextBoxBounds_ForCursor>(size_t(cu->totbox),
+                                                                        "TextboxBounds_Cursor");
       for (curbox = 0; curbox < cu->totbox; curbox++) {
         TextBoxBounds_ForCursor *tb_bounds = &tb_bounds_for_cursor[curbox];
         tb_bounds->char_index_last = -1;
@@ -1782,7 +1774,7 @@ static bool vfont_to_curve(Object *ob,
     }
 
     if (ef == nullptr) {
-      MEM_freeN((void *)mem);
+      MEM_freeN(mem);
     }
     return true;
   }
@@ -1794,7 +1786,7 @@ static bool vfont_to_curve(Object *ob,
   }
   else {
     if (ef == nullptr) {
-      MEM_freeN((void *)mem);
+      MEM_freeN(mem);
     }
   }
 

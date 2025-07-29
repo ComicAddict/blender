@@ -9,7 +9,7 @@ import pprint
 import sys
 import tempfile
 import unittest
-from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade, UsdSkel, UsdUtils, UsdVol
+from pxr import Gf, Sdf, Usd, UsdGeom, UsdMtlx, UsdShade, UsdSkel, UsdUtils, UsdVol
 
 import bpy
 
@@ -461,6 +461,32 @@ class USDExportTest(AbstractUSDTest):
         input_displacement = shader_surface.GetInput('displacement')
         self.assertTrue(input_displacement.Get() is None)
 
+    def test_export_material_attributes(self):
+        """Validate correct export of Attribute information to UsdPrimvarReaders"""
+
+        # Use the common materials .blend file
+        bpy.ops.wm.open_mainfile(filepath=str(self.testdir / "usd_materials_attributes.blend"))
+        export_path = self.tempdir / "usd_materials_attributes.usda"
+        self.export_and_validate(filepath=str(export_path), export_materials=True)
+
+        stage = Usd.Stage.Open(str(export_path))
+
+        shader_attr = UsdShade.Shader(stage.GetPrimAtPath("/root/_materials/Material/Attribute"))
+        shader_attr1 = UsdShade.Shader(stage.GetPrimAtPath("/root/_materials/Material/Attribute_001"))
+        shader_attr2 = UsdShade.Shader(stage.GetPrimAtPath("/root/_materials/Material/Attribute_002"))
+
+        self.assertEqual(shader_attr.GetIdAttr().Get(), "UsdPrimvarReader_float3")
+        self.assertEqual(shader_attr1.GetIdAttr().Get(), "UsdPrimvarReader_float")
+        self.assertEqual(shader_attr2.GetIdAttr().Get(), "UsdPrimvarReader_vector")
+
+        self.assertEqual(shader_attr.GetInput("varname").Get(), "displayColor")
+        self.assertEqual(shader_attr1.GetInput("varname").Get(), "f_float")
+        self.assertEqual(shader_attr2.GetInput("varname").Get(), "f_vec")
+
+        self.assertEqual(shader_attr.GetOutput("result").GetTypeName().type.typeName, "GfVec3f")
+        self.assertEqual(shader_attr1.GetOutput("result").GetTypeName().type.typeName, "float")
+        self.assertEqual(shader_attr2.GetOutput("result").GetTypeName().type.typeName, "GfVec3f")
+
     def test_export_metaballs(self):
         """Validate correct export of Metaball objects. These are written out as Meshes."""
 
@@ -898,23 +924,23 @@ class USDExportTest(AbstractUSDTest):
         # Contains 3 CatmullRom curves
         curve = UsdGeom.BasisCurves(stage.GetPrimAtPath("/root/Cube/Curves/Curves"))
         check_basis_curve(
-            curve, "catmullRom", "cubic", "pinned", [8, 8, 8], [[-0.3784, -0.0866, 1], [0.2714, -0.0488, 1.3]])
+            curve, "catmullRom", "cubic", "pinned", [8, 8, 8], [[-0.3884, -0.0966, 0.99], [0.2814, -0.0388, 1.31]])
 
         # Contains 1 Bezier curve
         curve = UsdGeom.BasisCurves(stage.GetPrimAtPath("/root/BezierCurve/BezierCurve"))
-        check_basis_curve(curve, "bezier", "cubic", "nonperiodic", [7], [[-2.644, -0.0777, 0], [1, 0.9815, 0]])
+        check_basis_curve(curve, "bezier", "cubic", "nonperiodic", [7], [[-3.644, -1.0777, -1.0], [2.0, 1.9815, 1.0]])
 
         # Contains 1 Bezier curve
         curve = UsdGeom.BasisCurves(stage.GetPrimAtPath("/root/BezierCircle/BezierCircle"))
-        check_basis_curve(curve, "bezier", "cubic", "periodic", [12], [[-1, -1, 0], [1, 1, 0]])
+        check_basis_curve(curve, "bezier", "cubic", "periodic", [12], [[-2.0, -2.0, -1.0], [2.0, 2.0, 1.0]])
 
         # Contains 2 NURBS curves
         curve = UsdGeom.NurbsCurves(stage.GetPrimAtPath("/root/NurbsCurve/NurbsCurve"))
-        check_nurbs_curve(curve, False, [4, 4], [6, 6], 10, [[-0.75, -1.6898, -0.0117], [2.0896, 0.9583, 0.0293]])
+        check_nurbs_curve(curve, False, [4, 4], [6, 6], 10, [[-1.75, -2.6891, -1.0117], [3.0896, 1.9583, 1.0293]])
 
         # Contains 1 NURBS curve
         curve = UsdGeom.NurbsCurves(stage.GetPrimAtPath("/root/NurbsCircle/NurbsCircle"))
-        check_nurbs_curve(curve, True, [3], [8], 13, [[-1, -1, 0], [1, 1, 0]])
+        check_nurbs_curve(curve, True, [3], [8], 13, [[-2.0, -2.0, -1.0], [2.0, 2.0, 1.0]])
 
     def test_export_animation(self):
         bpy.ops.wm.open_mainfile(filepath=str(self.testdir / "usd_anim_test.blend"))
@@ -974,6 +1000,66 @@ class USDExportTest(AbstractUSDTest):
         anim = UsdSkel.Animation(prim_skel.GetAnimationSource())
         weight_samples = anim.GetBlendShapeWeightsAttr().GetTimeSamples()
         self.assertEqual(weight_samples, [1.0, 2.0, 3.0, 4.0, 5.0])
+
+    def test_export_text(self):
+        """Test various forms of Text/Font export."""
+
+        bpy.ops.wm.open_mainfile(filepath=str(self.testdir / "usd_text_test.blend"))
+
+        export_path = str(self.tempdir / "usd_text_test.usda")
+        self.export_and_validate(filepath=export_path, export_animation=True, evaluation_mode="RENDER")
+
+        stats = UsdUtils.ComputeUsdStageStats(export_path)
+        stage = Usd.Stage.Open(export_path)
+
+        # There should be 4 meshes in the output
+        self.assertEqual(stats['primary']['primCountsByType']['Mesh'], 4)
+
+        bboxcache_frame1 = UsdGeom.BBoxCache(1.0, [UsdGeom.Tokens.default_])
+        bboxcache_frame5 = UsdGeom.BBoxCache(5.0, [UsdGeom.Tokens.default_])
+
+        # Static, flat, text
+        mesh = UsdGeom.Mesh(stage.GetPrimAtPath("/root/static/static"))
+        bounds1 = bboxcache_frame1.ComputeWorldBound(mesh.GetPrim())
+        bbox1 = bounds1.GetRange().GetMax() - bounds1.GetRange().GetMin()
+        self.assertEqual(mesh.GetPointsAttr().GetTimeSamples(), [])
+        self.assertEqual(mesh.GetExtentAttr().GetTimeSamples(), [])
+        self.assertTrue(bbox1[0] > 0.0)
+        self.assertTrue(bbox1[1] > 0.0)
+        self.assertAlmostEqual(bbox1[2], 0.0, 5)
+
+        # Dynamic, flat, text
+        mesh = UsdGeom.Mesh(stage.GetPrimAtPath("/root/dynamic/dynamic"))
+        bounds1 = bboxcache_frame1.ComputeWorldBound(mesh.GetPrim())
+        bounds5 = bboxcache_frame5.ComputeWorldBound(mesh.GetPrim())
+        bbox1 = bounds1.GetRange().GetMax() - bounds1.GetRange().GetMin()
+        bbox5 = bounds5.GetRange().GetMax() - bounds5.GetRange().GetMin()
+        self.assertEqual(mesh.GetPointsAttr().GetTimeSamples(), [1.0, 2.0, 3.0, 4.0, 5.0])
+        self.assertEqual(mesh.GetExtentAttr().GetTimeSamples(), [1.0, 2.0, 3.0, 4.0, 5.0])
+        self.assertEqual(bbox1[2], 0.0)
+        self.assertTrue(bbox1[0] < bbox5[0])    # Text grows on x-axis
+        self.assertAlmostEqual(bbox1[1], bbox5[1], 5)
+        self.assertAlmostEqual(bbox1[2], bbox5[2], 5)
+
+        # Static, extruded on Z, text
+        mesh = UsdGeom.Mesh(stage.GetPrimAtPath("/root/extruded/extruded"))
+        bounds1 = bboxcache_frame1.ComputeWorldBound(mesh.GetPrim())
+        bbox1 = bounds1.GetRange().GetMax() - bounds1.GetRange().GetMin()
+        self.assertEqual(mesh.GetPointsAttr().GetTimeSamples(), [])
+        self.assertEqual(mesh.GetExtentAttr().GetTimeSamples(), [])
+        self.assertTrue(bbox1[0] > 0.0)
+        self.assertTrue(bbox1[1] > 0.0)
+        self.assertAlmostEqual(bbox1[2], 0.1, 5)
+
+        # Static, uses depth, text
+        mesh = UsdGeom.Mesh(stage.GetPrimAtPath("/root/has_depth/has_depth"))
+        bounds1 = bboxcache_frame1.ComputeWorldBound(mesh.GetPrim())
+        bbox1 = bounds1.GetRange().GetMax() - bounds1.GetRange().GetMin()
+        self.assertEqual(mesh.GetPointsAttr().GetTimeSamples(), [])
+        self.assertEqual(mesh.GetExtentAttr().GetTimeSamples(), [])
+        self.assertTrue(bbox1[0] > 0.0)
+        self.assertTrue(bbox1[1] > 0.0)
+        self.assertAlmostEqual(bbox1[2], 0.1, 5)
 
     def test_export_volumes(self):
         """Test various combinations of volume export including with all supported volume modifiers."""
@@ -1087,7 +1173,7 @@ class USDExportTest(AbstractUSDTest):
     def test_export_orientation(self):
         """Test exporting different orientation configurations."""
 
-        # Using the empty scene is fine for this
+        # Using the empty scene is fine for checking Stage metadata
         bpy.ops.wm.open_mainfile(filepath=str(self.testdir / "empty.blend"))
 
         test_path1 = self.tempdir / "temp_orientation_yup.usda"
@@ -1112,25 +1198,38 @@ class USDExportTest(AbstractUSDTest):
         xf = UsdGeom.Xformable(stage.GetPrimAtPath("/root"))
         self.assertEqual(self.round_vector(xf.GetRotateXYZOp().Get()), [0, 0, 180])
 
+        # Check one final orientation using no /root xform at all (it's a different code path)
+        bpy.ops.mesh.primitive_cube_add()
+
+        test_path3 = self.tempdir / "temp_orientation_non_root.usda"
+        self.export_and_validate(filepath=str(test_path3), convert_orientation=True, root_prim_path="")
+        stage = Usd.Stage.Open(str(test_path3))
+        xf = UsdGeom.Xformable(stage.GetPrimAtPath("/Cube"))
+        self.assertEqual(self.round_vector(xf.GetRotateXYZOp().Get()), [-90, 0, 0])
+
     def test_materialx_network(self):
         """Test exporting that a MaterialX export makes it out alright"""
         bpy.ops.wm.open_mainfile(filepath=str(self.testdir / "usd_materials_export.blend"))
         export_path = self.tempdir / "materialx.usda"
 
         # USD currently has an issue where embedded MaterialX graphs cause validation to fail.
-        # Skip validation and just run a regular export until this is fixed.
+        # Note: We use the below patch for now; keep this in mind if it causes issues in the future.
         # See: https://github.com/PixarAnimationStudios/OpenUSD/pull/3243
-        res = bpy.ops.wm.usd_export(
+        res = self.export_and_validate(
             filepath=str(export_path),
             export_materials=True,
             generate_materialx_network=True,
             evaluation_mode="RENDER",
         )
-        self.assertEqual({'FINISHED'}, res, f"Unable to export to {export_path}")
 
         stage = Usd.Stage.Open(str(export_path))
         material_prim = stage.GetPrimAtPath("/root/_materials/Material")
         self.assertTrue(material_prim, "Could not find Material prim")
+
+        self.assertTrue(material_prim.HasAPI(UsdMtlx.MaterialXConfigAPI))
+        mtlx_config_api = UsdMtlx.MaterialXConfigAPI(material_prim)
+        mtlx_version_attr = mtlx_config_api.GetConfigMtlxVersionAttr()
+        self.assertTrue(mtlx_version_attr, "Could not find mtlx config version attribute")
 
         material = UsdShade.Material(material_prim)
         mtlx_output = material.GetOutput("mtlx:surface")
@@ -1146,7 +1245,7 @@ class USDExportTest(AbstractUSDTest):
         self.assertTrue(shader, "Connected prim is not a shader")
 
         shader_id = shader.GetIdAttr().Get()
-        self.assertEqual(shader_id, "ND_standard_surface_surfaceshader", "Shader is not a Standard Surface")
+        self.assertEqual(shader_id, "ND_open_pbr_surface_surfaceshader", "Shader is not an OpenPBR Surface")
 
     def test_hooks(self):
         """Validate USD Hook integration for both import and export"""
@@ -1258,15 +1357,11 @@ class USDExportTest(AbstractUSDTest):
             ("/root/Camera/Camera", "Camera"),
             ("/root/env_light", "DomeLight")
         )
-
-        def key(el):
-            return el[0]
-
-        expected = tuple(sorted(expected, key=key))
+        expected = tuple(sorted(expected, key=lambda pair: pair[0]))
 
         stage = Usd.Stage.Open(str(test_path))
         actual = ((str(p.GetPath()), p.GetTypeName()) for p in stage.Traverse())
-        actual = tuple(sorted(actual, key=key))
+        actual = tuple(sorted(actual, key=lambda pair: pair[0]))
 
         self.assertTupleEqual(expected, actual)
 
@@ -1311,14 +1406,11 @@ class USDExportTest(AbstractUSDTest):
             ("/root/env_light", "DomeLight")
         )
 
-        def key(el):
-            return el[0]
-
-        expected = tuple(sorted(expected, key=key))
+        expected = tuple(sorted(expected, key=lambda pair: pair[0]))
 
         stage = Usd.Stage.Open(str(test_path))
         actual = ((str(p.GetPath()), p.GetTypeName()) for p in stage.Traverse())
-        actual = tuple(sorted(actual, key=key))
+        actual = tuple(sorted(actual, key=lambda pair: pair[0]))
 
         self.assertTupleEqual(expected, actual)
 
@@ -1326,6 +1418,7 @@ class USDExportTest(AbstractUSDTest):
         """Test specifying stage meters per unit on export."""
         bpy.ops.wm.open_mainfile(filepath=str(self.testdir / "empty.blend"))
 
+        # Check all unit conversions we support
         units = (
             ("mm", 'MILLIMETERS', 0.001), ("cm", 'CENTIMETERS', 0.01), ("km", 'KILOMETERS', 1000),
             ("in", 'INCHES', 0.0254), ("ft", 'FEET', 0.3048), ("yd", 'YARDS', 0.9144),
@@ -1340,9 +1433,26 @@ class USDExportTest(AbstractUSDTest):
             else:
                 self.export_and_validate(filepath=str(export_path), convert_scene_units=unit)
 
-            # Verify that meters per unit were set correctly
+            # Verify that the Stage meters per unit metadata is set correctly
             stage = Usd.Stage.Open(str(export_path))
             self.assertEqual(UsdGeom.GetStageMetersPerUnit(stage), value)
+
+            # Verify that the /root xform has the expected scale (the default case should be empty)
+            xf = UsdGeom.Xformable(stage.GetPrimAtPath("/root"))
+            if name == "default":
+                self.assertFalse(xf.GetScaleOp().GetAttr().IsValid())
+            else:
+                scale = self.round_vector([1.0 / value] * 3)
+                self.assertEqual(self.round_vector(xf.GetScaleOp().Get()), scale)
+
+        # Check one final unit conversion using no /root xform at all (it's a different code path)
+        bpy.ops.mesh.primitive_cube_add()
+
+        export_path = self.tempdir / f"usd_export_units_test_non_root.usda"
+        self.export_and_validate(filepath=str(export_path), convert_scene_units="CENTIMETERS", root_prim_path="")
+        stage = Usd.Stage.Open(str(export_path))
+        xf = UsdGeom.Xformable(stage.GetPrimAtPath("/Cube"))
+        self.assertEqual(self.round_vector(xf.GetScaleOp().Get()), [100, 100, 100])
 
     def test_export_native_instancing_true(self):
         """Test exporting instanced objects to native (scne graph) instances."""
@@ -1489,6 +1599,212 @@ class USDExportTest(AbstractUSDTest):
             tex_path = self.tempdir / "textures" / name
             self.assertTrue(tex_path.exists(),
                             f"Exported texture {tex_path} doesn't exist")
+
+    def test_naming_collision_hierarchy(self):
+        """Validate that naming collisions during export are handled correctly"""
+        bpy.ops.wm.open_mainfile(filepath=str(self.testdir / "usd_hierarchy_collision.blend"))
+        export_path = self.tempdir / "usd_hierarchy_collision.usda"
+        self.export_and_validate(filepath=str(export_path))
+
+        expected = (
+            ('/root', 'Xform'),
+            ('/root/Empty', 'Xform'),
+            ('/root/Empty/Par_002', 'Xform'),
+            ('/root/Empty/Par_002/Par_1', 'Mesh'),
+            ('/root/Empty/Par_003', 'Xform'),
+            ('/root/Empty/Par_003/Par_1', 'Mesh'),
+            ('/root/Empty/Par_004', 'Xform'),
+            ('/root/Empty/Par_004/Par_002', 'Mesh'),
+            ('/root/Empty/Par_1', 'Xform'),
+            ('/root/Empty/Par_1/Par_1', 'Mesh'),
+            ('/root/Level1', 'Xform'),
+            ('/root/Level1/Level2', 'Xform'),
+            ('/root/Level1/Level2/Par2_002', 'Xform'),
+            ('/root/Level1/Level2/Par2_002/Par2_002', 'Mesh'),
+            ('/root/Level1/Level2/Par2_1', 'Xform'),
+            ('/root/Level1/Level2/Par2_1/Par2_1', 'Mesh'),
+            ('/root/Level1/Par2_002', 'Xform'),
+            ('/root/Level1/Par2_002/Par2_1', 'Mesh'),
+            ('/root/Level1/Par2_1', 'Xform'),
+            ('/root/Level1/Par2_1/Par2_1', 'Mesh'),
+            ('/root/Test_002', 'Xform'),
+            ('/root/Test_002/Test_1', 'Mesh'),
+            ('/root/Test_003', 'Xform'),
+            ('/root/Test_003/Test_1', 'Mesh'),
+            ('/root/Test_004', 'Xform'),
+            ('/root/Test_004/Test_002', 'Mesh'),
+            ('/root/Test_1', 'Xform'),
+            ('/root/Test_1/Test_1', 'Mesh'),
+            ('/root/env_light', 'DomeLight'),
+            ('/root/xSource_002', 'Xform'),
+            ('/root/xSource_002/Dup_002', 'Xform'),
+            ('/root/xSource_002/Dup_002/Dup_002', 'Mesh'),
+            ('/root/xSource_002/Dup_002_0', 'Xform'),
+            ('/root/xSource_002/Dup_002_0/Dup_002', 'Mesh'),
+            ('/root/xSource_002/Dup_002_1', 'Xform'),
+            ('/root/xSource_002/Dup_002_1/Dup_002', 'Mesh'),
+            ('/root/xSource_002/Dup_002_2', 'Xform'),
+            ('/root/xSource_002/Dup_002_2/Dup_002', 'Mesh'),
+            ('/root/xSource_002/Dup_002_3', 'Xform'),
+            ('/root/xSource_002/Dup_002_3/Dup_002', 'Mesh'),
+            ('/root/xSource_002/Dup_1', 'Xform'),
+            ('/root/xSource_002/Dup_1/Dup_1', 'Mesh'),
+            ('/root/xSource_002/Dup_1_0', 'Xform'),
+            ('/root/xSource_002/Dup_1_0/Dup_1', 'Mesh'),
+            ('/root/xSource_002/Dup_1_1', 'Xform'),
+            ('/root/xSource_002/Dup_1_1/Dup_1', 'Mesh'),
+            ('/root/xSource_002/Dup_1_2', 'Xform'),
+            ('/root/xSource_002/Dup_1_2/Dup_1', 'Mesh'),
+            ('/root/xSource_002/Dup_1_3', 'Xform'),
+            ('/root/xSource_002/Dup_1_3/Dup_1', 'Mesh'),
+            ('/root/xSource_002/xSource_1', 'Mesh'),
+            ('/root/xSource_1', 'Xform'),
+            ('/root/xSource_1/Dup_002', 'Xform'),
+            ('/root/xSource_1/Dup_002/Dup_1', 'Mesh'),
+            ('/root/xSource_1/Dup_1', 'Xform'),
+            ('/root/xSource_1/Dup_1/Dup_1', 'Mesh'),
+            ('/root/xSource_1/Dup_1_0', 'Xform'),
+            ('/root/xSource_1/Dup_1_0/Dup_1', 'Mesh'),
+            ('/root/xSource_1/Dup_1_001', 'Xform'),
+            ('/root/xSource_1/Dup_1_001/Dup_1', 'Mesh'),
+            ('/root/xSource_1/Dup_1_002', 'Xform'),
+            ('/root/xSource_1/Dup_1_002/Dup_1', 'Mesh'),
+            ('/root/xSource_1/Dup_1_003', 'Xform'),
+            ('/root/xSource_1/Dup_1_003/Dup_1', 'Mesh'),
+            ('/root/xSource_1/Dup_1_004', 'Xform'),
+            ('/root/xSource_1/Dup_1_004/Dup_1', 'Mesh'),
+            ('/root/xSource_1/Dup_1_1', 'Xform'),
+            ('/root/xSource_1/Dup_1_1/Dup_1', 'Mesh'),
+            ('/root/xSource_1/Dup_1_2', 'Xform'),
+            ('/root/xSource_1/Dup_1_2/Dup_1', 'Mesh'),
+            ('/root/xSource_1/Dup_1_3', 'Xform'),
+            ('/root/xSource_1/Dup_1_3/Dup_1', 'Mesh'),
+            ('/root/xSource_1/xSource_1', 'Mesh')
+        )
+        expected = tuple(sorted(expected, key=lambda pair: pair[0]))
+
+        stage = Usd.Stage.Open(str(export_path))
+        actual = ((str(p.GetPath()), p.GetTypeName()) for p in stage.Traverse())
+        actual = tuple(sorted(actual, key=lambda pair: pair[0]))
+
+        self.assertTupleEqual(expected, actual)
+
+    def test_point_instancing_export(self):
+        """Test exporting scenes that use point instancing."""
+
+        def confirm_point_instancing_stats(stage, num_meshes, num_instancers, num_instances, num_prototypes):
+            mesh_count = 0
+            instancer_count = 0
+            instance_count = 0
+            prototype_count = 0
+
+            for prim in stage.TraverseAll():
+                prim_path = prim.GetPath()
+                prim_type_name = prim.GetTypeName()
+
+                if prim_type_name == "PointInstancer":
+                    point_instancer = UsdGeom.PointInstancer(prim)
+                    if point_instancer:
+
+                        # get instance count
+                        positions_attr = point_instancer.GetPositionsAttr()
+                        if positions_attr:
+                            positions = positions_attr.Get()
+                            if positions:
+                                instance_count += len(positions)
+
+                        # get prototype count
+                        prototypes_rel = point_instancer.GetPrototypesRel()
+                        if prototypes_rel:
+                            target_prims = prototypes_rel.GetTargets()
+                            prototype_count += len(target_prims)
+
+                # show all prims and types
+                # output_string = f"  Path: {prim_path}, Type: {prim_type_name}"
+                # print(output_string)
+
+            stats = UsdUtils.ComputeUsdStageStats(stage)
+            mesh_count = stats['primary']['primCountsByType']['Mesh']
+            instancer_count = stats['primary']['primCountsByType']['PointInstancer']
+
+            return mesh_count, instancer_count, instance_count, prototype_count
+
+        point_instance_test_scenarios = [
+            # object reference treated as geometry set
+            {'input_file': str(self.testdir / "usd_point_instancer_object_ref.blend"),
+             'output_file': self.tempdir / "usd_export_point_instancer_object_ref.usda",
+             'mesh_count': 3,
+             'instancer_count': 1,
+             'total_instances': 16,
+             'total_prototypes': 1,
+             'extent': {
+                 "/root/Plane/Mesh": [Gf.Vec3f(-1.0999999, -1.0999999, -0.1),
+                                      Gf.Vec3f(1.1, 1.1, 0.1)]}},
+            # collection reference from single point instancer
+            {'input_file': str(self.testdir / "usd_point_instancer_collection_ref.blend"),
+             'output_file': self.tempdir / "usd_export_point_instancer_collection_ref.usda",
+             'mesh_count': 5,
+             'instancer_count': 1,
+             'total_instances': 32,
+             'total_prototypes': 2,
+             'extent': {
+                 "/root/Plane/Mesh": [Gf.Vec3f(-1.1758227, -1.1, -0.1),
+                                      Gf.Vec3f(1.1, 1.1526861, 0.14081651)]}},
+            # collection references in nested point instancer
+            {'input_file': str(self.testdir / "usd_point_instancer_nested.blend"),
+             'output_file': self.tempdir / "usd_export_point_instancer_nested.usda",
+             'mesh_count': 9,
+             'instancer_count': 3,
+             'total_instances': 14,
+             'total_prototypes': 4,
+             'extent': {
+                 "/root/Triangle/Triangle": [Gf.Vec3f(-0.976631, -1.2236981, -0.7395363),
+                                             Gf.Vec3f(1.8081428, 3.371673, 1.2604637)],
+                 "/root/Plane/Plane": [Gf.Vec3f(-1.164238, -3.5953712, -0.2883494),
+                                       Gf.Vec3f(-0.68365526, -3.1147888, -0.18980181)]}},
+            # object reference coming from a collection with separate children
+            {'input_file': str(self.testdir / "../render/shader/texture_coordinate_camera.blend"),
+             'output_file': self.tempdir / "usd_export_point_instancer_separate_children.usda",
+             'mesh_count': 9,
+             'instancer_count': 1,
+             'total_instances': 4,
+             'total_prototypes': 2,
+             'extent': {
+                 "/root/Rotated_and_Scaled_Instances/Cube_003": [Gf.Vec3f(-8.488519, -6.1219244, -6.964829),
+                                                                 Gf.Vec3f(3.2331002, 5.4789553, 7.095813)]}}
+        ]
+
+        for scenario in point_instance_test_scenarios:
+            bpy.ops.wm.open_mainfile(filepath=scenario['input_file'])
+
+            export_path = scenario['output_file']
+            self.export_and_validate(
+                filepath=str(export_path),
+                use_instancing=True
+            )
+
+            stage = Usd.Stage.Open(str(export_path))
+
+            mesh_count, instancer_count, instance_count, proto_count = confirm_point_instancing_stats(
+                stage, scenario['mesh_count'], scenario['instancer_count'], scenario['total_instances'], scenario['total_prototypes'])
+            self.assertEqual(scenario['mesh_count'], mesh_count, "Unexpected number of primary meshes")
+            self.assertEqual(scenario['instancer_count'], instancer_count, "Unexpected number of point instancers")
+            self.assertEqual(scenario['total_instances'], instance_count, "Unexpected number of total instances")
+            self.assertEqual(scenario['total_prototypes'], proto_count, "Unexpected number of total prototypes")
+            if 'extent' in scenario:
+                for prim_path, (expected_min, expected_max) in scenario['extent'].items():
+                    prim = stage.GetPrimAtPath(prim_path)
+                    self.assertTrue(prim.IsValid(), f"Prim {prim_path} not found on stage")
+
+                    boundable = UsdGeom.Boundable(prim)
+                    extent_attr = boundable.GetExtentAttr()
+                    self.assertTrue(extent_attr.HasAuthoredValue(), f"Prim {prim_path} has no authored extent")
+
+                    extent = extent_attr.Get()
+                    self.assertIsNotNone(extent, f"Extent on {prim_path} could not be retrieved")
+
+                    self.compareVec3d(Gf.Vec3d(extent[0]), expected_min)
+                    self.compareVec3d(Gf.Vec3d(extent[1]), expected_max)
 
 
 class USDHookBase:

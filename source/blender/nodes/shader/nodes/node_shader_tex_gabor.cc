@@ -12,7 +12,7 @@
 
 #include "NOD_multi_function.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 namespace blender::nodes::node_shader_tex_gabor_cc {
@@ -23,7 +23,7 @@ static void sh_node_tex_gabor_declare(NodeDeclarationBuilder &b)
 {
   b.is_function_node();
   b.add_input<decl::Vector>("Vector")
-      .implicit_field(implicit_field_inputs::position)
+      .implicit_field(NODE_DEFAULT_INPUT_POSITION_FIELD)
       .description(
           "The coordinates at which Gabor noise will be evaluated. The Z component is ignored in "
           "the 2D case");
@@ -62,12 +62,12 @@ static void sh_node_tex_gabor_declare(NodeDeclarationBuilder &b)
 
 static void node_shader_buts_tex_gabor(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "gabor_type", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  layout->prop(ptr, "gabor_type", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
 }
 
 static void node_shader_init_tex_gabor(bNodeTree * /*ntree*/, bNode *node)
 {
-  NodeTexGabor *storage = MEM_cnew<NodeTexGabor>(__func__);
+  NodeTexGabor *storage = MEM_callocN<NodeTexGabor>(__func__);
   BKE_texture_mapping_default(&storage->base.tex_mapping, TEXMAP_TYPE_POINT);
   BKE_texture_colormapping_default(&storage->base.color_mapping);
 

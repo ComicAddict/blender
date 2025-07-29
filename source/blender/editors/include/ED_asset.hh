@@ -15,7 +15,6 @@
  * dedicated headers. */
 
 #include "../asset/ED_asset_catalog.hh"           // IWYU pragma: export
-#include "../asset/ED_asset_handle.hh"            // IWYU pragma: export
 #include "../asset/ED_asset_library.hh"           // IWYU pragma: export
 #include "../asset/ED_asset_list.hh"              // IWYU pragma: export
 #include "../asset/ED_asset_mark_clear.hh"        // IWYU pragma: export
@@ -29,11 +28,13 @@
 using BIFIconID = int;
 
 struct PointerRNA;
+struct uiTooltipData;
 
 namespace blender::ed::asset {
 
-std::string asset_tooltip(const asset_system::AssetRepresentation &asset,
-                          bool include_name = true);
+void asset_tooltip(const asset_system::AssetRepresentation &asset,
+                   uiTooltipData &tip,
+                   bool include_name = true);
 
 BIFIconID asset_preview_icon_id(const asset_system::AssetRepresentation &asset);
 BIFIconID asset_preview_or_icon(const asset_system::AssetRepresentation &asset);
@@ -51,8 +52,8 @@ AssetLibraryReference get_asset_library_ref_from_opptr(PointerRNA &ptr);
 
 /**
  * For each catalog of the given bUserAssetLibrary call `visit_fn`.
- * \param edit_text If that text is not empty, and not matching an existing catalog path `visit_fn`
- * will be called with that text and the icon ICON_ADD.
+ * \param edit_text: If that text is not empty, and not matching an existing catalog path
+ * `visit_fn` will be called with that text and the icon ICON_ADD.
  */
 void visit_library_catalogs_catalog_for_search(
     const Main &bmain,

@@ -7,7 +7,7 @@
 
 from bpy.types import Menu, UIList
 from bpy.app.translations import contexts as i18n_contexts
-from . import anim
+from bl_ui import anim
 
 
 # Use by both image & clip context menus.
@@ -40,15 +40,11 @@ class MASK_UL_layers(UIList):
     def draw_item(self, _context, layout, _data, item, icon, _active_data, _active_propname, _index):
         # assert(isinstance(item, bpy.types.MaskLayer)
         mask = item
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            layout.prop(mask, "name", text="", emboss=False, icon_value=icon)
-            row = layout.row(align=True)
-            row.prop(mask, "hide", text="", emboss=False)
-            row.prop(mask, "hide_select", text="", emboss=False)
-            row.prop(mask, "hide_render", text="", emboss=False)
-        elif self.layout_type == 'GRID':
-            layout.alignment = 'CENTER'
-            layout.label(text="", icon_value=icon)
+        layout.prop(mask, "name", text="", emboss=False, icon_value=icon)
+        row = layout.row(align=True)
+        row.prop(mask, "hide", text="", emboss=False)
+        row.prop(mask, "hide_select", text="", emboss=False)
+        row.prop(mask, "hide_render", text="", emboss=False)
 
 
 class MASK_PT_mask:

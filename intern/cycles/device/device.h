@@ -12,7 +12,6 @@
 #include "device/denoise.h"
 #include "device/memory.h"
 
-#include "util/log.h"
 #include "util/profiling.h"
 #include "util/stats.h"
 #include "util/string.h"
@@ -26,6 +25,7 @@ CCL_NAMESPACE_BEGIN
 
 class BVH;
 class DeviceQueue;
+class GraphicsInteropDevice;
 class Progress;
 class CPUKernels;
 class Scene;
@@ -78,45 +78,34 @@ enum MetalRTSetting {
 
 class DeviceInfo {
  public:
-  DeviceType type;
+  DeviceType type = DEVICE_CPU;
   string description;
-  string id; /* used for user preferences, should stay fixed with changing hardware config */
-  int num;
-  bool display_device;          /* GPU is used as a display device. */
-  bool has_nanovdb;             /* Support NanoVDB volumes. */
-  bool has_mnee;                /* Support MNEE. */
-  bool has_osl;                 /* Support Open Shading Language. */
-  bool has_guiding;             /* Support path guiding. */
-  bool has_profiling;           /* Supports runtime collection of profiling info. */
-  bool has_peer_memory;         /* GPU has P2P access to memory of another GPU. */
-  bool has_gpu_queue;           /* Device supports GPU queue. */
-  bool use_hardware_raytracing; /* Use hardware instructions to accelerate ray tracing. */
-  bool use_metalrt_by_default;  /* Use MetalRT by default. */
-  KernelOptimizationLevel kernel_optimization_level; /* Optimization level applied to path tracing
-                                                      * kernels (Metal only). */
-  DenoiserTypeMask denoisers;                        /* Supported denoiser types. */
-  int cpu_threads;
+  /* used for user preferences, should stay fixed with changing hardware config */
+  string id = "CPU";
+  int num = 0;
+  bool display_device = false;          /* GPU is used as a display device. */
+  bool has_nanovdb = false;             /* Support NanoVDB volumes. */
+  bool has_mnee = true;                 /* Support MNEE. */
+  bool has_osl = false;                 /* Support Open Shading Language. */
+  bool has_guiding = false;             /* Support path guiding. */
+  bool has_profiling = false;           /* Supports runtime collection of profiling info. */
+  bool has_peer_memory = false;         /* GPU has P2P access to memory of another GPU. */
+  bool has_gpu_queue = false;           /* Device supports GPU queue. */
+  bool use_hardware_raytracing = false; /* Use hardware instructions to accelerate ray tracing. */
+  bool use_metalrt_by_default = false;  /* Use MetalRT by default. */
+  /* Indicate that device execution has been optimized by Blender or vendor developers.
+   * For LTS versions, this helps communicate that newer versions may have better performance. */
+  bool has_execution_optimization = true;
+
+  KernelOptimizationLevel kernel_optimization_level =
+      KERNEL_OPTIMIZATION_LEVEL_FULL;         /* Optimization level applied to path tracing
+                                               * kernels (Metal only). */
+  DenoiserTypeMask denoisers = DENOISER_NONE; /* Supported denoiser types. */
+  int cpu_threads = 0;
   vector<DeviceInfo> multi_devices;
   string error_msg;
 
-  DeviceInfo()
-  {
-    type = DEVICE_CPU;
-    id = "CPU";
-    num = 0;
-    cpu_threads = 0;
-    display_device = false;
-    has_nanovdb = false;
-    has_mnee = true;
-    has_osl = false;
-    has_guiding = false;
-    has_profiling = false;
-    has_peer_memory = false;
-    has_gpu_queue = false;
-    use_hardware_raytracing = false;
-    use_metalrt_by_default = false;
-    denoisers = DENOISER_NONE;
-  }
+  DeviceInfo() = default;
 
   bool operator==(const DeviceInfo &info) const
   {
@@ -169,14 +158,7 @@ class Device {
   {
     return !error_message().empty();
   }
-  virtual void set_error(const string &error)
-  {
-    if (!have_error()) {
-      error_msg = error;
-    }
-    fprintf(stderr, "%s\n", error.c_str());
-    fflush(stderr);
-  }
+  virtual void set_error(const string &error);
   virtual BVHLayoutMask get_bvh_layout_mask(const uint kernel_features) const = 0;
 
   /* statistics */
@@ -229,6 +211,12 @@ class Device {
   /* Used by Metal and OptiX. */
   virtual void release_bvh(BVH * /*bvh*/) {}
 
+  /* Inform of BVH limits, return true to force-rebuild all BVHs and kernels. */
+  virtual bool set_bvh_limits(size_t /*instance_count*/, size_t /*max_prim_count*/)
+  {
+    return false;
+  }
+
   /* multi device */
   virtual int device_number(Device * /*sub_device*/)
   {
@@ -259,13 +247,14 @@ class Device {
   /* Graphics resources interoperability.
    *
    * The interoperability comes here by the meaning that the device is capable of computing result
-   * directly into an OpenGL (or other graphics library) buffer. */
+   * directly into a OpenGL, Vulkan or Metal buffer. */
 
   /* Check display is to be updated using graphics interoperability.
    * The interoperability can not be used is it is not supported by the device. But the device
    * might also force disable the interoperability if it detects that it will be slower than
    * copying pixels from the render buffer. */
-  virtual bool should_use_graphics_interop()
+  virtual bool should_use_graphics_interop(const GraphicsInteropDevice & /*interop_device*/,
+                                           const bool /*log*/ = false)
   {
     return false;
   }
@@ -279,11 +268,7 @@ class Device {
   /* Guiding */
 
   /* Returns path guiding device handle. */
-  virtual void *get_guiding_device() const
-  {
-    LOG(ERROR) << "Request guiding field from a device which does not support it.";
-    return nullptr;
-  }
+  virtual void *get_guiding_device() const;
 
   /* Sub-devices */
 

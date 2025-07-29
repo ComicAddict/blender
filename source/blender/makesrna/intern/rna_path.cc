@@ -79,8 +79,7 @@ static char *rna_path_token(const char **path, char *fixedbuf, int fixedlen)
   }
 
   /* Try to use fixed buffer if possible. */
-  char *buf = (len + 1 < fixedlen) ? fixedbuf :
-                                     (char *)MEM_mallocN(sizeof(char) * (len + 1), __func__);
+  char *buf = (len + 1 < fixedlen) ? fixedbuf : MEM_malloc_arrayN<char>(size_t(len) + 1, __func__);
   memcpy(buf, *path, sizeof(char) * len);
   buf[len] = '\0';
 
@@ -159,8 +158,7 @@ static char *rna_path_token_in_brackets(const char **path,
   }
 
   /* Try to use fixed buffer if possible. */
-  char *buf = (len + 1 < fixedlen) ? fixedbuf :
-                                     (char *)MEM_mallocN(sizeof(char) * (len + 1), __func__);
+  char *buf = (len + 1 < fixedlen) ? fixedbuf : MEM_malloc_arrayN<char>(size_t(len) + 1, __func__);
 
   /* Copy string, taking into account escaped ']' */
   if (quoted) {
@@ -922,7 +920,7 @@ static char *rna_idp_path(PointerRNA *ptr,
 std::optional<std::string> RNA_path_from_struct_to_idproperty(PointerRNA *ptr,
                                                               const IDProperty *needle)
 {
-  const IDProperty *haystack = RNA_struct_idprops(ptr, false);
+  const IDProperty *haystack = RNA_struct_system_idprops(ptr, false);
 
   if (!haystack) { /* can fail when called on bones */
     return std::nullopt;
@@ -934,7 +932,7 @@ std::optional<std::string> RNA_path_from_struct_to_idproperty(PointerRNA *ptr,
   }
 
   std::string string_path(path);
-  MEM_freeN((void *)path);
+  MEM_freeN(path);
 
   return string_path;
 }

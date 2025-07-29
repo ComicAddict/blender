@@ -592,7 +592,7 @@ struct DrawCache {
   int winx, wordwrap, showlinenrs, tabnumber;
   short lheight;
   char cwidth_px;
-  char text_id[MAX_ID_NAME];
+  char text_id[MAX_ID_NAME - 2];
 
   /** For partial lines recalculation. */
   bool update;
@@ -601,8 +601,7 @@ struct DrawCache {
 
 static void space_text_drawcache_init(SpaceText *st)
 {
-  DrawCache *drawcache = static_cast<DrawCache *>(
-      MEM_callocN(sizeof(DrawCache), "text draw cache"));
+  DrawCache *drawcache = MEM_callocN<DrawCache>("text draw cache");
 
   drawcache->winx = -1;
   drawcache->nlines = BLI_listbase_count(&st->text->lines);
@@ -642,7 +641,7 @@ static void space_text_update_drawcache(SpaceText *st, const ARegion *region)
   /* word-wrapping option was toggled */
   full_update |= drawcache->cwidth_px != st->runtime->cwidth_px;
   /* text datablock was changed */
-  full_update |= !STREQLEN(drawcache->text_id, txt->id.name, MAX_ID_NAME);
+  full_update |= !STREQLEN(drawcache->text_id, txt->id.name, MAX_ID_NAME - 2);
 
   if (st->wordwrap) {
     /* update line heights */
@@ -724,7 +723,7 @@ static void space_text_update_drawcache(SpaceText *st, const ARegion *region)
   drawcache->showlinenrs = st->showlinenrs;
   drawcache->tabnumber = st->tabnumber;
 
-  STRNCPY(drawcache->text_id, txt->id.name);
+  STRNCPY(drawcache->text_id, txt->id.name + 2);
 
   /* clear update flag */
   drawcache->update = false;
@@ -1021,10 +1020,10 @@ static void draw_textscroll(const SpaceText *st, const rcti *scroll, const rcti 
 
   /* Background so highlights don't go behind the scroll-bar. */
   uint pos = GPU_vertformat_attr_add(
-      immVertexFormat(), "pos", GPU_COMP_I32, 2, GPU_FETCH_INT_TO_FLOAT);
+      immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
   immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
   immUniformThemeColor(TH_BACK);
-  immRecti(pos, back->xmin, back->ymin, back->xmax, back->ymax);
+  immRectf(pos, back->xmin, back->ymin, back->xmax, back->ymax);
   immUnbindProgram();
 
   UI_draw_widget_scroll(&wcol,
@@ -1114,13 +1113,13 @@ static void draw_suggestion_list(const SpaceText *st, const TextDrawContext *tdc
   }
 
   uint pos = GPU_vertformat_attr_add(
-      immVertexFormat(), "pos", GPU_COMP_I32, 2, GPU_FETCH_INT_TO_FLOAT);
+      immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
   immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
 
   immUniformThemeColor(TH_SHADE1);
-  immRecti(pos, x - 1, y + 1, x + boxw + 1, y - boxh - 1);
+  immRectf(pos, x - 1, y + 1, x + boxw + 1, y - boxh - 1);
   immUniformThemeColorShade(TH_BACK, 16);
-  immRecti(pos, x, y, x + boxw, y - boxh);
+  immRectf(pos, x, y, x + boxw, y - boxh);
 
   immUnbindProgram();
 
@@ -1134,17 +1133,17 @@ static void draw_suggestion_list(const SpaceText *st, const TextDrawContext *tdc
 
     y -= lheight;
 
-    BLI_strncpy(str, item->name, len + 1);
+    BLI_strncpy_utf8(str, item->name, len + 1);
 
     w = st->runtime->cwidth_px * space_text_get_char_pos(st, str, len);
 
     if (item == sel) {
       uint posi = GPU_vertformat_attr_add(
-          immVertexFormat(), "pos", GPU_COMP_I32, 2, GPU_FETCH_INT_TO_FLOAT);
+          immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
       immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
 
       immUniformThemeColor(TH_SHADE2);
-      immRecti(posi, x + margin_x, y - 3, x + margin_x + w, y + lheight - 3);
+      immRectf(posi, x + margin_x, y - 3, x + margin_x + w, y + lheight - 3);
 
       immUnbindProgram();
     }
@@ -1188,7 +1187,7 @@ static void draw_text_decoration(SpaceText *st, ARegion *region)
   }
 
   uint pos = GPU_vertformat_attr_add(
-      immVertexFormat(), "pos", GPU_COMP_I32, 2, GPU_FETCH_INT_TO_FLOAT);
+      immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
   immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
 
   /* Draw the selection */
@@ -1212,14 +1211,14 @@ static void draw_text_decoration(SpaceText *st, ARegion *region)
       y -= vcurl * lheight;
 
       if (vcurc < vselc) {
-        immRecti(pos,
+        immRectf(pos,
                  x + vcurc * st->runtime->cwidth_px,
                  y,
                  x + vselc * st->runtime->cwidth_px,
                  y - lheight);
       }
       else {
-        immRecti(pos,
+        immRectf(pos,
                  x + vselc * st->runtime->cwidth_px,
                  y,
                  x + vcurc * st->runtime->cwidth_px,
@@ -1244,17 +1243,17 @@ static void draw_text_decoration(SpaceText *st, ARegion *region)
 
       y -= froml * lheight;
 
-      immRecti(
+      immRectf(
           pos, x + fromc * st->runtime->cwidth_px - U.pixelsize, y, region->winx, y - lheight);
       y -= lheight;
 
       for (int i = froml + 1; i < tol; i++) {
-        immRecti(pos, x - U.pixelsize, y, region->winx, y - lheight);
+        immRectf(pos, x - U.pixelsize, y, region->winx, y - lheight);
         y -= lheight;
       }
 
       if (x + toc * st->runtime->cwidth_px > x) {
-        immRecti(pos, x - U.pixelsize, y, x + toc * st->runtime->cwidth_px, y - lheight);
+        immRectf(pos, x - U.pixelsize, y, x + toc * st->runtime->cwidth_px, y - lheight);
       }
       y -= lheight;
     }
@@ -1290,7 +1289,7 @@ static void draw_text_decoration(SpaceText *st, ARegion *region)
       highlight_color[3] = 0.1f;
       immUniformColor4fv(highlight_color);
       GPU_blend(GPU_BLEND_ALPHA);
-      immRecti(pos, 0, y1, region->winx, y2);
+      immRectf(pos, 0, y1, region->winx, y2);
       GPU_blend(GPU_BLEND_NONE);
     }
   }
@@ -1314,11 +1313,11 @@ static void draw_text_decoration(SpaceText *st, ARegion *region)
         w *= st->tabnumber - (vselc + st->left) % st->tabnumber;
       }
 
-      immRecti(
+      immRectf(
           pos, x, y - lheight - U.pixelsize, x + w + U.pixelsize, y - lheight - (3 * U.pixelsize));
     }
     else {
-      immRecti(pos, x - U.pixelsize, y, x + U.pixelsize, y - lheight);
+      immRectf(pos, x - U.pixelsize, y, x + U.pixelsize, y - lheight);
     }
   }
 
@@ -1575,10 +1574,10 @@ void draw_text_main(SpaceText *st, ARegion *region)
   /* draw line numbers background */
   if (st->showlinenrs) {
     uint pos = GPU_vertformat_attr_add(
-        immVertexFormat(), "pos", GPU_COMP_I32, 2, GPU_FETCH_INT_TO_FLOAT);
+        immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
     immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
     immUniformThemeColor(TH_GRID);
-    immRecti(pos, 0, 0, TXT_NUMCOL_WIDTH(st), region->winy);
+    immRectf(pos, 0, 0, TXT_NUMCOL_WIDTH(st), region->winy);
     immUnbindProgram();
   }
   else {
@@ -1609,7 +1608,7 @@ void draw_text_main(SpaceText *st, ARegion *region)
     if (st->showlinenrs && !wrap_skip) {
       /* Draw line number. */
       UI_FontThemeColor(tdc.font_id, (tmp == text->sell) ? TH_HILITE : TH_LINENUMBERS);
-      SNPRINTF(linenr, "%*d", st->runtime->line_number_display_digits, i + linecount + 1);
+      SNPRINTF_UTF8(linenr, "%*d", st->runtime->line_number_display_digits, i + linecount + 1);
       text_font_draw(&tdc, TXT_NUMCOL_PAD * st->runtime->cwidth_px, y, linenr);
       /* Change back to text color. */
       UI_FontThemeColor(tdc.font_id, TH_TEXT);
@@ -1635,14 +1634,14 @@ void draw_text_main(SpaceText *st, ARegion *region)
     margin_column_x = x + st->runtime->cwidth_px * (st->margin_column - st->left);
     if (margin_column_x >= x) {
       uint pos = GPU_vertformat_attr_add(
-          immVertexFormat(), "pos", GPU_COMP_I32, 2, GPU_FETCH_INT_TO_FLOAT);
+          immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
       immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
       float margin_color[4];
       UI_GetThemeColor4fv(TH_TEXT, margin_color);
       margin_color[3] = 0.2f;
       immUniformColor4fv(margin_color);
       GPU_blend(GPU_BLEND_ALPHA);
-      immRecti(pos, margin_column_x, 0, margin_column_x + U.pixelsize, region->winy);
+      immRectf(pos, margin_column_x, 0, margin_column_x + U.pixelsize, region->winy);
       GPU_blend(GPU_BLEND_NONE);
       immUnbindProgram();
     }

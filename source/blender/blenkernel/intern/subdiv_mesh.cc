@@ -126,8 +126,7 @@ static void subdiv_mesh_prepare_accumulator(SubdivMeshContext *ctx, int num_vert
   if (!ctx->have_displacement) {
     return;
   }
-  ctx->accumulated_counters = static_cast<int *>(
-      MEM_calloc_arrayN(num_vertices, sizeof(*ctx->accumulated_counters), __func__));
+  ctx->accumulated_counters = MEM_calloc_arrayN<int>(num_vertices, __func__);
 }
 
 static void subdiv_mesh_context_free(SubdivMeshContext *ctx)
@@ -506,7 +505,10 @@ static void subdiv_accumulate_vertex_displacement(SubdivMeshContext *ctx,
 {
   /* Accumulate displacement. */
   Subdiv *subdiv = ctx->subdiv;
-  float dummy_P[3], dPdu[3], dPdv[3], D[3];
+  float3 dummy_P;
+  float3 dPdu;
+  float3 dPdv;
+  float3 D;
   eval_limit_point_and_derivatives(subdiv, ptex_face_index, u, v, dummy_P, dPdu, dPdv);
 
   /* NOTE: The subdivided mesh is allocated in this module, and its vertices are kept at zero
@@ -573,10 +575,8 @@ static bool subdiv_mesh_topology_info(const ForeachContext *foreach_context,
                               num_loops);
 
   /* Allocate corner topology arrays which are added to the result at the end. */
-  subdiv_context->subdiv_corner_verts = static_cast<int *>(
-      MEM_malloc_arrayN(num_loops, sizeof(int), __func__));
-  subdiv_context->subdiv_corner_edges = static_cast<int *>(
-      MEM_malloc_arrayN(num_loops, sizeof(int), __func__));
+  subdiv_context->subdiv_corner_verts = MEM_malloc_arrayN<int>(size_t(num_loops), __func__);
+  subdiv_context->subdiv_corner_edges = MEM_malloc_arrayN<int>(size_t(num_loops), __func__);
 
   subdiv_mesh_ctx_cache_custom_data_layers(subdiv_context);
   subdiv_mesh_prepare_accumulator(subdiv_context, num_vertices);

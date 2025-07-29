@@ -1,20 +1,19 @@
 
 msgid ""
 msgstr ""
-"Project-Id-Version: Blender 4.4.0 Beta (b'63c460d93d55')\n"
-"(b'0000000000000000000000000000000000000000')\n"
+"Project-Id-Version: Blender 5.0.0 Alpha (b'a775d58b2e0e')\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-02-24 09:56+0000\n"
-"PO-Revision-Date: 2013-11-05 13:47+0600\n"
-"Last-Translator: Chyngyz Dzhumaliev <kyrgyzl10n@gmail.com>\n"
-"Language-Team: Kirghiz <kyrgyzl10n@gmail.com>\n"
-"Language: __POT__\n"
+"POT-Creation-Date: 2025-07-21 08:48+0000\n"
+"PO-Revision-Date: 2025-04-14 08:32+0000\n"
+"Last-Translator: Anonymous <noreply@weblate.org>\n"
+"Language-Team: Kyrgyz <https://translate.blender.org/projects/blender-ui/ui/ky/>\n"
+"Language: ky\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
-"X-Poedit-SourceCharset: UTF-8\n"
-"X-Generator: Poedit 1.5.4"
+"X-Generator: Weblate 5.10.1\n"
+"X-Poedit-SourceCharset: UTF-8"
 
 
 msgid "Name"
@@ -105,6 +104,22 @@ msgid "Drivers"
 msgstr "Драйверлер"
 
 
+msgid "Hide"
+msgstr "Жашыруу"
+
+
+msgid "Opacity"
+msgstr "Күңүрттүк"
+
+
+msgid "Info"
+msgstr "Маалымат"
+
+
+msgid "Default"
+msgstr "Жарыяланбас"
+
+
 msgid "Empty"
 msgstr "Боштук"
 
@@ -123,10 +138,6 @@ msgstr "Текст редактору"
 
 msgid "Python Console"
 msgstr "Python консолу"
-
-
-msgid "Info"
-msgstr "Маалымат"
 
 
 msgid "Properties"
@@ -163,6 +174,10 @@ msgstr "Каптал"
 
 msgid "Layer"
 msgstr "Кат"
+
+
+msgid "Array"
+msgstr "Массив"
 
 
 msgid "Margin"
@@ -215,10 +230,6 @@ msgstr "Тазалоо"
 
 msgid "Free"
 msgstr "Бош"
-
-
-msgid "Hide"
-msgstr "Жашыруу"
 
 
 msgid "Weight"
@@ -341,10 +352,6 @@ msgstr "Жөнөкөйлөө"
 
 msgid "Background Image"
 msgstr "Фон сүрөтү"
-
-
-msgid "Opacity"
-msgstr "Күңүрттүк"
 
 
 msgid "MovieClip"
@@ -508,20 +515,12 @@ msgid "Z"
 msgstr "Z"
 
 
-msgid "Default"
-msgstr "Жарыяланбас"
-
-
 msgid "Camera"
 msgstr "Камера"
 
 
 msgid "Bone"
 msgstr "Сөөк"
-
-
-msgid "Script"
-msgstr "Скрипт"
 
 
 msgid "Front"
@@ -1038,6 +1037,10 @@ msgid "Filter"
 msgstr "Фильтр"
 
 
+msgid "Script"
+msgstr "Скрипт"
+
+
 msgid "Interface"
 msgstr "Интерфейс"
 
@@ -1336,6 +1339,10 @@ msgid "Languages..."
 msgstr "Тилдер..."
 
 
+msgid "Cache"
+msgstr "Кэш"
+
+
 msgid "Channel"
 msgstr "Канал"
 
@@ -1385,10 +1392,6 @@ msgid "Sequencer"
 msgstr "Секвенсор"
 
 
-msgid "Cache"
-msgstr "Кэш"
-
-
 msgid "System"
 msgstr "Система"
 
@@ -1419,10 +1422,6 @@ msgstr "Активдүү элемент"
 
 msgid "Ellipsoid"
 msgstr "Эллипсоид"
-
-
-msgid "Array"
-msgstr "Массив"
 
 
 msgid "Build"
@@ -1509,6 +1508,10 @@ msgid "Units"
 msgstr "Ченөө бирдиктери"
 
 
+msgid "Starting"
+msgstr "Башталууда"
+
+
 msgid "Meta"
 msgstr "Мета"
 
@@ -1527,22 +1530,6 @@ msgstr "ITU 709"
 
 msgid "To"
 msgstr "Кимге"
-
-
-msgid "X2"
-msgstr "X2"
-
-
-msgid "Y2"
-msgstr "Y2"
-
-
-msgid "X1"
-msgstr "X1"
-
-
-msgid "Y1"
-msgstr "Y1"
 
 
 msgid "Shadow"
@@ -1861,10 +1848,6 @@ msgid "Other"
 msgstr "Башка"
 
 
-msgid "Path Mode"
-msgstr "Жол режими"
-
-
 msgctxt "Operator"
 msgid "Create New Directory"
 msgstr "Жаңы каталогду жаратуу"
@@ -2108,11 +2091,6 @@ msgstr "Чыгуу"
 
 
 msgctxt "Operator"
-msgid "Hide"
-msgstr "Жашыруу"
-
-
-msgctxt "Operator"
 msgid "Add Armature"
 msgstr "Скелетти кошуу"
 
@@ -2221,6 +2199,11 @@ msgstr "Бардык топтор"
 
 msgid "Hierarchy"
 msgstr "Иерархия"
+
+
+msgctxt "Operator"
+msgid "Hide"
+msgstr "Жашыруу"
 
 
 msgid "Reload"
@@ -2540,16 +2523,8 @@ msgid "Reset"
 msgstr "Түшүрүү"
 
 
-msgid "Island"
-msgstr "Арал"
-
-
 msgid "Remove"
 msgstr "Өчүрүү"
-
-
-msgid "Save a Collada file"
-msgstr "Collada файлын сактоо"
 
 
 msgctxt "Operator"
@@ -2656,10 +2631,6 @@ msgstr "Аудио"
 
 msgid "Development"
 msgstr "Иштетүү"
-
-
-msgid "Panel Colors"
-msgstr "Панель түстөрү"
 
 
 msgid "Styles"
@@ -3172,6 +3143,10 @@ msgid "Back"
 msgstr "Артынан"
 
 
+msgid "Island"
+msgstr "Арал"
+
+
 msgctxt "Operator"
 msgid "Save As..."
 msgstr "Ат коюп сактоо..."
@@ -3190,11 +3165,6 @@ msgstr "Кыр"
 msgctxt "Operator"
 msgid "Face"
 msgstr "Каптал"
-
-
-msgctxt "Operator"
-msgid "Island"
-msgstr "Арал"
 
 
 msgid "Image*"
@@ -3524,6 +3494,10 @@ msgid "New"
 msgstr "Жаңы"
 
 
+msgid "Path Mode"
+msgstr "Жол режими"
+
+
 msgid "Rigging"
 msgstr "Риггинг"
 
@@ -3780,136 +3754,4 @@ msgstr "күй."
 
 msgid "Import-Export"
 msgstr "Импорт-экспорт"
-
-
-msgid "English (English)"
-msgstr "Англис (English)"
-
-
-msgid "Japanese (日本語)"
-msgstr "Жапон (日本語)"
-
-
-msgid "Italian (Italiano)"
-msgstr "Итальян (Italiano)"
-
-
-msgid "German (Deutsch)"
-msgstr "Немис (Deutsch)"
-
-
-msgid "Finnish (Suomi)"
-msgstr "Финн (Suomi)"
-
-
-msgid "Swedish (Svenska)"
-msgstr "Швед (Svenska)"
-
-
-msgid "French (Français)"
-msgstr "Француз (Français)"
-
-
-msgid "Spanish (Español)"
-msgstr "Испан (Español)"
-
-
-msgid "Catalan (Català)"
-msgstr "Каталон (Català)"
-
-
-msgid "Portuguese (Português)"
-msgstr "Португал (Português)"
-
-
-msgid "Simplified Chinese (简体中文)"
-msgstr "Кытай жөнөкөйлөнгөн (简体中文)"
-
-
-msgid "Traditional Chinese (繁體中文)"
-msgstr "Кытай салттуу (繁體中文)"
-
-
-msgid "Russian (Русский)"
-msgstr "Орус (Русский)"
-
-
-msgid "Croatian (Hrvatski)"
-msgstr "Хорват (Hrvatski)"
-
-
-msgid "Serbian (Српски)"
-msgstr "Серб (Српски)"
-
-
-msgid "Polish (Polski)"
-msgstr "Поляк (Polski)"
-
-
-msgid "Romanian (Român)"
-msgstr "Румын (Român)"
-
-
-msgid "Arabic (ﺔﻴﺑﺮﻌﻟﺍ)"
-msgstr "Араб (ﺔﻴﺑﺮﻌﻟﺍ)"
-
-
-msgid "Bulgarian (Български)"
-msgstr "Болгар (Български)"
-
-
-msgid "Greek (Ελληνικά)"
-msgstr "Грек (Ελληνικά)"
-
-
-msgid "Nepali (नेपाली)"
-msgstr "Непал (नेपाली)"
-
-
-msgid "Persian (ﯽﺳﺭﺎﻓ)"
-msgstr "Парсы (ﯽﺳﺭﺎﻓ)"
-
-
-msgid "Kyrgyz (Кыргыз тили)"
-msgstr "Кыргыз (Кыргыз тили)"
-
-
-msgid "Turkish (Türkçe)"
-msgstr "Түрк (Türkçe)"
-
-
-msgid "Hungarian (Magyar)"
-msgstr "Венгр (Magyar)"
-
-
-msgid "Hebrew (תירִבְעִ)"
-msgstr "Иврит (תירִבְעִ)"
-
-
-msgid "Esperanto (Esperanto)"
-msgstr "Эсперанто (Esperanto)"
-
-
-msgid "Amharic (አማርኛ)"
-msgstr "Амхар (አማርኛ)"
-
-
-msgid "Uzbek (Oʻzbek)"
-msgstr "Өзбек (Oʻzbek)"
-
-
-msgid "Uzbek Cyrillic (Ўзбек)"
-msgstr "Өзбек кириллица (Ўзбек)"
-
-
-msgid "Complete"
-msgstr "Бүтүрүлгөн"
-
-
-msgid "In Progress"
-msgstr "Которулууда"
-
-
-msgid "Starting"
-msgstr "Башталууда"
 

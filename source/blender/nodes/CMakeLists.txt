@@ -25,12 +25,12 @@ function(add_node_discovery
       ${output_file}
     COMMAND
       ${PYTHON_EXECUTABLE}
-        ${DISCOVER_NODES_PATH}
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${output_file}
-        ${output_function}
-        ${sources}
-        ${extra_args}
+      ${DISCOVER_NODES_PATH}
+      ${CMAKE_CURRENT_SOURCE_DIR}
+      ${output_file}
+      ${output_function}
+      ${sources}
+      ${extra_args}
     DEPENDS
       ${SRC}
       ${DISCOVER_NODES_PATH}
@@ -53,6 +53,7 @@ set(INC
   intern
   shader
   texture
+  geometry/include
   ../animrig
   ../editors/include
   ../depsgraph
@@ -68,14 +69,21 @@ set(INC_SYS
 
 set(SRC
   intern/derived_node_tree.cc
+  intern/geometry_nodes_bundle.cc
+  intern/geometry_nodes_caller_ui.cc
+  intern/geometry_nodes_closure.cc
+  intern/geometry_nodes_closure_zone.cc
   intern/geometry_nodes_dependencies.cc
   intern/geometry_nodes_execute.cc
   intern/geometry_nodes_foreach_geometry_element_zone.cc
   intern/geometry_nodes_gizmos.cc
   intern/geometry_nodes_lazy_function.cc
+  intern/geometry_nodes_list.cc
   intern/geometry_nodes_log.cc
   intern/geometry_nodes_repeat_zone.cc
+  intern/geometry_nodes_warning.cc
   intern/inverse_eval.cc
+  intern/list_function_eval.cc
   intern/math_functions.cc
   intern/node_common.cc
   intern/node_declaration.cc
@@ -91,22 +99,36 @@ set(SRC
   intern/socket_search_link.cc
   intern/socket_usage_inference.cc
   intern/value_elem.cc
+  intern/volume_grid_function_eval.cc
 
   NOD_common.hh
   NOD_composite.hh
   NOD_derived_node_tree.hh
   NOD_geometry.hh
   NOD_geometry_exec.hh
+  NOD_geometry_nodes_bundle.hh
+  NOD_geometry_nodes_bundle_fwd.hh
+  NOD_geometry_nodes_bundle_signature.hh
+  NOD_geometry_nodes_caller_ui.hh
+  NOD_geometry_nodes_closure.hh
+  NOD_geometry_nodes_closure_eval.hh
+  NOD_geometry_nodes_closure_fwd.hh
+  NOD_geometry_nodes_closure_location.hh
+  NOD_geometry_nodes_closure_signature.hh
   NOD_geometry_nodes_dependencies.hh
   NOD_geometry_nodes_execute.hh
   NOD_geometry_nodes_gizmos.hh
   NOD_geometry_nodes_lazy_function.hh
+  NOD_geometry_nodes_list.hh
+  NOD_geometry_nodes_list_fwd.hh
   NOD_geometry_nodes_log.hh
+  NOD_geometry_nodes_warning.hh
   NOD_inverse_eval_params.hh
   NOD_inverse_eval_path.hh
   NOD_inverse_eval_run.hh
   NOD_math_functions.hh
   NOD_multi_function.hh
+  NOD_nested_node_id.hh
   NOD_node_declaration.hh
   NOD_node_extra_info.hh
   NOD_node_in_compute_context.hh
@@ -123,12 +145,15 @@ set(SRC
   NOD_socket_items_ui.hh
   NOD_socket_search_link.hh
   NOD_socket_usage_inference.hh
+  NOD_socket_usage_inference_fwd.hh
   NOD_texture.h
   NOD_value_elem.hh
   NOD_value_elem_eval.hh
   intern/node_common.h
   intern/node_exec.hh
   intern/node_util.hh
+  intern/list_function_eval.hh
+  intern/volume_grid_function_eval.hh
 )
 
 set(LIB
@@ -153,6 +178,7 @@ set(LIB
   PRIVATE bf::extern::xxhash
   PRIVATE bf::render
   PRIVATE bf::windowmanager
+  PRIVATE bf::intern::clog
 )
 
 if(WITH_BULLET)
@@ -175,7 +201,7 @@ if(WITH_TBB)
 endif()
 
 if(WITH_IMAGE_OPENEXR)
-  add_definitions(-DWITH_OPENEXR)
+  add_definitions(-DWITH_IMAGE_OPENEXR)
 endif()
 
 if(WITH_FREESTYLE)
@@ -213,3 +239,16 @@ add_library(bf::nodes ALIAS bf_nodes)
 
 # RNA_prototypes.hh
 add_dependencies(bf_nodes bf_rna)
+
+if(WITH_GTESTS)
+  set(TEST_INC
+  )
+  set(TEST_SRC
+    intern/node_iterator_tests.cc
+    intern/geometry_nodes_bundle_tests.cc
+  )
+  set(TEST_LIB
+    bf_nodes
+  )
+  blender_add_test_suite_lib(nodes "${TEST_SRC}" "${INC};${TEST_INC}" "${INC_SYS}" "${LIB}")
+endif()

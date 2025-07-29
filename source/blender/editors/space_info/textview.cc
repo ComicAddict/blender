@@ -80,11 +80,11 @@ static void textview_draw_sel(const char *str,
     GPU_blend(GPU_BLEND_ALPHA);
 
     GPUVertFormat *format = immVertexFormat();
-    uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_I32, 2, GPU_FETCH_INT_TO_FLOAT);
+    uint pos = GPU_vertformat_attr_add(format, "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
     immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
 
     immUniformColor4ubv(bg_sel);
-    immRecti(pos, xy[0] + (cwidth * sta), xy[1] + lheight, xy[0] + (cwidth * end), xy[1]);
+    immRectf(pos, xy[0] + (cwidth * sta), xy[1] + lheight, xy[0] + (cwidth * end), xy[1]);
 
     immUnbindProgram();
 
@@ -106,10 +106,8 @@ static int textview_wrap_offsets(
 
   *r_lines = 1;
 
-  *r_offsets = static_cast<int *>(MEM_callocN(
-      sizeof(**r_offsets) *
-          (str_len * column_width_max / std::max(1, width - (column_width_max - 1)) + 1),
-      __func__));
+  *r_offsets = MEM_calloc_arrayN<int>(
+      (str_len * column_width_max / std::max(1, width - (column_width_max - 1)) + 1), __func__);
   (*r_offsets)[0] = 0;
 
   for (i = 0, end = width, j = 0; j < str_len && str[j]; j += BLI_str_utf8_size_safe(str + j)) {
@@ -209,10 +207,10 @@ static bool textview_draw_string(TextViewDrawState *tds,
 
   if (bg) {
     GPUVertFormat *format = immVertexFormat();
-    uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_I32, 2, GPU_FETCH_INT_TO_FLOAT);
+    uint pos = GPU_vertformat_attr_add(format, "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
     immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
     immUniformColor4ubv(bg);
-    immRecti(pos, tds->draw_rect_outer->xmin, line_bottom, tds->draw_rect_outer->xmax, line_top);
+    immRectf(pos, tds->draw_rect_outer->xmin, line_bottom, tds->draw_rect_outer->xmax, line_top);
     immUnbindProgram();
   }
 

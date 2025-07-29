@@ -57,8 +57,9 @@ GHOST_ContextWGL::GHOST_ContextWGL(bool stereoVisual,
 GHOST_ContextWGL::~GHOST_ContextWGL()
 {
   if (m_hGLRC != nullptr) {
-    if (m_hGLRC == ::wglGetCurrentContext())
+    if (m_hGLRC == ::wglGetCurrentContext()) {
       WIN32_CHK(::wglMakeCurrent(nullptr, nullptr));
+    }
 
     if (m_hGLRC != s_sharedHGLRC || s_sharedCount == 1) {
       assert(s_sharedCount > 0);
@@ -111,6 +112,7 @@ GHOST_TSuccess GHOST_ContextWGL::getSwapInterval(int &intervalOut)
 GHOST_TSuccess GHOST_ContextWGL::activateDrawingContext()
 {
   if (WIN32_CHK(::wglMakeCurrent(m_hDC, m_hGLRC))) {
+    active_context_ = this;
     return GHOST_kSuccess;
   }
   else {
@@ -120,7 +122,10 @@ GHOST_TSuccess GHOST_ContextWGL::activateDrawingContext()
 
 GHOST_TSuccess GHOST_ContextWGL::releaseDrawingContext()
 {
-  if (WIN32_CHK(::wglMakeCurrent(nullptr, nullptr))) {
+  /* Calling wglMakeCurrent(nullptr, nullptr) without an active context returns an error,
+   * so we always pass the device context handle. */
+  if (WIN32_CHK(::wglMakeCurrent(m_hDC, nullptr))) {
+    active_context_ = nullptr;
     return GHOST_kSuccess;
   }
   else {
@@ -155,10 +160,6 @@ static int weight_pixel_format(PIXELFORMATDESCRIPTOR &pfd, PIXELFORMATDESCRIPTOR
   if (preferredPFD.cAlphaBits > 0 && pfd.cAlphaBits > 0) {
     weight++;
   }
-#ifdef WIN32_COMPOSITING
-  if ((preferredPFD.dwFlags & PFD_SUPPORT_COMPOSITION) && (pfd.dwFlags & PFD_SUPPORT_COMPOSITION))
-    weight++;
-#endif
 
   return weight;
 }
@@ -335,15 +336,9 @@ struct DummyContextWGL {
         1,                             /* version */
         (DWORD)(PFD_SUPPORT_OPENGL | PFD_DRAW_TO_WINDOW |
                 PFD_DOUBLEBUFFER |                /* support double-buffering */
-                (stereoVisual ? PFD_STEREO : 0) | /* support stereo */
-                (
-#ifdef WIN32_COMPOSITING
-                    /* Support composition for transparent background. */
-                    needAlpha ? PFD_SUPPORT_COMPOSITION :
-#endif
-                                0)),
-        PFD_TYPE_RGBA,               /* color type */
-        (BYTE)(needAlpha ? 32 : 24), /* preferred color depth */
+                (stereoVisual ? PFD_STEREO : 0)), /* support stereo */
+        PFD_TYPE_RGBA,                            /* color type */
+        (BYTE)(needAlpha ? 32 : 24),              /* preferred color depth */
         0,
         0,
         0,
@@ -428,12 +423,14 @@ struct DummyContextWGL {
   {
     WIN32_CHK(::wglMakeCurrent(prevHDC, prevHGLRC));
 
-    if (dummyHGLRC != nullptr)
+    if (dummyHGLRC != nullptr) {
       WIN32_CHK(::wglDeleteContext(dummyHGLRC));
+    }
 
     if (dummyHWND != nullptr) {
-      if (dummyHDC != nullptr)
+      if (dummyHDC != nullptr) {
         WIN32_CHK(::ReleaseDC(dummyHWND, dummyHDC));
+      }
 
       WIN32_CHK(::DestroyWindow(dummyHWND));
     }
@@ -457,26 +454,6 @@ int GHOST_ContextWGL::_choose_pixel_format_arb_1(bool stereoVisual, bool needAlp
 
   if (nNumFormats > 0) {
     iPixelFormat = iPixelFormats[0];
-
-#ifdef WIN32_COMPOSITING
-    if (needAlpha) {
-      // scan through all pixel format to make sure one supports compositing
-      PIXELFORMATDESCRIPTOR pfd;
-      int i;
-
-      for (i = 0; i < nNumFormats; i++) {
-        if (DescribePixelFormat(m_hDC, iPixelFormats[i], sizeof(PIXELFORMATDESCRIPTOR), &pfd)) {
-          if (pfd.dwFlags & PFD_SUPPORT_COMPOSITION) {
-            iPixelFormat = iPixelFormats[i];
-            break;
-          }
-        }
-      }
-      if (i == nNumFormats) {
-        fprintf(stderr, "Warning! Unable to find a pixel format with compositing capability.\n");
-      }
-    }
-#endif
   }
 
   // check pixel format
@@ -514,8 +491,9 @@ static void reportContextString(const char *name, const char *dummy, const char 
 {
   fprintf(stderr, "%s: %s\n", name, context);
 
-  if (dummy && strcmp(dummy, context) != 0)
+  if (dummy && strcmp(dummy, context) != 0) {
     fprintf(stderr, "Warning! Dummy %s: %s\n", name, dummy);
+  }
 }
 #endif
 
@@ -540,8 +518,9 @@ GHOST_TSuccess GHOST_ContextWGL::initializeDrawingContext()
         iPixelFormat = choose_pixel_format_arb(m_stereoVisual, needAlpha);
       }
 
-      if (iPixelFormat == 0)
+      if (iPixelFormat == 0) {
         iPixelFormat = choose_pixel_format_legacy(m_hDC, dummy.preferredPFD);
+      }
 
       if (iPixelFormat == 0) {
         goto error;
@@ -624,7 +603,7 @@ GHOST_TSuccess GHOST_ContextWGL::initializeDrawingContext()
 
       iAttributes.push_back(0);
 
-      m_hGLRC = ::wglCreateContextAttribsARB(m_hDC, nullptr, &(iAttributes[0]));
+      m_hGLRC = ::wglCreateContextAttribsARB(m_hDC, s_sharedHGLRC, &(iAttributes[0]));
     }
   }
 
@@ -641,9 +620,6 @@ GHOST_TSuccess GHOST_ContextWGL::initializeDrawingContext()
 
   if (s_sharedHGLRC == nullptr) {
     s_sharedHGLRC = m_hGLRC;
-  }
-  else if (!WIN32_CHK(::wglShareLists(s_sharedHGLRC, m_hGLRC))) {
-    goto error;
   }
 
   if (!WIN32_CHK(::wglMakeCurrent(m_hDC, m_hGLRC))) {
@@ -676,6 +652,7 @@ GHOST_TSuccess GHOST_ContextWGL::initializeDrawingContext()
   }
 #endif
 
+  active_context_ = this;
   return GHOST_kSuccess;
 error:
   ::wglMakeCurrent(prevHDC, prevHGLRC);

@@ -22,8 +22,10 @@
 #include "scene/shader_graph.h"
 #include "scene/shader_nodes.h"
 
+#include "util/log.h"
 #include "util/path.h"
 #include "util/projection.h"
+#include "util/string.h"
 #include "util/transform.h"
 #include "util/xml.h"
 
@@ -261,14 +263,12 @@ static void xml_read_shader_graph(XMLReadState &state, Shader *shader, const xml
           }
 
           if (!output) {
-            fprintf(stderr,
-                    "Unknown output socket name \"%s\" on \"%s\".\n",
-                    from_node_name.c_str(),
-                    from_socket_name.c_str());
+            LOG_ERROR << "Unknown output socket name \"" << from_node_name << "\" on \""
+                      << from_socket_name << "\".";
           }
         }
         else {
-          fprintf(stderr, "Unknown shader node name \"%s\".\n", from_node_name.c_str());
+          LOG_ERROR << "Unknown shader node name \"" << from_node_name << "\"";
         }
 
         if (graph_reader.node_map.find(to_node_name) != graph_reader.node_map.end()) {
@@ -281,14 +281,12 @@ static void xml_read_shader_graph(XMLReadState &state, Shader *shader, const xml
           }
 
           if (!input) {
-            fprintf(stderr,
-                    "Unknown input socket name \"%s\" on \"%s\".\n",
-                    to_socket_name.c_str(),
-                    to_node_name.c_str());
+            LOG_ERROR << "Unknown input socket name \"" << to_socket_name << "\" on \""
+                      << to_node_name << "\"";
           }
         }
         else {
-          fprintf(stderr, "Unknown shader node name \"%s\".\n", to_node_name.c_str());
+          LOG_ERROR << "Unknown shader node name \"" << to_node_name << "\"";
         }
 
         /* connect */
@@ -297,7 +295,7 @@ static void xml_read_shader_graph(XMLReadState &state, Shader *shader, const xml
         }
       }
       else {
-        fprintf(stderr, "Invalid from or to value for connect node.\n");
+        LOG_ERROR << "Invalid from or to value for connect node.";
       }
 
       continue;
@@ -317,20 +315,20 @@ static void xml_read_shader_graph(XMLReadState &state, Shader *shader, const xml
             filepath = path_join(state.base, filepath);
           }
 
-          snode = OSLShaderManager::osl_node(graph.get(), manager, filepath, "");
+          snode = OSLShaderManager::osl_node(graph.get(), state.scene, filepath, "");
 
           if (!snode) {
-            fprintf(stderr, "Failed to create OSL node from \"%s\".\n", filepath.c_str());
+            LOG_ERROR << "Failed to create OSL node from \"" << filepath << "\"";
             continue;
           }
         }
         else {
-          fprintf(stderr, "OSL node missing \"src\" attribute.\n");
+          LOG_ERROR << "OSL node missing \"src\" attribute.";
           continue;
         }
       }
       else {
-        fprintf(stderr, "OSL node without using --shadingsys osl.\n");
+        LOG_ERROR << "OSL node without using --shadingsys osl.";
         continue;
       }
     }
@@ -345,15 +343,16 @@ static void xml_read_shader_graph(XMLReadState &state, Shader *shader, const xml
       const NodeType *node_type = NodeType::find(node_name);
 
       if (!node_type) {
-        fprintf(stderr, "Unknown shader node \"%s\".\n", node.name());
+        LOG_ERROR << "Unknown shader node \"" << node.name() << "\"";
         continue;
       }
       if (node_type->type != NodeType::SHADER) {
-        fprintf(stderr, "Node type \"%s\" is not a shader node.\n", node_type->name.c_str());
+        LOG_ERROR << "Node type \"" << node_type->name << "\" is not a shader node";
         continue;
       }
       if (node_type->create == nullptr) {
-        fprintf(stderr, "Can't create abstract node type \"%s\".\n", node_type->name.c_str());
+        LOG_ERROR << "Can't create abstract node type \""
+                  << "\"";
         continue;
       }
 
@@ -580,13 +579,11 @@ static void xml_read_mesh(const XMLReadState &state, const xml_node node)
     /* create vertices */
     mesh->set_verts(P_array);
 
-    size_t num_ngons = 0;
     size_t num_corners = 0;
     for (size_t i = 0; i < nverts.size(); i++) {
-      num_ngons += (nverts[i] == 4) ? 0 : 1;
       num_corners += nverts[i];
     }
-    mesh->reserve_subd_faces(nverts.size(), num_ngons, num_corners);
+    mesh->reserve_subd_faces(nverts.size(), num_corners);
 
     /* create subd_faces */
     int index_offset = 0;
@@ -602,14 +599,6 @@ static void xml_read_mesh(const XMLReadState &state, const xml_node node)
     {
       Attribute *attr = mesh->subd_attributes.add(ATTR_STD_UV);
       float3 *fdata = attr->data_float3();
-
-      /* TODO: Implement various face-varying interpolation modes and make it
-       * a property of Mesh. */
-#if 0
-      if (subdivide_uvs) {
-        attr->flags |= ATTR_SUBDIVIDED;
-      }
-#endif
 
       index_offset = 0;
       for (size_t i = 0; i < nverts.size(); i++) {
@@ -640,9 +629,21 @@ static void xml_read_mesh(const XMLReadState &state, const xml_node node)
 
 static void xml_read_light(XMLReadState &state, const xml_node node)
 {
-  Light *light = state.scene->create_node<Light>();
+  Scene *scene = state.scene;
 
-  light->set_shader(state.shader);
+  /* Create light. */
+  Light *light = scene->create_node<Light>();
+
+  array<Node *> used_shaders;
+  used_shaders.push_back_slow(state.shader);
+  light->set_used_shaders(used_shaders);
+
+  /* Create object. */
+  Object *object = scene->create_node<Object>();
+  object->set_tfm(state.tfm);
+  object->set_visibility(PATH_RAY_ALL_VISIBILITY & ~PATH_RAY_CAMERA);
+  object->set_geometry(light);
+
   xml_read_node(state, light, node);
 }
 
@@ -696,7 +697,7 @@ static void xml_read_state(XMLReadState &state, const xml_node node)
     }
 
     if (!found) {
-      fprintf(stderr, "Unknown shader \"%s\".\n", shadername.c_str());
+      LOG_ERROR << "Unknown shader \"" << shadername << "\"";
     }
   }
 
@@ -715,7 +716,7 @@ static void xml_read_state(XMLReadState &state, const xml_node node)
     }
 
     if (!found) {
-      fprintf(stderr, "Unknown object \"%s\".\n", objectname.c_str());
+      LOG_ERROR << "Unknown object \"" << objectname << "\"";
     }
   }
 
@@ -806,7 +807,7 @@ static void xml_read_scene(XMLReadState &state, const xml_node scene_node)
     }
 #endif
     else {
-      fprintf(stderr, "Unknown node \"%s\".\n", node.name());
+      LOG_ERROR << "Unknown node \"" << node.name() << "\"";
     }
   }
 }
@@ -830,7 +831,7 @@ static void xml_read_include(XMLReadState &state, const string &src)
     xml_read_scene(substate, cycles);
   }
   else {
-    fprintf(stderr, "%s read error: %s\n", src.c_str(), parse_result.description());
+    LOG_ERROR << "\"" << src << "\" read error: " << parse_result.description();
     exit(EXIT_FAILURE);
   }
 }

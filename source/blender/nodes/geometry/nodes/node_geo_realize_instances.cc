@@ -14,7 +14,11 @@ namespace blender::nodes::node_geo_realize_instances_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Geometry>("Geometry");
+  b.use_custom_socket_order();
+  b.allow_any_socket_order();
+  b.add_input<decl::Geometry>("Geometry")
+      .description("Geometry whose instances are (partially) realized");
+  b.add_output<decl::Geometry>("Geometry").propagate_all().align_with_previous();
   b.add_input<decl::Bool>("Selection")
       .default_value(true)
       .hide_value()
@@ -28,7 +32,6 @@ static void node_declare(NodeDeclarationBuilder &b)
           "of the Depth input");
   b.add_input<decl::Int>("Depth").default_value(0).min(0).field_on_all().description(
       "Number of levels of nested instances to realize for each top-level instance");
-  b.add_output<decl::Geometry>("Geometry").propagate_all();
 }
 
 static void node_geo_exec(GeoNodeExecParams params)
@@ -49,7 +52,7 @@ static void node_geo_exec(GeoNodeExecParams params)
         return realize_all_field ? geometry::VariedDepthOptions::MAX_DEPTH : std::max(depth, 0);
       });
 
-  Field<int> depth_field_overridden(FieldOperation::Create(
+  Field<int> depth_field_overridden(FieldOperation::from(
       depth_override, {std::move(depth_field), std::move(realize_all_field)}));
 
   Field<bool> selection_field = params.extract_input<Field<bool>>("Selection");
@@ -58,7 +61,7 @@ static void node_geo_exec(GeoNodeExecParams params)
       "selection_override",
       [](int depth_override, bool selection) { return depth_override == 0 ? false : selection; });
 
-  Field<bool> selection_field_overrided(FieldOperation::Create(
+  Field<bool> selection_field_overrided(FieldOperation::from(
       selection_override, {depth_field_overridden, std::move(selection_field)}));
 
   const bke::Instances &instances = *geometry_set.get_instances();

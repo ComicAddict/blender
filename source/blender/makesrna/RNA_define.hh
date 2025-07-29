@@ -75,6 +75,10 @@ void RNA_def_struct_clear_flag(StructRNA *srna, int flag);
 void RNA_def_struct_property_tags(StructRNA *srna, const EnumPropertyItem *prop_tag_defines);
 void RNA_def_struct_refine_func(StructRNA *srna, const char *refine);
 void RNA_def_struct_idprops_func(StructRNA *srna, const char *idproperties);
+/**
+ * Define the callback to access the struct's system IDProperty root.
+ */
+void RNA_def_struct_system_idprops_func(StructRNA *srna, const char *system_idproperties);
 void RNA_def_struct_register_funcs(StructRNA *srna,
                                    const char *reg,
                                    const char *unreg,
@@ -524,6 +528,7 @@ void RNA_def_property_collection_funcs(PropertyRNA *prop,
 void RNA_def_property_float_default_func(PropertyRNA *prop, const char *get_default);
 void RNA_def_property_int_default_func(PropertyRNA *prop, const char *get_default);
 void RNA_def_property_boolean_default_func(PropertyRNA *prop, const char *get_default);
+void RNA_def_property_enum_default_func(PropertyRNA *prop, const char *get_default);
 
 void RNA_def_property_srna(PropertyRNA *prop, const char *type);
 void RNA_def_py_data(PropertyRNA *prop, void *py_data);
@@ -582,6 +587,8 @@ void RNA_def_parameter_flags(PropertyRNA *prop,
 void RNA_def_parameter_clear_flags(PropertyRNA *prop,
                                    PropertyFlag flag_property,
                                    ParameterFlag flag_parameter);
+void RNA_def_property_path_template_type(PropertyRNA *prop,
+                                         PropertyPathTemplateType path_template_type);
 
 /* Dynamic Enums
  * strings are not freed, assumed pointing to static location. */

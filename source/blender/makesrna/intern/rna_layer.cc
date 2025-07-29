@@ -128,6 +128,12 @@ static IDProperty **rna_ViewLayer_idprops(PointerRNA *ptr)
   return &view_layer->id_properties;
 }
 
+static IDProperty **rna_ViewLayer_system_idprops(PointerRNA *ptr)
+{
+  ViewLayer *view_layer = (ViewLayer *)ptr->data;
+  return &view_layer->system_properties;
+}
+
 static bool rna_LayerCollection_visible_get(LayerCollection *layer_collection, bContext *C)
 {
   View3D *v3d = CTX_wm_view3d(C);
@@ -146,8 +152,8 @@ static bool rna_LayerCollection_visible_get(LayerCollection *layer_collection, b
 static void rna_ViewLayer_update_render_passes(ID *id)
 {
   Scene *scene = (Scene *)id;
-  if (scene->nodetree) {
-    ntreeCompositUpdateRLayers(scene->nodetree);
+  if (scene->compositing_node_group) {
+    ntreeCompositUpdateRLayers(scene->compositing_node_group);
   }
 
   RenderEngineType *engine_type = RE_engines_find(scene->r.engine);
@@ -609,6 +615,7 @@ void RNA_def_view_layer(BlenderRNA *brna)
   RNA_def_struct_ui_icon(srna, ICON_RENDER_RESULT);
   RNA_def_struct_path_func(srna, "rna_ViewLayer_path");
   RNA_def_struct_idprops_func(srna, "rna_ViewLayer_idprops");
+  RNA_def_struct_system_idprops_func(srna, "rna_ViewLayer_system_idprops");
 
   rna_def_view_layer_common(brna, srna, true);
 
@@ -681,6 +688,14 @@ void RNA_def_view_layer(BlenderRNA *brna)
   RNA_def_property_pointer_sdna(prop, nullptr, "freestyle_config");
   RNA_def_property_struct_type(prop, "FreestyleSettings");
   RNA_def_property_ui_text(prop, "Freestyle Settings", "");
+
+  /* Grease Pencil */
+  prop = RNA_def_property(srna, "use_pass_grease_pencil", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(
+      prop, nullptr, "grease_pencil_flags", GREASE_PENCIL_AS_SEPARATE_PASS);
+  RNA_def_property_ui_text(
+      prop, "Grease Pencil", "Deliver Grease Pencil render result in a separate pass");
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_ViewLayer_pass_update");
 
   /* debug update routine */
   func = RNA_def_function(srna, "update", "rna_ViewLayer_update_tagged");

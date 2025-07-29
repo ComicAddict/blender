@@ -24,13 +24,13 @@ class DefaultMaterialNodeParser : public NodeParser {
   {
     const Material *material = graph_.material;
     NodeItem surface = create_node(
-        "standard_surface",
+        "open_pbr_surface",
         NodeItem::Type::SurfaceShader,
-        {{"base", val(1.0f)},
+        {{"base_weight", val(1.0f)},
          {"base_color", val(MaterialX::Color3(material->r, material->g, material->b))},
-         {"diffuse_roughness", val(material->roughness)},
-         {"specular", val(material->spec)},
-         {"metalness", val(material->metallic)}});
+         {"base_diffuse_roughness", val(material->roughness)},
+         {"specular_weight", val(material->spec)},
+         {"base_metalness", val(material->metallic)}});
 
     NodeItem res = create_node(
         "surfacematerial", NodeItem::Type::Material, {{"surfaceshader", surface}});
@@ -39,7 +39,7 @@ class DefaultMaterialNodeParser : public NodeParser {
 
   NodeItem compute_error()
   {
-    NodeItem surface = create_node("standard_surface",
+    NodeItem surface = create_node("open_pbr_surface",
                                    NodeItem::Type::SurfaceShader,
                                    {{"base_color", val(MaterialX::Color3(1.0f, 0.0f, 1.0f))}});
     NodeItem res = create_node(
@@ -52,7 +52,7 @@ MaterialX::DocumentPtr export_to_materialx(Depsgraph *depsgraph,
                                            Material *material,
                                            const ExportParams &export_params)
 {
-  CLOG_INFO(LOG_MATERIALX_SHADER, 0, "Material: %s", material->id.name);
+  CLOG_DEBUG(LOG_IO_MATERIALX, "Material: %s", material->id.name);
 
   MaterialX::DocumentPtr doc = MaterialX::createDocument();
   NodeItem output_item;
@@ -82,11 +82,10 @@ MaterialX::DocumentPtr export_to_materialx(Depsgraph *depsgraph,
   /* This node is expected to have a specific name to link up to USD. */
   graph.set_output_node_name(output_item);
 
-  CLOG_INFO(LOG_MATERIALX_SHADER,
-            1,
-            "Material: %s\n%s",
-            material->id.name,
-            MaterialX::writeToXmlString(doc).c_str());
+  CLOG_DEBUG(LOG_IO_MATERIALX,
+             "Material: %s\n%s",
+             material->id.name,
+             MaterialX::writeToXmlString(doc).c_str());
   return doc;
 }
 

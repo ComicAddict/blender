@@ -21,7 +21,7 @@
 
 #include "BLI_ghash.h"
 #include "BLI_listbase.h"
-#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 #include "BLI_utildefines.h"
 
 #include "BLT_translation.hh"
@@ -171,12 +171,7 @@ static void window_manager_blend_read_data(BlendDataReader *reader, ID *id)
     win->eventstate_prev_press_time_ms = 0;
     win->event_last_handled = nullptr;
     win->cursor_keymap_status = nullptr;
-#if defined(WIN32) || defined(__APPLE__)
-    win->ime_data = nullptr;
-    win->ime_data_is_composing = false;
-#endif
 
-    BLI_listbase_clear(&win->event_queue);
     BLI_listbase_clear(&win->handlers);
     BLI_listbase_clear(&win->modalhandlers);
     BLI_listbase_clear(&win->gesture);
@@ -191,15 +186,16 @@ static void window_manager_blend_read_data(BlendDataReader *reader, ID *id)
     win->event_queue_check_click = 0;
     win->event_queue_check_drag = 0;
     win->event_queue_check_drag_handled = 0;
-    win->event_queue_consecutive_gesture_type = 0;
+    win->event_queue_consecutive_gesture_type = EVENT_NONE;
     win->event_queue_consecutive_gesture_data = nullptr;
     BLO_read_struct(reader, Stereo3dFormat, &win->stereo3d_format);
 
-    /* Multi-view always fallback to anaglyph at file opening
+    /* Multi-view always falls back to anaglyph at file opening
      * otherwise quad-buffer saved files can break Blender. */
     if (win->stereo3d_format) {
       win->stereo3d_format->display_mode = S3D_DISPLAY_ANAGLYPH;
     }
+    win->runtime = MEM_new<blender::bke::WindowRuntime>(__func__);
   }
 
   direct_link_wm_xr_data(reader, &wm->xr);
@@ -207,9 +203,6 @@ static void window_manager_blend_read_data(BlendDataReader *reader, ID *id)
   BLI_listbase_clear(&wm->timers);
   BLI_listbase_clear(&wm->operators);
   BLI_listbase_clear(&wm->paintcursors);
-  BLI_listbase_clear(&wm->notifier_queue);
-  wm->notifier_queue_set = nullptr;
-  wm->notifier_current = nullptr;
 
   BLI_listbase_clear(&wm->keyconfigs);
   wm->defaultconf = nullptr;
@@ -247,7 +240,7 @@ static void window_manager_blend_read_after_liblink(BlendLibReader *reader, ID *
 }
 
 IDTypeInfo IDType_ID_WM = {
-    /*id_code*/ ID_WM,
+    /*id_code*/ wmWindowManager::id_type,
     /*id_filter*/ FILTER_ID_WM,
     /*dependencies_id_types*/ FILTER_ID_SCE | FILTER_ID_WS,
     /*main_listbase_index*/ INDEX_ID_WM,
@@ -550,7 +543,7 @@ void wm_add_default(Main *bmain, bContext *C)
   CTX_wm_manager_set(C, wm);
   win = wm_window_new(bmain, wm, nullptr, false);
   win->scene = CTX_data_scene(C);
-  STRNCPY(win->view_layer_name, CTX_data_view_layer(C)->name);
+  STRNCPY_UTF8(win->view_layer_name, CTX_data_view_layer(C)->name);
   BKE_workspace_active_set(win->workspace_hook, workspace);
   BKE_workspace_active_layout_set(win->workspace_hook, win->winid, workspace, layout);
   screen->winid = win->winid;
@@ -559,6 +552,19 @@ void wm_add_default(Main *bmain, bContext *C)
   wm->file_saved = 1;
   wm->runtime = MEM_new<blender::bke::WindowManagerRuntime>(__func__);
   wm_window_make_drawable(wm, win);
+}
+
+static void wm_xr_data_free(wmWindowManager *wm)
+{
+  /* NOTE: this also runs when built without `WITH_XR_OPENXR`.
+   * It's necessary to prevent leaks when XR data is created or loaded into non XR builds.
+   * This can occur when Python reads all properties (see the `bl_rna_paths` test). */
+
+  /* Note that non-runtime data in `wm->xr` is freed as part of freeing the window manager. */
+  if (wm->xr.session_settings.shading.prop) {
+    IDP_FreeProperty(wm->xr.session_settings.shading.prop);
+    wm->xr.session_settings.shading.prop = nullptr;
+  }
 }
 
 void wm_close_and_free(bContext *C, wmWindowManager *wm)
@@ -571,6 +577,7 @@ void wm_close_and_free(bContext *C, wmWindowManager *wm)
   /* May send notifier, so do before freeing notifier queue. */
   wm_xr_exit(wm);
 #endif
+  wm_xr_data_free(wm);
 
   while (wmWindow *win = static_cast<wmWindow *>(BLI_pophead(&wm->windows))) {
     /* Prevent draw clear to use screen. */
@@ -585,14 +592,6 @@ void wm_close_and_free(bContext *C, wmWindowManager *wm)
   while (wmKeyConfig *keyconf = static_cast<wmKeyConfig *>(BLI_pophead(&wm->keyconfigs))) {
     WM_keyconfig_free(keyconf);
   }
-
-  BLI_freelistN(&wm->notifier_queue);
-  if (wm->notifier_queue_set) {
-    BLI_gset_free(wm->notifier_queue_set, nullptr);
-    wm->notifier_queue_set = nullptr;
-  }
-  BLI_assert(wm->notifier_current == nullptr);
-  wm->notifier_current = nullptr;
 
   if (wm->message_bus != nullptr) {
     WM_msgbus_destroy(wm->message_bus);

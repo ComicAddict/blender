@@ -9,7 +9,7 @@
 
 #include "NOD_multi_function.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 namespace blender::nodes::node_shader_tex_magic_cc {
@@ -17,7 +17,7 @@ namespace blender::nodes::node_shader_tex_magic_cc {
 static void sh_node_tex_magic_declare(NodeDeclarationBuilder &b)
 {
   b.is_function_node();
-  b.add_input<decl::Vector>("Vector").implicit_field(implicit_field_inputs::position);
+  b.add_input<decl::Vector>("Vector").implicit_field(NODE_DEFAULT_INPUT_POSITION_FIELD);
   b.add_input<decl::Float>("Scale").min(-1000.0f).max(1000.0f).default_value(5.0f).description(
       "Scale of the texture");
   b.add_input<decl::Float>("Distortion")
@@ -31,12 +31,12 @@ static void sh_node_tex_magic_declare(NodeDeclarationBuilder &b)
 
 static void node_shader_buts_tex_magic(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "turbulence_depth", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "turbulence_depth", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
 }
 
 static void node_shader_init_tex_magic(bNodeTree * /*ntree*/, bNode *node)
 {
-  NodeTexMagic *tex = MEM_cnew<NodeTexMagic>(__func__);
+  NodeTexMagic *tex = MEM_callocN<NodeTexMagic>(__func__);
   BKE_texture_mapping_default(&tex->base.tex_mapping, TEXMAP_TYPE_POINT);
   BKE_texture_colormapping_default(&tex->base.color_mapping);
   tex->depth = 2;

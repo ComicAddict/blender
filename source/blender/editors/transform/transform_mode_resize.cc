@@ -13,7 +13,7 @@
 
 #include "BLI_math_matrix.h"
 #include "BLI_math_vector.h"
-#include "BLI_task.h"
+#include "BLI_task.hh"
 
 #include "BKE_context.hh"
 
@@ -35,30 +35,6 @@
 #include "transform_snap.hh"
 
 namespace blender::ed::transform {
-
-/* -------------------------------------------------------------------- */
-/** \name Transform (Resize) Element
- * \{ */
-
-struct ElemResizeData {
-  const TransInfo *t;
-  const TransDataContainer *tc;
-  float mat[3][3];
-};
-
-static void element_resize_fn(void *__restrict iter_data_v,
-                              const int iter,
-                              const TaskParallelTLS *__restrict /*tls*/)
-{
-  ElemResizeData *data = static_cast<ElemResizeData *>(iter_data_v);
-  TransData *td = &data->tc->data[iter];
-  if (td->flag & TD_SKIP) {
-    return;
-  }
-  ElementResize(data->t, data->tc, td, data->mat);
-}
-
-/** \} */
 
 /* -------------------------------------------------------------------- */
 /** \name Transform (Resize)
@@ -238,27 +214,15 @@ static void applyResize(TransInfo *t)
   copy_m3_m3(t->mat, mat); /* Used in gizmo. */
 
   FOREACH_TRANS_DATA_CONTAINER (t, tc) {
-
-    if (tc->data_len < TRANSDATA_THREAD_LIMIT) {
-      TransData *td = tc->data;
-      for (i = 0; i < tc->data_len; i++, td++) {
+    threading::parallel_for(IndexRange(tc->data_len), 1024, [&](const IndexRange range) {
+      for (const int i : range) {
+        TransData *td = &tc->data[i];
         if (td->flag & TD_SKIP) {
           continue;
         }
-
-        ElementResize(t, tc, td, mat);
+        ElementResize(t, tc, i, mat);
       }
-    }
-    else {
-      ElemResizeData data{};
-      data.t = t;
-      data.tc = tc;
-      copy_m3_m3(data.mat, mat);
-
-      TaskParallelSettings settings;
-      BLI_parallel_range_settings_defaults(&settings);
-      BLI_task_parallel_range(0, tc->data_len, &data, element_resize_fn, &settings);
-    }
+    });
   }
 
   /* Evil hack - redo resize if clipping needed. */
@@ -270,9 +234,8 @@ static void applyResize(TransInfo *t)
     }
 
     FOREACH_TRANS_DATA_CONTAINER (t, tc) {
-      TransData *td = tc->data;
-      for (i = 0; i < tc->data_len; i++, td++) {
-        ElementResize(t, tc, td, mat);
+      for (i = 0; i < tc->data_len; i++) {
+        ElementResize(t, tc, i, mat);
       }
 
       /* Not ideal, see #clipUVData code-comment. */
@@ -364,10 +327,10 @@ static void initResize(TransInfo *t, wmOperator *op)
 
   t->idx_max = 2;
   t->num.idx_max = 2;
-  t->snap[0] = 0.1f;
-  t->snap[1] = t->snap[0] * 0.1f;
+  t->increment = float3(0.1f);
+  t->increment_precision = 0.1f;
 
-  copy_v3_fl(t->num.val_inc, t->snap[0]);
+  copy_v3_fl(t->num.val_inc, t->increment[0]);
   t->num.unit_sys = t->scene->unit.system;
   t->num.unit_type[0] = B_UNIT_NONE;
   t->num.unit_type[1] = B_UNIT_NONE;

@@ -16,7 +16,7 @@
 #  include "BKE_curve.hh"
 #  include "BKE_displist.h"
 #  include "BLI_boxpack_2d.h"
-#  include "BLI_convexhull_2d.h"
+#  include "BLI_convexhull_2d.hh"
 #  include "BLI_delaunay_2d.hh"
 #  include "BLI_listbase.h"
 #  include "MEM_guardedalloc.h"
@@ -40,7 +40,7 @@ PyDoc_STRVAR(
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_intersect_ray_tri_doc,
-    ".. function:: intersect_ray_tri(v1, v2, v3, ray, orig, clip=True)\n"
+    ".. function:: intersect_ray_tri(v1, v2, v3, ray, orig, clip=True, /)\n"
     "\n"
     "   Returns the intersection between a ray and a triangle, if possible, returns None "
     "otherwise.\n"
@@ -152,7 +152,7 @@ static PyObject *M_Geometry_intersect_ray_tri(PyObject * /*self*/, PyObject *arg
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_intersect_line_line_doc,
-    ".. function:: intersect_line_line(v1, v2, v3, v4)\n"
+    ".. function:: intersect_line_line(v1, v2, v3, v4, /)\n"
     "\n"
     "   Returns a tuple with the points on each line respectively closest to the other.\n"
     "\n"
@@ -231,7 +231,7 @@ static PyObject *M_Geometry_intersect_line_line(PyObject * /*self*/, PyObject *a
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_intersect_sphere_sphere_2d_doc,
-    ".. function:: intersect_sphere_sphere_2d(p_a, radius_a, p_b, radius_b)\n"
+    ".. function:: intersect_sphere_sphere_2d(p_a, radius_a, p_b, radius_b, /)\n"
     "\n"
     "   Returns 2 points on between intersecting circles.\n"
     "\n"
@@ -307,7 +307,7 @@ static PyObject *M_Geometry_intersect_sphere_sphere_2d(PyObject * /*self*/, PyOb
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_intersect_tri_tri_2d_doc,
-    ".. function:: intersect_tri_tri_2d(tri_a1, tri_a2, tri_a3, tri_b1, tri_b2, tri_b3)\n"
+    ".. function:: intersect_tri_tri_2d(tri_a1, tri_a2, tri_a3, tri_b1, tri_b2, tri_b3, /)\n"
     "\n"
     "   Check if two 2D triangles intersect.\n"
     "\n"
@@ -347,7 +347,7 @@ static PyObject *M_Geometry_intersect_tri_tri_2d(PyObject * /*self*/, PyObject *
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_normal_doc,
-    ".. function:: normal(vectors)\n"
+    ".. function:: normal(*vectors)\n"
     "\n"
     "   Returns the normal of a 3D polygon.\n"
     "\n"
@@ -390,7 +390,7 @@ finally:
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_area_tri_doc,
-    ".. function:: area_tri(v1, v2, v3)\n"
+    ".. function:: area_tri(v1, v2, v3, /)\n"
     "\n"
     "   Returns the area size of the 2D or 3D triangle defined.\n"
     "\n"
@@ -425,7 +425,7 @@ static PyObject *M_Geometry_area_tri(PyObject * /*self*/, PyObject *args)
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_volume_tetrahedron_doc,
-    ".. function:: volume_tetrahedron(v1, v2, v3, v4)\n"
+    ".. function:: volume_tetrahedron(v1, v2, v3, v4, /)\n"
     "\n"
     "   Return the volume formed by a tetrahedron (points can be in any order).\n"
     "\n"
@@ -461,7 +461,7 @@ static PyObject *M_Geometry_volume_tetrahedron(PyObject * /*self*/, PyObject *ar
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_intersect_line_line_2d_doc,
-    ".. function:: intersect_line_line_2d(lineA_p1, lineA_p2, lineB_p1, lineB_p2)\n"
+    ".. function:: intersect_line_line_2d(lineA_p1, lineA_p2, lineB_p1, lineB_p2, /)\n"
     "\n"
     "   Takes 2 segments (defined by 4 vectors) and returns a vector for their point of "
     "intersection or None.\n"
@@ -506,7 +506,7 @@ static PyObject *M_Geometry_intersect_line_line_2d(PyObject * /*self*/, PyObject
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_intersect_line_plane_doc,
-    ".. function:: intersect_line_plane(line_a, line_b, plane_co, plane_no, no_flip=False)\n"
+    ".. function:: intersect_line_plane(line_a, line_b, plane_co, plane_no, no_flip=False, /)\n"
     "\n"
     "   Calculate the intersection between a line (as 2 vectors) and a plane.\n"
     "   Returns a vector for the intersection or None.\n"
@@ -519,6 +519,8 @@ PyDoc_STRVAR(
     "   :type plane_co: :class:`mathutils.Vector`\n"
     "   :arg plane_no: The direction the plane is facing\n"
     "   :type plane_no: :class:`mathutils.Vector`\n"
+    "   :arg no_flip: Not implemented\n"
+    "   :type no_flip: bool\n"
     "   :return: The point of intersection or None when not found\n"
     "   :rtype: :class:`mathutils.Vector` | None\n");
 static PyObject *M_Geometry_intersect_line_plane(PyObject * /*self*/, PyObject *args)
@@ -561,7 +563,7 @@ static PyObject *M_Geometry_intersect_line_plane(PyObject * /*self*/, PyObject *
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_intersect_plane_plane_doc,
-    ".. function:: intersect_plane_plane(plane_a_co, plane_a_no, plane_b_co, plane_b_no)\n"
+    ".. function:: intersect_plane_plane(plane_a_co, plane_a_no, plane_b_co, plane_b_no, /)\n"
     "\n"
     "   Return the intersection between two planes\n"
     "\n"
@@ -632,7 +634,7 @@ static PyObject *M_Geometry_intersect_plane_plane(PyObject * /*self*/, PyObject 
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_intersect_line_sphere_doc,
-    ".. function:: intersect_line_sphere(line_a, line_b, sphere_co, sphere_radius, clip=True)\n"
+    ".. function:: intersect_line_sphere(line_a, line_b, sphere_co, sphere_radius, clip=True, /)\n"
     "\n"
     "   Takes a line (as 2 points) and a sphere (as a point and a radius) and\n"
     "   returns the intersection\n"
@@ -645,6 +647,9 @@ PyDoc_STRVAR(
     "   :type sphere_co: :class:`mathutils.Vector`\n"
     "   :arg sphere_radius: Radius of the sphere\n"
     "   :type sphere_radius: float\n"
+    "   :arg clip: When False, don't restrict the intersection to the area of the "
+    "sphere.\n"
+    "   :type clip: bool\n"
     "   :return: The intersection points as a pair of vectors or None when there is no "
     "intersection\n"
     "   :rtype: tuple[:class:`mathutils.Vector` | None, :class:`mathutils.Vector` | None]\n");
@@ -723,7 +728,8 @@ static PyObject *M_Geometry_intersect_line_sphere(PyObject * /*self*/, PyObject 
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_intersect_line_sphere_2d_doc,
-    ".. function:: intersect_line_sphere_2d(line_a, line_b, sphere_co, sphere_radius, clip=True)\n"
+    ".. function:: intersect_line_sphere_2d(line_a, line_b, sphere_co, "
+    "sphere_radius, clip=True, /)\n"
     "\n"
     "   Takes a line (as 2 points) and a sphere (as a point and a radius) and\n"
     "   returns the intersection\n"
@@ -736,6 +742,9 @@ PyDoc_STRVAR(
     "   :type sphere_co: :class:`mathutils.Vector`\n"
     "   :arg sphere_radius: Radius of the sphere\n"
     "   :type sphere_radius: float\n"
+    "   :arg clip: When False, don't restrict the intersection to the area of the "
+    "sphere.\n"
+    "   :type clip: bool\n"
     "   :return: The intersection points as a pair of vectors or None when there is no "
     "intersection\n"
     "   :rtype: tuple[:class:`mathutils.Vector` | None, :class:`mathutils.Vector` | None]\n");
@@ -813,7 +822,7 @@ static PyObject *M_Geometry_intersect_line_sphere_2d(PyObject * /*self*/, PyObje
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_intersect_point_line_doc,
-    ".. function:: intersect_point_line(pt, line_p1, line_p2)\n"
+    ".. function:: intersect_point_line(pt, line_p1, line_p2, /)\n"
     "\n"
     "   Takes a point and a line and returns a tuple with the closest point on the line and its "
     "distance from the first point of the line as a percentage of the length of the line.\n"
@@ -861,7 +870,7 @@ static PyObject *M_Geometry_intersect_point_line(PyObject * /*self*/, PyObject *
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_intersect_point_tri_doc,
-    ".. function:: intersect_point_tri(pt, tri_p1, tri_p2, tri_p3)\n"
+    ".. function:: intersect_point_tri(pt, tri_p1, tri_p2, tri_p3, /)\n"
     "\n"
     "   Takes 4 vectors: one is the point and the next 3 define the triangle. Projects "
     "the point onto the triangle plane and checks if it is within the triangle.\n"
@@ -910,7 +919,7 @@ static PyObject *M_Geometry_intersect_point_tri(PyObject * /*self*/, PyObject *a
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_closest_point_on_tri_doc,
-    ".. function:: closest_point_on_tri(pt, tri_p1, tri_p2, tri_p3)\n"
+    ".. function:: closest_point_on_tri(pt, tri_p1, tri_p2, tri_p3, /)\n"
     "\n"
     "   Takes 4 vectors: one is the point and the next 3 define the triangle.\n"
     "\n"
@@ -956,7 +965,7 @@ static PyObject *M_Geometry_closest_point_on_tri(PyObject * /*self*/, PyObject *
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_intersect_point_tri_2d_doc,
-    ".. function:: intersect_point_tri_2d(pt, tri_p1, tri_p2, tri_p3)\n"
+    ".. function:: intersect_point_tri_2d(pt, tri_p1, tri_p2, tri_p3, /)\n"
     "\n"
     "   Takes 4 vectors (using only the x and y coordinates): one is the point and the next 3 "
     "define the triangle. Returns 1 if the point is within the triangle, otherwise 0.\n"
@@ -996,7 +1005,7 @@ static PyObject *M_Geometry_intersect_point_tri_2d(PyObject * /*self*/, PyObject
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_intersect_point_quad_2d_doc,
-    ".. function:: intersect_point_quad_2d(pt, quad_p1, quad_p2, quad_p3, quad_p4)\n"
+    ".. function:: intersect_point_quad_2d(pt, quad_p1, quad_p2, quad_p3, quad_p4, /)\n"
     "\n"
     "   Takes 5 vectors (using only the x and y coordinates): one is the point and the "
     "next 4 define the quad,\n"
@@ -1041,7 +1050,7 @@ static PyObject *M_Geometry_intersect_point_quad_2d(PyObject * /*self*/, PyObjec
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_distance_point_to_plane_doc,
-    ".. function:: distance_point_to_plane(pt, plane_co, plane_no)\n"
+    ".. function:: distance_point_to_plane(pt, plane_co, plane_no, /)\n"
     "\n"
     "   Returns the signed distance between a point and a plane "
     "   (negative when below the normal).\n"
@@ -1079,7 +1088,8 @@ static PyObject *M_Geometry_distance_point_to_plane(PyObject * /*self*/, PyObjec
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_barycentric_transform_doc,
-    ".. function:: barycentric_transform(point, tri_a1, tri_a2, tri_a3, tri_b1, tri_b2, tri_b3)\n"
+    ".. function:: barycentric_transform(point, tri_a1, tri_a2, tri_a3, tri_b1, tri_b2, tri_b3, "
+    "/)\n"
     "\n"
     "   Return a transformed point, the transformation is defined by 2 triangles.\n"
     "\n"
@@ -1150,7 +1160,7 @@ static void points_in_planes_fn(const float co[3], int i, int j, int k, void *us
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_points_in_planes_doc,
-    ".. function:: points_in_planes(planes, epsilon_coplanar=1e-4, epsilon_isect=1e-6)\n"
+    ".. function:: points_in_planes(planes, epsilon_coplanar=1e-4, epsilon_isect=1e-6, /)\n"
     "\n"
     "   Returns a list of points inside all planes given and a list of index values for "
     "the planes used.\n"
@@ -1219,7 +1229,7 @@ static PyObject *M_Geometry_points_in_planes(PyObject * /*self*/, PyObject *args
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_interpolate_bezier_doc,
-    ".. function:: interpolate_bezier(knot1, handle1, handle2, knot2, resolution)\n"
+    ".. function:: interpolate_bezier(knot1, handle1, handle2, knot2, resolution, /)\n"
     "\n"
     "   Interpolate a bezier spline segment.\n"
     "\n"
@@ -1265,7 +1275,7 @@ static PyObject *M_Geometry_interpolate_bezier(PyObject * /*self*/, PyObject *ar
     return nullptr;
   }
 
-  coord_array = static_cast<float *>(MEM_callocN(dims * (resolu) * sizeof(float), error_prefix));
+  coord_array = MEM_calloc_arrayN<float>(size_t(dims) * size_t(resolu), error_prefix);
   for (i = 0; i < dims; i++) {
     BKE_curve_forward_diff_bezier(
         UNPACK4_EX(, data, [i]), coord_array + i, resolu - 1, sizeof(float) * dims);
@@ -1283,7 +1293,7 @@ static PyObject *M_Geometry_interpolate_bezier(PyObject * /*self*/, PyObject *ar
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_tessellate_polygon_doc,
-    ".. function:: tessellate_polygon(polylines)\n"
+    ".. function:: tessellate_polygon(polylines, /)\n"
     "\n"
     "   Takes a list of polylines (each point a pair or triplet of numbers) and returns "
     "the point indices for a polyline filled with triangles. Does not handle degenerate "
@@ -1327,15 +1337,14 @@ static PyObject *M_Geometry_tessellate_polygon(PyObject * /*self*/, PyObject *po
 
     len_polypoints = PySequence_Size(polyLine);
     if (len_polypoints > 0) { /* don't bother adding edges as polylines */
-      dl = static_cast<DispList *>(MEM_callocN(sizeof(DispList), "poly disp"));
+      dl = MEM_callocN<DispList>("poly disp");
       BLI_addtail(&dispbase, dl);
       dl->nr = len_polypoints;
       dl->type = DL_POLY;
       dl->parts = 1; /* no faces, 1 edge loop */
       dl->col = 0;   /* no material */
-      dl->verts = fp = static_cast<float *>(
-          MEM_mallocN(sizeof(float[3]) * len_polypoints, "dl verts"));
-      dl->index = static_cast<int *>(MEM_callocN(sizeof(int[3]) * len_polypoints, "dl index"));
+      dl->verts = fp = MEM_malloc_arrayN<float>(3 * size_t(len_polypoints), "dl verts");
+      dl->index = MEM_calloc_arrayN<int>(3 * size_t(len_polypoints), "dl index");
 
       for (int index = 0; index < len_polypoints; index++, fp += 3) {
         polyVec = PySequence_GetItem(polyLine, index);
@@ -1409,7 +1418,7 @@ static int boxPack_FromPyObject(PyObject *value, BoxPack **r_boxarray)
 
   len = PyList_GET_SIZE(value);
 
-  boxarray = static_cast<BoxPack *>(MEM_mallocN(sizeof(BoxPack) * len, __func__));
+  boxarray = MEM_malloc_arrayN<BoxPack>(size_t(len), __func__);
 
   for (i = 0; i < len; i++) {
     list_item = PyList_GET_ITEM(value, i);
@@ -1462,7 +1471,7 @@ static void boxPack_ToPyObject(PyObject *value, const BoxPack *boxarray)
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_box_pack_2d_doc,
-    ".. function:: box_pack_2d(boxes)\n"
+    ".. function:: box_pack_2d(boxes, /)\n"
     "\n"
     "   Returns a tuple with the width and height of the packed bounding box.\n"
     "\n"
@@ -1507,7 +1516,7 @@ static PyObject *M_Geometry_box_pack_2d(PyObject * /*self*/, PyObject *boxlist)
 PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_box_fit_2d_doc,
-    ".. function:: box_fit_2d(points)\n"
+    ".. function:: box_fit_2d(points, /)\n"
     "\n"
     "   Returns an angle that best fits the points to an axis aligned rectangle\n"
     "\n"
@@ -1529,7 +1538,7 @@ static PyObject *M_Geometry_box_fit_2d(PyObject * /*self*/, PyObject *pointlist)
 
   if (len) {
     /* Non Python function */
-    angle = BLI_convexhull_aabb_fit_points_2d(points, len);
+    angle = BLI_convexhull_aabb_fit_points_2d({reinterpret_cast<blender::float2 *>(points), len});
 
     PyMem_Free(points);
   }
@@ -1564,10 +1573,10 @@ static PyObject *M_Geometry_convex_hull_2d(PyObject * /*self*/, PyObject *pointl
     int *index_map;
     Py_ssize_t len_ret, i;
 
-    index_map = static_cast<int *>(MEM_mallocN(sizeof(*index_map) * len, __func__));
+    index_map = MEM_malloc_arrayN<int>(size_t(len), __func__);
 
     /* Non Python function */
-    len_ret = BLI_convexhull_2d(points, len, index_map);
+    len_ret = BLI_convexhull_2d({reinterpret_cast<blender::float2 *>(points), len}, index_map);
 
     ret = PyList_New(len_ret);
     for (i = 0; i < len_ret; i++) {
@@ -1610,7 +1619,7 @@ PyDoc_STRVAR(
     /* Wrap. */
     M_Geometry_delaunay_2d_cdt_doc,
     ".. function:: delaunay_2d_cdt(vert_coords, edges, faces, output_type, epsilon, "
-    "need_ids=True)\n"
+    "need_ids=True, /)\n"
     "\n"
     "   Computes the Constrained Delaunay Triangulation of a set of vertices,\n"
     "   with edges and faces that must appear in the triangulation.\n"
@@ -1641,7 +1650,7 @@ PyDoc_STRVAR(
     "   :arg epsilon: For nearness tests; should not be zero\n"
     "   :type epsilon: float\n"
     "   :arg need_ids: are the orig output arrays needed?\n"
-    "   :type need_args: bool\n"
+    "   :type need_ids: bool\n"
     "   :return: Output tuple, (vert_coords, edges, faces, orig_verts, orig_edges, orig_faces)\n"
     "   :rtype: tuple["
     "list[:class:`mathutils.Vector`], "

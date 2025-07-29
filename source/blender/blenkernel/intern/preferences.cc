@@ -292,7 +292,7 @@ bool BKE_preferences_extension_repo_module_is_valid(const bUserExtensionRepo *re
   if (module_len == 0) {
     return false;
   }
-  if (module_len != BLI_strnlen(repo->module, sizeof(repo->module))) {
+  if (module_len != STRNLEN(repo->module)) {
     return false;
   }
   return true;
@@ -467,13 +467,19 @@ void BKE_preferences_extension_remote_to_name(const char *remote_url,
     /* Skip the `://`. */
     remote_url += (offset + 3);
 
-    if (is_win32) {
-      if (is_file) {
+    if (is_file) {
+      if (is_win32) {
         /* Skip the slash prefix for: `/C:/`,
          * not *required* but seems like a bug if it's not done. */
         if (remote_url[0] == '/' && isalpha(remote_url[1]) && (remote_url[2] == ':')) {
           remote_url += 1;
         }
+      }
+    }
+    else {
+      /* Skip the `www` as it's not useful information. */
+      if (BLI_str_startswith(remote_url, "www.")) {
+        remote_url += 4;
       }
     }
   }

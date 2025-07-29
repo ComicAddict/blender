@@ -8,9 +8,15 @@
 
 #pragma once
 
+#include "GPU_capabilities.hh"
+#include "GPU_platform.hh"
+
 #include "gpu_backend.hh"
 
+#include "BLI_threads.h"
 #include "BLI_vector.hh"
+
+#include "gpu_capabilities_private.hh"
 
 #ifdef WITH_RENDERDOC
 #  include "renderdoc_api.hh"
@@ -39,8 +45,6 @@ class GLBackend : public GPUBackend {
   renderdoc::api::Renderdoc renderdoc_;
 #endif
 
-  GLShaderCompiler compiler_;
-
  public:
   GLBackend()
   {
@@ -55,20 +59,26 @@ class GLBackend : public GPUBackend {
     GLBackend::platform_exit();
   }
 
+  void init_resources() override
+  {
+    if (GCaps.use_subprocess_shader_compilations) {
+      compiler_ = MEM_new<GLSubprocessShaderCompiler>(__func__);
+    }
+    else {
+      compiler_ = MEM_new<GLShaderCompiler>(__func__);
+    }
+  };
+
   void delete_resources() override
   {
     /* Delete any resources with context active. */
     GLTexture::samplers_free();
+    MEM_delete(compiler_);
   }
 
   static GLBackend *get()
   {
     return static_cast<GLBackend *>(GPUBackend::get());
-  }
-
-  GLShaderCompiler *get_compiler()
-  {
-    return &compiler_;
   }
 
   void samplers_update() override

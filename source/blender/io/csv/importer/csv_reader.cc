@@ -281,6 +281,7 @@ PointCloud *import_csv_as_pointcloud(const CSVImportParams &import_params)
   LinearAllocator<> allocator;
   Array<ColumnInfo> columns_info;
   csv_parse::CsvParseOptions parse_options;
+  parse_options.delimiter = import_params.delimiter;
 
   const auto parse_header = [&](const csv_parse::CsvRecord &record) {
     columns_info.reinitialize(record.size());
@@ -329,7 +330,7 @@ PointCloud *import_csv_as_pointcloud(const CSVImportParams &import_params)
   threading::memory_bandwidth_bound_task(points_num * 16, [&]() {
     threading::parallel_invoke(
         [&]() {
-          array_utils::copy(VArray<float3>::ForSingle(float3(0), points_num),
+          array_utils::copy(VArray<float3>::from_single(float3(0), points_num),
                             pointcloud->positions_for_write());
         },
         [&]() {
@@ -346,7 +347,7 @@ PointCloud *import_csv_as_pointcloud(const CSVImportParams &import_params)
       continue;
     }
     const auto *data = new ImplicitSharedValue<GArray<>>(std::move(*attribute));
-    const eCustomDataType type = bke::cpp_type_to_custom_data_type(attribute->type());
+    const bke::AttrType type = bke::cpp_type_to_attribute_type(attribute->type());
     const ColumnInfo &column_info = columns_info[column_i];
     attributes.add(column_info.name,
                    bke::AttrDomain::Point,

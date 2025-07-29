@@ -40,6 +40,7 @@
 
 #include "BLI_array_utils.hh"
 #include "BLI_math_matrix.hh"
+#include "BLI_rand.hh"
 #include "BLI_vector.hh"
 
 #include "BLT_translation.hh"
@@ -47,7 +48,6 @@
 #include "GPU_immediate.hh"
 #include "GPU_state.hh"
 
-#include "UI_interface.hh"
 #include "UI_resources.hh"
 
 namespace blender::ed::greasepencil {
@@ -144,6 +144,14 @@ struct PrimitiveToolOperation {
   float4x2 texture_space;
   float4x4 local_transform;
 
+  RandomNumberGenerator rng;
+  float stroke_random_radius_factor;
+  float stroke_random_opacity_factor;
+  float stroke_random_rotation_factor;
+  float stroke_random_hue_factor;
+  float stroke_random_sat_factor;
+  float stroke_random_val_factor;
+
   OperatorMode mode;
   float2 start_position_2d;
   int active_control_point_index;
@@ -236,7 +244,7 @@ static void control_point_colors_and_sizes(const PrimitiveToolOperation &ptd,
     }
 
     colors.last() = color_gizmo_primary;
-    sizes.last() = size_primary;
+    sizes.last() = size_tertiary;
 
     if (ELEM(ptd.type, PrimitiveType::Line, PrimitiveType::Polyline)) {
       colors.last(1) = color_gizmo_secondary;
@@ -254,9 +262,12 @@ static void control_point_colors_and_sizes(const PrimitiveToolOperation &ptd,
 static void draw_control_points(PrimitiveToolOperation &ptd)
 {
   GPUVertFormat *format3d = immVertexFormat();
-  const uint pos3d = GPU_vertformat_attr_add(format3d, "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
-  const uint col3d = GPU_vertformat_attr_add(format3d, "color", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
-  const uint siz3d = GPU_vertformat_attr_add(format3d, "size", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
+  const uint pos3d = GPU_vertformat_attr_add(
+      format3d, "pos", blender::gpu::VertAttrType::SFLOAT_32_32_32);
+  const uint col3d = GPU_vertformat_attr_add(
+      format3d, "color", blender::gpu::VertAttrType::SFLOAT_32_32_32_32);
+  const uint siz3d = GPU_vertformat_attr_add(
+      format3d, "size", blender::gpu::VertAttrType::SFLOAT_32);
   immBindBuiltinProgram(GPU_SHADER_3D_POINT_VARYING_SIZE_VARYING_COLOR);
 
   GPU_program_point_size(true);
@@ -452,6 +463,7 @@ static void grease_pencil_primitive_update_curves(PrimitiveToolOperation &ptd)
 {
   const bool on_back = ptd.on_back;
   const int new_points_num = grease_pencil_primitive_curve_points_number(ptd);
+  const bool use_random = (ptd.settings->flag & GP_BRUSH_GROUP_RANDOM) != 0;
 
   bke::CurvesGeometry &curves = ptd.drawing->strokes_for_write();
   const int target_curve_index = on_back ? 0 : curves.curves_range().last();
@@ -469,9 +481,21 @@ static void grease_pencil_primitive_update_curves(PrimitiveToolOperation &ptd)
 
   MutableSpan<float> new_radii = ptd.drawing->radii_for_write().slice(curve_points);
   MutableSpan<float> new_opacities = ptd.drawing->opacities_for_write().slice(curve_points);
+  MutableSpan<ColorGeometry4f> new_vertex_colors = ptd.drawing->vertex_colors_for_write().slice(
+      curve_points);
+  bke::SpanAttributeWriter<float> rotations;
+  MutableSpan<float> new_rotations;
+  if (use_random && ptd.settings->uv_random > 0.0f) {
+    rotations = curves.attributes_for_write().lookup_or_add_for_write_span<float>(
+        "rotation", bke::AttrDomain::Point);
+    new_rotations = rotations.span.slice(curve_points);
+  }
 
   const ToolSettings *ts = ptd.vc.scene->toolsettings;
   const GP_Sculpt_Settings *gset = &ts->gp_sculpt;
+
+  /* Screen-space length along curve used as randomization parameter. */
+  Array<float> lengths(new_points_num);
 
   for (const int point : curve_points.index_range()) {
     float pressure = 1.0f;
@@ -491,14 +515,44 @@ static void grease_pencil_primitive_update_curves(PrimitiveToolOperation &ptd)
     const float opacity = ed::greasepencil::opacity_from_input_sample(
         pressure, ptd.brush, ptd.settings);
 
-    new_radii[point] = radius;
-    new_opacities[point] = opacity;
-  }
-  point_attributes_to_skip.add_multiple({"position", "radius", "opacity"});
+    if (point == 0) {
+      lengths[point] = 0.0f;
+    }
+    else {
+      const float distance_2d = math::distance(positions_2d[point - 1], positions_2d[point]);
+      lengths[point] = lengths[point - 1] + distance_2d;
+    }
 
+    new_radii[point] = ed::greasepencil::randomize_radius(
+        *ptd.settings, ptd.stroke_random_radius_factor, lengths[point], radius, pressure);
+    new_opacities[point] = ed::greasepencil::randomize_opacity(
+        *ptd.settings, ptd.stroke_random_opacity_factor, lengths[point], opacity, pressure);
+    if (ptd.vertex_color) {
+      std::optional<BrushColorJitterSettings> jitter_settings =
+          BKE_brush_color_jitter_get_settings(&ptd.vc.scene->toolsettings->gp_paint->paint,
+                                              ptd.brush);
+      new_vertex_colors[point] = ed::greasepencil::randomize_color(*ptd.settings,
+                                                                   jitter_settings,
+                                                                   ptd.stroke_random_hue_factor,
+                                                                   ptd.stroke_random_sat_factor,
+                                                                   ptd.stroke_random_val_factor,
+                                                                   lengths[point],
+                                                                   *ptd.vertex_color,
+                                                                   pressure);
+    }
+    if (rotations) {
+      new_rotations[point] = ed::greasepencil::randomize_rotation(
+          *ptd.settings, ptd.stroke_random_rotation_factor, lengths[point], pressure);
+    }
+  }
+
+  point_attributes_to_skip.add_multiple({"position", "radius", "opacity"});
   if (ptd.vertex_color) {
-    ptd.drawing->vertex_colors_for_write().slice(curve_points).fill(*ptd.vertex_color);
     point_attributes_to_skip.add("vertex_color");
+  }
+  if (rotations) {
+    point_attributes_to_skip.add("rotation");
+    rotations.finish();
   }
 
   /* Initialize the rest of the attributes with default values. */
@@ -569,7 +623,7 @@ static void grease_pencil_primitive_init_curves(PrimitiveToolOperation &ptd)
             attributes.lookup_or_add_for_write_span<float>(
                 "fill_opacity",
                 bke::AttrDomain::Curve,
-                bke::AttributeInitVArray(VArray<float>::ForSingle(1.0f, curves.curves_num()))))
+                bke::AttributeInitVArray(VArray<float>::from_single(1.0f, curves.curves_num()))))
     {
       fill_opacities.span[target_curve_index] = ptd.fill_opacity;
       fill_opacities.finish();
@@ -619,7 +673,7 @@ static void grease_pencil_primitive_status_indicators(bContext *C,
   status.item(IFACE_("Align"), ICON_EVENT_SHIFT);
   status.opmodal("", op->type, int(ModalKeyMode::IncreaseSubdivision));
   status.opmodal("", op->type, int(ModalKeyMode::DecreaseSubdivision));
-  status.item(fmt::format("{} ({})", IFACE_("subdivisions"), ptd.subdivision), ICON_NONE);
+  status.item(fmt::format("{} ({})", IFACE_("Subdivisions"), ptd.subdivision), ICON_NONE);
 
   if (ptd.segments == 1) {
     status.item(IFACE_("Center"), ICON_EVENT_ALT);
@@ -650,11 +704,14 @@ static void grease_pencil_primitive_update_view(bContext *C, PrimitiveToolOperat
 }
 
 /* Invoke handler: Initialize the operator. */
-static int grease_pencil_primitive_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus grease_pencil_primitive_invoke(bContext *C,
+                                                       wmOperator *op,
+                                                       const wmEvent *event)
 {
-  int return_value = ed::greasepencil::grease_pencil_draw_operator_invoke(C, op, false);
-  if (return_value != OPERATOR_RUNNING_MODAL) {
-    return return_value;
+  const wmOperatorStatus retval = ed::greasepencil::grease_pencil_draw_operator_invoke(
+      C, op, false);
+  if (retval != OPERATOR_RUNNING_MODAL) {
+    return retval;
   }
 
   /* If in tools region, wait till we get to the main (3D-space)
@@ -724,9 +781,9 @@ static int grease_pencil_primitive_invoke(bContext *C, wmOperator *op, const wmE
   BKE_curvemapping_init(ptd.settings->curve_rand_pressure);
   BKE_curvemapping_init(ptd.settings->curve_rand_strength);
   BKE_curvemapping_init(ptd.settings->curve_rand_uv);
-  BKE_curvemapping_init(ptd.settings->curve_rand_hue);
-  BKE_curvemapping_init(ptd.settings->curve_rand_saturation);
-  BKE_curvemapping_init(ptd.settings->curve_rand_value);
+  BKE_curvemapping_init(ptd.brush->curve_rand_hue);
+  BKE_curvemapping_init(ptd.brush->curve_rand_saturation);
+  BKE_curvemapping_init(ptd.brush->curve_rand_value);
 
   ToolSettings *ts = vc.scene->toolsettings;
   GP_Sculpt_Settings *gset = &ts->gp_sculpt;
@@ -763,6 +820,17 @@ static int grease_pencil_primitive_invoke(bContext *C, wmOperator *op, const wmE
 
   ptd.texture_space = ed::greasepencil::calculate_texture_space(
       vc.scene, ptd.region, ptd.start_position_2d, ptd.placement);
+
+  const bool use_random = (ptd.settings->flag & GP_BRUSH_GROUP_RANDOM) != 0;
+  if (use_random) {
+    ptd.rng = RandomNumberGenerator::from_random_seed();
+    ptd.stroke_random_radius_factor = ptd.rng.get_float() * 2.0f - 1.0f;
+    ptd.stroke_random_opacity_factor = ptd.rng.get_float() * 2.0f - 1.0f;
+    ptd.stroke_random_rotation_factor = ptd.rng.get_float() * 2.0f - 1.0f;
+    ptd.stroke_random_hue_factor = ptd.rng.get_float() * 2.0f - 1.0f;
+    ptd.stroke_random_sat_factor = ptd.rng.get_float() * 2.0f - 1.0f;
+    ptd.stroke_random_val_factor = ptd.rng.get_float() * 2.0f - 1.0f;
+  }
 
   BLI_assert(grease_pencil->has_active_layer());
   ptd.local_transform = grease_pencil->get_active_layer()->local_transform();
@@ -1129,10 +1197,10 @@ static void grease_pencil_primitive_cursor_update(bContext *C,
   WM_cursor_modal_set(win, WM_CURSOR_NSEW_SCROLL);
 }
 
-static int grease_pencil_primitive_event_modal_map(bContext *C,
-                                                   wmOperator *op,
-                                                   PrimitiveToolOperation &ptd,
-                                                   const wmEvent *event)
+static wmOperatorStatus grease_pencil_primitive_event_modal_map(bContext *C,
+                                                                wmOperator *op,
+                                                                PrimitiveToolOperation &ptd,
+                                                                const wmEvent *event)
 {
   switch (event->val) {
     case int(ModalKeyMode::Cancel): {
@@ -1257,7 +1325,8 @@ static int grease_pencil_primitive_event_modal_map(bContext *C,
   return OPERATOR_RUNNING_MODAL;
 }
 
-static int grease_pencil_primitive_mouse_event(PrimitiveToolOperation &ptd, const wmEvent *event)
+static wmOperatorStatus grease_pencil_primitive_mouse_event(PrimitiveToolOperation &ptd,
+                                                            const wmEvent *event)
 {
   if (event->val == KM_RELEASE && ELEM(ptd.mode,
                                        OperatorMode::Grab,
@@ -1375,7 +1444,9 @@ static void grease_pencil_primitive_operator_update(PrimitiveToolOperation &ptd,
 }
 
 /* Modal handler: Events handling during interactive part. */
-static int grease_pencil_primitive_modal(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus grease_pencil_primitive_modal(bContext *C,
+                                                      wmOperator *op,
+                                                      const wmEvent *event)
 {
   PrimitiveToolOperation &ptd = *reinterpret_cast<PrimitiveToolOperation *>(op->customdata);
 
@@ -1404,7 +1475,7 @@ static int grease_pencil_primitive_modal(bContext *C, wmOperator *op, const wmEv
   grease_pencil_primitive_cursor_update(C, ptd, event);
 
   if (event->type == EVT_MODAL_MAP) {
-    const int return_val = grease_pencil_primitive_event_modal_map(C, op, ptd, event);
+    const wmOperatorStatus return_val = grease_pencil_primitive_event_modal_map(C, op, ptd, event);
     if (return_val != OPERATOR_RUNNING_MODAL) {
       return return_val;
     }
@@ -1412,7 +1483,7 @@ static int grease_pencil_primitive_modal(bContext *C, wmOperator *op, const wmEv
 
   switch (event->type) {
     case LEFTMOUSE: {
-      const int return_val = grease_pencil_primitive_mouse_event(ptd, event);
+      const wmOperatorStatus return_val = grease_pencil_primitive_mouse_event(ptd, event);
       if (return_val != OPERATOR_RUNNING_MODAL) {
         return return_val;
       }
@@ -1440,6 +1511,9 @@ static int grease_pencil_primitive_modal(bContext *C, wmOperator *op, const wmEv
 
       ptd.mode = OperatorMode::Idle;
       grease_pencil_primitive_load(ptd);
+      break;
+    }
+    default: {
       break;
     }
   }

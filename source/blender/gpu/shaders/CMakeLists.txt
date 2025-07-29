@@ -20,6 +20,7 @@ set(SRC_GLSL_VERT
   gpu_shader_2D_point_uniform_size_aa_vert.glsl
   gpu_shader_2D_point_uniform_size_outline_aa_vert.glsl
   gpu_shader_2D_point_varying_size_varying_color_vert.glsl
+  gpu_shader_3D_polyline_vert.glsl
   gpu_shader_2D_vert.glsl
   gpu_shader_2D_widget_base_vert.glsl
   gpu_shader_2D_widget_shadow_vert.glsl
@@ -30,6 +31,7 @@ set(SRC_GLSL_VERT
   gpu_shader_3D_normal_vert.glsl
   gpu_shader_3D_point_uniform_size_aa_vert.glsl
   gpu_shader_3D_point_varying_size_varying_color_vert.glsl
+  gpu_shader_3D_point_flat_color_vert.glsl
   gpu_shader_3D_smooth_color_vert.glsl
   gpu_shader_display_fallback_vert.glsl
   gpu_shader_gpencil_stroke_vert.glsl
@@ -91,5 +93,7 @@ if(WITH_GPU_SHADER_CPP_COMPILATION)
 
   compile_sources_as_cpp(gpu_cpp_shaders_vert "${SRC_GLSL_VERT}" "GPU_VERTEX_SHADER")
   compile_sources_as_cpp(gpu_cpp_shaders_frag "${SRC_GLSL_FRAG}" "GPU_FRAGMENT_SHADER")
-  compile_sources_as_cpp(gpu_cpp_shaders_lib "${SRC_GLSL_LIB}" "GPU_LIBRARY_SHADER")
+  # Only enable to make sure they compile on their own.
+  # Otherwise it creates a warning about `pragma once`.
+  # compile_sources_as_cpp(gpu_cpp_shaders_lib "${SRC_GLSL_LIB}" "GPU_LIBRARY_SHADER")
 endif()

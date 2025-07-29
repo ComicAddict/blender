@@ -26,7 +26,7 @@ bool transformModeUseSnap(const TransInfo *t);
 
 void tranform_snap_target_median_calc(const TransInfo *t, float r_median[3]);
 bool transform_snap_increment_ex(const TransInfo *t, bool use_local_space, float *r_val);
-bool transform_snap_increment(const TransInfo *t, float *val);
+bool transform_snap_increment(const TransInfo *t, float *r_val);
 float transform_snap_increment_get(const TransInfo *t);
 
 void tranform_snap_source_restore_context(TransInfo *t);
@@ -37,6 +37,7 @@ bool transform_snap_is_active(const TransInfo *t);
 bool validSnap(const TransInfo *t);
 
 void transform_snap_grid_init(const TransInfo *t, float r_snap[3], float *r_snap_precision);
+void transform_snap_reset_from_mode(TransInfo *t, wmOperator *op);
 void initSnapping(TransInfo *t, wmOperator *op);
 void freeSnapping(TransInfo *t);
 void initSnapAngleIncrements(TransInfo *t);

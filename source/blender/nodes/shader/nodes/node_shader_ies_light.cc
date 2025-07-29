@@ -7,7 +7,7 @@
 
 #include "RNA_access.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 namespace blender::nodes::node_shader_ies_light_cc {
@@ -28,23 +28,22 @@ static void node_shader_buts_ies(uiLayout *layout, bContext * /*C*/, PointerRNA 
 {
   uiLayout *row;
 
-  row = uiLayoutRow(layout, false);
-  uiItemR(
-      row, ptr, "mode", UI_ITEM_R_SPLIT_EMPTY_NAME | UI_ITEM_R_EXPAND, std::nullopt, ICON_NONE);
+  row = &layout->row(false);
+  row->prop(ptr, "mode", UI_ITEM_R_SPLIT_EMPTY_NAME | UI_ITEM_R_EXPAND, std::nullopt, ICON_NONE);
 
-  row = uiLayoutRow(layout, true);
+  row = &layout->row(true);
 
   if (RNA_enum_get(ptr, "mode") == NODE_IES_INTERNAL) {
-    uiItemR(row, ptr, "ies", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+    row->prop(ptr, "ies", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
   }
   else {
-    uiItemR(row, ptr, "filepath", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+    row->prop(ptr, "filepath", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
   }
 }
 
 static void node_shader_init_tex_ies(bNodeTree * /*ntree*/, bNode *node)
 {
-  NodeShaderTexIES *tex = MEM_cnew<NodeShaderTexIES>("NodeShaderIESLight");
+  NodeShaderTexIES *tex = MEM_callocN<NodeShaderTexIES>("NodeShaderIESLight");
   node->storage = tex;
 }
 

@@ -610,7 +610,8 @@ class TVertex : public ViewVertex {
     return nullptr;
   }
 
-  /* iterators access */
+  /* Iterators access. */
+
   virtual edge_iterator edges_begin();
   virtual const_edge_iterator edges_begin() const;
   virtual edge_iterator edges_end();
@@ -827,7 +828,8 @@ class NonTVertex : public ViewVertex {
     }
   }
 
-  /* iterators access */
+  /* Iterators access. */
+
   virtual edge_iterator edges_begin();
   virtual const_edge_iterator edges_begin() const;
   virtual edge_iterator edges_end();
@@ -1299,7 +1301,7 @@ class ViewEdge : public Interface1D {
 
   inline const SShape *occluded_shape() const;
 
-  inline const bool occludee_empty() const
+  inline bool occludee_empty() const
   {
     if (_aShape == 0) {
       return true;

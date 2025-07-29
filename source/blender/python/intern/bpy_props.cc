@@ -38,7 +38,7 @@
 
 #include "../generic/py_capi_rna.hh"
 #include "../generic/py_capi_utils.hh"
-#include "../generic/python_compat.hh"
+#include "../generic/python_compat.hh" /* IWYU pragma: keep. */
 
 using blender::Array;
 
@@ -174,7 +174,7 @@ static BPyPropStore *bpy_prop_py_data_ensure(PropertyRNA *prop)
 {
   BPyPropStore *prop_store = static_cast<BPyPropStore *>(RNA_property_py_data_get(prop));
   if (prop_store == nullptr) {
-    prop_store = static_cast<BPyPropStore *>(MEM_callocN(sizeof(*prop_store), __func__));
+    prop_store = MEM_callocN<BPyPropStore>(__func__);
     RNA_def_py_data(prop, prop_store);
     BLI_addtail(&g_bpy_prop_store_list, prop_store);
   }
@@ -1763,8 +1763,7 @@ static const EnumPropertyItem *enum_items_from_py(PyObject *seq_fast,
   /* blank value */
   *r_default_value = 0;
 
-  items = static_cast<EnumPropertyItem *>(
-      MEM_callocN(sizeof(EnumPropertyItem) * (seq_len + 1), "enum_items_from_py1"));
+  items = MEM_calloc_arrayN<EnumPropertyItem>(size_t(seq_len) + 1, "enum_items_from_py1");
 
   for (i = 0; i < seq_len; i++) {
     EnumPropertyItem tmp = {0, "", 0, "", ""};
@@ -2274,7 +2273,7 @@ static StructRNA *bpy_prop_deferred_data_or_srna(PyObject *self,
     self = PyTuple_GET_ITEM(args, 0);
     args = PyTuple_New(0);
 
-    /* This will be #BPy_BoolProperty` or one of the functions that define a type. */
+    /* This will be #BPy_BoolProperty or one of the functions that define a type. */
     PyCFunctionWithKeywords method_fn = (PyCFunctionWithKeywords)(void *)method_def->ml_meth;
     *r_deferred_result = method_fn(self, args, kw);
     Py_DECREF(args);
@@ -3887,14 +3886,14 @@ PyDoc_STRVAR(
     "         Python must keep a reference to the strings returned by the callback or Blender\n"
     "         will misbehave or even crash."
     "\n"
-    "   :type items: Sequence["
+    "   :type items: Iterable["
     "tuple[str, str, str] | "
     "tuple[str, str, str, int] | "
     "tuple[str, str, str, int, int] | "
     "None] | "
     "Callable[[:class:`bpy.types.bpy_struct`, :class:`bpy.types.Context` | None], "
     /* NOTE(@ideasman42): a type alias would be useful here (same as above). */
-    "Sequence["
+    "Iterable["
     "tuple[str, str, str] | "
     "tuple[str, str, str, int] | "
     "tuple[str, str, str, int, int] | "
@@ -4096,7 +4095,7 @@ static PyObject *BPy_EnumProperty(PyObject *self, PyObject *args, PyObject *kw)
      * otherwise if this is a generator it may free the strings before we copy them */
     Py_DECREF(items_fast);
 
-    MEM_freeN((void *)eitems);
+    MEM_freeN(eitems);
   }
 
   Py_RETURN_NONE;
@@ -4275,11 +4274,6 @@ PyObject *BPy_PointerProperty(PyObject *self, PyObject *args, PyObject *kw)
     bpy_prop_assign_flag_override(prop, override_enum.value);
   }
 
-  if (RNA_struct_is_a(ptype, &RNA_PropertyGroup)) {
-    /* Set the flag for generated documentation. */
-    RNA_def_property_flag(prop, PROP_NEVER_NULL);
-  }
-
   if (RNA_struct_idprops_contains_datablock(ptype)) {
     if (RNA_struct_is_a(srna, &RNA_PropertyGroup)) {
       RNA_def_struct_flag(srna, STRUCT_CONTAINS_DATABLOCK_IDPROPERTIES);
@@ -4417,9 +4411,6 @@ PyObject *BPy_CollectionProperty(PyObject *self, PyObject *args, PyObject *kw)
     bpy_prop_assign_flag_override(prop, override_enum.value);
   }
 
-  /* Set the flag for generated documentation. */
-  RNA_def_property_flag(prop, PROP_NEVER_NULL);
-
   if (RNA_struct_idprops_contains_datablock(ptype)) {
     if (RNA_struct_is_a(srna, &RNA_PropertyGroup)) {
       RNA_def_struct_flag(srna, STRUCT_CONTAINS_DATABLOCK_IDPROPERTIES);
@@ -4501,9 +4492,14 @@ static PyObject *BPy_RemoveProperty(PyObject *self, PyObject *args, PyObject *kw
 /** \name Main Module `bpy.props`
  * \{ */
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic push
-#  pragma GCC diagnostic ignored "-Wcast-function-type"
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wcast-function-type"
+#  else
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wcast-function-type"
+#  endif
 #endif
 
 static PyMethodDef props_methods[] = {
@@ -4555,8 +4551,12 @@ static PyMethodDef props_methods[] = {
     {nullptr, nullptr, 0, nullptr},
 };
 
-#if (defined(__GNUC__) && !defined(__clang__))
-#  pragma GCC diagnostic pop
+#ifdef __GNUC__
+#  ifdef __clang__
+#    pragma clang diagnostic pop
+#  else
+#    pragma GCC diagnostic pop
+#  endif
 #endif
 
 static int props_visit(PyObject * /*self*/, visitproc visit, void *arg)
@@ -4611,7 +4611,7 @@ PyObject *BPY_rna_props()
   submodule = PyModule_Create(&props_module);
   PyDict_SetItemString(PyImport_GetModuleDict(), props_module.m_name, submodule);
 
-  /* api needs the PyObjects internally */
+  /* API needs the PyObjects internally. */
   submodule_dict = PyModule_GetDict(submodule);
 
 #define ASSIGN_STATIC(_name) pymeth_##_name = PyDict_GetItemString(submodule_dict, #_name)

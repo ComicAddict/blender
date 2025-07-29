@@ -35,7 +35,7 @@ int BLI_windows_get_executable_dir(char r_dirpath[/*FILE_MAXDIR*/])
   char filepath[FILE_MAX];
   char dir[FILE_MAX];
   int a;
-  /* Change to utf support. */
+  /* Change to UTF support. */
   GetModuleFileName(nullptr, filepath, sizeof(filepath));
   BLI_path_split_dir_part(filepath, dir, sizeof(dir)); /* shouldn't be relative */
   a = strlen(dir);
@@ -193,8 +193,9 @@ bool BLI_windows_register_blend_extension(const bool all_users)
   GetModuleFileName(0, blender_path, sizeof(blender_path));
 
   /* Prevent overflow when we add -launcher to the executable name. */
-  if (strlen(blender_path) > (sizeof(blender_path) - 10))
+  if (strlen(blender_path) > (sizeof(blender_path) - 10)) {
     return false;
+  }
 
   /* Replace the actual app name with the wrapper. */
   blender_app = strstr(blender_path, "blender.exe");

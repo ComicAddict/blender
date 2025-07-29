@@ -12,7 +12,7 @@
 
 #include "NOD_rna_define.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "node_geometry_util.hh"
@@ -25,7 +25,8 @@ static void node_declare(NodeDeclarationBuilder &b)
 {
   b.add_input<decl::Geometry>("Geometry", "Target")
       .only_realized_data()
-      .supported_type({GeometryComponent::Type::Mesh, GeometryComponent::Type::PointCloud});
+      .supported_type({GeometryComponent::Type::Mesh, GeometryComponent::Type::PointCloud})
+      .description("Geometry to find the closest point on");
   b.add_input<decl::Int>("Group ID")
       .hide_value()
       .field_on_all()
@@ -33,7 +34,7 @@ static void node_declare(NodeDeclarationBuilder &b)
           "Splits the elements of the input geometry into groups which can be sampled "
           "individually");
   b.add_input<decl::Vector>("Sample Position", "Source Position")
-      .implicit_field(implicit_field_inputs::position);
+      .implicit_field(NODE_DEFAULT_INPUT_POSITION_FIELD);
   b.add_input<decl::Int>("Sample Group ID").hide_value().supports_field();
   b.add_output<decl::Vector>("Position").dependent_field({2, 3}).reference_pass_all();
   b.add_output<decl::Float>("Distance").dependent_field({2, 3}).reference_pass_all();
@@ -45,12 +46,12 @@ static void node_declare(NodeDeclarationBuilder &b)
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "target_element", UI_ITEM_NONE, "", ICON_NONE);
+  layout->prop(ptr, "target_element", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void geo_proximity_init(bNodeTree * /*tree*/, bNode *node)
 {
-  NodeGeometryProximity *node_storage = MEM_cnew<NodeGeometryProximity>(__func__);
+  NodeGeometryProximity *node_storage = MEM_callocN<NodeGeometryProximity>(__func__);
   node_storage->target_element = GEO_NODE_PROX_TARGET_FACES;
   node->storage = node_storage;
 }
@@ -265,7 +266,7 @@ static void node_geo_exec(GeoNodeExecParams params)
 
   auto proximity_fn = std::make_unique<ProximityFunction>(
       std::move(target), GeometryNodeProximityTargetType(storage.target_element), group_id_field);
-  auto proximity_op = FieldOperation::Create(
+  auto proximity_op = FieldOperation::from(
       std::move(proximity_fn), {std::move(position_field), std::move(sample_id_field)});
 
   params.set_output("Position", Field<float3>(proximity_op, 0));

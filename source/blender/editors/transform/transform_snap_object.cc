@@ -472,30 +472,31 @@ static eSnapMode iter_snap_objects(SnapObjectContext *sctx, IterSnapObjsCallback
   BKE_view_layer_synced_ensure(scene, view_layer);
   Base *base_act = BKE_view_layer_active_base_get(view_layer);
 
+  DupliList duplilist;
   LISTBASE_FOREACH (Base *, base, BKE_view_layer_object_bases_get(view_layer)) {
     if (!snap_object_is_snappable(sctx, snap_target_select, base_act, base)) {
       continue;
     }
 
     const bool is_object_active = (base == base_act);
-    Object *obj_eval = DEG_get_evaluated_object(sctx->runtime.depsgraph, base->object);
+    Object *obj_eval = DEG_get_evaluated(sctx->runtime.depsgraph, base->object);
     if (obj_eval->transflag & OB_DUPLI ||
         blender::bke::object_has_geometry_set_instances(*obj_eval))
     {
-      ListBase *lb = object_duplilist(sctx->runtime.depsgraph, sctx->scene, obj_eval);
-      LISTBASE_FOREACH (DupliObject *, dupli_ob, lb) {
-        BLI_assert(DEG_is_evaluated_object(dupli_ob->ob));
+      object_duplilist(sctx->runtime.depsgraph, sctx->scene, obj_eval, nullptr, duplilist);
+      for (DupliObject &dupli_ob : duplilist) {
+        BLI_assert(DEG_is_evaluated(dupli_ob.ob));
         if ((tmp = sob_callback(sctx,
-                                dupli_ob->ob,
-                                dupli_ob->ob_data,
-                                float4x4(dupli_ob->mat),
+                                dupli_ob.ob,
+                                dupli_ob.ob_data,
+                                float4x4(dupli_ob.mat),
                                 is_object_active,
                                 false)) != SCE_SNAP_TO_NONE)
         {
           ret = tmp;
         }
       }
-      free_object_duplilist(lb);
+      duplilist.clear();
     }
 
     bool use_hide = false;
@@ -1164,10 +1165,10 @@ static bool snap_object_context_runtime_init(SnapObjectContext *sctx,
       }
     }
   }
+  sctx->runtime.hit_list = hit_list;
 
   sctx->ret.ray_depth_max = sctx->ret.ray_depth_max_in_front = ray_depth;
   sctx->ret.index = -1;
-  sctx->ret.hit_list = hit_list;
   sctx->ret.ob = nullptr;
   sctx->ret.data = nullptr;
   sctx->ret.dist_px_sq = dist_px_sq;
@@ -1423,6 +1424,16 @@ eSnapMode snap_object_project_view3d_ex(SnapObjectContext *sctx,
     /* Remove what has already been computed. */
     sctx->runtime.snap_to_flag &= ~(SCE_SNAP_TO_FACE | SCE_SNAP_INDIVIDUAL_NEAREST);
 
+    SnapObjectContext::Output ret_bak{};
+    if (!(sctx->runtime.snap_to_flag & SCE_SNAP_TO_EDGE) &&
+        (sctx->runtime.snap_to_flag &
+         (SCE_SNAP_TO_EDGE_MIDPOINT | SCE_SNAP_TO_EDGE_ENDPOINT | SCE_SNAP_TO_EDGE_PERPENDICULAR)))
+    {
+      /* 'Snap to Edge' may occur even if it is not included among the selected snap types.
+       * Save a backup to restore the previous result if needed. */
+      ret_bak = sctx->ret;
+    }
+
     if (use_occlusion_plane && has_hit) {
       /* Compute the new clip_pane but do not add it yet. */
       BLI_ASSERT_UNIT_V3(sctx->ret.no);
@@ -1453,11 +1464,18 @@ eSnapMode snap_object_project_view3d_ex(SnapObjectContext *sctx,
       elem = elem_test;
     }
 
-    if ((elem == SCE_SNAP_TO_EDGE) &&
-        (snap_to_flag &
-         (SCE_SNAP_TO_EDGE_ENDPOINT | SCE_SNAP_TO_EDGE_MIDPOINT | SCE_SNAP_TO_EDGE_PERPENDICULAR)))
-    {
-      elem = snap_edge_points(sctx, square_f(*dist_px));
+    if (elem == SCE_SNAP_TO_EDGE) {
+      if (snap_to_flag &
+          (SCE_SNAP_TO_EDGE_ENDPOINT | SCE_SNAP_TO_EDGE_MIDPOINT | SCE_SNAP_TO_EDGE_PERPENDICULAR))
+      {
+        elem = snap_edge_points(sctx, square_f(*dist_px));
+      }
+
+      if (!(elem & snap_to_flag)) {
+        /* Restore the previous snap. */
+        elem = SCE_SNAP_TO_NONE;
+        sctx->ret = ret_bak;
+      }
     }
 
     if (elem != SCE_SNAP_TO_NONE) {

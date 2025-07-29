@@ -70,6 +70,7 @@ void filelist_set_asset_catalog_filter_options(
     FileList *filelist,
     eFileSel_Params_AssetCatalogVisibility catalog_visibility,
     const bUUID *catalog_id);
+bool filelist_needs_filtering(FileList *filelist);
 void filelist_tag_needs_filtering(FileList *filelist);
 void filelist_filter(FileList *filelist);
 /**
@@ -81,7 +82,7 @@ void filelist_init_icons();
 void filelist_free_icons();
 void filelist_file_get_full_path(const FileList *filelist,
                                  const FileDirEntry *file,
-                                 char r_filepath[/*FILE_MAX_LIBEXTRA*/]);
+                                 char r_filepath[/*FILE_MAX_LIBEXTRA*/ 1282]);
 bool filelist_file_is_preview_pending(const FileList *filelist, const FileDirEntry *file);
 /**
  * \return True if a new preview request was pushed, false otherwise (e.g. because the preview is
@@ -120,7 +121,7 @@ bool filelist_is_dir(const FileList *filelist, const char *path);
 /**
  * May modify in place given `dirpath`, which is expected to be #FILE_MAX_LIBEXTRA length.
  */
-void filelist_setdir(FileList *filelist, char dirpath[1090 /*FILE_MAX_LIBEXTRA*/]);
+void filelist_setdir(FileList *filelist, char dirpath[/*FILE_MAX_LIBEXTRA*/ 1282]);
 
 /**
  * Limited version of full update done by space_file's file_refresh(),
@@ -179,6 +180,7 @@ bool filelist_file_cache_block(FileList *filelist, int index);
 bool filelist_needs_force_reset(const FileList *filelist);
 void filelist_tag_force_reset(FileList *filelist);
 void filelist_tag_force_reset_mainfiles(FileList *filelist);
+void filelist_tag_reload_asset_library(FileList *filelist);
 bool filelist_pending(const FileList *filelist);
 bool filelist_needs_reset_on_main_changes(const FileList *filelist);
 bool filelist_is_ready(const FileList *filelist);
@@ -230,6 +232,10 @@ void filelist_freelib(FileList *filelist);
  */
 int filelist_files_num_entries(FileList *filelist);
 
+/** Forcibly run the job as a blocking task on the main thread. */
+void filelist_readjob_blocking_run(FileList *filelist, int space_notifier, const bContext *C);
+
+/** May run the job in either the main thread or asynchronously. */
 void filelist_readjob_start(FileList *filelist, int space_notifier, const bContext *C);
 void filelist_readjob_stop(FileList *filelist, wmWindowManager *wm);
 int filelist_readjob_running(FileList *filelist, wmWindowManager *wm);

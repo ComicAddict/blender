@@ -11,7 +11,7 @@
  * means it is still very little (for example 256 bytes).
  *
  * Due to this size requirements we try to use push constants when it fits on the device. If it
- * doesn't fit we fallback to use an uniform buffer.
+ * doesn't fit we fall back to use an uniform buffer.
  *
  * Shader developers are responsible to fine-tune the performance of the shader. One way to do this
  * is to tailor what will be sent as a push constant to keep the push constants within the limits.
@@ -220,9 +220,12 @@ class VKPushConstants : VKResourceTracker<VKUniformBuffer> {
     T *dst = static_cast<T *>(static_cast<void *>(&bytes[push_constant_layout->offset]));
     const int inner_row_padding = push_constant_layout->inner_row_padding;
     const bool is_tightly_std140_packed = (comp_len % 4) == 0;
+    /* Vec3[] are not tightly packed in std430. */
+    const bool is_tightly_std430_packed = comp_len != 3 || array_size == 0;
     if (inner_row_padding == 0 &&
-        (layout_->storage_type_get() == StorageType::PUSH_CONSTANTS || array_size == 0 ||
-         push_constant_layout->array_size == 0 || is_tightly_std140_packed))
+        ((layout_->storage_type_get() == StorageType::PUSH_CONSTANTS &&
+          is_tightly_std430_packed) ||
+         array_size == 0 || push_constant_layout->array_size == 0 || is_tightly_std140_packed))
     {
       const size_t copy_size_in_bytes = comp_len * max_ii(array_size, 1) * sizeof(T);
       BLI_assert_msg(push_constant_layout->offset + copy_size_in_bytes <= layout_->size_in_bytes(),

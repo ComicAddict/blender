@@ -7,8 +7,10 @@
 
 #include "BLT_translation.hh"
 
+#include "BKE_global.hh"
 #include "BKE_idtype.hh"
 #include "BKE_lib_id.hh"
+#include "BKE_main.hh"
 
 #include "ANIM_bone_collections.hh"
 #include "intern/bone_collections_internal.hh"
@@ -46,16 +48,14 @@ TEST(ANIM_bone_collections, bonecoll_default_name)
 
 class ArmatureBoneCollections : public testing::Test {
  protected:
-  bArmature arm;
-  Bone bone1, bone2, bone3;
+  bArmature arm = {};
+  Bone bone1 = {}, bone2 = {}, bone3 = {};
+  Main *bmain;
 
   void SetUp() override
   {
-    memset(&arm, 0, sizeof(arm));
-    memset(&bone1, 0, sizeof(Bone));
-    memset(&bone2, 0, sizeof(Bone));
-    memset(&bone3, 0, sizeof(Bone));
-
+    bmain = BKE_main_new();
+    G_MAIN = bmain;
     STRNCPY(arm.id.name, "ARArmature");
     STRNCPY(bone1.name, "bone1");
     STRNCPY(bone2.name, "bone2");
@@ -76,6 +76,9 @@ class ArmatureBoneCollections : public testing::Test {
 
     BKE_idtype_init();
     BKE_libblock_free_datablock(&arm.id, 0);
+
+    BKE_main_free(bmain);
+    G_MAIN = nullptr;
   }
 };
 
@@ -1285,17 +1288,16 @@ TEST_F(ArmatureBoneCollections, internal__bonecolls_rotate_block)
 
 class ArmatureBoneCollectionsTestList : public testing::Test {
  protected:
-  bArmature arm;
+  bArmature arm = {};
 
-  BoneCollection *root;
-  BoneCollection *child0;
-  BoneCollection *child1;
-  BoneCollection *child2;
-  BoneCollection *child1_0;
+  BoneCollection *root = nullptr;
+  BoneCollection *child0 = nullptr;
+  BoneCollection *child1 = nullptr;
+  BoneCollection *child2 = nullptr;
+  BoneCollection *child1_0 = nullptr;
 
   void SetUp() override
   {
-    memset(&arm, 0, sizeof(arm));
     STRNCPY(arm.id.name, "ARArmature");
 
     root = ANIM_armature_bonecoll_new(&arm, "root");
@@ -1524,13 +1526,13 @@ TEST_F(ArmatureBoneCollectionsTestList, bone_collection_solo)
 
 class ArmatureBoneCollectionsLiboverrides : public ArmatureBoneCollectionsTestList {
  protected:
-  bArmature dst_arm;
+  bArmature dst_arm = {};
 
-  BoneCollection *dst_root;
-  BoneCollection *dst_child0;
-  BoneCollection *dst_child1;
-  BoneCollection *dst_child2;
-  BoneCollection *dst_child1_0;
+  BoneCollection *dst_root = nullptr;
+  BoneCollection *dst_child0 = nullptr;
+  BoneCollection *dst_child1 = nullptr;
+  BoneCollection *dst_child2 = nullptr;
+  BoneCollection *dst_child1_0 = nullptr;
 
   void SetUp() override
   {
@@ -1538,7 +1540,6 @@ class ArmatureBoneCollectionsLiboverrides : public ArmatureBoneCollectionsTestLi
 
     /* TODO: make this clone `arm` into `dst_arm`, instead of assuming the below
      * code is still in sync with the super-class. */
-    memset(&dst_arm, 0, sizeof(dst_arm));
     STRNCPY(dst_arm.id.name, "ARArmatureDST");
 
     dst_root = ANIM_armature_bonecoll_new(&dst_arm, "root");

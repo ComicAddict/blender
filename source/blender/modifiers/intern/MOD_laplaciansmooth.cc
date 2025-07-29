@@ -21,15 +21,18 @@
 #include "BKE_deform.hh"
 #include "BKE_modifier.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "RNA_prototypes.hh"
+#include "RNA_types.hh"
 
 #include "MOD_ui_common.hh"
 #include "MOD_util.hh"
 
 #include "eigen_capi.h"
+
+namespace {
 
 struct LaplacianSystem {
   float *eweights = nullptr;      /* Length weights per Edge */
@@ -53,6 +56,8 @@ struct LaplacianSystem {
   float min_area = 0.0f;
   float vert_centroid[3] = {};
 };
+
+};  // namespace
 
 static void delete_laplacian_system(LaplacianSystem *sys)
 {
@@ -90,14 +95,14 @@ static LaplacianSystem *init_laplacian_system(int a_numEdges, int a_numLoops, in
   sys = MEM_new<LaplacianSystem>(__func__);
   sys->verts_num = a_numVerts;
 
-  sys->eweights = MEM_cnew_array<float>(a_numEdges, __func__);
-  sys->fweights = MEM_cnew_array<float[3]>(a_numLoops, __func__);
-  sys->ne_ed_num = MEM_cnew_array<short>(sys->verts_num, __func__);
-  sys->ne_fa_num = MEM_cnew_array<short>(sys->verts_num, __func__);
-  sys->ring_areas = MEM_cnew_array<float>(sys->verts_num, __func__);
-  sys->vlengths = MEM_cnew_array<float>(sys->verts_num, __func__);
-  sys->vweights = MEM_cnew_array<float>(sys->verts_num, __func__);
-  sys->zerola = MEM_cnew_array<bool>(sys->verts_num, __func__);
+  sys->eweights = MEM_calloc_arrayN<float>(a_numEdges, __func__);
+  sys->fweights = MEM_calloc_arrayN<float[3]>(a_numLoops, __func__);
+  sys->ne_ed_num = MEM_calloc_arrayN<short>(sys->verts_num, __func__);
+  sys->ne_fa_num = MEM_calloc_arrayN<short>(sys->verts_num, __func__);
+  sys->ring_areas = MEM_calloc_arrayN<float>(sys->verts_num, __func__);
+  sys->vlengths = MEM_calloc_arrayN<float>(sys->verts_num, __func__);
+  sys->vweights = MEM_calloc_arrayN<float>(sys->verts_num, __func__);
+  sys->zerola = MEM_calloc_arrayN<bool>(sys->verts_num, __func__);
 
   return sys;
 }
@@ -519,24 +524,24 @@ static void panel_draw(const bContext * /*C*/, Panel *panel)
   PointerRNA ob_ptr;
   PointerRNA *ptr = modifier_panel_get_property_pointers(panel, &ob_ptr);
 
-  uiLayoutSetPropSep(layout, true);
+  layout->use_property_split_set(true);
 
-  uiItemR(layout, ptr, "iterations", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "iterations", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
-  row = uiLayoutRowWithHeading(layout, true, IFACE_("Axis"));
-  uiItemR(row, ptr, "use_x", toggles_flag, std::nullopt, ICON_NONE);
-  uiItemR(row, ptr, "use_y", toggles_flag, std::nullopt, ICON_NONE);
-  uiItemR(row, ptr, "use_z", toggles_flag, std::nullopt, ICON_NONE);
+  row = &layout->row(true, IFACE_("Axis"));
+  row->prop(ptr, "use_x", toggles_flag, std::nullopt, ICON_NONE);
+  row->prop(ptr, "use_y", toggles_flag, std::nullopt, ICON_NONE);
+  row->prop(ptr, "use_z", toggles_flag, std::nullopt, ICON_NONE);
 
-  uiItemR(layout, ptr, "lambda_factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-  uiItemR(layout, ptr, "lambda_border", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "lambda_factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "lambda_border", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
-  uiItemR(layout, ptr, "use_volume_preserve", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-  uiItemR(layout, ptr, "use_normalized", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "use_volume_preserve", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "use_normalized", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
   modifier_vgroup_ui(layout, ptr, &ob_ptr, "vertex_group", "invert_vertex_group", std::nullopt);
 
-  modifier_panel_end(layout, ptr);
+  modifier_error_message_draw(layout, ptr);
 }
 
 static void panel_register(ARegionType *region_type)

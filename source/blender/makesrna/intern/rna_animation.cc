@@ -227,8 +227,14 @@ static void rna_AnimData_action_set(PointerRNA *ptr, PointerRNA value, ReportLis
 
 static void rna_AnimData_tmpact_set(PointerRNA *ptr, PointerRNA value, ReportList *reports)
 {
-  ID *ownerId = ptr->owner_id;
-  BKE_animdata_set_tmpact(reports, ownerId, static_cast<bAction *>(value.data));
+  ID *owner_id = ptr->owner_id;
+  AnimData *adt = (AnimData *)ptr->data;
+  BLI_assert(adt != nullptr);
+
+  bAction *action = static_cast<bAction *>(value.data);
+  if (!blender::animrig::assign_tmpaction(action, {*owner_id, *adt})) {
+    BKE_report(reports, RPT_WARNING, "Failed to set tmpact");
+  }
 }
 
 static void rna_AnimData_tweakmode_set(PointerRNA *ptr, const bool value)
@@ -295,13 +301,13 @@ void rna_generic_action_slot_handle_set(blender::animrig::slot_handle_t slot_han
       BLI_assert_unreachable();
       break;
     case ActionSlotAssignmentResult::SlotNotSuitable:
-      WM_reportf(RPT_ERROR,
-                 "This slot is not suitable for this data-block type (%c%c)",
-                 animated_id.name[0],
-                 animated_id.name[1]);
+      WM_global_reportf(RPT_ERROR,
+                        "This slot is not suitable for this data-block type (%c%c)",
+                        animated_id.name[0],
+                        animated_id.name[1]);
       break;
     case ActionSlotAssignmentResult::MissingAction:
-      WM_report(RPT_ERROR, "Cannot set slot without an assigned Action.");
+      WM_global_report(RPT_ERROR, "Cannot set slot without an assigned Action.");
       break;
   }
 }
@@ -622,7 +628,7 @@ static StructRNA *rna_KeyingSetInfo_register(Main *bmain,
   }
 
   /* create a new KeyingSetInfo type */
-  ksi = static_cast<KeyingSetInfo *>(MEM_mallocN(sizeof(KeyingSetInfo), "python keying set info"));
+  ksi = MEM_mallocN<KeyingSetInfo>("python keying set info");
   memcpy(ksi, &dummy_ksi, sizeof(KeyingSetInfo));
 
   /* set RNA-extensions info */
@@ -734,7 +740,7 @@ static void rna_KeyingSet_name_set(PointerRNA *ptr, const char *value)
         for (bActionGroup *agrp : animrig::legacy::channel_groups_for_assigned_slot(adt)) {
           if (STREQ(ks->name, agrp->name)) {
             /* there should only be one of these in the action, so can stop... */
-            STRNCPY(agrp->name, value);
+            STRNCPY_UTF8(agrp->name, value);
             break;
           }
         }
@@ -1695,7 +1701,17 @@ static void rna_def_animdata(BlenderRNA *brna)
       prop, nullptr, "rna_AnimData_tmpact_set", nullptr, "rna_Action_id_poll");
   RNA_def_property_ui_text(prop,
                            "Tweak Mode Action Storage",
-                           "Slot to temporarily hold the main action while in tweak mode");
+                           "Storage to temporarily hold the main action while in tweak mode");
+  RNA_def_property_update(prop, NC_ANIMATION | ND_NLA_ACTCHANGE, "rna_AnimData_dependency_update");
+
+  /* Temporary action slot for tweak mode. Just like `action_slot_handle` this is needed for
+   * library overrides to work.*/
+  prop = RNA_def_property(srna, "action_slot_handle_tweak_storage", PROP_INT, PROP_NONE);
+  RNA_def_property_int_sdna(prop, nullptr, "tmp_slot_handle");
+  RNA_def_property_flag(prop, PROP_HIDDEN | PROP_EDITABLE);
+  RNA_def_property_ui_text(prop,
+                           "Tweak Mode Action Slot Storage",
+                           "Storage to temporarily hold the main action slot while in tweak mode");
   RNA_def_property_update(prop, NC_ANIMATION | ND_NLA_ACTCHANGE, "rna_AnimData_dependency_update");
 
   /* Drivers */

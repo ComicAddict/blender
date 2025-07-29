@@ -2,11 +2,11 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#pragma once
-
 /** \file
  * \ingroup bke
  */
+
+#pragma once
 
 #include "BLI_compiler_attrs.h"
 #include "BLI_sys_types.h"
@@ -144,7 +144,7 @@ bUserExtensionRepo *BKE_preferences_extension_repo_find_by_remote_url_prefix(
  */
 int BKE_preferences_extension_repo_remote_scheme_end(const char *url);
 /**
- * Set a name based on a URL, e.g. `https://www.example.com/path` -> `www.example.com`.
+ * Set a name based on a URL, e.g. `https://www.example.com/path` -> `example.com`.
  */
 void BKE_preferences_extension_remote_to_name(const char *remote_url, char name[64]);
 

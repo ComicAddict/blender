@@ -167,7 +167,7 @@ bNodeThreadStack *ntreeGetThreadStack(bNodeTreeExec *exec, int thread)
   }
 
   if (!nts) {
-    nts = MEM_cnew<bNodeThreadStack>("bNodeThreadStack");
+    nts = MEM_callocN<bNodeThreadStack>("bNodeThreadStack");
     nts->stack = (bNodeStack *)MEM_dupallocN(exec->stack);
     nts->used = true;
     BLI_addtail(lb, nts);
@@ -219,7 +219,7 @@ bNodeTreeExec *ntreeTexBeginExecTree_internal(bNodeExecContext *context,
   exec = ntree_exec_begin(context, ntree, parent_key);
 
   /* allocate the thread stack listbase array */
-  exec->threadstack = MEM_cnew_array<ListBase>(BLENDER_MAX_THREADS, "thread stack array");
+  exec->threadstack = MEM_calloc_arrayN<ListBase>(BLENDER_MAX_THREADS, "thread stack array");
 
   LISTBASE_FOREACH (bNode *, node, &exec->nodetree->nodes) {
     node->runtime->need_exec = 1;
@@ -239,8 +239,6 @@ bNodeTreeExec *ntreeTexBeginExecTree(bNodeTree *ntree)
   if (ntree->runtime->execdata) {
     return ntree->runtime->execdata;
   }
-
-  context.previews = ntree->previews;
 
   exec = ntreeTexBeginExecTree_internal(&context, ntree, blender::bke::NODE_INSTANCE_KEY_BASE);
 
@@ -308,9 +306,6 @@ void ntreeTexEndExecTree(bNodeTreeExec *exec)
 int ntreeTexExecTree(bNodeTree *ntree,
                      TexResult *target,
                      const float co[3],
-                     float dxt[3],
-                     float dyt[3],
-                     int osatex,
                      const short thread,
                      const Tex * /*tex*/,
                      short which_output,
@@ -324,9 +319,6 @@ int ntreeTexExecTree(bNodeTree *ntree,
   bNodeTreeExec *exec = ntree->runtime->execdata;
 
   data.co = co;
-  data.dxt = dxt;
-  data.dyt = dyt;
-  data.osatex = osatex;
   data.target = target;
   data.do_preview = preview;
   data.do_manage = true;

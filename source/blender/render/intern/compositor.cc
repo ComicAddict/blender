@@ -12,8 +12,6 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "DNA_ID.h"
-
 #include "BKE_cryptomatte.hh"
 #include "BKE_global.hh"
 #include "BKE_image.hh"
@@ -93,7 +91,7 @@ class Context : public compositor::Context {
   /* Cached GPU and CPU passes that the compositor took ownership of. Those had their reference
    * count incremented when accessed and need to be freed/have their reference count decremented
    * when destroying the context. */
-  Vector<GPUTexture *> cached_gpu_passes_;
+  Vector<blender::gpu::Texture *> cached_gpu_passes_;
   Vector<ImBuf *> cached_cpu_passes_;
 
  public:
@@ -109,7 +107,7 @@ class Context : public compositor::Context {
   {
     output_result_.release();
     viewer_output_result_.release();
-    for (GPUTexture *pass : cached_gpu_passes_) {
+    for (blender::gpu::Texture *pass : cached_gpu_passes_) {
       GPU_texture_free(pass);
     }
     for (ImBuf *pass : cached_cpu_passes_) {
@@ -137,17 +135,6 @@ class Context : public compositor::Context {
     return this->get_render_data().compositor_device == SCE_COMPOSITOR_DEVICE_GPU;
   }
 
-  eCompositorDenoiseQaulity get_denoise_quality() const override
-  {
-    if (this->render_context()) {
-      return static_cast<eCompositorDenoiseQaulity>(
-          this->get_render_data().compositor_denoise_final_quality);
-    }
-
-    return static_cast<eCompositorDenoiseQaulity>(
-        this->get_render_data().compositor_denoise_preview_quality);
-  }
-
   compositor::OutputTypes needed_outputs() const override
   {
     return input_data_.needed_outputs;
@@ -158,22 +145,32 @@ class Context : public compositor::Context {
     return *(input_data_.render_data);
   }
 
-  int2 get_render_size() const override
+  int2 get_render_size() const
   {
-    int width, height;
-    BKE_render_resolution(input_data_.render_data, true, &width, &height);
-    return int2(width, height);
+    Render *render = RE_GetSceneRender(input_data_.scene);
+    RenderResult *render_result = RE_AcquireResultRead(render);
+
+    /* If a render result already exist, use its size, since the compositor operates on the render
+     * settings at which the render happened. Otherwise, use the size from the render data. */
+    int2 size;
+    if (render_result) {
+      size = int2(render_result->rectx, render_result->recty);
+    }
+    else {
+      BKE_render_resolution(input_data_.render_data, true, &size.x, &size.y);
+    }
+
+    RE_ReleaseResult(render);
+
+    return size;
   }
 
-  rcti get_compositing_region() const override
+  Bounds<int2> get_compositing_region() const override
   {
-    const int2 render_size = get_render_size();
-    const rcti render_region = rcti{0, render_size.x, 0, render_size.y};
-
-    return render_region;
+    return Bounds<int2>(int2(0), this->get_render_size());
   }
 
-  compositor::Result get_output_result() override
+  compositor::Result get_output() override
   {
     const int2 render_size = get_render_size();
     if (output_result_.is_allocated()) {
@@ -184,16 +181,16 @@ class Context : public compositor::Context {
       /* Otherwise, the size changed, so release its data and reset it, then we reallocate it on
        * the new render size below. */
       output_result_.release();
-      output_result_.reset();
+      output_result_ = this->create_result(compositor::ResultType::Color);
     }
 
     output_result_.allocate_texture(render_size, false);
     return output_result_;
   }
 
-  compositor::Result get_viewer_output_result(compositor::Domain domain,
-                                              const bool is_data,
-                                              compositor::ResultPrecision precision) override
+  compositor::Result get_viewer_output(compositor::Domain domain,
+                                       const bool is_data,
+                                       compositor::ResultPrecision precision) override
   {
     viewer_output_result_.set_transformation(domain.transformation);
     viewer_output_result_.meta_data.is_non_color_data = is_data;
@@ -205,10 +202,13 @@ class Context : public compositor::Context {
       {
         return viewer_output_result_;
       }
+
       /* Otherwise, the size or precision changed, so release its data and reset it, then we
        * reallocate it on the new domain below. */
       viewer_output_result_.release();
-      viewer_output_result_.reset();
+      viewer_output_result_ = this->create_result(compositor::ResultType::Color);
+      viewer_output_result_.set_transformation(domain.transformation);
+      viewer_output_result_.meta_data.is_non_color_data = is_data;
     }
 
     viewer_output_result_.set_precision(precision);
@@ -216,10 +216,12 @@ class Context : public compositor::Context {
     return viewer_output_result_;
   }
 
-  compositor::Result get_pass(const Scene *scene,
-                              int view_layer_id,
-                              const char *pass_name) override
+  compositor::Result get_input(const Scene *scene, int view_layer_id, const char *name) override
   {
+    /* Blender aliases the Image pass name to be the Combined pass, so we return the combined pass
+     * in that case. */
+    const char *pass_name = StringRef(name) == "Image" ? "Combined" : name;
+
     if (!scene) {
       return compositor::Result(*this);
     }
@@ -263,7 +265,7 @@ class Context : public compositor::Context {
         *this, this->result_type_from_pass(render_pass), compositor::ResultPrecision::Full);
 
     if (this->use_gpu()) {
-      GPUTexture *pass_texture = RE_pass_ensure_gpu_texture_cache(render, render_pass);
+      blender::gpu::Texture *pass_texture = RE_pass_ensure_gpu_texture_cache(render, render_pass);
       /* Don't assume render will keep pass data stored, add our own reference. */
       GPU_texture_ref(pass_texture);
       pass.wrap_external(pass_texture);
@@ -329,24 +331,6 @@ class Context : public compositor::Context {
     return compositor::ResultPrecision::Full;
   }
 
-  void set_info_message(StringRef /*message*/) const override
-  {
-    /* TODO: ignored for now. Currently only used to communicate incomplete node support
-     * which is already shown on the node itself.
-     *
-     * Perhaps this overall info message could be replaced by a boolean indicating
-     * incomplete support, and leave more specific message to individual nodes? */
-  }
-
-  IDRecalcFlag query_id_recalc_flag(ID *id) const override
-  {
-    DrawEngineType *owner = (DrawEngineType *)this;
-    DrawData *draw_data = DRW_drawdata_ensure(id, owner, sizeof(DrawData), nullptr, nullptr);
-    IDRecalcFlag recalc_flag = IDRecalcFlag(draw_data->recalc);
-    draw_data->recalc = IDRecalcFlag(0);
-    return recalc_flag;
-  }
-
   void populate_meta_data_for_pass(const Scene *scene,
                                    int view_layer_id,
                                    const char *pass_name,
@@ -389,7 +373,7 @@ class Context : public compositor::Context {
     BKE_stamp_info_callback(
         &callback_data,
         render_result->stamp_data,
-        [](void *user_data, const char *key, char *value, int /*value_length*/) {
+        [](void *user_data, const char *key, char *value, int /*value_maxncpy*/) {
           StampCallbackData *data = static_cast<StampCallbackData *>(user_data);
 
           const std::string manifest_key = bke::cryptomatte::BKE_cryptomatte_meta_data_key(
@@ -436,8 +420,8 @@ class Context : public compositor::Context {
         IMB_assign_float_buffer(ibuf, output_buffer, IB_TAKE_OWNERSHIP);
       }
       else {
-        float *data = static_cast<float *>(
-            MEM_malloc_arrayN(rr->rectx * rr->recty, 4 * sizeof(float), __func__));
+        float *data = MEM_malloc_arrayN<float>(4 * size_t(rr->rectx) * size_t(rr->recty),
+                                               __func__);
         IMB_assign_float_buffer(ibuf, data, IB_TAKE_OWNERSHIP);
         std::memcpy(
             data, output_result_.cpu_data().data(), rr->rectx * rr->recty * 4 * sizeof(float));
@@ -464,8 +448,8 @@ class Context : public compositor::Context {
 
     Image *image = BKE_image_ensure_viewer(G.main, IMA_TYPE_COMPOSITE, "Viewer Node");
     const float2 translation = viewer_output_result_.domain().transformation.location();
-    image->runtime.backdrop_offset[0] = translation.x;
-    image->runtime.backdrop_offset[1] = translation.y;
+    image->runtime->backdrop_offset[0] = translation.x;
+    image->runtime->backdrop_offset[1] = translation.y;
 
     if (viewer_output_result_.meta_data.is_non_color_data) {
       image->flag &= ~IMA_VIEW_AS_RENDER;
@@ -491,11 +475,11 @@ class Context : public compositor::Context {
 
     const int2 size = viewer_output_result_.domain().size;
     if (image_buffer->x != size.x || image_buffer->y != size.y) {
-      imb_freerectImBuf(image_buffer);
-      imb_freerectfloatImBuf(image_buffer);
+      IMB_free_byte_pixels(image_buffer);
+      IMB_free_float_pixels(image_buffer);
       image_buffer->x = size.x;
       image_buffer->y = size.y;
-      imb_addrectfloatImBuf(image_buffer, 4);
+      IMB_alloc_float_pixels(image_buffer, 4);
       image_buffer->userflags |= IB_DISPLAY_BUFFER_INVALID;
     }
 
@@ -629,8 +613,6 @@ class Compositor {
       }
     }
 
-    /* Always recreate the evaluator, as this only runs on compositing node changes and
-     * there is no reason to cache this. Unlike the viewport where it helps for navigation. */
     {
       compositor::Evaluator evaluator(*context_);
       evaluator.evaluate();

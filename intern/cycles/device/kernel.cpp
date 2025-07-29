@@ -163,7 +163,7 @@ const char *device_kernel_as_string(DeviceKernel kernel)
       break;
   };
 #ifndef __KERNEL_ONEAPI__
-  LOG(FATAL) << "Unhandled kernel " << static_cast<int>(kernel) << ", should never happen.";
+  LOG_FATAL << "Unhandled kernel " << static_cast<int>(kernel) << ", should never happen.";
 #endif
   return "UNKNOWN";
 }
@@ -179,8 +179,8 @@ string device_kernel_mask_as_string(DeviceKernelMask mask)
 {
   string str;
 
-  for (uint64_t i = 0; i < sizeof(DeviceKernelMask) * 8; i++) {
-    if (mask & (uint64_t(1) << i)) {
+  for (uint64_t i = 0; i < mask.size(); i++) {
+    if (mask.test(i)) {
       if (!str.empty()) {
         str += " ";
       }
@@ -189,6 +189,17 @@ string device_kernel_mask_as_string(DeviceKernelMask mask)
   }
 
   return str;
+}
+
+bool DeviceKernelMask::operator<(const DeviceKernelMask &other) const
+{
+  for (size_t i = 0; i < size(); i++) {
+    if (test(i) ^ other.test(i)) {
+      return other.test(i);
+    }
+  }
+
+  return false;
 }
 #endif
 

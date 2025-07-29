@@ -19,7 +19,6 @@
 
 #include "BKE_screen.hh"
 
-#include "UI_interface.hh"
 #include "UI_view2d.hh"
 
 #include "RNA_access.hh"
@@ -40,39 +39,40 @@ using blender::StringRef;
 bool ui_but_is_editable(const uiBut *but)
 {
   return !ELEM(but->type,
-               UI_BTYPE_LABEL,
-               UI_BTYPE_SEPR,
-               UI_BTYPE_SEPR_LINE,
-               UI_BTYPE_ROUNDBOX,
-               UI_BTYPE_LISTBOX,
-               UI_BTYPE_PROGRESS);
+               ButType::Label,
+               ButType::Sepr,
+               ButType::SeprLine,
+               ButType::Roundbox,
+               ButType::ListBox,
+               ButType::Progress);
 }
 
 bool ui_but_is_editable_as_text(const uiBut *but)
 {
-  return ELEM(but->type, UI_BTYPE_TEXT, UI_BTYPE_NUM, UI_BTYPE_NUM_SLIDER, UI_BTYPE_SEARCH_MENU);
+  return ELEM(but->type, ButType::Text, ButType::Num, ButType::NumSlider, ButType::SearchMenu);
 }
 
 bool ui_but_is_toggle(const uiBut *but)
 {
   return ELEM(but->type,
-              UI_BTYPE_BUT_TOGGLE,
-              UI_BTYPE_TOGGLE,
-              UI_BTYPE_ICON_TOGGLE,
-              UI_BTYPE_ICON_TOGGLE_N,
-              UI_BTYPE_TOGGLE_N,
-              UI_BTYPE_CHECKBOX,
-              UI_BTYPE_CHECKBOX_N,
-              UI_BTYPE_ROW);
+              ButType::ButToggle,
+              ButType::Toggle,
+              ButType::IconToggle,
+              ButType::IconToggleN,
+              ButType::ToggleN,
+              ButType::Checkbox,
+              ButType::CheckboxN,
+              ButType::Row);
 }
 
 bool ui_but_is_interactive_ex(const uiBut *but, const bool labeledit, const bool for_tooltip)
 {
-  /* NOTE: #UI_BTYPE_LABEL is included for highlights, this allows drags. */
-  if (ELEM(but->type, UI_BTYPE_LABEL, UI_BTYPE_PREVIEW_TILE)) {
+  /* NOTE: #ButType::Label is included for highlights, this allows drags. */
+  if (ELEM(but->type, ButType::Label, ButType::PreviewTile)) {
     if (for_tooltip) {
       /* It's important labels are considered interactive for the purpose of showing tooltip. */
       if (!ui_but_drag_is_draggable(but) && but->tip_func == nullptr &&
+          but->tip_custom_func == nullptr && but->tip_quick_func == nullptr &&
           (but->tip == nullptr || but->tip[0] == '\0'))
       {
         return false;
@@ -85,7 +85,7 @@ bool ui_but_is_interactive_ex(const uiBut *but, const bool labeledit, const bool
     }
   }
 
-  if (ELEM(but->type, UI_BTYPE_ROUNDBOX, UI_BTYPE_SEPR, UI_BTYPE_SEPR_LINE, UI_BTYPE_LISTBOX)) {
+  if (ELEM(but->type, ButType::Roundbox, ButType::Sepr, ButType::SeprLine, ButType::ListBox)) {
     return false;
   }
   if (but->flag & UI_HIDDEN) {
@@ -94,15 +94,16 @@ bool ui_but_is_interactive_ex(const uiBut *but, const bool labeledit, const bool
   if (but->flag & UI_SCROLLED) {
     return false;
   }
-  if ((but->type == UI_BTYPE_TEXT) &&
-      ELEM(but->emboss, UI_EMBOSS_NONE, UI_EMBOSS_NONE_OR_STATUS) && !labeledit)
+  if ((but->type == ButType::Text) &&
+      ELEM(but->emboss, blender::ui::EmbossType::None, blender::ui::EmbossType::NoneOrStatus) &&
+      !labeledit)
   {
     return false;
   }
-  if ((but->type == UI_BTYPE_LISTROW) && labeledit) {
+  if ((but->type == ButType::ListRow) && labeledit) {
     return false;
   }
-  if (but->type == UI_BTYPE_VIEW_ITEM) {
+  if (but->type == ButType::ViewItem) {
     const uiButViewItem *but_item = static_cast<const uiButViewItem *>(but);
     return but_item->view_item->is_interactive();
   }
@@ -127,7 +128,7 @@ bool UI_but_is_utf8(const uiBut *but)
 #ifdef USE_UI_POPOVER_ONCE
 bool ui_but_is_popover_once_compat(const uiBut *but)
 {
-  return (ELEM(but->type, UI_BTYPE_BUT, UI_BTYPE_DECORATOR) || ui_but_is_toggle(but));
+  return (ELEM(but->type, ButType::But, ButType::Decorator) || ui_but_is_toggle(but));
 }
 #endif
 
@@ -151,9 +152,9 @@ bool UI_but_is_tool(const uiBut *but)
   return false;
 }
 
-bool UI_but_has_tooltip_label(const uiBut *but)
+bool UI_but_has_quick_tooltip(const uiBut *but)
 {
-  return (but->drawflag & UI_BUT_HAS_TOOLTIP_LABEL) != 0;
+  return (but->drawflag & UI_BUT_HAS_QUICK_TOOLTIP) != 0;
 }
 
 int ui_but_icon(const uiBut *but)
@@ -165,8 +166,8 @@ int ui_but_icon(const uiBut *but)
   const bool is_preview = (but->flag & UI_BUT_ICON_PREVIEW) != 0;
 
   /* While icon is loading, show loading icon at the normal icon size. */
-  if (is_preview && ui_icon_is_preview_deferred_loading(but->icon, true)) {
-    return ICON_TEMP;
+  if (ui_icon_is_preview_deferred_loading(but->icon, is_preview)) {
+    return ICON_PREVIEW_LOADING;
   }
 
   /* Consecutive icons can be toggle between. */
@@ -422,7 +423,7 @@ uiBut *ui_list_find_mouse_over_ex(const ARegion *region, const int xy[2])
     ui_window_to_block_fl(region, block, &mx, &my);
     for (int i = block->buttons.size() - 1; i >= 0; i--) {
       uiBut *but = block->buttons[i].get();
-      if (but->type == UI_BTYPE_LISTBOX && ui_but_contains_pt(but, mx, my)) {
+      if (but->type == ButType::ListBox && ui_but_contains_pt(but, mx, my)) {
         return but;
       }
     }
@@ -452,26 +453,15 @@ uiList *UI_list_find_mouse_over(const ARegion *region, const wmEvent *event)
 
 static bool ui_list_contains_row(const uiBut *listbox_but, const uiBut *listrow_but)
 {
-  BLI_assert(listbox_but->type == UI_BTYPE_LISTBOX);
-  BLI_assert(listrow_but->type == UI_BTYPE_LISTROW);
+  BLI_assert(listbox_but->type == ButType::ListBox);
+  BLI_assert(listrow_but->type == ButType::ListRow);
   /* The list box and its rows have the same RNA data (active data pointer/prop). */
   return ui_but_rna_equals(listbox_but, listrow_but);
 }
 
-static bool ui_but_is_listbox_with_row(const uiBut *but, const void *customdata)
-{
-  const uiBut *row_but = static_cast<const uiBut *>(customdata);
-  return (but->type == UI_BTYPE_LISTBOX) && ui_list_contains_row(but, row_but);
-}
-
-uiBut *ui_list_find_from_row(const ARegion *region, const uiBut *row_but)
-{
-  return ui_but_find(region, ui_but_is_listbox_with_row, row_but);
-}
-
 static bool ui_but_is_listrow(const uiBut *but, const void * /*customdata*/)
 {
-  return but->type == UI_BTYPE_LISTROW;
+  return but->type == ButType::ListRow;
 }
 
 uiBut *ui_list_row_find_mouse_over(const ARegion *region, const int xy[2])
@@ -494,7 +484,7 @@ static bool ui_but_is_listrow_at_index(const uiBut *but, const void *customdata)
 
 uiBut *ui_list_row_find_index(const ARegion *region, const int index, uiBut *listbox)
 {
-  BLI_assert(listbox->type == UI_BTYPE_LISTBOX);
+  BLI_assert(listbox->type == ButType::ListBox);
   ListRowFindIndexData data = {};
   data.index = index;
   data.listbox = listbox;
@@ -503,7 +493,7 @@ uiBut *ui_list_row_find_index(const ARegion *region, const int index, uiBut *lis
 
 static bool ui_but_is_view_item_fn(const uiBut *but, const void * /*customdata*/)
 {
-  return but->type == UI_BTYPE_VIEW_ITEM;
+  return but->type == ButType::ViewItem;
 }
 
 uiBut *ui_view_item_find_mouse_over(const ARegion *region, const int xy[2])
@@ -513,7 +503,7 @@ uiBut *ui_view_item_find_mouse_over(const ARegion *region, const int xy[2])
 
 static bool ui_but_is_active_view_item(const uiBut *but, const void * /*customdata*/)
 {
-  if (but->type != UI_BTYPE_VIEW_ITEM) {
+  if (but->type != ButType::ViewItem) {
     return false;
   }
 
@@ -531,7 +521,7 @@ uiBut *ui_view_item_find_search_highlight(const ARegion *region)
   return ui_but_find(
       region,
       [](const uiBut *but, const void * /*find_custom_data*/) {
-        if (but->type != UI_BTYPE_VIEW_ITEM) {
+        if (but->type != ButType::ViewItem) {
           return false;
         }
 
@@ -594,13 +584,13 @@ bool ui_but_is_cursor_warp(const uiBut *but)
 {
   if (U.uiflag & USER_CONTINUOUS_MOUSE) {
     if (ELEM(but->type,
-             UI_BTYPE_NUM,
-             UI_BTYPE_NUM_SLIDER,
-             UI_BTYPE_TRACK_PREVIEW,
-             UI_BTYPE_HSVCUBE,
-             UI_BTYPE_HSVCIRCLE,
-             UI_BTYPE_CURVE,
-             UI_BTYPE_CURVEPROFILE))
+             ButType::Num,
+             ButType::NumSlider,
+             ButType::TrackPreview,
+             ButType::HsvCube,
+             ButType::HsvCircle,
+             ButType::Curve,
+             ButType::CurveProfile))
     {
       return true;
     }
@@ -695,7 +685,7 @@ static const uiBut *ui_but_next_non_separator(const uiBut *but)
   }
   for (int i = but->block->but_index(but); i < but->block->buttons.size(); i++) {
     but = but->block->buttons[i].get();
-    if (!ELEM(but->type, UI_BTYPE_SEPR, UI_BTYPE_SEPR_LINE)) {
+    if (!ELEM(but->type, ButType::Sepr, ButType::SeprLine)) {
       return but;
     }
   }
@@ -709,7 +699,7 @@ bool UI_block_is_empty_ex(const uiBlock *block, const bool skip_title)
     /* Skip the first label, since popups often have a title,
      * we may want to consider the block empty in this case. */
     but = ui_but_next_non_separator(but);
-    if (but && but->type == UI_BTYPE_LABEL) {
+    if (but && but->type == ButType::Label) {
       but = block->next_but(but);
     }
   }
@@ -725,7 +715,7 @@ bool UI_block_can_add_separator(const uiBlock *block)
 {
   if (ui_block_is_menu(block) && !ui_block_is_pie_menu(block)) {
     const uiBut *but = block->last_but();
-    return (but && !ELEM(but->type, UI_BTYPE_SEPR_LINE, UI_BTYPE_SEPR));
+    return (but && !ELEM(but->type, ButType::SeprLine, ButType::Sepr));
   }
   return true;
 }

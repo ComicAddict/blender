@@ -17,7 +17,7 @@
 
 #include "BLI_listbase.h"
 #include "BLI_rect.h"
-#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 #include "BLI_utildefines.h"
 
 #include "BKE_context.hh"
@@ -26,7 +26,7 @@
 #include "WM_api.hh"
 #include "WM_types.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_view2d.hh"
 
 #include "BLT_translation.hh"
@@ -97,7 +97,7 @@ struct HudRegionData {
    * When this cannot be resolved, use the first region of `regionid`.
    *
    * This is needed because it's possible the index is no longer available
-   * if exiting quad-view int the 3D viewport after performing an operation for e.g.
+   * if exiting quad-view in the 3D viewport after performing an operation for example.
    * so in this case use the first region.
    */
   int region_index_hint;
@@ -172,18 +172,18 @@ static void hud_panel_operator_redo_draw(const bContext *C, Panel *panel)
     return;
   }
   if (!WM_operator_check_ui_enabled(C, op->type->name)) {
-    uiLayoutSetEnabled(panel->layout, false);
+    panel->layout->enabled_set(false);
   }
-  uiLayout *col = uiLayoutColumn(panel->layout, false);
+  uiLayout *col = &panel->layout->column(false);
   uiTemplateOperatorRedoProperties(col, C);
 }
 
 static void hud_panels_register(ARegionType *art, int space_type, int region_type)
 {
-  PanelType *pt = MEM_cnew<PanelType>(__func__);
-  STRNCPY(pt->idname, "OPERATOR_PT_redo");
-  STRNCPY(pt->label, N_("Redo"));
-  STRNCPY(pt->translation_context, BLT_I18NCONTEXT_DEFAULT_BPYRNA);
+  PanelType *pt = MEM_callocN<PanelType>(__func__);
+  STRNCPY_UTF8(pt->idname, "OPERATOR_PT_redo");
+  STRNCPY_UTF8(pt->label, N_("Redo"));
+  STRNCPY_UTF8(pt->translation_context, BLT_I18NCONTEXT_DEFAULT_BPYRNA);
   pt->draw_header = hud_panel_operator_redo_draw_header;
   pt->draw = hud_panel_operator_redo_draw;
   pt->poll = hud_panel_operator_redo_poll;
@@ -293,7 +293,7 @@ static void hud_region_listener(const wmRegionListenerParams *params)
 
 ARegionType *ED_area_type_hud(int space_type)
 {
-  ARegionType *art = MEM_cnew<ARegionType>(__func__);
+  ARegionType *art = MEM_callocN<ARegionType>(__func__);
   art->regionid = RGN_TYPE_HUD;
   art->keymapflag = ED_KEYMAP_UI | ED_KEYMAP_VIEW2D;
   art->listener = hud_region_listener;
@@ -309,7 +309,7 @@ ARegionType *ED_area_type_hud(int space_type)
 
   hud_panels_register(art, space_type, art->regionid);
 
-  art->lock = 1; /* can become flag, see BKE_spacedata_draw_locks */
+  art->lock = REGION_DRAW_LOCK_ALL;
   return art;
 }
 
@@ -404,7 +404,7 @@ void ED_area_type_hud_ensure(bContext *C, ScrArea *area)
   {
     HudRegionData *hrd = static_cast<HudRegionData *>(region->regiondata);
     if (hrd == nullptr) {
-      hrd = MEM_cnew<HudRegionData>(__func__);
+      hrd = MEM_callocN<HudRegionData>(__func__);
       region->regiondata = hrd;
     }
     if (region_op) {

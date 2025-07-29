@@ -66,6 +66,8 @@
     .ysch = 1080, \
     .xasp = 1, \
     .yasp = 1, \
+    .ppm_factor = 72.0f, \
+    .ppm_base = 0.0254f, \
     .tilex = 256, \
     .tiley = 256, \
     .size = 100, \
@@ -197,11 +199,8 @@
     .volumetric_light_clamp = 0.0f, \
     .volumetric_shadow_samples = 16, \
  \
-    .gtao_distance = 0.2f, \
-    .gtao_thickness = 0.5f, \
-    .gtao_focus = 0.05f, \
-    .gtao_resolution = 2, \
- \
+    .fast_gi_bias = 0.05f, \
+    .fast_gi_resolution = 2, \
     .fast_gi_step_count = 8, \
     .fast_gi_ray_count = 2, \
     .fast_gi_quality = 0.25f, \
@@ -233,7 +232,15 @@
  \
     .overscan = 3.0f, \
  \
-    .flag = SCE_EEVEE_TAA_REPROJECTION, \
+    .flag = SCE_EEVEE_TAA_REPROJECTION | SCE_EEVEE_SHADOW_ENABLED, \
+  }
+
+#define _DNA_DEFAULT_SceneGreasePencil \
+  { \
+    .smaa_threshold = 1.0f, \
+    .smaa_threshold_render = 0.25f, \
+    .aa_samples = 8, \
+    .motion_blur_steps = 8, \
   }
 
 #define _DNA_DEFAULT_SceneHydra \
@@ -254,6 +261,8 @@
     .safe_areas = _DNA_DEFAULT_DisplaySafeAreas, \
  \
     .eevee = _DNA_DEFAULT_SceneEEVEE, \
+ \
+    .grease_pencil_settings = _DNA_DEFAULT_SceneGreasePencil, \
  \
     .hydra = _DNA_DEFAULT_SceneHydra, \
     .simulation_frame_start = 1, \
@@ -277,7 +286,10 @@
 
 #define _DNA_DEFAULTS_ImagePaintSettings \
   { \
-    .paint.flags = PAINT_SHOW_BRUSH, \
+    .paint = { \
+      .flags = PAINT_SHOW_BRUSH, \
+      .unified_paint_settings = _DNA_DEFAULTS_UnifiedPaintSettings, \
+    }, \
     .normal_angle = 80, \
     .seam_bleed = 2, \
     .clone_alpha = 0.5f, \
@@ -368,8 +380,13 @@
     .snap_node_mode = SCE_SNAP_TO_GRID, \
     .snap_uv_mode = SCE_SNAP_TO_INCREMENT, \
     .snap_anim_mode = SCE_SNAP_TO_FRAME, \
+    .snap_playhead_mode = SCE_SNAP_TO_KEYS | SCE_SNAP_TO_STRIPS, \
+    .snap_step_frames = 2, \
+    .snap_step_seconds = 1, \
+    .playhead_snap_distance = 20, \
     .snap_flag = SCE_SNAP_TO_INCLUDE_EDITED | SCE_SNAP_TO_INCLUDE_NONEDITED, \
     .snap_flag_anim = SCE_SNAP, \
+    .snap_flag_playhead = 0, \
     .snap_transform_mode_flag = SCE_SNAP_TRANSFORM_MODE_TRANSLATE, \
     .snap_face_nearest_steps = 1, \
     .snap_angle_increment_3d = DEG2RADF(5.0f), \
@@ -419,6 +436,7 @@
     .automasking_boundary_edges_propagation_steps = 1, \
     .flags = SCULPT_DYNTOPO_SUBDIVIDE | SCULPT_DYNTOPO_COLLAPSE,\
     .paint = {\
+      .unified_paint_settings = _DNA_DEFAULTS_UnifiedPaintSettings, \
       .symmetry_flags = PAINT_SYMMETRY_FEATHER,\
       .tile_offset = {1.0f, 1.0f, 1.0f},\
     }\

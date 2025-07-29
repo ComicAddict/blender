@@ -767,7 +767,7 @@ static void makecubetable()
     for (e = 0; e < 12; e++) {
       if (!done[e] && (pos[corner1[e]] != pos[corner2[e]])) {
         INTLIST *ints = nullptr;
-        INTLISTS *lists = static_cast<INTLISTS *>(MEM_callocN(sizeof(INTLISTS), "mball_intlist"));
+        INTLISTS *lists = MEM_callocN<INTLISTS>("mball_intlist");
         int start = e, edge = e;
 
         /* get face that is to right of edge from pos to neg corner: */
@@ -779,7 +779,7 @@ static void makecubetable()
           if (pos[corner1[edge]] != pos[corner2[edge]]) {
             INTLIST *tmp = ints;
 
-            ints = static_cast<INTLIST *>(MEM_callocN(sizeof(INTLIST), "mball_intlist"));
+            ints = MEM_callocN<INTLIST>("mball_intlist");
             ints->i = edge;
             ints->next = tmp; /* add edge to head of list */
 
@@ -1136,14 +1136,11 @@ static void polygonize(PROCESS *process)
 {
   CUBE c;
 
-  process->centers = static_cast<CENTERLIST **>(
-      MEM_callocN(HASHSIZE * sizeof(CENTERLIST *), "mbproc->centers"));
-  process->corners = static_cast<CORNER **>(
-      MEM_callocN(HASHSIZE * sizeof(CORNER *), "mbproc->corners"));
-  process->edges = static_cast<EDGELIST **>(
-      MEM_callocN(2 * HASHSIZE * sizeof(EDGELIST *), "mbproc->edges"));
-  process->bvh_queue = static_cast<MetaballBVHNode **>(
-      MEM_callocN(sizeof(MetaballBVHNode *) * process->bvh_queue_size, "Metaball BVH Queue"));
+  process->centers = MEM_calloc_arrayN<CENTERLIST *>(HASHSIZE, "mbproc->centers");
+  process->corners = MEM_calloc_arrayN<CORNER *>(HASHSIZE, "mbproc->corners");
+  process->edges = MEM_calloc_arrayN<EDGELIST *>(2 * HASHSIZE, "mbproc->edges");
+  process->bvh_queue = MEM_calloc_arrayN<MetaballBVHNode *>(process->bvh_queue_size,
+                                                            "Metaball BVH Queue");
 
   makecubetable();
 
@@ -1413,15 +1410,20 @@ Mesh *BKE_mball_polygonize(Depsgraph *depsgraph, Scene *scene, Object *ob)
 
   build_bvh_spatial(&process, &process.metaball_bvh, 0, process.totelem, &process.allbb);
 
-  /* Don't polygonize meta-balls with too high resolution (base meta-ball too small).
-   * NOTE: Epsilon was 0.0001f but this was giving problems for blood animation for
-   * the open movie "Sintel", using 0.00001f. */
-  if (ob->scale[0] < 0.00001f * (process.allbb.max[0] - process.allbb.min[0]) ||
-      ob->scale[1] < 0.00001f * (process.allbb.max[1] - process.allbb.min[1]) ||
-      ob->scale[2] < 0.00001f * (process.allbb.max[2] - process.allbb.min[2]))
   {
-    freepolygonize(&process);
-    return nullptr;
+    /* Don't polygonize meta-balls with too high resolution (base meta-ball too small).
+     * NOTE: Epsilon was 0.0001f but this was giving problems for blood animation for
+     * the open movie "Sintel", using 0.00001f. */
+    const float eps = 0.00001f;
+    const blender::float4x4 &object_to_world = ob->object_to_world();
+    for (int i = 0; i < 3; i++) {
+      if (blender::math::length_squared(object_to_world[i].xyz()) <
+          blender::math::square(eps * (process.allbb.max[i] - process.allbb.min[i])))
+      {
+        freepolygonize(&process);
+        return nullptr;
+      }
+    }
   }
 
   polygonize(&process);

@@ -250,7 +250,7 @@ static void drawFlyPixel(const bContext * /*C*/, ARegion * /*region*/, void *arg
   const float y2 = float(yoff) + 0.55f * fly->viewport_size[1];
 
   GPUVertFormat *format = immVertexFormat();
-  uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+  uint pos = GPU_vertformat_attr_add(format, "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
 
   immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
 
@@ -418,7 +418,7 @@ static bool initFlyInfo(bContext *C, FlyInfo *fly, wmOperator *op, const wmEvent
   return true;
 }
 
-static int flyEnd(bContext *C, FlyInfo *fly)
+static wmOperatorStatus flyEnd(bContext *C, FlyInfo *fly)
 {
   wmWindow *win;
   RegionView3D *rv3d;
@@ -1041,7 +1041,7 @@ static void flyApply_ndof(bContext *C, FlyInfo *fly, bool is_confirm)
   Object *lock_ob = ED_view3d_cameracontrol_object_get(fly->v3d_camera_control);
   bool has_translate, has_rotate;
 
-  view3d_ndof_fly(fly->ndof,
+  view3d_ndof_fly(*fly->ndof,
                   fly->v3d,
                   fly->rv3d,
                   fly->use_precision,
@@ -1099,7 +1099,7 @@ static void fly_draw_status(bContext *C, wmOperator *op)
   status.item(fmt::format("{} ({:.2f})", IFACE_("Acceleration"), fly->speed), ICON_NONE);
 }
 
-static int fly_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus fly_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   RegionView3D *rv3d = CTX_wm_region_view3d(C);
 
@@ -1107,12 +1107,12 @@ static int fly_invoke(bContext *C, wmOperator *op, const wmEvent *event)
     return OPERATOR_CANCELLED;
   }
 
-  FlyInfo *fly = MEM_cnew<FlyInfo>("FlyOperation");
+  FlyInfo *fly = MEM_callocN<FlyInfo>("FlyOperation");
 
   op->customdata = fly;
 
   if (initFlyInfo(C, fly, op, event) == false) {
-    MEM_freeN(op->customdata);
+    MEM_freeN(fly);
     return OPERATOR_CANCELLED;
   }
 
@@ -1134,9 +1134,8 @@ static void fly_cancel(bContext *C, wmOperator *op)
   op->customdata = nullptr;
 }
 
-static int fly_modal(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus fly_modal(bContext *C, wmOperator *op, const wmEvent *event)
 {
-  int exit_code;
   bool do_draw = false;
   FlyInfo *fly = static_cast<FlyInfo *>(op->customdata);
   View3D *v3d = fly->v3d;
@@ -1157,13 +1156,15 @@ static int fly_modal(bContext *C, wmOperator *op, const wmEvent *event)
   }
   else
 #endif /* WITH_INPUT_NDOF */
+  {
     if (event->type == TIMER && event->customdata == fly->timer) {
       flyApply(C, fly, false);
     }
+  }
 
   do_draw |= fly->redraw;
 
-  exit_code = flyEnd(C, fly);
+  wmOperatorStatus exit_code = flyEnd(C, fly);
 
   if (exit_code == OPERATOR_FINISHED) {
     const bool is_undo_pushed = ED_view3d_camera_lock_undo_push(op->type->name, v3d, rv3d, C);

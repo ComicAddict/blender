@@ -23,7 +23,7 @@
 
 #include "BKE_idtype.hh"
 
-// static CLG_LogRef LOG = {"bke.idtype"};
+// static CLG_LogRef LOG = {"lib.idtype"};
 
 uint BKE_idtype_cache_key_hash(const void *key_v)
 {
@@ -130,6 +130,8 @@ const IDTypeInfo *BKE_idtype_get_info_from_idtype_index(const int idtype_index)
   if (idtype_index >= 0 && idtype_index < int(id_types.size())) {
     const IDTypeInfo *id_type = id_types[size_t(idtype_index)];
     if (id_type && id_type->name[0] != '\0') {
+      BLI_assert_msg(BKE_idtype_idcode_to_index(id_type->id_code) == idtype_index,
+                     "Critical inconsistency in ID type information");
       return id_type;
     }
   }

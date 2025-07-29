@@ -72,7 +72,7 @@ static void volume_batch_cache_init(Volume *volume)
   VolumeBatchCache *cache = static_cast<VolumeBatchCache *>(volume->batch_cache);
 
   if (!cache) {
-    volume->batch_cache = cache = MEM_cnew<VolumeBatchCache>(__func__);
+    volume->batch_cache = cache = MEM_callocN<VolumeBatchCache>(__func__);
   }
   else {
     memset(cache, 0, sizeof(*cache));
@@ -156,17 +156,18 @@ static void drw_volume_wireframe_cb(
 
   static const GPUVertFormat format = [&]() {
     GPUVertFormat format{};
-    attr_id.pos_id = GPU_vertformat_attr_add(&format, "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
+    attr_id.pos_id = GPU_vertformat_attr_add(&format, "pos", gpu::VertAttrType::SFLOAT_32_32_32);
     attr_id.nor_id = GPU_vertformat_attr_add(
-        &format, "nor", GPU_COMP_I10, 4, GPU_FETCH_INT_TO_FLOAT_UNIT);
+        &format, "nor", blender::gpu::VertAttrType::SNORM_10_10_10_2);
     return format;
   }();
 
   static const GPUVertFormat format_hq = [&]() {
     GPUVertFormat format{};
-    attr_id.pos_hq_id = GPU_vertformat_attr_add(&format, "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
+    attr_id.pos_hq_id = GPU_vertformat_attr_add(
+        &format, "pos", gpu::VertAttrType::SFLOAT_32_32_32);
     attr_id.nor_hq_id = GPU_vertformat_attr_add(
-        &format, "nor", GPU_COMP_I16, 3, GPU_FETCH_INT_TO_FLOAT_UNIT);
+        &format, "nor", blender::gpu::VertAttrType::SNORM_16_16_16_16);
     return format;
   }();
 
@@ -228,7 +229,7 @@ gpu::Batch *DRW_volume_batch_cache_get_wireframes_face(Volume *volume)
     }
 
     /* Create wireframe from OpenVDB tree. */
-    const DRWContextState *draw_ctx = DRW_context_state_get();
+    const DRWContext *draw_ctx = DRW_context_get();
     VolumeWireframeUserData userdata;
     userdata.volume = volume;
     userdata.scene = draw_ctx->scene;
@@ -247,7 +248,7 @@ static void drw_volume_selection_surface_cb(
   static uint pos_id;
   static const GPUVertFormat format = [&]() {
     GPUVertFormat format{};
-    pos_id = GPU_vertformat_attr_add(&format, "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
+    pos_id = GPU_vertformat_attr_add(&format, "pos", gpu::VertAttrType::SFLOAT_32_32_32);
     return format;
   }();
 
@@ -296,7 +297,7 @@ static DRWVolumeGrid *volume_grid_cache_get(const Volume *volume,
   }
 
   /* Allocate new grid. */
-  DRWVolumeGrid *cache_grid = MEM_cnew<DRWVolumeGrid>(__func__);
+  DRWVolumeGrid *cache_grid = MEM_callocN<DRWVolumeGrid>(__func__);
   cache_grid->name = BLI_strdup(name.c_str());
   BLI_addtail(&cache->grids, cache_grid);
 
@@ -316,7 +317,9 @@ static DRWVolumeGrid *volume_grid_cache_get(const Volume *volume,
     cache_grid->object_to_texture = math::invert(cache_grid->texture_to_object);
 
     /* Create GPU texture. */
-    eGPUTextureFormat format = (channels == 3) ? GPU_RGB16F : GPU_R16F;
+    blender::gpu::TextureFormat format = (channels == 3) ?
+                                             blender::gpu::TextureFormat::SFLOAT_16_16_16 :
+                                             blender::gpu::TextureFormat::SFLOAT_16;
     cache_grid->texture = GPU_texture_create_3d("volume_grid",
                                                 UNPACK3(dense_grid.resolution),
                                                 1,

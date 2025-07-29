@@ -13,11 +13,12 @@
 #include "BKE_screen.hh"
 
 #include "BLI_listbase.h"
-#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 
 #include "BLT_translation.hh"
 
 #include "UI_interface_c.hh"
+#include "UI_interface_layout.hh"
 #include "UI_tree_view.hh"
 
 #include "ED_asset_filter.hh"
@@ -188,7 +189,7 @@ static void catalog_tree_draw(const bContext &C, uiLayout &layout, AssetShelf &s
     return;
   }
 
-  uiBlock *block = uiLayoutGetBlock(&layout);
+  uiBlock *block = layout.block();
   ui::AbstractTreeView *tree_view = UI_block_add_view(
       *block,
       "asset shelf catalog tree view",
@@ -227,7 +228,7 @@ static void popover_panel_draw(const bContext *C, Panel *panel)
   BLI_assert_msg(shelf_type != nullptr, "couldn't find asset shelf type from context");
 
   uiLayout *layout = panel->layout;
-  uiLayoutSetUnitsX(layout, layout_width_units);
+  layout->ui_units_x_set(layout_width_units);
 
   AssetShelf *shelf = get_shelf_for_popup(*C, *shelf_type);
   if (!shelf) {
@@ -238,31 +239,30 @@ static void popover_panel_draw(const bContext *C, Panel *panel)
   bScreen *screen = CTX_wm_screen(C);
   PointerRNA library_ref_ptr = RNA_pointer_create_discrete(
       &screen->id, &RNA_AssetLibraryReference, &shelf->settings.asset_library_reference);
-  uiLayoutSetContextPointer(layout, "asset_library_reference", &library_ref_ptr);
+  layout->context_ptr_set("asset_library_reference", &library_ref_ptr);
 
-  uiLayout *row = uiLayoutRow(layout, false);
-  uiLayout *catalogs_col = uiLayoutColumn(row, false);
-  uiLayoutSetUnitsX(catalogs_col, LEFT_COL_WIDTH_UNITS);
-  uiLayoutSetFixedSize(catalogs_col, true);
+  uiLayout *row = &layout->row(false);
+  uiLayout *catalogs_col = &row->column(false);
+  catalogs_col->ui_units_x_set(LEFT_COL_WIDTH_UNITS);
+  catalogs_col->fixed_size_set(true);
   library_selector_draw(C, catalogs_col, *shelf);
   catalog_tree_draw(*C, *catalogs_col, *shelf);
 
-  uiLayout *right_col = uiLayoutColumn(row, false);
-  uiLayout *sub = uiLayoutRow(right_col, false);
+  uiLayout *right_col = &row->column(false);
+  uiLayout *sub = &right_col->row(false);
   /* Same as file/asset browser header. */
   PointerRNA shelf_ptr = RNA_pointer_create_discrete(&screen->id, &RNA_AssetShelf, shelf);
-  uiItemR(sub,
-          &shelf_ptr,
-          "search_filter",
-          /* Force the button to be active in a semi-modal state. */
-          UI_ITEM_R_TEXT_BUT_FORCE_SEMI_MODAL_ACTIVE,
-          "",
-          ICON_VIEWZOOM);
+  sub->prop(&shelf_ptr,
+            "search_filter",
+            /* Force the button to be active in a semi-modal state. */
+            UI_ITEM_R_TEXT_BUT_FORCE_SEMI_MODAL_ACTIVE,
+            "",
+            ICON_VIEWZOOM);
 
-  uiLayout *asset_view_col = uiLayoutColumn(right_col, false);
+  uiLayout *asset_view_col = &right_col->column(false);
   BLI_assert((layout_width_units - LEFT_COL_WIDTH_UNITS) > 0);
-  uiLayoutSetUnitsX(asset_view_col, layout_width_units - LEFT_COL_WIDTH_UNITS);
-  uiLayoutSetFixedSize(asset_view_col, true);
+  asset_view_col->ui_units_x_set(layout_width_units - LEFT_COL_WIDTH_UNITS);
+  asset_view_col->fixed_size_set(true);
 
   build_asset_view(*asset_view_col, shelf->settings.asset_library_reference, *shelf, *C);
 }
@@ -285,10 +285,10 @@ void popover_panel_register(ARegionType *region_type)
     return;
   }
 
-  PanelType *pt = MEM_cnew<PanelType>(__func__);
-  STRNCPY(pt->idname, "ASSETSHELF_PT_popover_panel");
-  STRNCPY(pt->label, N_("Asset Shelf Panel"));
-  STRNCPY(pt->translation_context, BLT_I18NCONTEXT_DEFAULT_BPYRNA);
+  PanelType *pt = MEM_callocN<PanelType>(__func__);
+  STRNCPY_UTF8(pt->idname, "ASSETSHELF_PT_popover_panel");
+  STRNCPY_UTF8(pt->label, N_("Asset Shelf Panel"));
+  STRNCPY_UTF8(pt->translation_context, BLT_I18NCONTEXT_DEFAULT_BPYRNA);
   pt->description = N_("Display an asset shelf in a popover panel");
   pt->draw = popover_panel_draw;
   pt->poll = popover_panel_poll;

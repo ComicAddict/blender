@@ -17,7 +17,7 @@
 
 #include "BLI_listbase.h"
 #include "BLI_math_vector.h"
-#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 #include "BLI_utildefines.h"
 
 #include "BLT_translation.hh"
@@ -34,6 +34,7 @@
 #include "ED_uvedit.hh"
 
 #include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 
 #include "WM_api.hh"
 #include "WM_types.hh"
@@ -57,7 +58,7 @@ static int uvedit_center(Scene *scene, const Span<Object *> objects, float cente
 
   for (Object *obedit : objects) {
     BMEditMesh *em = BKE_editmesh_from_object(obedit);
-    const BMUVOffsets offsets = BM_uv_map_get_offsets(em->bm);
+    const BMUVOffsets offsets = BM_uv_map_offsets_get(em->bm);
 
     BM_ITER_MESH (f, &iter, em->bm, BM_FACES_OF_MESH) {
       if (!uvedit_face_visible_test(scene, f)) {
@@ -92,7 +93,7 @@ static void uvedit_translate(Scene *scene, const Span<Object *> objects, const f
   for (Object *obedit : objects) {
     BMEditMesh *em = BKE_editmesh_from_object(obedit);
 
-    const BMUVOffsets offsets = BM_uv_map_get_offsets(em->bm);
+    const BMUVOffsets offsets = BM_uv_map_offsets_get(em->bm);
 
     BM_ITER_MESH (f, &iter, em->bm, BM_FACES_OF_MESH) {
       if (!uvedit_face_visible_test(scene, f)) {
@@ -160,7 +161,7 @@ static void uvedit_vertex_buttons(const bContext *C, uiBlock *block)
     int y = 0;
     UI_block_align_begin(block);
     but = uiDefButF(block,
-                    UI_BTYPE_NUM,
+                    ButType::Num,
                     B_UVEDIT_VERTEX,
                     IFACE_("X:"),
                     0,
@@ -173,7 +174,7 @@ static void uvedit_vertex_buttons(const bContext *C, uiBlock *block)
     UI_but_number_step_size_set(but, step);
     UI_but_number_precision_set(but, digits);
     but = uiDefButF(block,
-                    UI_BTYPE_NUM,
+                    ButType::Num,
                     B_UVEDIT_VERTEX,
                     IFACE_("Y:"),
                     0,
@@ -239,7 +240,7 @@ static void image_panel_uv(const bContext *C, Panel *panel)
 {
   uiBlock *block;
 
-  block = uiLayoutAbsoluteBlock(panel->layout);
+  block = panel->layout->absolute_block();
   UI_block_func_handle_set(block, do_uvedit_vertex, nullptr);
 
   uvedit_vertex_buttons(C, block);
@@ -247,12 +248,12 @@ static void image_panel_uv(const bContext *C, Panel *panel)
 
 void ED_uvedit_buttons_register(ARegionType *art)
 {
-  PanelType *pt = MEM_cnew<PanelType>(__func__);
+  PanelType *pt = MEM_callocN<PanelType>(__func__);
 
-  STRNCPY(pt->idname, "IMAGE_PT_uv");
-  STRNCPY(pt->label, N_("UV Vertex")); /* XXX C panels unavailable through RNA bpy.types! */
+  STRNCPY_UTF8(pt->idname, "IMAGE_PT_uv");
+  STRNCPY_UTF8(pt->label, N_("UV Vertex")); /* XXX C panels unavailable through RNA bpy.types! */
   /* Could be 'Item' matching 3D view, avoid new tab for two buttons. */
-  STRNCPY(pt->category, "Image");
+  STRNCPY_UTF8(pt->category, "Image");
   pt->draw = image_panel_uv;
   pt->poll = image_panel_uv_poll;
   BLI_addtail(&art->paneltypes, pt);

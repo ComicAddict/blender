@@ -494,6 +494,23 @@ unique_ptr<BVHNode> BVHBuild::run()
     params.use_spatial_split = false;
   }
 
+  if (!params.top_level && params.use_spatial_split && params.use_unaligned_nodes &&
+      !references.empty())
+  {
+    /* Spatial splitting for curve splitting leads to very long build times.
+     *
+     * There are also some issues (and, possibly, bugs in the split builder w.r.t how the alignment
+     * space is interpreted. It would be good to fix those issues, but due to performance, and the
+     * BVH becoming more obsolete with time it might not be the most optimal development time
+     * investment.
+     *
+     * The check is a bit implicit here, it relies on the fact that spatial splits are disabled on
+     * the top level, and that an object has primitives of the same type. */
+    if (references[0].prim_type() & PRIMITIVE_CURVE) {
+      params.use_spatial_split = false;
+    }
+  }
+
   spatial_min_overlap = root.bounds().safe_area() * params.spatial_split_alpha;
   spatial_free_index = 0;
 
@@ -539,7 +556,7 @@ unique_ptr<BVHNode> BVHBuild::run()
   if (rootnode) {
     if (progress.get_cancel()) {
       rootnode.reset();
-      VLOG_WORK << "BVH build canceled.";
+      LOG_WORK << "BVH build canceled.";
     }
     else {
       /*rotate(rootnode, 4, 5);*/
@@ -547,26 +564,26 @@ unique_ptr<BVHNode> BVHBuild::run()
       rootnode->update_time();
     }
     if (rootnode != nullptr) {
-      VLOG_WORK << "BVH build statistics:\n"
-                << "  Build time: " << time_dt() - build_start_time << "\n"
-                << "  Total number of nodes: "
-                << string_human_readable_number(rootnode->getSubtreeSize(BVH_STAT_NODE_COUNT))
-                << "\n"
-                << "  Number of inner nodes: "
-                << string_human_readable_number(rootnode->getSubtreeSize(BVH_STAT_INNER_COUNT))
-                << "\n"
-                << "  Number of leaf nodes: "
-                << string_human_readable_number(rootnode->getSubtreeSize(BVH_STAT_LEAF_COUNT))
-                << "\n"
-                << "  Number of unaligned nodes: "
-                << string_human_readable_number(rootnode->getSubtreeSize(BVH_STAT_UNALIGNED_COUNT))
-                << "\n"
-                << "  Allocation slop factor: "
-                << ((prim_type.capacity() != 0) ? (float)prim_type.size() / prim_type.capacity() :
-                                                  1.0f)
-                << "\n"
-                << "  Maximum depth: "
-                << string_human_readable_number(rootnode->getSubtreeSize(BVH_STAT_DEPTH)) << "\n";
+      LOG_WORK << "BVH build statistics:"
+               << "  Build time: " << time_dt() - build_start_time << "\n"
+               << "  Total number of nodes: "
+               << string_human_readable_number(rootnode->getSubtreeSize(BVH_STAT_NODE_COUNT))
+               << "\n"
+               << "  Number of inner nodes: "
+               << string_human_readable_number(rootnode->getSubtreeSize(BVH_STAT_INNER_COUNT))
+               << "\n"
+               << "  Number of leaf nodes: "
+               << string_human_readable_number(rootnode->getSubtreeSize(BVH_STAT_LEAF_COUNT))
+               << "\n"
+               << "  Number of unaligned nodes: "
+               << string_human_readable_number(rootnode->getSubtreeSize(BVH_STAT_UNALIGNED_COUNT))
+               << "\n"
+               << "  Allocation slop factor: "
+               << ((prim_type.capacity() != 0) ? (float)prim_type.size() / prim_type.capacity() :
+                                                 1.0f)
+               << "\n"
+               << "  Maximum depth: "
+               << string_human_readable_number(rootnode->getSubtreeSize(BVH_STAT_DEPTH));
     }
   }
 
@@ -961,7 +978,7 @@ unique_ptr<BVHNode> BVHBuild::create_leaf_node(const BVHRange &range,
    *    and lots of cache misses.
    *  - If the size is too small, then we can run out of memory
    *    allowed to be used by vector.
-   *    In practice it wouldn't mean crash, just allocator will fallback
+   *    In practice it wouldn't mean crash, just allocator will fall back
    *    to heap which is slower.
    *  - Optimistic re-allocation in STL could jump us out of stack usage
    *    because re-allocation happens in chunks and size of those chunks we

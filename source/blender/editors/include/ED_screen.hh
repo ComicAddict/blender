@@ -88,7 +88,7 @@ const char *ED_area_region_search_filter_get(const ScrArea *area, const ARegion 
 void ED_region_panels_init(wmWindowManager *wm, ARegion *region);
 void ED_region_panels_ex(const bContext *C,
                          ARegion *region,
-                         wmOperatorCallContext op_context,
+                         blender::wm::OpCallContext op_context,
                          const char *contexts[]);
 void ED_region_panels(const bContext *C, ARegion *region);
 /**
@@ -99,7 +99,7 @@ void ED_region_panels(const bContext *C, ARegion *region);
 void ED_region_panels_layout_ex(const bContext *C,
                                 ARegion *region,
                                 ListBase *paneltypes,
-                                wmOperatorCallContext op_context,
+                                blender::wm::OpCallContext op_context,
                                 const char *contexts[],
                                 const char *category_override);
 /**
@@ -377,7 +377,7 @@ ScrArea *ED_screen_temp_space_open(bContext *C,
                                    const rcti *rect_unscaled,
                                    eSpace_Type space_type,
                                    int display_type,
-                                   bool dialog) ATTR_NONNULL(1, 2, 3);
+                                   bool dialog) ATTR_NONNULL(1, 3);
 void ED_screens_header_tools_menu_create(bContext *C, uiLayout *layout, void *arg);
 void ED_screens_footer_tools_menu_create(bContext *C, uiLayout *layout, void *arg);
 void ED_screens_region_flip_menu_create(bContext *C, uiLayout *layout, void *arg);
@@ -509,7 +509,7 @@ void ED_update_for_newframe(Main *bmain, Depsgraph *depsgraph);
  * Toggle operator.
  */
 void ED_reset_audio_device(bContext *C);
-int ED_screen_animation_play(bContext *C, int sync, int mode);
+wmOperatorStatus ED_screen_animation_play(bContext *C, int sync, int mode);
 /**
  * Find window that owns the animation timer.
  */
@@ -584,6 +584,8 @@ bool ED_operator_nla_active(bContext *C);
 bool ED_operator_info_active(bContext *C);
 bool ED_operator_console_active(bContext *C);
 
+/** Only check there is an active object (no visibility check). */
+bool ED_operator_object_active_only(bContext *C);
 bool ED_operator_object_active(bContext *C);
 bool ED_operator_object_active_editable_ex(bContext *C, const Object *ob);
 bool ED_operator_object_active_editable(bContext *C);
@@ -642,7 +644,7 @@ bUserMenuItem_Op *ED_screen_user_menu_item_find_operator(ListBase *lb,
                                                          const wmOperatorType *ot,
                                                          IDProperty *prop,
                                                          const char *op_prop_enum,
-                                                         wmOperatorCallContext opcontext);
+                                                         blender::wm::OpCallContext opcontext);
 bUserMenuItem_Menu *ED_screen_user_menu_item_find_menu(ListBase *lb, const MenuType *mt);
 bUserMenuItem_Prop *ED_screen_user_menu_item_find_prop(ListBase *lb,
                                                        const char *context_data_path,
@@ -654,7 +656,7 @@ void ED_screen_user_menu_item_add_operator(ListBase *lb,
                                            const wmOperatorType *ot,
                                            const IDProperty *prop,
                                            const char *op_prop_enum,
-                                           wmOperatorCallContext opcontext);
+                                           blender::wm::OpCallContext opcontext);
 void ED_screen_user_menu_item_add_menu(ListBase *lb, const char *ui_name, const MenuType *mt);
 void ED_screen_user_menu_item_add_prop(ListBase *lb,
                                        const char *ui_name,
@@ -683,6 +685,7 @@ void ED_region_generic_tools_region_message_subscribe(
  * Callback for #ARegionType.snap_size
  */
 int ED_region_generic_tools_region_snap_size(const ARegion *region, int size, int axis);
+int ED_region_generic_panel_region_snap_size(const ARegion *region, int size, int axis);
 
 /* `area_query.cc` */
 

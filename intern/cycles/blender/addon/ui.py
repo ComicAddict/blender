@@ -967,6 +967,7 @@ class CYCLES_RENDER_PT_filter(CyclesButtonsPanel, Panel):
         col.prop(view_layer, "use_solid", text="Surfaces")
         col.prop(view_layer, "use_strand", text="Curves")
         col.prop(view_layer, "use_volumes", text="Volumes")
+        col.prop(view_layer, "use_grease_pencil", text="Grease Pencil")
 
         col = layout.column(heading="Use")
         sub = col.row()
@@ -975,23 +976,6 @@ class CYCLES_RENDER_PT_filter(CyclesButtonsPanel, Panel):
         sub = col.row()
         sub.prop(view_layer.cycles, "use_denoising", text="Denoising")
         sub.active = scene.cycles.use_denoising
-
-
-class CYCLES_RENDER_PT_override(CyclesButtonsPanel, Panel):
-    bl_label = "Override"
-    bl_options = {'DEFAULT_CLOSED'}
-    bl_context = "view_layer"
-
-    def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-
-        view_layer = context.view_layer
-
-        layout.prop(view_layer, "material_override")
-        layout.prop(view_layer, "world_override")
-        layout.prop(view_layer, "samples")
 
 
 class CYCLES_RENDER_PT_passes(CyclesButtonsPanel, Panel):
@@ -1027,6 +1011,7 @@ class CYCLES_RENDER_PT_passes_data(CyclesButtonsPanel, Panel):
         sub.active = not rd.use_motion_blur
         sub.prop(view_layer, "use_pass_vector")
         col.prop(view_layer, "use_pass_uv")
+        col.prop(view_layer, "use_pass_grease_pencil", text="Grease Pencil")
 
         col.prop(cycles_view_layer, "denoising_store_passes", text="Denoising Data")
 
@@ -1177,6 +1162,30 @@ class CYCLES_CAMERA_PT_dof_aperture(CyclesButtonsPanel, Panel):
         col.prop(dof, "aperture_ratio")
 
 
+class CYCLES_CAMERA_PT_lens_custom_parameters(CyclesButtonsPanel, Panel):
+    bl_label = "Parameters"
+    bl_parent_id = "DATA_PT_lens"
+
+    @classmethod
+    def poll(cls, context):
+        cam = context.camera
+        return (super().poll(context) and
+                cam and
+                cam.type == 'CUSTOM' and
+                len(cam.cycles_custom.keys()) > 0)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+
+        cam = context.camera
+        ccam = cam.cycles_custom
+
+        col = layout.column()
+        for key in ccam.keys():
+            col.prop(ccam, f'["{key}"]')
+
+
 class CYCLES_PT_context_material(CyclesButtonsPanel, Panel):
     bl_label = ""
     bl_context = "material"
@@ -1285,27 +1294,6 @@ class CYCLES_OBJECT_PT_motion_blur(CyclesButtonsPanel, Panel):
         col.prop(cob, "motion_steps", text="Steps")
         if ob.type != 'CAMERA':
             col.prop(cob, "use_deform_motion", text="Deformation")
-
-
-class CYCLES_OBJECT_PT_shading_shadow_terminator(CyclesButtonsPanel, Panel):
-    bl_label = "Shadow Terminator"
-    bl_parent_id = "OBJECT_PT_shading"
-    bl_context = "object"
-
-    @classmethod
-    def poll(cls, context):
-        return CyclesButtonsPanel.poll(context) and context.object.type != 'LIGHT'
-
-    def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
-
-        flow = layout.grid_flow(row_major=False, columns=0, even_columns=True, even_rows=False, align=True)
-
-        ob = context.object
-        cob = ob.cycles
-        flow.prop(cob, "shadow_terminator_geometry_offset", text="Geometry Offset")
-        flow.prop(cob, "shadow_terminator_offset", text="Shading Offset")
 
 
 class CYCLES_OBJECT_PT_shading_gi_approximation(CyclesButtonsPanel, Panel):
@@ -1468,7 +1456,7 @@ class CYCLES_OBJECT_PT_visibility_culling(CyclesButtonsPanel, Panel):
 def panel_node_draw(layout, id_data, output_type, input_name):
     from bpy_extras.node_utils import find_node_input
 
-    if not id_data.use_nodes:
+    if not isinstance(id_data, bpy.types.World) and not id_data.use_nodes:
         layout.operator("cycles.use_shading_nodes", icon='NODETREE')
         return False
 
@@ -1519,7 +1507,6 @@ class CYCLES_LIGHT_PT_light(CyclesButtonsPanel, Panel):
         layout = self.layout
 
         light = context.light
-        clamp = light.cycles
 
         if self.bl_space_type == 'PROPERTIES':
             layout.row().prop(light, "type", expand=True)
@@ -1529,14 +1516,42 @@ class CYCLES_LIGHT_PT_light(CyclesButtonsPanel, Panel):
             layout.row().prop(light, "type")
 
         col = layout.column()
+        heading = col.column(align=True, heading="Temperature")
+        row = heading.column(align=True).row(align=True)
+        row.use_property_decorate = False
+        row.prop(light, "use_temperature", text="")
+        # Don't show color preview for now, it is grayed out so the color
+        # is not accurate. Would not a change in the UI code to allow
+        # non-editable colors to be displayed as is.
+        if False:  # light.use_temperature:
+            sub = row.split(factor=0.7, align=True)
+            sub.active = light.use_temperature
+            sub.prop(light, "temperature", text="")
+            sub.prop(light, "temperature_color", text="")
+        else:
+            sub = row.row()
+            sub.active = light.use_temperature
+            sub.prop(light, "temperature", text="")
+            row.prop_decorator(light, "temperature")
 
-        col.prop(light, "color")
+        if light.use_temperature:
+            col.prop(light, "color", text="Tint")
+        else:
+            col.prop(light, "color", text="Color")
+
+        layout.separator()
+
+        col = layout.column()
         col.prop(light, "energy")
-        col.separator()
+        col.prop(light, "exposure")
+        col.prop(light, "normalize")
 
+        layout.separator()
+
+        col = layout.column()
         if light.type in {'POINT', 'SPOT'}:
-            col.prop(light, "use_soft_falloff")
             col.prop(light, "shadow_soft_size", text="Radius")
+            col.prop(light, "use_soft_falloff")
         elif light.type == 'SUN':
             col.prop(light, "angle")
         elif light.type == 'AREA':
@@ -1548,6 +1563,25 @@ class CYCLES_LIGHT_PT_light(CyclesButtonsPanel, Panel):
             elif light.shape in {'RECTANGLE', 'ELLIPSE'}:
                 sub.prop(light, "size", text="Size X")
                 sub.prop(light, "size_y", text="Y")
+
+
+class CYCLES_LIGHT_PT_settings(CyclesButtonsPanel, Panel):
+    bl_label = "Settings"
+    bl_context = "data"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.light and CyclesButtonsPanel.poll(context)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+
+        light = context.light
+        clamp = light.cycles
+
+        col = layout.column()
 
         if not (light.type == 'AREA' and clamp.is_portal):
             col.separator()
@@ -2517,13 +2551,12 @@ classes = (
     CYCLES_RENDER_PT_passes_aov,
     CYCLES_RENDER_PT_passes_lightgroups,
     CYCLES_RENDER_PT_filter,
-    CYCLES_RENDER_PT_override,
     CYCLES_PT_post_processing,
     CYCLES_CAMERA_PT_dof,
     CYCLES_CAMERA_PT_dof_aperture,
+    CYCLES_CAMERA_PT_lens_custom_parameters,
     CYCLES_PT_context_material,
     CYCLES_OBJECT_PT_motion_blur,
-    CYCLES_OBJECT_PT_shading_shadow_terminator,
     CYCLES_OBJECT_PT_shading_gi_approximation,
     CYCLES_OBJECT_PT_shading_caustics,
     CYCLES_OBJECT_PT_lightgroup,
@@ -2532,6 +2565,7 @@ classes = (
     CYCLES_OBJECT_PT_visibility_culling,
     CYCLES_LIGHT_PT_preview,
     CYCLES_LIGHT_PT_light,
+    CYCLES_LIGHT_PT_settings,
     CYCLES_LIGHT_PT_nodes,
     CYCLES_LIGHT_PT_beam_shape,
     CYCLES_WORLD_PT_preview,
@@ -2564,6 +2598,7 @@ classes = (
     node_panel(CYCLES_WORLD_PT_settings_surface),
     node_panel(CYCLES_WORLD_PT_settings_volume),
     node_panel(CYCLES_LIGHT_PT_light),
+    node_panel(CYCLES_LIGHT_PT_settings),
     node_panel(CYCLES_LIGHT_PT_beam_shape)
 )
 

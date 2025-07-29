@@ -188,23 +188,21 @@ static void precalc_uv_layer(const OpenSubdiv_Converter *converter, const int la
 {
   ConverterStorage *storage = static_cast<ConverterStorage *>(converter->user_data);
   const Mesh *mesh = storage->mesh;
-  const float(*mloopuv)[2] = static_cast<const float(*)[2]>(
-      CustomData_get_layer_n(&mesh->corner_data, CD_PROP_FLOAT2, layer_index));
+  const bke::AttributeAccessor attributes = mesh->attributes();
+  const StringRef name = CustomData_get_layer_name(
+      &mesh->corner_data, CD_PROP_FLOAT2, layer_index);
+  const VArraySpan uv_map = *attributes.lookup<float2>(name, bke::AttrDomain::Corner);
   const int num_vert = mesh->verts_num;
-  const float limit[2] = {STD_UV_CONNECT_LIMIT, STD_UV_CONNECT_LIMIT};
   /* Initialize memory required for the operations. */
   if (storage->loop_uv_indices == nullptr) {
-    storage->loop_uv_indices = static_cast<int *>(
-        MEM_malloc_arrayN(mesh->corners_num, sizeof(int), "loop uv vertex index"));
+    storage->loop_uv_indices = MEM_malloc_arrayN<int>(size_t(mesh->corners_num),
+                                                      "loop uv vertex index");
   }
   UvVertMap *uv_vert_map = BKE_mesh_uv_vert_map_create(storage->faces,
-                                                       nullptr,
-                                                       nullptr,
-                                                       storage->corner_verts.data(),
-                                                       mloopuv,
+                                                       storage->corner_verts,
+                                                       uv_map,
                                                        num_vert,
-                                                       limit,
-                                                       false,
+                                                       blender::float2(STD_UV_CONNECT_LIMIT),
                                                        true);
   /* NOTE: First UV vertex is supposed to be always marked as separate. */
   storage->num_uv_coordinates = -1;
@@ -296,12 +294,11 @@ static void initialize_manifold_index_array(const BitSpan not_used_map,
 {
   int *indices = nullptr;
   if (r_indices != nullptr) {
-    indices = static_cast<int *>(MEM_malloc_arrayN(num_elements, sizeof(int), "manifold indices"));
+    indices = MEM_malloc_arrayN<int>(size_t(num_elements), "manifold indices");
   }
   int *indices_reverse = nullptr;
   if (r_indices_reverse != nullptr) {
-    indices_reverse = static_cast<int *>(
-        MEM_malloc_arrayN(num_elements, sizeof(int), "manifold indices reverse"));
+    indices_reverse = MEM_malloc_arrayN<int>(size_t(num_elements), "manifold indices reverse");
   }
   int offset = 0;
   for (int i = 0; i < num_elements; i++) {

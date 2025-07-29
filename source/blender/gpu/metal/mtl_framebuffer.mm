@@ -404,7 +404,7 @@ void MTLFrameBuffer::clear_attachment(GPUAttachmentType type,
 
   if (type == GPU_FB_DEPTH_STENCIL_ATTACHMENT) {
     if (this->has_depth_attachment() || this->has_stencil_attachment()) {
-      BLI_assert(data_format == GPU_DATA_UINT_24_8);
+      BLI_assert(data_format == GPU_DATA_UINT_24_8_DEPRECATED);
       float depth = ((*(uint32_t *)clear_value) & 0x00FFFFFFu) / (float)0x00FFFFFFu;
       int stencil = ((*(uint32_t *)clear_value) >> 24);
       this->set_depth_attachment_clear_value(depth);
@@ -479,14 +479,14 @@ void MTLFrameBuffer::subpass_transition_impl(const GPUAttachmentState /*depth_at
   if (!MTLBackend::capabilities.supports_native_tile_inputs) {
     /* Break render-pass if tile memory is unsupported to ensure current frame-buffer results are
      * stored. */
-    context_->main_command_buffer.end_active_command_encoder();
+    context_->main_command_buffer.end_active_command_encoder(true);
 
     /* Bind frame-buffer attachments as textures.
      * NOTE: Follows behavior of gl_framebuffer. However, shaders utilizing subpass_in will
      * need to avoid bind-point collisions for image/texture resources. */
     for (int i : color_attachment_states.index_range()) {
       GPUAttachmentType type = GPU_FB_COLOR_ATTACHMENT0 + i;
-      GPUTexture *attach_tex = this->attachments_[type].tex;
+      gpu::Texture *attach_tex = this->attachments_[type].tex;
       if (color_attachment_states[i] == GPU_ATTACHMENT_READ) {
         GPU_texture_image_bind(attach_tex, i);
       }
@@ -682,26 +682,26 @@ void MTLFrameBuffer::update_attachments(bool /*update_viewport*/)
             MTLAttachment depth_attachment_prev = this->get_depth_attachment();
             this->remove_depth_attachment();
             this->add_depth_attachment(
-                static_cast<gpu::MTLTexture *>(unwrap(attach.tex)), attach.mip, attach.layer);
+                static_cast<gpu::MTLTexture *>(attach.tex), attach.mip, attach.layer);
             this->set_depth_attachment_clear_value(depth_attachment_prev.clear_value.depth);
             this->set_depth_loadstore_op(depth_attachment_prev.load_action,
                                          depth_attachment_prev.store_action);
           }
           else {
             this->add_depth_attachment(
-                static_cast<gpu::MTLTexture *>(unwrap(attach.tex)), attach.mip, attach.layer);
+                static_cast<gpu::MTLTexture *>(attach.tex), attach.mip, attach.layer);
           }
 
           /* Check stencil component -- if supplied texture format supports stencil. */
-          eGPUTextureFormat format = GPU_texture_format(attach.tex);
+          TextureFormat format = GPU_texture_format(attach.tex);
           bool use_stencil = (type == GPU_FB_DEPTH_STENCIL_ATTACHMENT) &&
-                             (format == GPU_DEPTH32F_STENCIL8 || format == GPU_DEPTH24_STENCIL8);
+                             (format == TextureFormat::SFLOAT_32_DEPTH_UINT_8);
           if (use_stencil) {
             if (this->has_stencil_attachment()) {
               MTLAttachment stencil_attachment_prev = this->get_stencil_attachment();
               this->remove_stencil_attachment();
               this->add_stencil_attachment(
-                  static_cast<gpu::MTLTexture *>(unwrap(attach.tex)), attach.mip, attach.layer);
+                  static_cast<gpu::MTLTexture *>(attach.tex), attach.mip, attach.layer);
               this->set_stencil_attachment_clear_value(
                   stencil_attachment_prev.clear_value.stencil);
               this->set_stencil_loadstore_op(stencil_attachment_prev.load_action,
@@ -709,7 +709,7 @@ void MTLFrameBuffer::update_attachments(bool /*update_viewport*/)
             }
             else {
               this->add_stencil_attachment(
-                  static_cast<gpu::MTLTexture *>(unwrap(attach.tex)), attach.mip, attach.layer);
+                  static_cast<gpu::MTLTexture *>(attach.tex), attach.mip, attach.layer);
             }
           }
 
@@ -746,7 +746,7 @@ void MTLFrameBuffer::update_attachments(bool /*update_viewport*/)
             MTLAttachment color_attachment_prev = this->get_color_attachment(color_slot_ind);
 
             this->remove_color_attachment(color_slot_ind);
-            this->add_color_attachment(static_cast<gpu::MTLTexture *>(unwrap(attach.tex)),
+            this->add_color_attachment(static_cast<gpu::MTLTexture *>(attach.tex),
                                        color_slot_ind,
                                        attach.mip,
                                        attach.layer);
@@ -757,7 +757,7 @@ void MTLFrameBuffer::update_attachments(bool /*update_viewport*/)
                                          color_attachment_prev.store_action);
           }
           else {
-            this->add_color_attachment(static_cast<gpu::MTLTexture *>(unwrap(attach.tex)),
+            this->add_color_attachment(static_cast<gpu::MTLTexture *>(attach.tex),
                                        color_slot_ind,
                                        attach.mip,
                                        attach.layer);
@@ -782,7 +782,7 @@ void MTLFrameBuffer::update_attachments(bool /*update_viewport*/)
     int size[3];
     GPU_texture_get_mipmap_size(attach.tex, attach.mip, size);
     this->size_set(size[0], size[1]);
-    srgb_ = (GPU_texture_format(attach.tex) == GPU_SRGB8_A8);
+    srgb_ = (GPU_texture_format(attach.tex) == TextureFormat::SRGBA_8_8_8_8);
   }
 
   /* We have now updated our internal structures. */

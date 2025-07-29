@@ -7,7 +7,7 @@
 #include "usd.hh"
 #include "usd_asset_utils.hh"
 #include "usd_private.hh"
-#include "usd_reader_prim.hh"
+#include "usd_utils.hh"
 #include "usd_writer_material.hh"
 
 #include <pxr/base/gf/rotation.h>
@@ -17,6 +17,7 @@
 #include <pxr/usd/usdGeom/xformCache.h>
 #include <pxr/usd/usdGeom/xformCommonAPI.h>
 #include <pxr/usd/usdLux/domeLight.h>
+#include <pxr/usd/usdLux/tokens.h>
 
 #include "BKE_image.hh"
 #include "BKE_library.hh"
@@ -27,60 +28,30 @@
 #include "BKE_node_tree_update.hh"
 
 #include "BLI_fileops.h"
-#include "BLI_listbase.h"
 #include "BLI_math_vector.h"
 #include "BLI_path_utils.hh"
+#include "BLI_span.hh"
+#include "BLI_string_ref.hh"
+#include "BLI_utildefines.h"
 
+#include "DNA_image_types.h"
 #include "DNA_node_types.h"
 #include "DNA_scene_types.h"
 #include "DNA_world_types.h"
 
+#include <cmath>
+#include <cstdint>
 #include <string>
 
 #include "CLG_log.h"
 static CLG_LogRef LOG = {"io.usd"};
 
 namespace usdtokens {
-// Attribute names.
-static const pxr::TfToken color("color", pxr::TfToken::Immortal);
-static const pxr::TfToken intensity("intensity", pxr::TfToken::Immortal);
-static const pxr::TfToken texture_file("texture:file", pxr::TfToken::Immortal);
+// Attribute values.
+static const pxr::TfToken pole_axis_z("Z", pxr::TfToken::Immortal);
 }  // namespace usdtokens
 
 namespace {
-
-/**
- * If the given attribute has an authored value, return its value in the r_value
- * out parameter.
- *
- * We wish to support older UsdLux APIs in older versions of USD.  For example,
- * in previous versions of the API, shader input attributes did not have the
- * "inputs:" prefix.  One can provide the older input attribute name in the
- * 'fallback_attr_name' argument, and that attribute will be queried if 'attr'
- * doesn't exist or doesn't have an authored value.
- */
-template<typename T>
-bool get_authored_value(const pxr::UsdAttribute &attr,
-                        const double motionSampleTime,
-                        const pxr::UsdPrim &prim,
-                        const pxr::TfToken fallback_attr_name,
-                        T *r_value)
-{
-  if (attr && attr.HasAuthoredValue()) {
-    return attr.Get<T>(r_value, motionSampleTime);
-  }
-
-  if (!prim || fallback_attr_name.IsEmpty()) {
-    return false;
-  }
-
-  pxr::UsdAttribute fallback_attr = prim.GetAttribute(fallback_attr_name);
-  if (fallback_attr && fallback_attr.HasAuthoredValue()) {
-    return fallback_attr.Get<T>(r_value, motionSampleTime);
-  }
-
-  return false;
-}
 
 /**
  * Helper struct for retrieving shader information when traversing a world material
@@ -113,21 +84,6 @@ struct WorldNtreeSearchResults {
 namespace blender::io::usd {
 
 /**
- * If the given path already exists on the given stage, return the path with
- * a numerical suffix appended to the name that ensures the path is unique. If
- * the path does not exist on the stage, it will be returned unchanged.
- */
-static pxr::SdfPath get_unique_path(pxr::UsdStageRefPtr stage, const std::string &path)
-{
-  std::string unique_path = path;
-  int suffix = 2;
-  while (stage->GetPrimAtPath(pxr::SdfPath(unique_path)).IsValid()) {
-    unique_path = path + std::to_string(suffix++);
-  }
-  return pxr::SdfPath(unique_path);
-}
-
-/**
  * Load the image at the given path.  Handle packing and copying based in the import options.
  * Return the opened image on success or a nullptr on failure.
  */
@@ -151,7 +107,7 @@ static Image *load_image(std::string tex_path, Main *bmain, const USDImportParam
                                                              USD_TEX_NAME_COLLISION_OVERWRITE :
                                                              params.tex_name_collision_mode;
 
-    tex_path = import_asset(tex_path.c_str(), textures_dir, name_collision_mode, nullptr);
+    tex_path = import_asset(tex_path, textures_dir, name_collision_mode, nullptr);
   }
 
   Image *image = BKE_image_load_exists(bmain, tex_path.c_str());
@@ -179,16 +135,12 @@ static Image *load_image(std::string tex_path, Main *bmain, const USDImportParam
  * as an upstream source to 'dst_node' with the given sockets. */
 static bNode *append_node(bNode *dst_node,
                           int16_t new_node_type,
-                          const char *out_sock,
-                          const char *in_sock,
+                          const StringRef out_sock,
+                          const StringRef in_sock,
                           bNodeTree *ntree,
                           float offset)
 {
   bNode *src_node = bke::node_add_static_node(nullptr, *ntree, new_node_type);
-  if (!src_node) {
-    return nullptr;
-  }
-
   bke::node_add_link(*ntree,
                      *src_node,
                      *bke::node_find_socket(*src_node, SOCK_OUT, out_sock),
@@ -271,10 +223,6 @@ static bool node_search(bNode *fromnode,
   return true;
 }
 
-/**
- * If the Blender scene has an environment texture,
- * export it as a USD dome light.
- */
 void world_material_to_dome_light(const USDExportParams &params,
                                   const Scene *scene,
                                   pxr::UsdStageRefPtr stage)
@@ -285,12 +233,18 @@ void world_material_to_dome_light(const USDExportParams &params,
 
   WorldNtreeSearchResults res(params, stage);
 
-  if (scene->world->use_nodes && scene->world->nodetree) {
+  if (scene->world->nodetree) {
     /* Find the world output. */
+    bNode *output = nullptr;
     const bNodeTree *ntree = scene->world->nodetree;
     ntree->ensure_topology_cache();
-    const blender::Span<const bNode *> bsdf_nodes = ntree->nodes_by_type("ShaderNodeOutputWorld");
-    const bNode *output = bsdf_nodes.is_empty() ? nullptr : bsdf_nodes.first();
+    const Span<const bNode *> bsdf_nodes = ntree->nodes_by_type("ShaderNodeOutputWorld");
+    for (const bNode *node : bsdf_nodes) {
+      if (node->flag & NODE_DO_OUTPUT) {
+        output = const_cast<bNode *>(node);
+        break;
+      }
+    }
 
     if (!output) {
       /* No output, no valid network to convert. */
@@ -301,8 +255,8 @@ void world_material_to_dome_light(const USDExportParams &params,
   }
   else {
     res.world_intensity = 1.0f;
-    copy_v3_v3(res.world_color, &scene->world->horr);
-    res.background_found = !is_zero_v3(res.world_color);
+    zero_v3(res.world_color);
+    res.background_found = false;
   }
 
   if (!(res.background_found || res.env_tex_found)) {
@@ -312,8 +266,7 @@ void world_material_to_dome_light(const USDExportParams &params,
 
   /* Create USD dome light. */
 
-  pxr::SdfPath env_light_path = get_unique_path(stage,
-                                                std::string(params.root_prim_path) + "/env_light");
+  pxr::SdfPath env_light_path = get_unique_path(stage, params.root_prim_path + "/env_light");
 
   pxr::UsdLuxDomeLight dome_light = pxr::UsdLuxDomeLight::Define(stage, env_light_path);
 
@@ -395,23 +348,17 @@ void world_material_to_dome_light(const USDExportParams &params,
 void dome_light_to_world_material(const USDImportParams &params,
                                   Scene *scene,
                                   Main *bmain,
-                                  const pxr::UsdLuxDomeLight &dome_light,
-                                  const double motionSampleTime)
+                                  const USDImportDomeLightData &dome_light_data,
+                                  const pxr::UsdPrim &prim,
+                                  const pxr::UsdTimeCode time)
 {
-  if (!(scene && scene->world && dome_light)) {
+  if (!(scene && scene->world && prim)) {
     return;
   }
 
-  if (!scene->world->use_nodes) {
-    scene->world->use_nodes = true;
-  }
-
   if (!scene->world->nodetree) {
-    scene->world->nodetree = bke::node_tree_add_tree(nullptr, "Shader Nodetree", "ShaderNodeTree");
-    if (!scene->world->nodetree) {
-      CLOG_WARN(&LOG, "Couldn't create world ntree");
-      return;
-    }
+    scene->world->nodetree = bke::node_tree_add_tree_embedded(
+        nullptr, &scene->world->id, "Shader Nodetree", "ShaderNodeTree");
   }
 
   bNodeTree *ntree = scene->world->nodetree;
@@ -438,23 +385,12 @@ void dome_light_to_world_material(const USDImportParams &params,
   /* Create the output and background shader nodes, if they don't exist. */
   if (!output) {
     output = bke::node_add_static_node(nullptr, *ntree, SH_NODE_OUTPUT_WORLD);
-
-    if (!output) {
-      CLOG_WARN(&LOG, "Couldn't create world output node");
-      return;
-    }
-
     output->location[0] = 300.0f;
     output->location[1] = 300.0f;
   }
 
   if (!bgshader) {
     bgshader = append_node(output, SH_NODE_BACKGROUND, "Background", "Surface", ntree, 200);
-
-    if (!bgshader) {
-      CLOG_WARN(&LOG, "Couldn't create world shader node");
-      return;
-    }
 
     /* Set the default background color. */
     bNodeSocket *color_sock = bke::node_find_socket(*bgshader, SOCK_IN, "Color");
@@ -469,36 +405,18 @@ void dome_light_to_world_material(const USDImportParams &params,
   }
 
   /* Set the background shader intensity. */
-  float intensity = 1.0f;
-  get_authored_value(dome_light.GetIntensityAttr(),
-                     motionSampleTime,
-                     dome_light.GetPrim(),
-                     usdtokens::intensity,
-                     &intensity);
-
-  intensity *= params.light_intensity_scale;
+  float intensity = dome_light_data.intensity * params.light_intensity_scale;
 
   bNodeSocket *strength_sock = bke::node_find_socket(*bgshader, SOCK_IN, "Strength");
   ((bNodeSocketValueFloat *)strength_sock->default_value)->value = intensity;
 
-  /* Get the dome light texture file and color. */
-  pxr::SdfAssetPath tex_path;
-  bool has_tex = get_authored_value(dome_light.GetTextureFileAttr(),
-                                    motionSampleTime,
-                                    dome_light.GetPrim(),
-                                    usdtokens::texture_file,
-                                    &tex_path);
-
-  pxr::GfVec3f color;
-  bool has_color = get_authored_value(
-      dome_light.GetColorAttr(), motionSampleTime, dome_light.GetPrim(), usdtokens::color, &color);
-
-  if (!has_tex) {
+  if (!dome_light_data.has_tex) {
     /* No texture file is authored on the dome light.  Set the color, if it was authored,
      * and return early. */
-    if (has_color) {
+    if (dome_light_data.has_color) {
       bNodeSocket *color_sock = bke::node_find_socket(*bgshader, SOCK_IN, "Color");
-      copy_v3_v3(((bNodeSocketValueRGBA *)color_sock->default_value)->value, color.data());
+      copy_v3_v3(((bNodeSocketValueRGBA *)color_sock->default_value)->value,
+                 dome_light_data.color.data());
     }
 
     bke::node_set_active(*ntree, *output);
@@ -511,14 +429,8 @@ void dome_light_to_world_material(const USDImportParams &params,
    * texture output. */
   bNode *mult = nullptr;
 
-  if (has_color) {
+  if (dome_light_data.has_color) {
     mult = append_node(bgshader, SH_NODE_VECTOR_MATH, "Vector", "Color", ntree, 200);
-
-    if (!mult) {
-      CLOG_WARN(&LOG, "Couldn't create vector multiply node");
-      return;
-    }
-
     mult->custom1 = NODE_VECTOR_MATH_MULTIPLY;
 
     /* Set the color in the vector math node's second socket. */
@@ -528,7 +440,8 @@ void dome_light_to_world_material(const USDImportParams &params,
     }
 
     if (vec_sock) {
-      copy_v3_v3(((bNodeSocketValueVector *)vec_sock->default_value)->value, color.data());
+      copy_v3_v3(((bNodeSocketValueVector *)vec_sock->default_value)->value,
+                 dome_light_data.color.data());
     }
     else {
       CLOG_WARN(&LOG, "Couldn't find vector multiply second vector socket");
@@ -546,30 +459,16 @@ void dome_light_to_world_material(const USDImportParams &params,
     tex = append_node(bgshader, SH_NODE_TEX_ENVIRONMENT, "Color", "Color", ntree, 400);
   }
 
-  if (!tex) {
-    CLOG_WARN(&LOG, "Couldn't create world environment texture node");
-    return;
-  }
-
   bNode *mapping = append_node(tex, SH_NODE_MAPPING, "Vector", "Vector", ntree, 200);
 
-  if (!mapping) {
-    CLOG_WARN(&LOG, "Couldn't create mapping node");
-    return;
-  }
-
-  bNode *tex_coord = append_node(mapping, SH_NODE_TEX_COORD, "Generated", "Vector", ntree, 200);
-
-  if (!tex_coord) {
-    CLOG_WARN(&LOG, "Couldn't create texture coordinate node");
-    return;
-  }
+  append_node(mapping, SH_NODE_TEX_COORD, "Generated", "Vector", ntree, 200);
 
   /* Load the texture image. */
-  std::string resolved_path = tex_path.GetResolvedPath();
-
+  const std::string &resolved_path = dome_light_data.tex_path.GetResolvedPath();
   if (resolved_path.empty()) {
-    CLOG_WARN(&LOG, "Couldn't get resolved path for asset %s", tex_path.GetAssetPath().c_str());
+    CLOG_WARN(&LOG,
+              "Couldn't get resolved path for asset %s",
+              dome_light_data.tex_path.GetAssetPath().c_str());
     return;
   }
 
@@ -582,22 +481,35 @@ void dome_light_to_world_material(const USDImportParams &params,
   tex->id = &image->id;
 
   /* Set the transform. */
-  pxr::UsdGeomXformCache xf_cache(motionSampleTime);
-  pxr::GfMatrix4d xf = xf_cache.GetLocalToWorldTransform(dome_light.GetPrim());
+  pxr::UsdGeomXformCache xf_cache(time);
+  pxr::GfMatrix4d xf = xf_cache.GetLocalToWorldTransform(prim);
 
-  pxr::UsdStageRefPtr stage = dome_light.GetPrim().GetStage();
+  pxr::UsdStageRefPtr stage = prim.GetStage();
 
   if (!stage) {
-    CLOG_WARN(
-        &LOG, "Couldn't get stage for dome light %s", dome_light.GetPrim().GetPath().GetText());
+    CLOG_WARN(&LOG, "Couldn't get stage for dome light %s", prim.GetPath().GetText());
     return;
   }
 
-  if (pxr::UsdGeomGetStageUpAxis(stage) == pxr::UsdGeomTokens->y) {
+  /* Note: This logic tries to produce identical results to `usdview` as of USD 25.05.
+   * However, `usdview` seems to handle Y-Up stages differently; some scenes match while others
+   * do not unless we keep the second conditional below (+90 on x-axis). */
+  const pxr::TfToken stage_up = pxr::UsdGeomGetStageUpAxis(stage);
+  const bool needs_stage_z_adjust = stage_up == pxr::UsdGeomTokens->z &&
+                                    ELEM(dome_light_data.pole_axis,
+                                         pxr::UsdLuxTokens->Z,
+                                         pxr::UsdLuxTokens->scene);
+  const bool needs_stage_y_adjust = stage_up == pxr::UsdGeomTokens->y &&
+                                    ELEM(dome_light_data.pole_axis, pxr::UsdLuxTokens->Z);
+  if (needs_stage_z_adjust || needs_stage_y_adjust) {
+    xf *= pxr::GfMatrix4d().SetRotate(pxr::GfRotation(pxr::GfVec3d(0.0, 1.0, 0.0), 90.0));
+  }
+  else if (stage_up == pxr::UsdGeomTokens->y) {
     /* Convert from Y-up to Z-up with a 90 degree rotation about the X-axis. */
     xf *= pxr::GfMatrix4d().SetRotate(pxr::GfRotation(pxr::GfVec3d(1.0, 0.0, 0.0), 90.0));
   }
 
+  /* Rotate into Blender's frame of reference. */
   xf = pxr::GfMatrix4d().SetRotate(pxr::GfRotation(pxr::GfVec3d(0.0, 0.0, 1.0), -90.0)) *
        pxr::GfMatrix4d().SetRotate(pxr::GfRotation(pxr::GfVec3d(1.0, 0.0, 0.0), -90.0)) * xf;
 

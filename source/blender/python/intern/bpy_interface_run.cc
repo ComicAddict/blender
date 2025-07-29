@@ -16,6 +16,7 @@
 #include "BLI_listbase.h"
 #include "BLI_path_utils.hh"
 #include "BLI_string.h"
+#include "BLI_string_utils.hh"
 
 #include "BKE_context.hh"
 #include "BKE_library.hh"
@@ -57,12 +58,8 @@ static void bpy_text_filepath_get(char *filepath,
                                   const Main *bmain,
                                   const Text *text)
 {
-  BLI_snprintf(filepath,
-               filepath_maxncpy,
-               "%s%c%s",
-               ID_BLEND_PATH(bmain, &text->id),
-               SEP,
-               text->id.name + 2);
+  BLI_string_join_by_sep_char(
+      filepath, filepath_maxncpy, SEP, ID_BLEND_PATH(bmain, &text->id), text->id.name + 2);
 }
 
 /**
@@ -206,16 +203,22 @@ static bool python_script_exec(
         }
       }
     }
-    if (!reports) {
+    if (reports) {
+      PyErr_Clear();
+    }
+    else {
       PyErr_Print();
     }
-    PyErr_Clear();
   }
   else {
     Py_DECREF(py_result);
   }
 
   PyC_MainModule_Restore(main_mod);
+
+  /* Flush `stdout` & `stderr` to ensure the script output is visible.
+   * Using `fflush(stdout)` does not solve it. */
+  PyC_StdFilesFlush();
 
   bpy_context_clear(C, &gilstate);
 
@@ -276,7 +279,6 @@ static bool bpy_run_string_impl(bContext *C,
       BPy_errors_to_report(wm_reports);
     }
     PyErr_Print();
-    PyErr_Clear();
   }
   else {
     Py_DECREF(retval);
@@ -314,7 +316,6 @@ static void run_string_handle_error(BPy_RunErrInfo *err_info)
 
   if (err_info == nullptr) {
     PyErr_Print();
-    PyErr_Clear();
     return;
   }
 

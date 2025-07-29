@@ -278,7 +278,7 @@ static NodeClipboard &get_node_clipboard()
 /** \name Copy
  * \{ */
 
-static int node_clipboard_copy_exec(bContext *C, wmOperator * /*op*/)
+static wmOperatorStatus node_clipboard_copy_exec(bContext *C, wmOperator * /*op*/)
 {
   SpaceNode &snode = *CTX_wm_space_node(C);
   bNodeTree &tree = *snode.edittree;
@@ -346,7 +346,7 @@ void NODE_OT_clipboard_copy(wmOperatorType *ot)
 /** \name Paste
  * \{ */
 
-static int node_clipboard_paste_exec(bContext *C, wmOperator *op)
+static wmOperatorStatus node_clipboard_paste_exec(bContext *C, wmOperator *op)
 {
   Main *bmain = CTX_data_main(C);
   SpaceNode &snode = *CTX_wm_space_node(C);
@@ -375,21 +375,32 @@ static int node_clipboard_paste_exec(bContext *C, wmOperator *op)
   for (NodeClipboardItem &item : clipboard.nodes) {
     const bNode &node = *item.node;
     const char *disabled_hint = nullptr;
-    if (node.typeinfo->poll_instance && node.typeinfo->poll_instance(&node, &tree, &disabled_hint))
+
+    /* Some poll functions (e.g. for the nodegroup node, see #node_group_poll_instance) do require
+     * fully valid node data, including the potential ID pointers. So first create the new copy of
+     * the clipboard node, make it as valid as possible, then call its #poll_instance function, and
+     * discard the new copy if it fails.
+     *
+     * See also #141415.
+     */
+
+    /* Do not access referenced ID pointers here, as they are still the old ones, which may be
+     * invalid. */
+    bNode *new_node = bke::node_copy_with_mapping(
+        &tree, node, LIB_ID_CREATE_NO_USER_REFCOUNT, true, socket_map);
+    /* Update the newly copied node's ID references. */
+    clipboard.paste_update_node_id_references(*new_node);
+    /* Reset socket shape in case a node is copied to a different tree type. */
+    LISTBASE_FOREACH (bNodeSocket *, socket, &new_node->inputs) {
+      socket->display_shape = SOCK_DISPLAY_SHAPE_CIRCLE;
+    }
+    LISTBASE_FOREACH (bNodeSocket *, socket, &new_node->outputs) {
+      socket->display_shape = SOCK_DISPLAY_SHAPE_CIRCLE;
+    }
+
+    if (!new_node->typeinfo->poll_instance ||
+        new_node->typeinfo->poll_instance(new_node, &tree, &disabled_hint))
     {
-      /* Do not access referenced ID pointers here, as they are still the old ones, which may be
-       * invalid. */
-      bNode *new_node = bke::node_copy_with_mapping(
-          &tree, node, LIB_ID_CREATE_NO_USER_REFCOUNT, true, socket_map);
-      /* Update the newly copied node's ID references. */
-      clipboard.paste_update_node_id_references(*new_node);
-      /* Reset socket shape in case a node is copied to a different tree type. */
-      LISTBASE_FOREACH (bNodeSocket *, socket, &new_node->inputs) {
-        socket->display_shape = SOCK_DISPLAY_SHAPE_CIRCLE;
-      }
-      LISTBASE_FOREACH (bNodeSocket *, socket, &new_node->outputs) {
-        socket->display_shape = SOCK_DISPLAY_SHAPE_CIRCLE;
-      }
       node_map.add_new(&node, new_node);
     }
     else {
@@ -408,6 +419,7 @@ static int node_clipboard_paste_exec(bContext *C, wmOperator *op)
                     node.name,
                     tree.id.name + 2);
       }
+      bke::node_free_node(&tree, *new_node);
     }
   }
 
@@ -439,11 +451,8 @@ static int node_clipboard_paste_exec(bContext *C, wmOperator *op)
     const float2 offset = (mouse_location - center) / UI_SCALE_FAC;
 
     for (bNode *new_node : node_map.values()) {
-      /* Skip the offset for parented nodes since the location is in parent space. */
-      if (new_node->parent == nullptr) {
-        new_node->location[0] += offset.x;
-        new_node->location[1] += offset.y;
-      }
+      new_node->location[0] += offset.x;
+      new_node->location[1] += offset.y;
     }
   }
 
@@ -482,7 +491,9 @@ static int node_clipboard_paste_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-static int node_clipboard_paste_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+static wmOperatorStatus node_clipboard_paste_invoke(bContext *C,
+                                                    wmOperator *op,
+                                                    const wmEvent *event)
 {
   const ARegion *region = CTX_wm_region(C);
   float2 cursor;

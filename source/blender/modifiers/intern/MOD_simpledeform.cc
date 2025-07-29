@@ -22,7 +22,7 @@
 #include "BKE_lib_query.hh"
 #include "BKE_modifier.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "RNA_access.hh"
@@ -445,22 +445,22 @@ static void panel_draw(const bContext * /*C*/, Panel *panel)
 
   int deform_method = RNA_enum_get(ptr, "deform_method");
 
-  row = uiLayoutRow(layout, false);
-  uiItemR(row, ptr, "deform_method", UI_ITEM_R_EXPAND, std::nullopt, ICON_NONE);
+  row = &layout->row(false);
+  row->prop(ptr, "deform_method", UI_ITEM_R_EXPAND, std::nullopt, ICON_NONE);
 
-  uiLayoutSetPropSep(layout, true);
+  layout->use_property_split_set(true);
 
   if (ELEM(deform_method, MOD_SIMPLEDEFORM_MODE_TAPER, MOD_SIMPLEDEFORM_MODE_STRETCH)) {
-    uiItemR(layout, ptr, "factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    layout->prop(ptr, "factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
   }
   else {
-    uiItemR(layout, ptr, "angle", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    layout->prop(ptr, "angle", UI_ITEM_NONE, std::nullopt, ICON_NONE);
   }
 
-  uiItemR(layout, ptr, "origin", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-  uiItemR(layout, ptr, "deform_axis", UI_ITEM_R_EXPAND, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "origin", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "deform_axis", UI_ITEM_R_EXPAND, std::nullopt, ICON_NONE);
 
-  modifier_panel_end(layout, ptr);
+  modifier_error_message_draw(layout, ptr);
 }
 
 static void restrictions_panel_draw(const bContext * /*C*/, Panel *panel)
@@ -474,9 +474,9 @@ static void restrictions_panel_draw(const bContext * /*C*/, Panel *panel)
 
   int deform_method = RNA_enum_get(ptr, "deform_method");
 
-  uiLayoutSetPropSep(layout, true);
+  layout->use_property_split_set(true);
 
-  uiItemR(layout, ptr, "limits", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "limits", UI_ITEM_R_SLIDER, std::nullopt, ICON_NONE);
 
   if (ELEM(deform_method,
            MOD_SIMPLEDEFORM_MODE_TAPER,
@@ -485,15 +485,15 @@ static void restrictions_panel_draw(const bContext * /*C*/, Panel *panel)
   {
     int deform_axis = RNA_enum_get(ptr, "deform_axis");
 
-    row = uiLayoutRowWithHeading(layout, true, IFACE_("Lock"));
+    row = &layout->row(true, IFACE_("Lock"));
     if (deform_axis != 0) {
-      uiItemR(row, ptr, "lock_x", toggles_flag, std::nullopt, ICON_NONE);
+      row->prop(ptr, "lock_x", toggles_flag, std::nullopt, ICON_NONE);
     }
     if (deform_axis != 1) {
-      uiItemR(row, ptr, "lock_y", toggles_flag, std::nullopt, ICON_NONE);
+      row->prop(ptr, "lock_y", toggles_flag, std::nullopt, ICON_NONE);
     }
     if (deform_axis != 2) {
-      uiItemR(row, ptr, "lock_z", toggles_flag, std::nullopt, ICON_NONE);
+      row->prop(ptr, "lock_z", toggles_flag, std::nullopt, ICON_NONE);
     }
   }
 

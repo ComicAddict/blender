@@ -958,10 +958,15 @@ static void rna_def_pointcache_common(StructRNA *srna)
   PropertyRNA *prop;
 
   static const EnumPropertyItem point_cache_compress_items[] = {
-      {PTCACHE_COMPRESS_NO, "NO", 0, "None", "No compression"},
-      {PTCACHE_COMPRESS_LZO, "LIGHT", 0, "Lite", "Fast but not so effective compression"},
-      {PTCACHE_COMPRESS_LZMA, "HEAVY", 0, "Heavy", "Effective but slow compression"},
-      {0, nullptr, 0, nullptr, nullptr},
+    {PTCACHE_COMPRESS_NO, "NO", 0, "None", "No compression"},
+  /* TODO: Deprecated. Remove after short testing period in 5.0. */
+#  if 0  // WITH_LZO, WITH_LZMA
+    {PTCACHE_COMPRESS_LZO, "LIGHT", 0, "Lite", "Fast but not so effective compression"},
+    {PTCACHE_COMPRESS_LZMA, "HEAVY", 0, "Heavy", "Effective but slow compression"},
+#  endif
+    {PTCACHE_COMPRESS_ZSTD_FAST, "FAST", 0, "Fast", "Fast but not so effective compression"},
+    {PTCACHE_COMPRESS_ZSTD_SLOW, "SLOW", 0, "Slow", "Effective but slow compression"},
+    {0, nullptr, 0, nullptr, nullptr},
   };
 
   RNA_def_struct_path_func(srna, "rna_PointCache_path");
@@ -1033,6 +1038,7 @@ static void rna_def_pointcache_common(StructRNA *srna)
 
   prop = RNA_def_property(srna, "filepath", PROP_STRING, PROP_DIRPATH);
   RNA_def_property_string_sdna(prop, nullptr, "path");
+  RNA_def_property_flag(prop, PROP_PATH_SUPPORTS_BLEND_RELATIVE);
   RNA_def_property_ui_text(prop, "File Path", "Cache file path");
   RNA_def_property_update(prop, NC_OBJECT, "rna_Cache_idname_change");
 

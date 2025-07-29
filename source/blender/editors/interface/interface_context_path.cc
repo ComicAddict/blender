@@ -11,6 +11,7 @@
 #include "RNA_access.hh"
 
 #include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "RNA_prototypes.hh"
@@ -53,15 +54,15 @@ void context_path_add_generic(Vector<ContextPathItem> &path,
 
 void template_breadcrumbs(uiLayout &layout, Span<ContextPathItem> context_path)
 {
-  uiLayout *row = uiLayoutRow(&layout, true);
-  uiLayoutSetAlignment(&layout, UI_LAYOUT_ALIGN_LEFT);
+  uiLayout *row = &layout.row(true);
+  layout.alignment_set(LayoutAlign::Left);
 
   for (const int i : context_path.index_range()) {
-    uiLayout *sub_row = uiLayoutRow(row, true);
-    uiLayoutSetAlignment(sub_row, UI_LAYOUT_ALIGN_LEFT);
+    uiLayout *sub_row = &row->row(true);
+    sub_row->alignment_set(LayoutAlign::Left);
 
     if (i > 0) {
-      uiItemL(sub_row, "", ICON_RIGHTARROW_THIN);
+      sub_row->label("", ICON_RIGHTARROW_THIN);
     }
     uiBut *but = uiItemL_ex(
         sub_row, context_path[i].name.c_str(), context_path[i].icon, false, false);

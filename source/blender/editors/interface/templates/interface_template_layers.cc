@@ -13,7 +13,7 @@
 
 #include "RNA_access.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "interface_intern.hh"
 
 using blender::StringRefNull;
@@ -85,11 +85,11 @@ void uiTemplateLayers(uiLayout *layout,
   /* layers are laid out going across rows, with the columns being divided into groups */
 
   for (int group = 0; group < groups; group++) {
-    uiLayout *uCol = uiLayoutColumn(layout, true);
+    uiLayout *uCol = &layout->column(true);
 
     for (int row = 0; row < 2; row++) {
-      uiLayout *uRow = uiLayoutRow(uCol, true);
-      uiBlock *block = uiLayoutGetBlock(uRow);
+      uiLayout *uRow = &uCol->row(true);
+      uiBlock *block = uRow->block();
       int layer = groups * cols_per_group * row + cols_per_group * group;
 
       /* add layers as toggle buts */
@@ -107,7 +107,7 @@ void uiTemplateLayers(uiLayout *layout,
         uiBut *but = uiDefAutoButR(
             block, ptr, prop, layer, "", icon, 0, 0, UI_UNIT_X / 2, UI_UNIT_Y / 2);
         UI_but_func_set(but, handle_layer_buttons, but, POINTER_FROM_INT(layer));
-        but->type = UI_BTYPE_TOGGLE;
+        but->type = ButType::Toggle;
       }
     }
   }

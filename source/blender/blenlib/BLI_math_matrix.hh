@@ -516,6 +516,22 @@ template<typename T, int NumCol, int NumRow>
 }
 
 /**
+ * Returns true if the matrix is exactly the identity matrix.
+ */
+template<typename T, int NumCol, int NumRow>
+[[nodiscard]] inline bool is_identity(const MatBase<T, NumCol, NumRow> &mat)
+{
+  for (int i = 0; i < NumCol; i++) {
+    for (int j = 0; j < NumRow; j++) {
+      if (mat[i][j] != (i != j ? 0.0f : 1.0f)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/**
  * Test if the X, Y and Z axes are perpendicular with each other.
  */
 template<typename MatT> [[nodiscard]] inline bool is_orthogonal(const MatT &mat)
@@ -1789,5 +1805,12 @@ extern template float4x4 perspective(
 }  // namespace projection
 
 /** \} */
+
+/**
+ * Transform normal vectors, maintaining their unit length status, but implementing some
+ * optimizations for identity matrics and uniform scaling.
+ */
+void transform_normals(const float3x3 &transform, MutableSpan<float3> normals);
+void transform_normals(Span<float3> src, const float3x3 &transform, MutableSpan<float3> dst);
 
 }  // namespace blender::math

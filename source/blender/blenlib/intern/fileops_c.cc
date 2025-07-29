@@ -403,7 +403,7 @@ bool BLI_dir_create_recursive(const char *dirname)
 
   size_t len = strlen(dirname);
   if (len >= sizeof(dirname_static_buf)) {
-    dirname_mut = MEM_cnew_array<char>(len + 1, __func__);
+    dirname_mut = MEM_calloc_arrayN<char>(len + 1, __func__);
   }
   memcpy(dirname_mut, dirname, len + 1);
 
@@ -786,7 +786,7 @@ static const char *path_destination_ensure_filename(const char *path_src,
       size_t buf_size_needed = path_dst_len + strlen(filename_src) + 1;
       char *path_dst_with_filename = (buf_size_needed <= buf_size) ?
                                          buf :
-                                         MEM_cnew_array<char>(buf_size_needed, __func__);
+                                         MEM_calloc_arrayN<char>(buf_size_needed, __func__);
       BLI_string_join(path_dst_with_filename, buf_size_needed, path_dst, filename_src);
       return path_dst_with_filename;
     }
@@ -814,7 +814,7 @@ int BLI_path_move(const char *path_src, const char *path_dst)
   }
 
   if (!ELEM(path_dst_with_filename, path_dst_buf, path_dst)) {
-    MEM_freeN((void *)path_dst_with_filename);
+    MEM_freeN(path_dst_with_filename);
   }
 
   return err;
@@ -839,7 +839,7 @@ int BLI_copy(const char *path_src, const char *path_dst)
   }
 
   if (!ELEM(path_dst_with_filename, path_dst_buf, path_dst)) {
-    MEM_freeN((void *)path_dst_with_filename);
+    MEM_freeN(path_dst_with_filename);
   }
 
   return err;
@@ -964,7 +964,7 @@ static int recursive_operation_impl(StrBuf *src_buf,
 {
   /* NOTE(@ideasman42): This function must *not* use any `MEM_*` functions
    * as it's used to purge temporary files on when the processed is aborted,
-   * in this case the `MEM_*` state may have already been freed (memory usage tracking for e.g.)
+   * in this case the `MEM_*` state may have already been freed (e.g. memory usage tracking)
    * causing freed memory access, potentially crashing. This constraint doesn't apply to the
    * callbacks themselves - unless they might also be called when aborting. */
   struct stat st;
@@ -1389,7 +1389,7 @@ static int copy_single_file(const char *from, const char *to)
       need_free = 0;
     }
     else {
-      link_buffer = MEM_cnew_array<char>(st.st_size + 2, "copy_single_file link_buffer");
+      link_buffer = MEM_calloc_arrayN<char>(st.st_size + 2, "copy_single_file link_buffer");
       need_free = 1;
     }
 
@@ -1512,7 +1512,7 @@ static const char *path_destination_ensure_filename(const char *path_src,
       const size_t buf_size_needed = strlen(path_dst) + 1 + strlen(filename_src) + 1;
       char *path_dst_with_filename = (buf_size_needed <= buf_size) ?
                                          buf :
-                                         MEM_cnew_array<char>(buf_size_needed, __func__);
+                                         MEM_calloc_arrayN<char>(buf_size_needed, __func__);
       BLI_path_join(path_dst_with_filename, buf_size_needed, path_dst, filename_src);
       path_dst = path_dst_with_filename;
     }
@@ -1532,7 +1532,7 @@ int BLI_copy(const char *path_src, const char *path_dst)
       path_src, path_dst_with_filename, copy_callback_pre, copy_single_file, nullptr);
 
   if (!ELEM(path_dst_with_filename, path_dst_buf, path_dst)) {
-    MEM_freeN((void *)path_dst_with_filename);
+    MEM_freeN(path_dst_with_filename);
   }
 
   return ret;

@@ -17,11 +17,15 @@
 #include "BKE_geometry_set.hh"
 #include "BKE_node_socket_value.hh"
 #include "BKE_volume_grid_fwd.hh"
+#include "NOD_geometry_nodes_bundle_fwd.hh"
+#include "NOD_geometry_nodes_closure_fwd.hh"
+#include "NOD_geometry_nodes_list_fwd.hh"
 
 #include "DNA_node_types.h"
 
 #include "NOD_derived_node_tree.hh"
 #include "NOD_geometry_nodes_lazy_function.hh"
+#include "NOD_geometry_nodes_values.hh"
 
 namespace blender::nodes {
 
@@ -57,7 +61,6 @@ using fn::FieldInput;
 using fn::FieldOperation;
 using fn::GField;
 using geo_eval_log::NamedAttributeUsage;
-using geo_eval_log::NodeWarningType;
 
 class NodeAttributeFilter : public AttributeFilter {
  private:
@@ -95,22 +98,6 @@ class GeoNodeExecParams {
   {
   }
 
-  template<typename T>
-  static constexpr bool is_field_base_type_v = is_same_any_v<T,
-                                                             float,
-                                                             int,
-                                                             bool,
-                                                             ColorGeometry4f,
-                                                             float3,
-                                                             std::string,
-                                                             math::Quaternion,
-                                                             float4x4>;
-
-  template<typename T>
-  static constexpr bool stored_as_SocketValueVariant_v =
-      is_field_base_type_v<T> || fn::is_field_v<T> || bke::is_VolumeGrid_v<T> ||
-      is_same_any_v<T, GField, bke::GVolumeGrid>;
-
   /**
    * Get the input value for the input socket with the given identifier.
    *
@@ -118,7 +105,10 @@ class GeoNodeExecParams {
    */
   template<typename T> T extract_input(StringRef identifier)
   {
-    if constexpr (stored_as_SocketValueVariant_v<T>) {
+    if constexpr (std::is_enum_v<T>) {
+      return T(this->extract_input<int>(identifier));
+    }
+    else if constexpr (geo_nodes_type_stored_as_SocketValueVariant_v<T>) {
       SocketValueVariant value_variant = this->extract_input<SocketValueVariant>(identifier);
       return value_variant.extract<T>();
     }
@@ -147,7 +137,10 @@ class GeoNodeExecParams {
    */
   template<typename T> T get_input(StringRef identifier) const
   {
-    if constexpr (stored_as_SocketValueVariant_v<T>) {
+    if constexpr (std::is_enum_v<T>) {
+      return T(this->get_input<int>(identifier));
+    }
+    else if constexpr (geo_nodes_type_stored_as_SocketValueVariant_v<T>) {
       auto value_variant = this->get_input<SocketValueVariant>(identifier);
       return value_variant.extract<T>();
     }
@@ -169,14 +162,23 @@ class GeoNodeExecParams {
   }
 
   /**
+   * Low level access to the parameters. Usually, it's better to use #get_input, #extract_input and
+   * #set_output instead because they are easier to use and more safe. Sometimes it can be
+   * beneficial to have more direct access to the raw values though and avoid the indirection.
+   */
+  lf::Params &low_level_lazy_function_params()
+  {
+    return params_;
+  }
+
+  /**
    * Store the output value for the given socket identifier.
    */
   template<typename T> void set_output(StringRef identifier, T &&value)
   {
     using StoredT = std::decay_t<T>;
-    if constexpr (stored_as_SocketValueVariant_v<StoredT>) {
-      SocketValueVariant value_variant(std::forward<T>(value));
-      this->set_output(identifier, std::move(value_variant));
+    if constexpr (geo_nodes_type_stored_as_SocketValueVariant_v<StoredT>) {
+      this->set_output(identifier, SocketValueVariant::From(std::forward<T>(value)));
     }
     else {
 #ifndef NDEBUG
@@ -249,14 +251,14 @@ class GeoNodeExecParams {
 
   Main *bmain() const;
 
-  GeoNodesLFUserData *user_data() const
+  GeoNodesUserData *user_data() const
   {
-    return static_cast<GeoNodesLFUserData *>(lf_context_.user_data);
+    return static_cast<GeoNodesUserData *>(lf_context_.user_data);
   }
 
-  GeoNodesLFLocalUserData *local_user_data() const
+  GeoNodesLocalUserData *local_user_data() const
   {
-    return static_cast<GeoNodesLFLocalUserData *>(lf_context_.local_user_data);
+    return static_cast<GeoNodesLocalUserData *>(lf_context_.local_user_data);
   }
 
   /**

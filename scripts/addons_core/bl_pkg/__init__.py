@@ -4,7 +4,9 @@
 
 bl_info = {
     "name": "Blender Extensions",
-    "author": "Campbell Barton",
+    # This is now displayed as the maintainer, so show the foundation.
+    # "author": "Campbell Barton", # Original Author
+    "author": "Blender Foundation",
     "version": (0, 0, 1),
     "blender": (4, 0, 0),
     "location": "Edit -> Preferences -> Extensions",
@@ -27,6 +29,7 @@ from bpy.props import (
     BoolProperty,
     EnumProperty,
     PointerProperty,
+    CollectionProperty,
     StringProperty,
 )
 
@@ -673,8 +676,10 @@ def cli_extension(argv):
 
 
 class BlExtDummyGroup(bpy.types.PropertyGroup):
-    # Dummy.
-    pass
+    __slots__ = ()
+
+    name: StringProperty()
+    show_tag: BoolProperty()
 
 
 # -----------------------------------------------------------------------------
@@ -709,11 +714,11 @@ def register():
     bl_extension_ops.register()
     bl_extension_ui.register()
 
-    WindowManager.addon_tags = PointerProperty(
+    WindowManager.addon_tags = CollectionProperty(
         name="Addon Tags",
         type=BlExtDummyGroup,
     )
-    WindowManager.extension_tags = PointerProperty(
+    WindowManager.extension_tags = CollectionProperty(
         name="Extension Tags",
         type=BlExtDummyGroup,
     )
@@ -725,6 +730,8 @@ def register():
     )
     WindowManager.extension_type = EnumProperty(
         items=(
+            ('ALL', "All", "Show all extension types"),
+            None,
             ('ADDON', "Add-ons", "Only show add-ons"),
             ('THEME', "Themes", "Only show themes"),
         ),

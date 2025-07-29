@@ -499,7 +499,12 @@ ccl_device_inline int mod(const int x, const int m)
   return (x % m + m) % m;
 }
 
-ccl_device_inline float inverse_lerp(const float a, const float b, float x)
+ccl_device_inline float interp(const float a, const float b, const float t)
+{
+  return a + t * (b - a);
+}
+
+ccl_device_inline float inverse_lerp(const float a, const float b, const float x)
 {
   return (x - a) / (b - a);
 }
@@ -542,19 +547,23 @@ ccl_device float safe_acosf(const float a)
 
 ccl_device float compatible_powf(const float x, const float y)
 {
-#ifdef __KERNEL_GPU__
-  if (y == 0.0f) /* x^0 -> 1, including 0^0 */
+  if (y == 0.0f) {
+    /* x^0 -> 1, including 0^0. */
     return 1.0f;
-
+  }
+  if (x == 0.0f) {
+    return 0.0f;
+  }
+#ifdef __KERNEL_GPU__
   /* GPU pow doesn't accept negative x, do manual checks here */
   if (x < 0.0f) {
-    if (fmodf(-y, 2.0f) == 0.0f)
+    if (fmodf(-y, 2.0f) == 0.0f) {
       return powf(-x, y);
-    else
+    }
+    else {
       return -powf(-x, y);
+    }
   }
-  else if (x == 0.0f)
-    return 0.0f;
 #endif
   return powf(x, y);
 }

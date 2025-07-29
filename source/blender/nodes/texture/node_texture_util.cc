@@ -105,16 +105,13 @@ float tex_input_value(bNodeStack *in, TexParams *params, short thread)
 void params_from_cdata(TexParams *out, TexCallData *in)
 {
   out->co = in->co;
-  out->dxt = in->dxt;
-  out->dyt = in->dyt;
   out->previewco = in->co;
-  out->osatex = in->osatex;
   out->cfra = in->cfra;
   out->mtex = in->mtex;
 }
 
 void tex_output(bNode *node,
-                bNodeExecData *execdata,
+                bNodeExecData * /*execdata*/,
                 bNodeStack **in,
                 bNodeStack *out,
                 TexFn texfn,
@@ -129,7 +126,7 @@ void tex_output(bNode *node,
 
   if (!out->data) {
     /* Freed in tex_end_exec (node.cc) */
-    dg = MEM_cnew<TexDelegate>("tex delegate");
+    dg = MEM_callocN<TexDelegate>("tex delegate");
     out->data = dg;
   }
   else {
@@ -139,7 +136,6 @@ void tex_output(bNode *node,
   dg->cdata = cdata;
   dg->fn = texfn;
   dg->node = node;
-  dg->preview = execdata->preview;
   memcpy(dg->in, in, MAX_SOCKET * sizeof(bNodeStack *));
   dg->type = out->sockettype;
 }

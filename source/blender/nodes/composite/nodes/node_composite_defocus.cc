@@ -18,9 +18,9 @@
 #include "RNA_access.hh"
 
 #include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
-#include "COM_algorithm_gamma_correct.hh"
 #include "COM_algorithm_morphological_blur.hh"
 #include "COM_bokeh_kernel.hh"
 #include "COM_node_operation.hh"
@@ -38,24 +38,20 @@ static void cmp_node_defocus_declare(NodeDeclarationBuilder &b)
 {
   b.add_input<decl::Color>("Image")
       .default_value({1.0f, 1.0f, 1.0f, 1.0f})
-      .compositor_domain_priority(0);
-  b.add_input<decl::Float>("Z").default_value(1.0f).min(0.0f).max(1.0f).compositor_domain_priority(
-      1);
-  b.add_output<decl::Color>("Image");
+      .structure_type(StructureType::Dynamic);
+  b.add_input<decl::Float>("Z").default_value(1.0f).min(0.0f).max(1.0f).structure_type(
+      StructureType::Dynamic);
+  b.add_output<decl::Color>("Image").structure_type(StructureType::Dynamic);
 }
 
 static void node_composit_init_defocus(bNodeTree * /*ntree*/, bNode *node)
 {
   /* defocus node */
-  NodeDefocus *nbd = MEM_cnew<NodeDefocus>(__func__);
+  NodeDefocus *nbd = MEM_callocN<NodeDefocus>(__func__);
   nbd->bktype = 0;
   nbd->rotation = 0.0f;
-  nbd->preview = 1;
-  nbd->gamco = 0;
-  nbd->samples = 16;
   nbd->fstop = 128.0f;
   nbd->maxblur = 16;
-  nbd->bthresh = 1.0f;
   nbd->scale = 1.0f;
   nbd->no_zbuf = 1;
   node->storage = nbd;
@@ -65,31 +61,24 @@ static void node_composit_buts_defocus(uiLayout *layout, bContext *C, PointerRNA
 {
   uiLayout *sub, *col;
 
-  col = uiLayoutColumn(layout, false);
-  uiItemL(col, IFACE_("Bokeh Type:"), ICON_NONE);
-  uiItemR(col, ptr, "bokeh", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
-  uiItemR(col, ptr, "angle", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+  col = &layout->column(false);
+  col->label(IFACE_("Bokeh Type:"), ICON_NONE);
+  col->prop(ptr, "bokeh", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  col->prop(ptr, "angle", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
 
-  uiItemR(
-      layout, ptr, "use_gamma_correction", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+  col = &layout->column(false);
+  col->active_set(RNA_boolean_get(ptr, "use_zbuffer") == true);
+  col->prop(ptr, "f_stop", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
 
-  col = uiLayoutColumn(layout, false);
-  uiLayoutSetActive(col, RNA_boolean_get(ptr, "use_zbuffer") == true);
-  uiItemR(col, ptr, "f_stop", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
-
-  uiItemR(layout, ptr, "blur_max", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
-  uiItemR(layout, ptr, "threshold", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
-
-  col = uiLayoutColumn(layout, false);
-  uiItemR(col, ptr, "use_preview", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+  layout->prop(ptr, "blur_max", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
 
   uiTemplateID(layout, C, ptr, "scene", nullptr, nullptr, nullptr);
 
-  col = uiLayoutColumn(layout, false);
-  uiItemR(col, ptr, "use_zbuffer", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
-  sub = uiLayoutColumn(col, false);
-  uiLayoutSetActive(sub, RNA_boolean_get(ptr, "use_zbuffer") == false);
-  uiItemR(sub, ptr, "z_scale", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+  col = &layout->column(false);
+  col->prop(ptr, "use_zbuffer", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+  sub = &col->column(false);
+  sub->active_set(RNA_boolean_get(ptr, "use_zbuffer") == false);
+  sub->prop(ptr, "z_scale", UI_ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
 }
 
 using namespace blender::compositor;
@@ -100,10 +89,10 @@ class DefocusOperation : public NodeOperation {
 
   void execute() override
   {
-    Result &input = get_input("Image");
-    Result &output = get_result("Image");
+    const Result &input = this->get_input("Image");
+    Result &output = this->get_result("Image");
     if (input.is_single_value() || node_storage(bnode()).maxblur < 1.0f) {
-      input.pass_through(output);
+      output.share_data(input);
       return;
     }
 
@@ -121,35 +110,14 @@ class DefocusOperation : public NodeOperation {
     const Result &bokeh_kernel = context().cache_manager().bokeh_kernels.get(
         context(), kernel_size, sides, rotation, roundness, 0.0f, 0.0f);
 
-    Result *defocus_input = &input;
-    Result *defocus_output = &output;
-
-    /* Apply gamma correction if needed. */
-    Result gamma_defocus_output = this->context().create_result(ResultType::Color);
-    Result gamma_corrected_input = this->context().create_result(ResultType::Color);
-    if (this->should_apply_gamma_correction()) {
-      gamma_correct(this->context(), input, gamma_corrected_input);
-      defocus_input = &gamma_corrected_input;
-      defocus_output = &gamma_defocus_output;
-    }
-
     if (this->context().use_gpu()) {
-      this->execute_gpu(
-          *defocus_input, radius, bokeh_kernel, *defocus_output, maximum_defocus_radius);
+      this->execute_gpu(input, radius, bokeh_kernel, output, maximum_defocus_radius);
     }
     else {
-      this->execute_cpu(
-          *defocus_input, radius, bokeh_kernel, *defocus_output, maximum_defocus_radius);
+      this->execute_cpu(input, radius, bokeh_kernel, output, maximum_defocus_radius);
     }
 
     radius.release();
-
-    /* Undo gamma correction. */
-    if (this->should_apply_gamma_correction()) {
-      gamma_corrected_input.release();
-      gamma_uncorrect(this->context(), gamma_defocus_output, output);
-      gamma_defocus_output.release();
-    }
   }
 
   void execute_gpu(const Result &input,
@@ -464,7 +432,7 @@ class DefocusOperation : public NodeOperation {
     return (focal_length * focus_distance) / (focus_distance - focal_length);
   }
 
-  /* Returns the focal length in meters. Fallback to 50 mm in case of an invalid camera. Ensure a
+  /* Returns the focal length in meters. Fall back to 50 mm in case of an invalid camera. Ensure a
    * minimum of 1e-6. */
   float get_focal_length()
   {
@@ -484,7 +452,7 @@ class DefocusOperation : public NodeOperation {
   }
 
   /* Computes the number of pixels per meter of the sensor size. This is essentially the resolution
-   * over the sensor size, using the sensor fit axis. Fallback to DEFAULT_SENSOR_WIDTH in case of
+   * over the sensor size, using the sensor fit axis. Fall back to DEFAULT_SENSOR_WIDTH in case of
    * an invalid camera. Note that the stored sensor size is in millimeter, so convert to meters. */
   float compute_pixels_per_meter()
   {
@@ -511,15 +479,10 @@ class DefocusOperation : public NodeOperation {
     return default_value;
   }
 
-  /* Returns the f-stop number. Fallback to 1e-3 for zero f-stop. */
+  /* Returns the f-stop number. Fall back to 1e-3 for zero f-stop. */
   float get_f_stop()
   {
     return math::max(1e-3f, node_storage(bnode()).fstop);
-  }
-
-  bool should_apply_gamma_correction()
-  {
-    return node_storage(this->bnode()).gamco;
   }
 
   const Camera *get_camera()
@@ -550,7 +513,7 @@ static NodeOperation *get_compositor_operation(Context &context, DNode node)
 
 }  // namespace blender::nodes::node_composite_defocus_cc
 
-void register_node_type_cmp_defocus()
+static void register_node_type_cmp_defocus()
 {
   namespace file_ns = blender::nodes::node_composite_defocus_cc;
 
@@ -570,3 +533,4 @@ void register_node_type_cmp_defocus()
 
   blender::bke::node_register_type(ntype);
 }
+NOD_REGISTER_NODE(register_node_type_cmp_defocus)

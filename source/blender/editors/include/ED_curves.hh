@@ -16,6 +16,7 @@
 #include "BLI_vector_set.hh"
 
 #include "DNA_view3d_types.h"
+#include "DNA_windowmanager_enums.h"
 
 #include "ED_select_utils.hh"
 
@@ -58,6 +59,11 @@ Span<StringRef> get_curves_selection_attribute_names(const bke::CurvesGeometry &
  * Get writable positions per selection attribute for given curve.
  */
 Vector<MutableSpan<float3>> get_curves_positions_for_write(bke::CurvesGeometry &curves);
+
+/**
+ * Get read-only positions per selection attribute for given curve.
+ */
+Vector<Span<float3>> get_curves_positions(const bke::CurvesGeometry &curves);
 
 /* Get all possible curve selection attribute names. */
 Span<StringRef> get_curves_all_selection_attribute_names();
@@ -119,7 +125,9 @@ void ensure_surface_deformation_node_exists(bContext &C, Object &curves_ob);
  * `ED_transverts_create_from_obedit` in `view3d_snap.cc`).
  * \note The `TransVert` elements in \a tvs are expected to write to the positions of \a curves.
  */
-void transverts_from_curves_positions_create(bke::CurvesGeometry &curves, TransVertStore *tvs);
+void transverts_from_curves_positions_create(bke::CurvesGeometry &curves,
+                                             TransVertStore *tvs,
+                                             const bool skip_handles);
 
 /* -------------------------------------------------------------------- */
 /** \name Poll Functions
@@ -241,7 +249,7 @@ IndexMask retrieve_all_selected_points(const bke::CurvesGeometry &curves, IndexM
  */
 bke::GSpanAttributeWriter ensure_selection_attribute(bke::CurvesGeometry &curves,
                                                      bke::AttrDomain selection_domain,
-                                                     eCustomDataType create_type,
+                                                     bke::AttrType create_type,
                                                      StringRef attribute_name = ".selection");
 
 void foreach_selection_attribute_writer(
@@ -425,6 +433,11 @@ bool remove_selection(bke::CurvesGeometry &curves, bke::AttrDomain selection_dom
 void duplicate_points(bke::CurvesGeometry &curves, const IndexMask &mask);
 void duplicate_curves(bke::CurvesGeometry &curves, const IndexMask &mask);
 
+void separate_points(const bke::CurvesGeometry &curves,
+                     const IndexMask &points_to_separate,
+                     bke::CurvesGeometry &separated,
+                     bke::CurvesGeometry &retained);
+
 bke::CurvesGeometry split_points(const bke::CurvesGeometry &curves,
                                  const IndexMask &points_to_split);
 
@@ -451,7 +464,7 @@ void resize_curves(bke::CurvesGeometry &curves,
  */
 void reorder_curves(bke::CurvesGeometry &curves, Span<int> old_by_new_indices_map);
 
-int join_objects(bContext *C, wmOperator *op);
+wmOperatorStatus join_objects_exec(bContext *C, wmOperator *op);
 
 /** \} */
 

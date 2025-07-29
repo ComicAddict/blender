@@ -10,6 +10,8 @@
 
 #include "intern/depsgraph_tag.hh"
 
+#include <atomic>
+#include <cstdint>
 #include <cstdio>
 #include <cstring> /* required for memset */
 
@@ -26,6 +28,7 @@
 #include "BKE_anim_data.hh"
 #include "BKE_global.hh"
 #include "BKE_idtype.hh"
+#include "BKE_image.hh"
 #include "BKE_lib_override.hh"
 #include "BKE_node.hh"
 #include "BKE_scene.hh"
@@ -399,38 +402,12 @@ void graph_id_tag_update_single_flag(Main *bmain,
   deg_graph_id_tag_legacy_compat(bmain, graph, id, tag, update_source);
 }
 
-std::string stringify_append_bit(const std::string &str, IDRecalcFlag tag)
-{
-  const char *tag_name = DEG_update_tag_as_string(tag);
-  if (tag_name == nullptr) {
-    return str;
-  }
-  std::string result = str;
-  if (!result.empty()) {
-    result += ", ";
-  }
-  result += tag_name;
-  return result;
-}
-
 std::string stringify_update_bitfield(uint flags)
 {
   if (flags == 0) {
     return "LEGACY_0";
   }
-  std::string result;
-  uint current_flag = flags;
-  /* Special cases to avoid ALL flags form being split into
-   * individual bits. */
-  if ((current_flag & ID_RECALC_PSYS_ALL) == ID_RECALC_PSYS_ALL) {
-    result = stringify_append_bit(result, ID_RECALC_PSYS_ALL);
-  }
-  /* Handle all the rest of the flags. */
-  while (current_flag != 0) {
-    IDRecalcFlag tag = (IDRecalcFlag)(1 << bitscan_forward_clear_uint(&current_flag));
-    result = stringify_append_bit(result, tag);
-  }
-  return result;
+  return DEG_stringify_recalc_flags(flags);
 }
 
 const char *update_source_as_string(eUpdateSource source)
@@ -686,6 +663,28 @@ void id_tag_update(Main *bmain, ID *id, uint flags, eUpdateSource update_source)
   id->recalc_after_undo_push |= deg_recalc_flags_effective(nullptr, flags);
 }
 
+/* IDs that are not covered by the copy-on-evaluation system track updates by storing a runtime
+ * update count that gets updated every time the ID is tagged for update. The updated value is the
+ * value of a global atomic that is initially zero and gets incremented every time *any* ID of the
+ * same type gets updated.
+ *
+ * The update counts can be used to check if the ID was changed since the last time it was cached
+ * by comparing its current update count with the one stored at the moment the ID was cached.
+ *
+ * A global atomic is used as opposed to incrementing the update count per ID to protect against
+ * the case where the ID is destroyed and a new one is created taking its same pointer location,
+ * which could be perceived as no update even though the ID was recreated entirely.
+ *
+ * Only Image IDs are considered for now, but other IDs could be supported if needed. */
+static void set_id_update_count(ID *id)
+{
+  if (GS(id->name) == ID_IM) {
+    Image *image = reinterpret_cast<Image *>(id);
+    static std::atomic<uint64_t> global_image_update_count = 0;
+    image->runtime->update_count = global_image_update_count.fetch_add(1) + 1;
+  }
+}
+
 void graph_id_tag_update(
     Main *bmain, Depsgraph *graph, ID *id, uint flags, eUpdateSource update_source)
 {
@@ -703,6 +702,9 @@ void graph_id_tag_update(
            stringify_update_bitfield(flags).c_str(),
            update_source_as_string(update_source));
   }
+
+  set_id_update_count(id);
+
   IDNode *id_node = (graph != nullptr) ? graph->find_id_node(id) : nullptr;
   if (graph != nullptr) {
     DEG_graph_id_type_tag(reinterpret_cast<::Depsgraph *>(graph), GS(id->name));

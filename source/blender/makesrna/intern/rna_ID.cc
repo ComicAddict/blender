@@ -348,14 +348,14 @@ static bool rna_ID_is_evaluated_get(PointerRNA *ptr)
 {
   ID *id = (ID *)ptr->data;
 
-  return (DEG_get_original_id(id) != id);
+  return DEG_get_original(id) != id;
 }
 
 static PointerRNA rna_ID_original_get(PointerRNA *ptr)
 {
   ID *id = (ID *)ptr->data;
 
-  return RNA_id_pointer_create(DEG_get_original_id(id));
+  return RNA_id_pointer_create(DEG_get_original(id));
 }
 
 short RNA_type_to_ID_code(const StructRNA *type)
@@ -382,7 +382,7 @@ short RNA_type_to_ID_code(const StructRNA *type)
   if (base_type == &RNA_Curve) {
     return ID_CU_LEGACY;
   }
-  if (base_type == &RNA_GreasePencil) {
+  if (base_type == &RNA_Annotation) {
     return ID_GD_LEGACY;
   }
   if (base_type == &RNA_GreasePencilv3) {
@@ -503,7 +503,7 @@ StructRNA *ID_code_to_RNA_type(short idcode)
     case ID_CU_LEGACY:
       return &RNA_Curve;
     case ID_GD_LEGACY:
-      return &RNA_GreasePencil;
+      return &RNA_Annotation;
     case ID_GP:
       return &RNA_GreasePencilv3;
     case ID_GR:
@@ -590,6 +590,12 @@ IDProperty **rna_ID_idprops(PointerRNA *ptr)
   return &id->properties;
 }
 
+IDProperty **rna_ID_system_idprops(PointerRNA *ptr)
+{
+  ID *id = (ID *)ptr->data;
+  return &id->system_properties;
+}
+
 int rna_ID_is_runtime_editable(const PointerRNA *ptr, const char **r_info)
 {
   ID *id = (ID *)ptr->data;
@@ -597,9 +603,9 @@ int rna_ID_is_runtime_editable(const PointerRNA *ptr, const char **r_info)
   if (id->tag & (ID_TAG_NO_MAIN | ID_TAG_TEMP_MAIN | ID_TAG_LOCALIZED |
                  ID_TAG_COPIED_ON_EVAL_FINAL_RESULT | ID_TAG_COPIED_ON_EVAL))
   {
-    *r_info =
+    *r_info = N_(
         "Cannot edit 'runtime' status of non-blendfile data-blocks, as they are by definition "
-        "always runtime";
+        "always runtime");
     return 0;
   }
 
@@ -704,7 +710,7 @@ StructRNA *rna_PropertyGroup_refine(PointerRNA *ptr)
 
 static ID *rna_ID_evaluated_get(ID *id, Depsgraph *depsgraph)
 {
-  return DEG_get_evaluated_id(depsgraph, id);
+  return DEG_get_evaluated(depsgraph, id);
 }
 
 static ID *rna_ID_copy(ID *id, Main *bmain)
@@ -1283,8 +1289,8 @@ static void rna_ImagePreview_size_set(PointerRNA *ptr, const int *values, enum e
   BKE_previewimg_clear_single(prv_img, size);
 
   if (values[0] && values[1]) {
-    prv_img->rect[size] = static_cast<unsigned int *>(
-        MEM_callocN(values[0] * values[1] * sizeof(uint), "prv_rect"));
+    prv_img->rect[size] = MEM_calloc_arrayN<uint>(size_t(values[0]) * size_t(values[1]),
+                                                  "prv_rect");
 
     prv_img->w[size] = values[0];
     prv_img->h[size] = values[1];
@@ -1537,6 +1543,13 @@ static void rna_Library_version_get(PointerRNA *ptr, int *value)
   value[2] = lib->runtime->subversionfile;
 }
 
+static PointerRNA rna_Library_parent_get(PointerRNA *ptr)
+{
+  Library *lib = ptr->data_as<Library>();
+  Library *parent = lib->runtime->parent;
+  return RNA_id_pointer_create(reinterpret_cast<ID *>(parent));
+}
+
 static void rna_Library_reload(Library *lib, bContext *C, ReportList *reports)
 {
 #  ifdef WITH_PYTHON
@@ -1648,7 +1661,10 @@ static void rna_def_ID_properties(BlenderRNA *brna)
   srna = RNA_def_struct(brna, "PropertyGroup", nullptr);
   RNA_def_struct_sdna(srna, "IDPropertyGroup");
   RNA_def_struct_ui_text(srna, "ID Property Group", "Group of ID properties");
+  /* For property groups, both 'user-defined' and system-defined properties are the same.
+   * The user-defined access is kept to allow 'dict-type' subscripting in python. */
   RNA_def_struct_idprops_func(srna, "rna_PropertyGroup_idprops");
+  RNA_def_struct_system_idprops_func(srna, "rna_PropertyGroup_idprops");
   RNA_def_struct_register_funcs(
       srna, "rna_PropertyGroup_register", "rna_PropertyGroup_unregister", nullptr);
   RNA_def_struct_refine_func(srna, "rna_PropertyGroup_refine");
@@ -2252,6 +2268,7 @@ static void rna_def_ID(BlenderRNA *brna)
   RNA_def_struct_flag(srna, STRUCT_ID | STRUCT_ID_REFCOUNT);
   RNA_def_struct_refine_func(srna, "rna_ID_refine");
   RNA_def_struct_idprops_func(srna, "rna_ID_idprops");
+  RNA_def_struct_system_idprops_func(srna, "rna_ID_system_idprops");
 
   prop = RNA_def_property(srna, "name", PROP_STRING, PROP_NONE);
   RNA_def_property_ui_text(
@@ -2611,11 +2628,12 @@ static void rna_def_library(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "filepath", PROP_STRING, PROP_FILEPATH);
   RNA_def_property_string_sdna(prop, nullptr, "filepath");
+  RNA_def_property_flag(prop, PROP_PATH_SUPPORTS_BLEND_RELATIVE);
   RNA_def_property_ui_text(prop, "File Path", "Path to the library .blend file");
   RNA_def_property_string_funcs(prop, nullptr, nullptr, "rna_Library_filepath_set");
 
   prop = RNA_def_property(srna, "parent", PROP_POINTER, PROP_NONE);
-  RNA_def_property_pointer_sdna(prop, nullptr, "runtime->parent");
+  RNA_def_property_pointer_funcs(prop, "rna_Library_parent_get", nullptr, nullptr, nullptr);
   RNA_def_property_struct_type(prop, "Library");
   RNA_def_property_override_flag(prop, PROPOVERRIDE_NO_COMPARISON);
   RNA_def_property_ui_text(prop, "Parent", "");
@@ -2672,12 +2690,11 @@ static void rna_def_library_weak_reference(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "filepath", PROP_STRING, PROP_FILEPATH);
   RNA_def_property_string_sdna(prop, nullptr, "library_filepath");
-  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_flag(prop, PROP_PATH_SUPPORTS_BLEND_RELATIVE);
   RNA_def_property_ui_text(prop, "File Path", "Path to the library .blend file");
 
   prop = RNA_def_property(srna, "id_name", PROP_STRING, PROP_FILEPATH);
   RNA_def_property_string_sdna(prop, nullptr, "library_id_name");
-  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
   RNA_def_property_ui_text(
       prop,
       "ID name",
@@ -2693,7 +2710,10 @@ static void rna_def_idproperty_wrap_ptr(BlenderRNA *brna)
   StructRNA *srna;
 
   srna = RNA_def_struct(brna, "IDPropertyWrapPtr", nullptr);
+  /* For property groups, both 'user-defined' and system-defined properties are the same.
+   * The user-defined access is kept to allow 'dict-type' subscripting in python. */
   RNA_def_struct_idprops_func(srna, "rna_IDPropertyWrapPtr_idprops");
+  RNA_def_struct_system_idprops_func(srna, "rna_IDPropertyWrapPtr_idprops");
   RNA_def_struct_flag(srna, STRUCT_NO_DATABLOCK_IDPROPERTIES);
 }
 

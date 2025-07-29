@@ -167,7 +167,7 @@ BLI_mmap_file *BLI_mmap_open(int fd)
 #endif
 
   /* Now that the mapping was successful, allocate memory and set up the BLI_mmap_file. */
-  BLI_mmap_file *file = MEM_cnew<BLI_mmap_file>(__func__);
+  BLI_mmap_file *file = MEM_callocN<BLI_mmap_file>(__func__);
   file->memory = static_cast<char *>(memory);
   file->handle = handle;
   file->length = length;
@@ -217,6 +217,11 @@ void *BLI_mmap_get_pointer(BLI_mmap_file *file)
 size_t BLI_mmap_get_length(const BLI_mmap_file *file)
 {
   return file->length;
+}
+
+bool BLI_mmap_any_io_error(const BLI_mmap_file *file)
+{
+  return file->io_error;
 }
 
 void BLI_mmap_free(BLI_mmap_file *file)

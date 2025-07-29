@@ -27,7 +27,7 @@ struct OBJExportParams {
   char filepath[FILE_MAX] = "";
   /** Pretend that destination file folder is this, if non-empty. Used only for tests. */
   char file_base_for_tests[FILE_MAX] = "";
-  char collection[MAX_IDPROP_NAME] = "";
+  char collection[MAX_ID_NAME - 2] = "";
 
   /** Full path to current blender file (used for comments in output). */
   const char *blen_filepath = nullptr;
@@ -69,6 +69,15 @@ struct OBJExportParams {
   ReportList *reports = nullptr;
 };
 
+/**
+ * Behavior when the name of an imported material
+ * conflicts with an existing material.
+ */
+enum eOBJMtlNameCollisionMode {
+  OBJ_MTL_NAME_COLLISION_MAKE_UNIQUE = 0,
+  OBJ_MTL_NAME_COLLISION_REFERENCE_EXISTING = 1,
+};
+
 struct OBJImportParams {
   /** Full path to the source OBJ file to import. */
   char filepath[FILE_MAX] = "";
@@ -85,6 +94,9 @@ struct OBJImportParams {
   bool close_spline_loops = true;
   bool relative_paths = true;
   bool clear_selection = true;
+
+  /** How to handle material name collisions during import. */
+  eOBJMtlNameCollisionMode mtl_name_collision_mode = OBJ_MTL_NAME_COLLISION_MAKE_UNIQUE;
 
   ReportList *reports = nullptr;
 };

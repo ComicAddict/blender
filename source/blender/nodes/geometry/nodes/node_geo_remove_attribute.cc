@@ -8,7 +8,7 @@
 
 #include "NOD_rna_define.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 namespace blender::nodes::node_geo_remove_attribute_cc {
@@ -20,14 +20,17 @@ enum class PatternMode {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Geometry>("Geometry");
+  b.use_custom_socket_order();
+  b.allow_any_socket_order();
+  b.add_default_layout();
+  b.add_input<decl::Geometry>("Geometry").description("Geometry to remove attributes from");
+  b.add_output<decl::Geometry>("Geometry").propagate_all().align_with_previous();
   b.add_input<decl::String>("Name").is_attribute_name().hide_label();
-  b.add_output<decl::Geometry>("Geometry").propagate_all();
 }
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "pattern_mode", UI_ITEM_NONE, "", ICON_NONE);
+  layout->prop(ptr, "pattern_mode", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_geo_exec(GeoNodeExecParams params)
@@ -61,7 +64,7 @@ static void node_geo_exec(GeoNodeExecParams params)
     wildcard_suffix = StringRef(pattern).substr(wildcard_index + 1);
   }
 
-  std::mutex attribute_log_mutex;
+  Mutex attribute_log_mutex;
   Set<std::string> removed_attributes;
   Set<std::string> failed_attributes;
 

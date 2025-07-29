@@ -4,9 +4,11 @@
 
 bl_info = {
     "name": "FBX format",
-    "author": "Campbell Barton, Bastien Montagne, Jens Restemeier, @Mysteryem",
-    "version": (5, 12, 7),
-    "blender": (4, 2, 0),
+    # This is now displayed as the maintainer, so show the foundation.
+    # "author": "Campbell Barton, Bastien Montagne, Jens Restemeier, @Mysteryem", # Original Authors
+    "author": "Blender Foundation",
+    "version": (5, 13, 0),
+    "blender": (4, 5, 0),
     "location": "File > Import-Export",
     "description": "FBX IO meshes, UVs, vertex colors, materials, textures, cameras, lamps and actions",
     "warning": "",
@@ -51,7 +53,10 @@ class ImportFBX(bpy.types.Operator, ImportHelper):
     bl_label = "Import FBX"
     bl_options = {'UNDO', 'PRESET'}
 
-    directory: StringProperty()
+    directory: StringProperty(
+        subtype='DIR_PATH',
+        options={'HIDDEN', 'SKIP_PRESET'},
+    )
 
     filename_ext = ".fbx"
     filter_glob: StringProperty(default="*.fbx", options={'HIDDEN'})
@@ -59,6 +64,7 @@ class ImportFBX(bpy.types.Operator, ImportHelper):
     files: CollectionProperty(
         name="File Path",
         type=bpy.types.OperatorFileListElement,
+        options={'HIDDEN', 'SKIP_PRESET'},
     )
 
     ui_tab: EnumProperty(
@@ -211,9 +217,8 @@ class ImportFBX(bpy.types.Operator, ImportHelper):
 
         if self.files:
             ret = {'CANCELLED'}
-            dirname = os.path.dirname(self.filepath)
             for file in self.files:
-                path = os.path.join(dirname, file.name)
+                path = os.path.join(self.directory, file.name)
                 if import_fbx.load(self, context, filepath=path, **keywords) == {'FINISHED'}:
                     ret = {'FINISHED'}
             return ret
@@ -391,9 +396,10 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
         items=(('OFF', "Normals Only", "Export only normals instead of writing edge or face smoothing data"),
                ('FACE', "Face", "Write face smoothing"),
                ('EDGE', "Edge", "Write edge smoothing"),
+               ('SMOOTH_GROUP', "Smoothing Groups", "Write face smoothing groups"),
                ),
         description="Export smoothing information "
-        "(prefer 'Normals Only' option if your target importer understand split normals)",
+        "(prefer 'Normals Only' option if your target importer understands custom normals)",
         default='OFF',
     )
     colors_type: EnumProperty(
@@ -686,20 +692,8 @@ def export_panel_animation(layout, operator):
         body.prop(operator, "bake_anim_simplify_factor")
 
 
-class IO_FH_fbx(bpy.types.FileHandler):
-    bl_idname = "IO_FH_fbx"
-    bl_label = "FBX"
-    bl_import_operator = "import_scene.fbx"
-    bl_export_operator = "export_scene.fbx"
-    bl_file_extensions = ".fbx"
-
-    @classmethod
-    def poll_drop(cls, context):
-        return poll_file_object_drop(context)
-
-
 def menu_func_import(self, context):
-    self.layout.operator(ImportFBX.bl_idname, text="FBX (.fbx)")
+    self.layout.operator(ImportFBX.bl_idname, text="FBX (.fbx) (Legacy)")
 
 
 def menu_func_export(self, context):
@@ -708,8 +702,7 @@ def menu_func_export(self, context):
 
 classes = (
     ImportFBX,
-    ExportFBX,
-    IO_FH_fbx,
+    ExportFBX
 )
 
 

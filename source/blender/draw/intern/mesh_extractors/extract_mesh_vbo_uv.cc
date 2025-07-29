@@ -8,7 +8,7 @@
 
 #include "BLI_array_utils.hh"
 #include "BLI_math_vector_types.hh"
-#include "BLI_string.h"
+#include "BLI_string_utf8.h"
 
 #include "BKE_attribute.hh"
 
@@ -51,8 +51,8 @@ static bool mesh_extract_uv_format_init(GPUVertFormat *format,
         r_uv_layers |= (1 << i);
         GPU_vertformat_safe_attr_name(layer_name, attr_safe_name, GPU_MAX_SAFE_ATTR_NAME);
         /* UV layer name. */
-        SNPRINTF(attr_name, "a%s", attr_safe_name);
-        GPU_vertformat_attr_add(format, attr_name, GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+        SNPRINTF_UTF8(attr_name, "a%s", attr_safe_name);
+        GPU_vertformat_attr_add(format, attr_name, blender::gpu::VertAttrType::SFLOAT_32_32);
         /* Active render layer name. */
         if (i == CustomData_get_render_layer(cd_ldata, CD_PROP_FLOAT2)) {
           GPU_vertformat_alias_add(format, "a");
@@ -72,14 +72,14 @@ static bool mesh_extract_uv_format_init(GPUVertFormat *format,
   }
 
   if (format->attr_len == 0) {
-    GPU_vertformat_attr_add(format, "dummy", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
+    GPU_vertformat_attr_add(format, "dummy", blender::gpu::VertAttrType::SFLOAT_32);
     return false;
   }
 
   return true;
 }
 
-void extract_uv_maps(const MeshRenderData &mr, const MeshBatchCache &cache, gpu::VertBuf &vbo)
+gpu::VertBufPtr extract_uv_maps(const MeshRenderData &mr, const MeshBatchCache &cache)
 {
   GPUVertFormat format = {0};
 
@@ -92,8 +92,8 @@ void extract_uv_maps(const MeshRenderData &mr, const MeshBatchCache &cache, gpu:
     v_len = 1;
   }
 
-  GPU_vertbuf_init_with_format(vbo, format);
-  GPU_vertbuf_data_alloc(vbo, v_len);
+  gpu::VertBufPtr vbo = gpu::VertBufPtr(GPU_vertbuf_create_with_format(format));
+  GPU_vertbuf_data_alloc(*vbo, v_len);
 
   Vector<int> uv_indices;
   for (const int i : IndexRange(MAX_MTFACE)) {
@@ -102,7 +102,7 @@ void extract_uv_maps(const MeshRenderData &mr, const MeshBatchCache &cache, gpu:
     }
   }
 
-  MutableSpan<float2> uv_data = vbo.data<float2>();
+  MutableSpan<float2> uv_data = vbo->data<float2>();
   threading::memory_bandwidth_bound_task(uv_data.size_in_bytes() * 2, [&]() {
     if (mr.extract_type == MeshExtractType::BMesh) {
       const BMesh &bm = *mr.bm;
@@ -132,11 +132,11 @@ void extract_uv_maps(const MeshRenderData &mr, const MeshBatchCache &cache, gpu:
       }
     }
   });
+  return vbo;
 }
 
-void extract_uv_maps_subdiv(const DRWSubdivCache &subdiv_cache,
-                            const MeshBatchCache &cache,
-                            gpu::VertBuf &vbo)
+gpu::VertBufPtr extract_uv_maps_subdiv(const DRWSubdivCache &subdiv_cache,
+                                       const MeshBatchCache &cache)
 {
   const Mesh *coarse_mesh = subdiv_cache.mesh;
   GPUVertFormat format = {0};
@@ -150,10 +150,10 @@ void extract_uv_maps_subdiv(const DRWSubdivCache &subdiv_cache,
     v_len = 1;
   }
 
-  GPU_vertbuf_init_build_on_device(vbo, format, v_len);
+  gpu::VertBufPtr vbo = gpu::VertBufPtr(GPU_vertbuf_create_on_device(format, v_len));
 
   if (uv_layers == 0) {
-    return;
+    return vbo;
   }
 
   /* Index of the UV layer in the compact buffer. Used UV layers are stored in a single buffer. */
@@ -161,9 +161,10 @@ void extract_uv_maps_subdiv(const DRWSubdivCache &subdiv_cache,
   for (int i = 0; i < MAX_MTFACE; i++) {
     if (uv_layers & (1 << i)) {
       const int offset = int(subdiv_cache.num_subdiv_loops) * pack_layer_index++;
-      draw_subdiv_extract_uvs(subdiv_cache, &vbo, i, offset);
+      draw_subdiv_extract_uvs(subdiv_cache, vbo.get(), i, offset);
     }
   }
+  return vbo;
 }
 
 }  // namespace blender::draw

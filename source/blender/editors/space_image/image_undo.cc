@@ -53,7 +53,7 @@
 
 #include "WM_api.hh"
 
-static CLG_LogRef LOG = {"ed.image.undo"};
+static CLG_LogRef LOG = {"undo.image"};
 
 /* -------------------------------------------------------------------- */
 /** \name Thread Locking
@@ -89,7 +89,7 @@ void ED_image_paint_tile_lock_end()
 static ImBuf *imbuf_alloc_temp_tile()
 {
   return IMB_allocImBuf(
-      ED_IMAGE_UNDO_TILE_SIZE, ED_IMAGE_UNDO_TILE_SIZE, 32, IB_rectfloat | IB_rect);
+      ED_IMAGE_UNDO_TILE_SIZE, ED_IMAGE_UNDO_TILE_SIZE, 32, IB_float_data | IB_byte_data);
 }
 
 struct PaintTileKey {
@@ -181,8 +181,8 @@ void *ED_image_paint_tile_find(PaintTileMap *paint_tile_map,
   if (r_mask) {
     /* allocate mask if requested. */
     if (!ptile->mask) {
-      ptile->mask = static_cast<uint16_t *>(
-          MEM_callocN(sizeof(uint16_t) * square_i(ED_IMAGE_UNDO_TILE_SIZE), "UndoImageTile.mask"));
+      ptile->mask = MEM_calloc_arrayN<uint16_t>(square_i(ED_IMAGE_UNDO_TILE_SIZE),
+                                                "UndoImageTile.mask");
     }
     *r_mask = ptile->mask;
   }
@@ -242,7 +242,7 @@ void *ED_image_paint_tile_push(PaintTileMap *paint_tile_map,
     *tmpibuf = imbuf_alloc_temp_tile();
   }
 
-  PaintTile *ptile = static_cast<PaintTile *>(MEM_callocN(sizeof(PaintTile), "PaintTile"));
+  PaintTile *ptile = MEM_callocN<PaintTile>("PaintTile");
 
   ptile->image = image;
   ptile->ibuf = ibuf;
@@ -254,8 +254,8 @@ void *ED_image_paint_tile_push(PaintTileMap *paint_tile_map,
 
   /* add mask explicitly here */
   if (r_mask) {
-    *r_mask = ptile->mask = static_cast<uint16_t *>(
-        MEM_callocN(sizeof(uint16_t) * square_i(ED_IMAGE_UNDO_TILE_SIZE), "PaintTile.mask"));
+    *r_mask = ptile->mask = MEM_calloc_arrayN<uint16_t>(square_i(ED_IMAGE_UNDO_TILE_SIZE),
+                                                        "PaintTile.mask");
   }
 
   ptile->rect.pt = MEM_callocN((ibuf->float_buffer.data ? sizeof(float[4]) : sizeof(char[4])) *
@@ -348,9 +348,6 @@ static void ptile_restore_runtime_map(PaintTileMap *paint_tile_map)
 
     if (ibuf->float_buffer.data) {
       ibuf->userflags |= IB_RECT_INVALID; /* force recreate of char rect */
-    }
-    if (ibuf->mipmap[0]) {
-      ibuf->userflags |= IB_MIPMAP_INVALID; /* Force MIP-MAP recreation. */
     }
     ibuf->userflags |= IB_DISPLAY_BUFFER_INVALID;
 
@@ -467,6 +464,7 @@ struct UndoImageBuf {
   UndoImageBuf *post;
 
   char ibuf_filepath[IMB_FILEPATH_SIZE];
+  int ibuf_fileframe;
 
   UndoImageTile **tiles;
 
@@ -485,7 +483,7 @@ struct UndoImageBuf {
 
 static UndoImageBuf *ubuf_from_image_no_tiles(Image *image, const ImBuf *ibuf)
 {
-  UndoImageBuf *ubuf = static_cast<UndoImageBuf *>(MEM_callocN(sizeof(*ubuf), __func__));
+  UndoImageBuf *ubuf = MEM_callocN<UndoImageBuf>(__func__);
 
   ubuf->image_dims[0] = ibuf->x;
   ubuf->image_dims[1] = ibuf->y;
@@ -498,6 +496,7 @@ static UndoImageBuf *ubuf_from_image_no_tiles(Image *image, const ImBuf *ibuf)
       MEM_callocN(sizeof(*ubuf->tiles) * ubuf->tiles_len, __func__));
 
   STRNCPY(ubuf->ibuf_filepath, ibuf->filepath);
+  ubuf->ibuf_fileframe = ibuf->fileframe;
   ubuf->image_state.source = image->source;
   ubuf->image_state.use_float = ibuf->float_buffer.data != nullptr;
 
@@ -536,7 +535,7 @@ static void ubuf_ensure_compat_ibuf(const UndoImageBuf *ubuf, ImBuf *ibuf)
   /* We could have both float and rect buffers,
    * in this case free the float buffer if it's unused. */
   if ((ibuf->float_buffer.data != nullptr) && (ubuf->image_state.use_float == false)) {
-    imb_freerectfloatImBuf(ibuf);
+    IMB_free_float_pixels(ibuf);
   }
 
   if (ibuf->x == ubuf->image_dims[0] && ibuf->y == ubuf->image_dims[1] &&
@@ -546,14 +545,14 @@ static void ubuf_ensure_compat_ibuf(const UndoImageBuf *ubuf, ImBuf *ibuf)
     return;
   }
 
-  imb_freerectImbuf_all(ibuf);
+  IMB_free_all_data(ibuf);
   IMB_rect_size_set(ibuf, ubuf->image_dims);
 
   if (ubuf->image_state.use_float) {
-    imb_addrectfloatImBuf(ibuf, 4);
+    IMB_alloc_float_pixels(ibuf, 4);
   }
   else {
-    imb_addrectImBuf(ibuf);
+    IMB_alloc_byte_pixels(ibuf);
   }
 }
 
@@ -633,9 +632,6 @@ static void uhandle_restore_list(ListBase *undo_handles, bool use_init)
       if (ibuf->float_buffer.data) {
         ibuf->userflags |= IB_RECT_INVALID; /* Force recreate of char `rect` */
       }
-      if (ibuf->mipmap[0]) {
-        ibuf->userflags |= IB_MIPMAP_INVALID; /* Force MIP-MAP recreation. */
-      }
       ibuf->userflags |= IB_DISPLAY_BUFFER_INVALID;
 
       DEG_id_tag_update(&image->id, 0);
@@ -667,10 +663,11 @@ static void uhandle_free_list(ListBase *undo_handles)
 
 static UndoImageBuf *uhandle_lookup_ubuf(UndoImageHandle *uh,
                                          const Image * /*image*/,
-                                         const char *ibuf_filepath)
+                                         const char *ibuf_filepath,
+                                         const int ibuf_fileframe)
 {
   LISTBASE_FOREACH (UndoImageBuf *, ubuf, &uh->buffers) {
-    if (STREQ(ubuf->ibuf_filepath, ibuf_filepath)) {
+    if (STREQ(ubuf->ibuf_filepath, ibuf_filepath) && ubuf->ibuf_fileframe == ibuf_fileframe) {
       return ubuf;
     }
   }
@@ -679,7 +676,7 @@ static UndoImageBuf *uhandle_lookup_ubuf(UndoImageHandle *uh,
 
 static UndoImageBuf *uhandle_add_ubuf(UndoImageHandle *uh, Image *image, ImBuf *ibuf)
 {
-  BLI_assert(uhandle_lookup_ubuf(uh, image, ibuf->filepath) == nullptr);
+  BLI_assert(uhandle_lookup_ubuf(uh, image, ibuf->filepath, ibuf->fileframe) == nullptr);
   UndoImageBuf *ubuf = ubuf_from_image_no_tiles(image, ibuf);
   BLI_addtail(&uh->buffers, ubuf);
 
@@ -690,7 +687,7 @@ static UndoImageBuf *uhandle_add_ubuf(UndoImageHandle *uh, Image *image, ImBuf *
 
 static UndoImageBuf *uhandle_ensure_ubuf(UndoImageHandle *uh, Image *image, ImBuf *ibuf)
 {
-  UndoImageBuf *ubuf = uhandle_lookup_ubuf(uh, image, ibuf->filepath);
+  UndoImageBuf *ubuf = uhandle_lookup_ubuf(uh, image, ibuf->filepath, ibuf->fileframe);
   if (ubuf == nullptr) {
     ubuf = uhandle_add_ubuf(uh, image, ibuf);
   }
@@ -722,7 +719,7 @@ static UndoImageHandle *uhandle_lookup(ListBase *undo_handles, const Image *imag
 static UndoImageHandle *uhandle_add(ListBase *undo_handles, Image *image, ImageUser *iuser)
 {
   BLI_assert(uhandle_lookup(undo_handles, image, iuser->tile) == nullptr);
-  UndoImageHandle *uh = static_cast<UndoImageHandle *>(MEM_callocN(sizeof(*uh), __func__));
+  UndoImageHandle *uh = MEM_callocN<UndoImageHandle>(__func__);
   uh->image_ref.ptr = image;
   uh->iuser = *iuser;
   uh->iuser.scene = nullptr;
@@ -773,7 +770,8 @@ static UndoImageBuf *ubuf_lookup_from_reference(ImageUndoStep *us_prev,
   /* Use name lookup because the pointer is cleared for previous steps. */
   UndoImageHandle *uh_prev = uhandle_lookup_by_name(&us_prev->handles, image, tile_number);
   if (uh_prev != nullptr) {
-    UndoImageBuf *ubuf_reference = uhandle_lookup_ubuf(uh_prev, image, ubuf->ibuf_filepath);
+    UndoImageBuf *ubuf_reference = uhandle_lookup_ubuf(
+        uh_prev, image, ubuf->ibuf_filepath, ubuf->ibuf_fileframe);
     if (ubuf_reference) {
       ubuf_reference = ubuf_reference->post;
       if ((ubuf_reference->image_dims[0] == ubuf->image_dims[0]) &&

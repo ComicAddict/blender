@@ -16,7 +16,6 @@ void StaticCacheManager::reset()
   symmetric_blur_weights.reset();
   symmetric_separable_blur_weights.reset();
   morphological_distance_feather_weights.reset();
-  cached_textures.reset();
   cached_masks.reset();
   smaa_precomputed_textures.reset();
   ocio_color_space_conversion_shaders.reset();
@@ -28,6 +27,7 @@ void StaticCacheManager::reset()
   deriche_gaussian_coefficients.reset();
   van_vliet_gaussian_coefficients.reset();
   fog_glow_kernels.reset();
+  image_coordinates.reset();
 }
 
 void StaticCacheManager::skip_next_reset()
