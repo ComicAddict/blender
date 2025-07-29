@@ -19,6 +19,7 @@
 #include "node_geometry_util.hh"
 
 #include "voro++.hh"
+#include <functional>
 
 namespace blender::nodes::node_geo_voronoi {
 
@@ -49,6 +50,7 @@ static void node_declare(NodeDeclarationBuilder &b)
   b.add_input<decl::Bool>("Group By Edge");
   b.add_input<decl::Int>("Group ID").implicit_field(NODE_DEFAULT_INPUT_INDEX_FIELD);
   b.add_output<decl::Geometry>("Voronoi");
+  b.add_output<decl::Geometry>("Delaunay");
   b.add_output<decl::Int>("Cell ID").field_on_all();
   b.add_output<decl::Vector>("Cell Centers").field_on_all();
 
@@ -84,20 +86,76 @@ static void node_init(bNodeTree * /*tree*/, bNode *node)
   node->storage = data;
 }
 
-static Mesh *generate_mesh(Vector<float3> &verts,
-                           Vector<int> &face_sizes,
-                           Vector<int> &corner_verts,
-                           Vector<int> &ids,
-                           Vector<float3> &centers,
-                           AttributeOutputs &attribute_outputs)
+template<typename Container, typename Loop>
+ Mesh *generate_mesh(Container &con,
+                      Loop &vl,
+                      Map<int, Set<int>> &adjacency_list,
+                      bool boundary,
+                      AttributeOutputs &attribute_outputs)
 {
+  voro::voronoicell_neighbor c;
+
+  std::vector<int> neigh, f_vert;
+  std::vector<double> v;
+
+  Vector<float3> verts;
+  Vector<int> face_sizes;
+  Vector<int> corner_verts;
+  Vector<int> ids;
+  Vector<float3> centers;
+  double x, y, z;
+
+  int offset = 0;
+
+  std::function<bool(int, int)> should_include;
+
+  if (adjacency_list.is_empty()) {
+    should_include = [&](int id, int neighbor) {
+      return (neighbor != id) && (boundary || neighbor > -1);
+    };
+  } else {
+    should_include = [&](int id, int neighbor) {
+      return !adjacency_list.lookup(id).contains(neighbor) && (boundary || neighbor > -1);
+    };
+  }
+
+  if (vl.start()) {
+    do {
+      if (con.compute_cell(c, vl)) {
+        vl.pos(x, y, z);
+        int id = vl.pid();
+
+        c.neighbors(neigh);
+        c.face_vertices(f_vert);
+        c.vertices(x, y, z, v);
+
+        for (int i = 0, j = 0; i < neigh.size(); i++) {
+          if (should_include(id, neigh[i])) {
+            int l = f_vert[j];
+            int n = f_vert[j];
+            face_sizes.append(n);
+            for (int k = 0; k < n; k++) {
+              l = 3 * f_vert[j + k + 1];
+              verts.append(float3(v[l], v[l + 1], v[l + 2]));
+              corner_verts.append(offset);
+              ids.append(id);
+              offset++;
+              centers.append(float3(x, y, z));
+            }
+          }
+          j += f_vert[j] + 1;
+        }
+      }
+    } while (vl.inc());
+  }
+
   Mesh *mesh = BKE_mesh_new_nomain(verts.size(), 0, face_sizes.size(), corner_verts.size());
   mesh->vert_positions_for_write().copy_from(verts);
 
   MutableSpan<int> face_offs = mesh->face_offsets_for_write();
   MutableSpan<int> corns = mesh->corner_verts_for_write();
 
-  int offset = 0;
+  offset = 0;
   for (int i = 0; i < face_sizes.size(); i++) {
     int size = face_sizes[i];
     face_offs[i] = offset;
@@ -134,7 +192,6 @@ static Mesh *compute_voronoi_bounds(Span<float3> &positions,
                                     AttributeOutputs &attribute_outputs,
                                     const float3 &min,
                                     const float3 &max,
-                                    bool edge_group,
                                     bool x_p,
                                     bool y_p,
                                     bool z_p,
@@ -149,91 +206,14 @@ static Mesh *compute_voronoi_bounds(Span<float3> &positions,
   voro::container con(
       min[0], max[0], min[1], max[1], min[2], max[2], n_x, n_y, n_z, x_p, y_p, z_p, 8);
 
-  {
-    int i = 0;
-    for (float3 p : positions) {
-      con.put(group_ids[i], p[0], p[1], p[2]);
-      i++;
-    }
+  int i = 0;
+  for (float3 p : positions) {
+    con.put(group_ids[i], p[0], p[1], p[2]);
+    i++;
   }
-
-  voro::voronoicell_neighbor c;
   voro::c_loop_all vl(con);
-
-  std::vector<int> neigh, f_vert;
-  std::vector<double> v;
-
-  Vector<float3> verts;
-  Vector<int> face_sizes;
-  Vector<int> corner_verts;
-  Vector<int> ids;
-  Vector<float3> centers;
-  double x, y, z;
-
-  int offset = 0;
-
-  if (!edge_group) {
-    if (vl.start())
-      do
-        if (con.compute_cell(c, vl)) {
-          vl.pos(x, y, z);
-          int id = vl.pid();
-
-          c.neighbors(neigh);
-          c.face_vertices(f_vert);
-          c.vertices(x, y, z, v);
-
-          for (int i = 0, j = 0; i < neigh.size(); i++) {
-            if (neigh[i] != id && (boundary || neigh[i] > -1)) {
-              int l = f_vert[j];
-              int n = f_vert[j];
-              face_sizes.append(n);
-              for (int k = 0; k < n; k++) {
-                l = 3 * f_vert[j + k + 1];
-                verts.append(float3(v[l], v[l + 1], v[l + 2]));
-                corner_verts.append(offset);
-                ids.append(id);
-                offset++;
-                centers.append(float3(x, y, z));
-              }
-            }
-            j += f_vert[j] + 1;
-          }
-        }
-      while (vl.inc());
-  }
-  else {
-    if (vl.start())
-      do
-        if (con.compute_cell(c, vl)) {
-          vl.pos(x, y, z);
-          int id = vl.pid();
-
-          c.neighbors(neigh);
-          c.face_vertices(f_vert);
-          c.vertices(x, y, z, v);
-
-          for (int i = 0, j = 0; i < neigh.size(); i++) {
-            if (!adjacency_list.lookup(id).contains(neigh[i]) && (boundary || neigh[i] > -1)) {
-              int l = f_vert[j];
-              int n = f_vert[j];
-              face_sizes.append(n);
-              for (int k = 0; k < n; k++) {
-                l = 3 * f_vert[j + k + 1];
-                verts.append(float3(v[l], v[l + 1], v[l + 2]));
-                corner_verts.append(offset);
-                ids.append(id);
-                offset++;
-                centers.append(float3(x, y, z));
-              }
-            }
-            j += f_vert[j] + 1;
-          }
-        }
-      while (vl.inc());
-  }
-
-  return generate_mesh(verts, face_sizes, corner_verts, ids, centers, attribute_outputs);
+  
+  return generate_mesh(con, vl, adjacency_list, boundary, attribute_outputs);
 }
 
 static Mesh *compute_voronoi_bravais(Span<float3> &positions,
@@ -246,7 +226,6 @@ static Mesh *compute_voronoi_bravais(Span<float3> &positions,
                                      const double &cx,
                                      const double &cy,
                                      const double &cz,
-                                     bool edge_group,
                                      bool boundary)
 {
   /* Set the computational grid size */
@@ -257,91 +236,15 @@ static Mesh *compute_voronoi_bravais(Span<float3> &positions,
     eight particles within each computational block. */
   voro::container_periodic con(a, bx, by, cx, cy, cz, n_x, n_y, n_z, 8);
 
-  {
-    int i = 0;
-    for (float3 p : positions) {
-      con.put(group_ids[i], p[0], p[1], p[2]);
-      i++;
-    }
+  int i = 0;
+  for (float3 p : positions) {
+    con.put(group_ids[i], p[0], p[1], p[2]);
+    i++;
   }
 
-  voro::voronoicell_neighbor c;
   voro::c_loop_all_periodic vl(con);
-
-  std::vector<int> neigh, f_vert;
-  std::vector<double> v;
-
-  Vector<float3> verts;
-  Vector<int> face_sizes;
-  Vector<int> corner_verts;
-  Vector<int> ids;
-  Vector<float3> centers;
-  double x, y, z;
-
-  int offset = 0;
-
-  if (!edge_group) {
-    if (vl.start())
-      do
-        if (con.compute_cell(c, vl)) {
-          vl.pos(x, y, z);
-          int id = vl.pid();
-
-          c.neighbors(neigh);
-          c.face_vertices(f_vert);
-          c.vertices(x, y, z, v);
-
-          for (int i = 0, j = 0; i < neigh.size(); i++) {
-            if (neigh[i] != id && (boundary || neigh[i] > -1)) {
-              int l = f_vert[j];
-              int n = f_vert[j];
-              face_sizes.append(n);
-              for (int k = 0; k < n; k++) {
-                l = 3 * f_vert[j + k + 1];
-                verts.append(float3(v[l], v[l + 1], v[l + 2]));
-                corner_verts.append(offset);
-                ids.append(id);
-                offset++;
-                centers.append(float3(x, y, z));
-              }
-            }
-            j += f_vert[j] + 1;
-          }
-        }
-      while (vl.inc());
-  }
-  else {
-    if (vl.start())
-      do
-        if (con.compute_cell(c, vl)) {
-          vl.pos(x, y, z);
-          int id = vl.pid();
-
-          c.neighbors(neigh);
-          c.face_vertices(f_vert);
-          c.vertices(x, y, z, v);
-
-          for (int i = 0, j = 0; i < neigh.size(); i++) {
-            if (!adjacency_list.lookup(id).contains(neigh[i]) && (boundary || neigh[i] > -1)) {
-              int l = f_vert[j];
-              int n = f_vert[j];
-              face_sizes.append(n);
-              for (int k = 0; k < n; k++) {
-                l = 3 * f_vert[j + k + 1];
-                verts.append(float3(v[l], v[l + 1], v[l + 2]));
-                corner_verts.append(offset);
-                ids.append(id);
-                offset++;
-                centers.append(float3(x, y, z));
-              }
-            }
-            j += f_vert[j] + 1;
-          }
-        }
-      while (vl.inc());
-  }
-
-  return generate_mesh(verts, face_sizes, corner_verts, ids, centers, attribute_outputs);
+  
+  return generate_mesh(con, vl, adjacency_list, boundary, attribute_outputs);
 }
 
 static void node_geo_exec(GeoNodeExecParams params)
@@ -351,8 +254,6 @@ static void node_geo_exec(GeoNodeExecParams params)
   const NodeGeometryVoronoi &storage = node_storage(params.node());
   const GeometryNodeVoronoiMode mode = (GeometryNodeVoronoiMode)storage.mode;
 
-  const bool boundary = params.extract_input<bool>("Boundary");
-  const bool edge_group = params.extract_input<bool>("Group By Edge");
   Field<int> id_field = params.extract_input<Field<int>>("Group ID");
 
   AttributeOutputs attribute_outputs;
@@ -367,7 +268,7 @@ static void node_geo_exec(GeoNodeExecParams params)
   if (site_geometry.has_mesh()) {
     const Mesh *site_mesh = site_geometry.get_mesh();
     positions = site_mesh->vert_positions();
-    if (edge_group) {
+    if (params.extract_input<bool>("Group By Edge")) {
       Span<int2> edges = site_mesh->edges();
       for (auto edge : edges) {
         adjacency_list.lookup_or_add(edge[0], Set<int>()).add(edge[1]);
@@ -410,45 +311,32 @@ static void node_geo_exec(GeoNodeExecParams params)
 
   switch (mode) {
     case GEO_NODE_VORONOI_BOUNDS: {
-      const float3 min = params.extract_input<float3>("Min");
-      const float3 max = params.extract_input<float3>("Max");
-      const bool x_p = params.extract_input<bool>("Periodic X");
-      const bool y_p = params.extract_input<bool>("Periodic Y");
-      const bool z_p = params.extract_input<bool>("Periodic Z");
       Mesh *voronoi = compute_voronoi_bounds(positions,
                                              group_ids,
                                              adjacency_list,
                                              attribute_outputs,
-                                             min,
-                                             max,
-                                             edge_group,
-                                             x_p,
-                                             y_p,
-                                             z_p,
-                                             boundary);
+                                             params.extract_input<float3>("Min"),
+                                             params.extract_input<float3>("Max"),
+                                             params.extract_input<bool>("Periodic X"),
+                                             params.extract_input<bool>("Periodic Y"),
+                                             params.extract_input<bool>("Periodic Z"),
+                                             params.extract_input<bool>("Boundary"));
       site_geometry.replace_mesh(voronoi);
       site_geometry.keep_only_during_modify({GeometryComponent::Type::Mesh});
       break;
     }
     case GEO_NODE_VORONOI_BRAVAIS: {
-      const float a = params.extract_input<float>("A");
-      const float bx = params.extract_input<float>("Bx");
-      const float by = params.extract_input<float>("By");
-      const float cx = params.extract_input<float>("Cx");
-      const float cy = params.extract_input<float>("Cy");
-      const float cz = params.extract_input<float>("Cz");
       Mesh *voronoi = compute_voronoi_bravais(positions,
                                               group_ids,
                                               adjacency_list,
                                               attribute_outputs,
-                                              a,
-                                              bx,
-                                              by,
-                                              cx,
-                                              cy,
-                                              cz,
-                                              edge_group,
-                                              boundary);
+                                              params.extract_input<float>("A"),
+                                              params.extract_input<float>("Bx"),
+                                              params.extract_input<float>("By"),
+                                              params.extract_input<float>("Cx"),
+                                              params.extract_input<float>("Cy"),
+                                              params.extract_input<float>("Cz"),
+                                              params.extract_input<bool>("Boundary"));
       site_geometry.replace_mesh(voronoi);
       site_geometry.keep_only_during_modify({GeometryComponent::Type::Mesh});
       break;
