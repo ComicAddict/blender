@@ -87,11 +87,11 @@ static void node_init(bNodeTree * /*tree*/, bNode *node)
 }
 
 template<typename Container, typename Loop>
- Mesh *generate_mesh(Container &con,
-                      Loop &vl,
-                      Map<int, Set<int>> &adjacency_list,
-                      bool boundary,
-                      AttributeOutputs &attribute_outputs)
+Mesh *generate_mesh(Container &con,
+                    Loop &vl,
+                    Map<int, Set<int>> &adjacency_list,
+                    bool boundary,
+                    AttributeOutputs &attribute_outputs)
 {
   voro::voronoicell_neighbor c;
 
@@ -113,7 +113,8 @@ template<typename Container, typename Loop>
     should_include = [&](int id, int neighbor) {
       return (neighbor != id) && (boundary || neighbor > -1);
     };
-  } else {
+  }
+  else {
     should_include = [&](int id, int neighbor) {
       return !adjacency_list.lookup(id).contains(neighbor) && (boundary || neighbor > -1);
     };
@@ -212,7 +213,7 @@ static Mesh *compute_voronoi_bounds(Span<float3> &positions,
     i++;
   }
   voro::c_loop_all vl(con);
-  
+
   return generate_mesh(con, vl, adjacency_list, boundary, attribute_outputs);
 }
 
@@ -243,7 +244,7 @@ static Mesh *compute_voronoi_bravais(Span<float3> &positions,
   }
 
   voro::c_loop_all_periodic vl(con);
-  
+
   return generate_mesh(con, vl, adjacency_list, boundary, attribute_outputs);
 }
 
@@ -387,7 +388,7 @@ static void node_register()
   ntype.initfunc = node_init;
   blender::bke::node_type_storage(
       ntype, "NodeGeometryVoronoi", node_free_standard_storage, node_copy_standard_storage);
-      ntype.draw_buttons = node_layout;
+  ntype.draw_buttons = node_layout;
   blender::bke::node_register_type(ntype);
 
   node_rna(ntype.rna_ext.srna);
