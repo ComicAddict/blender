@@ -11,7 +11,7 @@
 #include "BKE_mesh.hh"
 #include "BKE_pointcloud.hh"
 
-#include "UI_interface.hh"
+#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
 #include "NOD_rna_define.hh"
@@ -47,7 +47,7 @@ static void node_declare(NodeDeclarationBuilder &b)
   auto &pz = b.add_input<decl::Bool>("Periodic Z");
   b.add_input<decl::Bool>("Boundary");
   b.add_input<decl::Bool>("Group By Edge");
-  b.add_input<decl::Int>("Group ID").implicit_field(implicit_field_inputs::index);
+  b.add_input<decl::Int>("Group ID").implicit_field(NODE_DEFAULT_INPUT_INDEX_FIELD);
   b.add_output<decl::Geometry>("Voronoi");
   b.add_output<decl::Int>("Cell ID").field_on_all();
   b.add_output<decl::Vector>("Cell Centers").field_on_all();
@@ -73,12 +73,12 @@ static void node_declare(NodeDeclarationBuilder &b)
 
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "mode", UI_ITEM_NONE, "", ICON_NONE);
+  layout->prop(ptr, "mode", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
 {
-  NodeGeometryVoronoi *data = MEM_cnew<NodeGeometryVoronoi>(__func__);
+  NodeGeometryVoronoi *data = MEM_callocN<NodeGeometryVoronoi>(__func__);
 
   data->mode = GEO_NODE_VORONOI_BOUNDS;
   node->storage = data;
@@ -398,7 +398,7 @@ static void node_geo_exec(GeoNodeExecParams params)
     positions = src_curves.evaluated_positions();
     /* default id would have been the index which is not available for the evaluated points on the
       curve creating a VArray with the size of the positions instead */
-    group_ids = VArray<int>::ForFunc(positions.size(), [](const int64_t i) { return i; });
+    group_ids = VArray<int>::from_func(positions.size(), [](const int64_t i) { return i; });
   }
   else {
     params.error_message_add(NodeWarningType::Error,
