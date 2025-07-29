@@ -140,7 +140,7 @@ class container_periodic_base : public unitcell, public voro_base {
 		 * \param[out] disp a block displacement used internally by the
 		 *		    find_voronoi_cell routine (but not needed
 		 *		    in this instance.) */
-		inline void initialize_search(int ci,int cj,int ck,int ijk,int &i,int &j,int &k,int &disp) {
+		inline void initialize_search([[maybe_unused]]int ci,[[maybe_unused]]int cj,[[maybe_unused]]int ck,[[maybe_unused]]int ijk,[[maybe_unused]]int &i,int &j,int &k,[[maybe_unused]]int &disp) {
 			i=nx;j=ey;k=ez;
 		}
 		/** Returns the position of a particle currently being computed
@@ -169,7 +169,7 @@ class container_periodic_base : public unitcell, public voro_base {
 		 * 		    find_voronoi_cell and compute_cell routines
 		 * 		    (but not needed in this instance.)
 		 * \return The block index. */
-		inline int region_index(int ci,int cj,int ck,int ei,int ej,int ek,double &qx,double &qy,double &qz,int &disp) {
+		inline int region_index(int ci,int cj,int ck,int ei,int ej,int ek,double &qx,[[maybe_unused]]double &qy,[[maybe_unused]]double &qz,[[maybe_unused]]int &disp) {
 			int qi=ci+(ei-nx),qj=cj+(ej-ey),qk=ck+(ek-ez);
 			int iv(step_div(qi,nx));if(iv!=0) {qx=iv*bx;qi-=nx*iv;} else qx=0;
 			create_periodic_image(qi,qj,qk);
