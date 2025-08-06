@@ -48,6 +48,7 @@ static void node_declare(NodeDeclarationBuilder &b)
   auto &pz = b.add_input<decl::Bool>("Periodic Z");
   b.add_input<decl::Bool>("Boundary");
   b.add_input<decl::Bool>("Group By Edge");
+  b.add_input<decl::Bool>("Group By Face");
   b.add_input<decl::Int>("Group ID").implicit_field(NODE_DEFAULT_INPUT_INDEX_FIELD);
   b.add_output<decl::Geometry>("Voronoi");
   b.add_output<decl::Int>("Cell ID").field_on_all();
@@ -299,6 +300,18 @@ static void node_geo_exec(GeoNodeExecParams params)
   if (site_geometry.has_mesh()) {
     const Mesh *site_mesh = site_geometry.get_mesh();
     positions = site_mesh->vert_positions();
+    if (params.extract_input<bool>("Group By Face")) {
+      Span<int> corner_verts = site_mesh->corner_verts();
+      OffsetIndices<int> faces = site_mesh->faces();
+      for (const int i : faces.index_range()) {
+        for (const int c1 : faces[i]) {
+          for (const int c2 : faces[i]) {
+            adjacency_list.lookup_or_add(corner_verts[c1], Set<int>()).add(corner_verts[c2]);
+            adjacency_list.lookup_or_add(corner_verts[c2], Set<int>()).add(corner_verts[c1]);
+          }
+        }
+      }
+    }
     if (params.extract_input<bool>("Group By Edge")) {
       Span<int2> edges = site_mesh->edges();
       for (auto edge : edges) {
