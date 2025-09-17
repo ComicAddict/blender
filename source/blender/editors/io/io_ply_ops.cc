@@ -84,6 +84,7 @@ static wmOperatorStatus wm_ply_export_exec(bContext *C, wmOperator *op)
   export_params.export_normals = RNA_boolean_get(op->ptr, "export_normals");
   export_params.vertex_colors = ePLYVertexColorMode(RNA_enum_get(op->ptr, "export_colors"));
   export_params.export_attributes = RNA_boolean_get(op->ptr, "export_attributes");
+  export_params.export_face_attributes = RNA_boolean_get(op->ptr, "export_face_attributes");
   export_params.export_triangulated_mesh = RNA_boolean_get(op->ptr, "export_triangulated_mesh");
   export_params.ascii_format = RNA_boolean_get(op->ptr, "ascii_format");
 
@@ -133,6 +134,7 @@ static void wm_ply_export_draw(bContext *C, wmOperator *op)
     col->prop(ptr, "export_normals", UI_ITEM_NONE, IFACE_("Vertex Normals"), ICON_NONE);
     col->prop(ptr, "export_attributes", UI_ITEM_NONE, IFACE_("Vertex Attributes"), ICON_NONE);
     col->prop(ptr, "export_colors", UI_ITEM_NONE, IFACE_("Vertex Colors"), ICON_NONE);
+    col->prop(ptr, "export_face_attributes", UI_ITEM_NONE, IFACE_("Face Attributes"), ICON_NONE);
 
     col->prop(
         ptr, "export_triangulated_mesh", UI_ITEM_NONE, IFACE_("Triangulated Mesh"), ICON_NONE);
@@ -231,6 +233,11 @@ void WM_OT_ply_export(wmOperatorType *ot)
                   "Export Vertex Attributes",
                   "Export custom vertex attributes");
   RNA_def_boolean(ot->srna,
+                  "export_face_attributes",
+                  true,
+                  "Export Face Attributes",
+                  "Export custom Face attributes");
+  RNA_def_boolean(ot->srna,
                   "export_triangulated_mesh",
                   false,
                   "Export Triangulated Mesh",
@@ -298,6 +305,7 @@ static void ui_ply_import_settings(const bContext *C, uiLayout *layout, PointerR
     uiLayout *col = &panel->column(false);
     col->prop(ptr, "merge_verts", UI_ITEM_NONE, std::nullopt, ICON_NONE);
     col->prop(ptr, "import_colors", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    col->prop(ptr, "import_attributes", UI_ITEM_NONE, IFACE_("Import Attributes"), ICON_NONE);
   }
 }
 
