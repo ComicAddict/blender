@@ -409,6 +409,19 @@ static const char *load_face_element(PlyReadBuffer &file,
     return "Face element vertex indices property must be a list";
   }
 
+  Vector<int64_t> custom_attr_indices;
+  for (const int64_t prop_idx : element.properties.index_range()) {
+    const PlyProperty &prop = element.properties[prop_idx];
+    bool is_standard = ELEM(prop.name, "vertex_index", "vertex_indices");
+    if (is_standard) {
+      continue;
+    }
+
+    custom_attr_indices.append(prop_idx);
+    PlyCustomAttribute attr(prop.name, element.count);
+    data->face_custom_attr.append(attr);
+  }
+
   data->face_vertices.reserve(element.count * 3);
   data->face_sizes.reserve(element.count);
 
@@ -422,6 +435,7 @@ static const char *load_face_element(PlyReadBuffer &file,
       int count = 0;
 
       /* Skip any properties before vertex indices. */
+      /* TODO: redundancy? can we load all the elements in a single function?*/
       for (int j = 0; j < prop_index; j++) {
         p = drop_whitespace(p, end);
         if (element.properties[j].count_type == PlyDataTypes::NONE) {
@@ -454,6 +468,12 @@ static const char *load_face_element(PlyReadBuffer &file,
         data->face_vertices.append(index);
       }
       data->face_sizes.append(count);
+
+      for (const int64_t ci : custom_attr_indices.index_range()) {
+        float value;
+        p = parse_float(p, end, 0, value);
+        data->face_custom_attr[ci].data[i] = value;
+      }
     }
   }
   else {
@@ -475,7 +495,8 @@ static const char *load_face_element(PlyReadBuffer &file,
         return "Invalid face size, must be between 1 and 255";
       }
 
-      scratch.resize(count * data_type_size[prop.type]);
+      scratch.resize(count * data_type_size[prop.type] +
+                     custom_attr_indices.size() * sizeof(float));
       file.read_bytes(scratch.data(), scratch.size());
       /* Previous python based importer was accepting faces with fewer
        * than 3 vertices, and silently dropping them. */
@@ -492,12 +513,14 @@ static const char *load_face_element(PlyReadBuffer &file,
           data->face_vertices.append(index);
         }
         data->face_sizes.append(count);
-      }
 
-      /* Skip any properties after vertex indices. */
-      for (int j = prop_index + 1; j < element.properties.size(); j++) {
-        skip_property(
-            file, element.properties[j], scratch, header.type == PlyFormatType::BINARY_BE);
+        int j = 0;
+        for (const int64_t ci : custom_attr_indices.index_range()) {
+          const PlyProperty &prop = element.properties[j + 1];
+          float value = get_binary_value<float>(prop.type, ptr);
+          data->face_custom_attr[ci].data[i] = value;
+          j += 1;
+        }
       }
     }
   }
