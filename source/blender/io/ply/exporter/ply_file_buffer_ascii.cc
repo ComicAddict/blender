@@ -47,7 +47,11 @@ void FileBufferAscii::write_face(char count, Span<uint32_t> const &vertex_indice
   for (const uint32_t v : vertex_indices) {
     write_fstring(" {}", v);
   }
-  write_newline();
+}
+
+void FileBufferAscii::write_face_end()
+{
+  write_fstring("\n");
 }
 
 void FileBufferAscii::write_edge(int first, int second)

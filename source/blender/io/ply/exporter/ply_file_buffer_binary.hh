@@ -29,6 +29,8 @@ class FileBufferBinary : public FileBuffer {
 
   void write_face(char size, Span<uint32_t> const &vertex_indices) override;
 
+  void write_face_end() override;
+
   void write_edge(int first, int second) override;
 };
 }  // namespace blender::io::ply

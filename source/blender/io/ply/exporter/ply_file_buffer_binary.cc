@@ -67,6 +67,11 @@ void FileBufferBinary::write_face(char size, Span<uint32_t> const &vertex_indice
   write_bytes(vertex_indices.cast<char>());
 }
 
+void FileBufferBinary::write_face_end()
+{
+  /* In binary, there is no end to a face. */
+}
+
 void FileBufferBinary::write_edge(int first, int second)
 {
   int2 vector(first, second);

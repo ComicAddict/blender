@@ -56,6 +56,8 @@ class FileBuffer : private NonMovable {
 
   virtual void write_face(char count, Span<uint32_t> const &vertex_indices) = 0;
 
+  virtual void write_face_end() = 0;
+
   virtual void write_edge(int first, int second) = 0;
 
   void write_header_element(StringRef name, int count);
