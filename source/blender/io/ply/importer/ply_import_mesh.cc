@@ -124,11 +124,20 @@ Mesh *convert_ply_to_mesh(PlyData &data, const PLYImportParams &params)
   }
 
   /* Custom attributes: add them after anything above. */
-  if (params.import_attributes && !data.vertex_custom_attr.is_empty()) {
-    for (const PlyCustomAttribute &attr : data.vertex_custom_attr) {
-      attributes.add<float>(attr.name,
-                            bke::AttrDomain::Point,
-                            bke::AttributeInitVArray(VArray<float>::from_span(attr.data)));
+  if (params.import_attributes) {
+    if (!data.vertex_custom_attr.is_empty()) {
+      for (const PlyCustomAttribute &attr : data.vertex_custom_attr) {
+        attributes.add<float>(attr.name,
+                              bke::AttrDomain::Point,
+                              bke::AttributeInitVArray(VArray<float>::from_span(attr.data)));
+      }
+    }
+    if (!data.face_custom_attr.is_empty()) {
+      for (const PlyCustomAttribute &attr : data.face_custom_attr) {
+        attributes.add<float>(attr.name,
+                              bke::AttrDomain::Face,
+                              bke::AttributeInitVArray(VArray<float>::from_span(attr.data)));
+      }
     }
   }
 
