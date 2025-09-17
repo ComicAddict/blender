@@ -417,7 +417,7 @@ static void load_face_custom_attributes(const Mesh *mesh,
         float *attr_a = find_or_add_attribute(iter.name + "_a", size, face_offset, r_attributes);
         auto typed = attribute.typed<ColorGeometry4b>();
         for (const int64_t i : faces.index_range()) {
-          ColorGeometry4f col = typed[i].decode();
+          ColorGeometry4f col = color::decode(typed[i]);
           attr_r[i] = col.r;
           attr_g[i] = col.g;
           attr_b[i] = col.b;
