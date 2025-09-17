@@ -306,8 +306,10 @@ static void node_geo_exec(GeoNodeExecParams params)
       for (const int i : faces.index_range()) {
         for (const int c1 : faces[i]) {
           for (const int c2 : faces[i]) {
-            adjacency_list.lookup_or_add(corner_verts[c1], Set<int>()).add(corner_verts[c2]);
-            adjacency_list.lookup_or_add(corner_verts[c2], Set<int>()).add(corner_verts[c1]);
+            if (c1 != c2){
+              adjacency_list.lookup_or_add(corner_verts[c1], Set<int>()).add(corner_verts[c2]);
+              adjacency_list.lookup_or_add(corner_verts[c2], Set<int>()).add(corner_verts[c1]);
+            }
           }
         }
       }
