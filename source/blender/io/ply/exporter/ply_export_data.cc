@@ -47,9 +47,15 @@ void write_vertices(FileBuffer &buffer, const PlyData &ply_data)
 void write_faces(FileBuffer &buffer, const PlyData &ply_data)
 {
   const uint32_t *indices = ply_data.face_vertices.data();
+  size_t i = 0;
   for (uint32_t face_size : ply_data.face_sizes) {
     buffer.write_face(char(face_size), Span<uint32_t>(indices, face_size));
+    for (const PlyCustomAttribute &attr : ply_data.face_custom_attr) {
+      buffer.write_data(attr.data[i]);
+    }
     indices += face_size;
+    i += 1;
+    buffer.write_face_end();
   }
   buffer.write_to_file();
 }

@@ -323,6 +323,151 @@ static void load_custom_attributes(const Mesh *mesh,
   });
 }
 
+static void load_face_custom_attributes(const Mesh *mesh,
+                                        const OffsetIndices<int> faces,
+                                        uint32_t face_offset,
+                                        Vector<PlyCustomAttribute> &r_attributes)
+{
+  const bke::AttributeAccessor attributes = mesh->attributes();
+  const int64_t size = faces.size();
+
+  attributes.foreach_attribute([&](const bke::AttributeIter &iter) {
+    /* Skip internal, standard and non-face domain attributes. */
+    if (iter.domain != bke::AttrDomain::Face || iter.name[0] == '.' ||
+        bke::attribute_name_is_anonymous(iter.name) || ELEM(iter.name, "sharp_face"))
+    {
+      return;
+    }
+
+    const GVArraySpan attribute = *iter.get();
+    if (attribute.is_empty()) {
+      return;
+    }
+    switch (iter.data_type) {
+      case bke::AttrType::Float: {
+        float *attr = find_or_add_attribute(iter.name, size, face_offset, r_attributes);
+        auto typed = attribute.typed<float>();
+        for (const int64_t i : faces.index_range()) {
+          attr[i] = typed[i];
+        }
+        break;
+      }
+      case bke::AttrType::Int8: {
+        float *attr = find_or_add_attribute(iter.name, size, face_offset, r_attributes);
+        auto typed = attribute.typed<int8_t>();
+        for (const int64_t i : faces.index_range()) {
+          attr[i] = typed[i];
+        }
+        break;
+      }
+      case bke::AttrType::Int32: {
+        float *attr = find_or_add_attribute(iter.name, size, face_offset, r_attributes);
+        auto typed = attribute.typed<int32_t>();
+        for (const int64_t i : faces.index_range()) {
+          attr[i] = typed[i];
+        }
+        break;
+      }
+      case bke::AttrType::Int16_2D: {
+        float *attr_x = find_or_add_attribute(iter.name + "_x", size, face_offset, r_attributes);
+        float *attr_y = find_or_add_attribute(iter.name + "_y", size, face_offset, r_attributes);
+        auto typed = attribute.typed<short2>();
+        for (const int64_t i : faces.index_range()) {
+          attr_x[i] = typed[i].x;
+          attr_y[i] = typed[i].y;
+        }
+        break;
+      }
+      case bke::AttrType::Int32_2D: {
+        float *attr_x = find_or_add_attribute(iter.name + "_x", size, face_offset, r_attributes);
+        float *attr_y = find_or_add_attribute(iter.name + "_y", size, face_offset, r_attributes);
+        auto typed = attribute.typed<int2>();
+        for (const int64_t i : faces.index_range()) {
+          attr_x[i] = typed[i].x;
+          attr_y[i] = typed[i].y;
+        }
+        break;
+      }
+      case bke::AttrType::Float2: {
+        float *attr_x = find_or_add_attribute(iter.name + "_x", size, face_offset, r_attributes);
+        float *attr_y = find_or_add_attribute(iter.name + "_y", size, face_offset, r_attributes);
+        auto typed = attribute.typed<float2>();
+        for (const int64_t i : faces.index_range()) {
+          attr_x[i] = typed[i].x;
+          attr_y[i] = typed[i].y;
+        }
+        break;
+      }
+      case bke::AttrType::Float3: {
+        float *attr_x = find_or_add_attribute(iter.name + "_x", size, face_offset, r_attributes);
+        float *attr_y = find_or_add_attribute(iter.name + "_y", size, face_offset, r_attributes);
+        float *attr_z = find_or_add_attribute(iter.name + "_z", size, face_offset, r_attributes);
+        auto typed = attribute.typed<float3>();
+        for (const int64_t i : faces.index_range()) {
+          attr_x[i] = typed[i].x;
+          attr_y[i] = typed[i].y;
+          attr_z[i] = typed[i].z;
+        }
+        break;
+      }
+      case bke::AttrType::ColorByte: {
+        float *attr_r = find_or_add_attribute(iter.name + "_r", size, face_offset, r_attributes);
+        float *attr_g = find_or_add_attribute(iter.name + "_g", size, face_offset, r_attributes);
+        float *attr_b = find_or_add_attribute(iter.name + "_b", size, face_offset, r_attributes);
+        float *attr_a = find_or_add_attribute(iter.name + "_a", size, face_offset, r_attributes);
+        auto typed = attribute.typed<ColorGeometry4b>();
+        for (const int64_t i : faces.index_range()) {
+          ColorGeometry4f col = typed[i].decode();
+          attr_r[i] = col.r;
+          attr_g[i] = col.g;
+          attr_b[i] = col.b;
+          attr_a[i] = col.a;
+        }
+        break;
+      }
+      case bke::AttrType::ColorFloat: {
+        float *attr_r = find_or_add_attribute(iter.name + "_r", size, face_offset, r_attributes);
+        float *attr_g = find_or_add_attribute(iter.name + "_g", size, face_offset, r_attributes);
+        float *attr_b = find_or_add_attribute(iter.name + "_b", size, face_offset, r_attributes);
+        float *attr_a = find_or_add_attribute(iter.name + "_a", size, face_offset, r_attributes);
+        auto typed = attribute.typed<ColorGeometry4f>();
+        for (const int64_t i : faces.index_range()) {
+          ColorGeometry4f col = typed[i];
+          attr_r[i] = col.r;
+          attr_g[i] = col.g;
+          attr_b[i] = col.b;
+          attr_a[i] = col.a;
+        }
+        break;
+      }
+      case bke::AttrType::Bool: {
+        float *attr = find_or_add_attribute(iter.name, size, face_offset, r_attributes);
+        auto typed = attribute.typed<bool>();
+        for (const int64_t i : faces.index_range()) {
+          attr[i] = typed[i] ? 1.0f : 0.0f;
+        }
+        break;
+      }
+      case bke::AttrType::Quaternion: {
+        float *attr_x = find_or_add_attribute(iter.name + "_x", size, face_offset, r_attributes);
+        float *attr_y = find_or_add_attribute(iter.name + "_y", size, face_offset, r_attributes);
+        float *attr_z = find_or_add_attribute(iter.name + "_z", size, face_offset, r_attributes);
+        float *attr_w = find_or_add_attribute(iter.name + "_w", size, face_offset, r_attributes);
+        auto typed = attribute.typed<math::Quaternion>();
+        for (const int64_t i : faces.index_range()) {
+          attr_x[i] = typed[i].x;
+          attr_y[i] = typed[i].y;
+          attr_z[i] = typed[i].z;
+          attr_w[i] = typed[i].w;
+        }
+        break;
+      }
+      default:
+        BLI_assert_msg(0, "Unsupported attribute type for PLY export.");
+    }
+  });
+}
+
 void load_plydata(PlyData &plyData, Depsgraph *depsgraph, const PLYExportParams &export_params)
 {
   DEGObjectIterSettings deg_iter_settings{};
@@ -333,6 +478,7 @@ void load_plydata(PlyData &plyData, Depsgraph *depsgraph, const PLYExportParams 
 
   /* When exporting multiple objects, vertex indices have to be offset. */
   uint32_t vertex_offset = 0;
+  uint32_t face_offset = 0;
 
   DEG_OBJECT_ITER_BEGIN (&deg_iter_settings, object) {
     if (object->type != OB_MESH) {
@@ -453,6 +599,10 @@ void load_plydata(PlyData &plyData, Depsgraph *depsgraph, const PLYExportParams 
       load_custom_attributes(mesh, ply_to_vertex, vertex_offset, plyData.vertex_custom_attr);
     }
 
+    if (export_params.export_face_attributes) {
+      load_face_custom_attributes(mesh, faces, face_offset, plyData.face_custom_attr);
+    }
+
     /* Loose edges */
     const bke::LooseEdgeCache &loose_edges = mesh->loose_edges();
     if (loose_edges.count > 0) {
@@ -465,6 +615,7 @@ void load_plydata(PlyData &plyData, Depsgraph *depsgraph, const PLYExportParams 
     }
 
     vertex_offset = int(plyData.vertices.size());
+    face_offset = int(plyData.face_sizes.size());
     if (manually_free_mesh) {
       BKE_id_free(nullptr, manually_free_mesh);
     }
@@ -480,6 +631,10 @@ void load_plydata(PlyData &plyData, Depsgraph *depsgraph, const PLYExportParams 
   for (PlyCustomAttribute &attr : plyData.vertex_custom_attr) {
     BLI_assert(attr.data.size() <= vertex_offset);
     attr.data.resize(vertex_offset, 0.0f);
+  }
+  for (PlyCustomAttribute &attr : plyData.face_custom_attr) {
+    BLI_assert(attr.data.size() <= face_offset);
+    attr.data.resize(face_offset, 0.0f);
   }
 }
 
