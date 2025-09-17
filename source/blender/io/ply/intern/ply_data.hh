@@ -30,6 +30,7 @@ struct PlyData {
   Vector<float3> vertex_normals;
   Vector<float4> vertex_colors; /* Linear space, 0..1 range colors. */
   Vector<PlyCustomAttribute> vertex_custom_attr;
+  Vector<PlyCustomAttribute> face_custom_attr;
   Vector<std::pair<int, int>> edges;
   Vector<uint32_t> face_vertices;
   Vector<uint32_t> face_sizes;
