@@ -177,6 +177,7 @@ set(SRC
   nodes/node_geo_mesh_topology_edges_of_vertex.cc
   nodes/node_geo_mesh_topology_face_of_corner.cc
   nodes/node_geo_mesh_topology_offset_corner_in_face.cc
+  nodes/node_geo_mesh_topology_radial_offset_corner.cc
   nodes/node_geo_mesh_topology_vertex_of_corner.cc
   nodes/node_geo_mouse_position.cc
   nodes/node_geo_object_info.cc

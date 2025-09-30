@@ -585,6 +585,7 @@ class NODE_MT_gn_mesh_topology_base(node_add_menu.NodeMenu):
         self.node_operator(layout, "GeometryNodeEdgesOfVertex")
         self.node_operator(layout, "GeometryNodeFaceOfCorner")
         self.node_operator(layout, "GeometryNodeOffsetCornerInFace")
+        self.node_operator(layout, "GeometryNodeRadialOffsetCorners")
         self.node_operator(layout, "GeometryNodeVertexOfCorner")
 
         self.draw_assets_for_catalog(layout, self.menu_path)
