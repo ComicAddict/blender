@@ -260,7 +260,7 @@ static const char *load_vertex_element(PlyReadBuffer &file,
   for (const int64_t prop_idx : element.properties.index_range()) {
     const PlyProperty &prop = element.properties[prop_idx];
     bool is_standard = ELEM(
-        prop.name, "x", "y", "z", "nx", "ny", "nz", "red", "green", "blue", "alpha", "s", "t");
+        prop.name, "x", "y", "z", "nx", "ny", "nz", "red", "green", "blue", "alpha");
     if (is_standard) {
       continue;
     }
@@ -389,6 +389,44 @@ static void skip_property(PlyReadBuffer &file,
   }
 }
 
+static const char* parse_face_indices_ascii(const char* p, const char* end, const int& count, PlyData *data){
+  for (int j = 0; j < count; j++) {
+    int index;
+    p = parse_int(p, end, 0, index);
+    data->face_vertices.append(index);
+  }
+  data->face_sizes.append(count);
+  return p;
+}
+
+static const char* parse_uv_coordinates_ascii(const char* p, const char* end, const int& count, PlyData *data){
+  for (int j = 0; j < count; j++) {
+    float2 uvmap;
+    p = parse_float(p, end, 0, uvmap.x);
+    p = parse_float(p, end, 0, uvmap.y);
+    data->uv_coordinates.append(uvmap);
+  }
+  return p;
+}
+
+static void parse_face_indices_binary(const char* p, const char* end, const int& count, PlyData *data){
+  for (int j = 0; j < count; j++) {
+    int index;
+    p = parse_int(p, end, 0, index);
+    data->face_vertices.append(index);
+  }
+  data->face_sizes.append(count);
+}
+
+static void parse_uv_coordinates_binary(const char* p, const char* end, const int& count, PlyData *data){
+  for (int j = 0; j < count; j++) {
+    float2 uvmap;
+    p = parse_float(p, end, 0, uvmap.x);
+    p = parse_float(p, end, 0, uvmap.y);
+    data->uv_coordinates.append(uvmap);
+  }
+}
+
 static const char *load_face_element(PlyReadBuffer &file,
                                      const PlyHeader &header,
                                      const PlyElement &element,
@@ -409,10 +447,18 @@ static const char *load_face_element(PlyReadBuffer &file,
     return "Face element vertex indices property must be a list";
   }
 
+  int uv_index = get_index(element, "texcoords");
+  if (uv_index < 0) {
+    uv_index = get_index(element, "texcoord");
+  }
+  if (uv_index < 0 && element.properties.size() == 1) {
+    uv_index = 0;
+  }
+
   Vector<int64_t> custom_attr_indices;
   for (const int64_t prop_idx : element.properties.index_range()) {
     const PlyProperty &prop = element.properties[prop_idx];
-    bool is_standard = ELEM(prop.name, "vertex_index", "vertex_indices");
+    bool is_standard = ELEM(prop.name, "vertex_index", "vertex_indices", "texcoords", "texcoord");
     if (is_standard) {
       continue;
     }
@@ -426,84 +472,150 @@ static const char *load_face_element(PlyReadBuffer &file,
   data->face_sizes.reserve(element.count);
 
   if (header.type == PlyFormatType::ASCII) {
-    for (int i = 0; i < element.count; i++) {
-      /* Read line */
-      Span<char> line = file.read_line();
+    Span<char> line;
+    const char *p;
+    const char *end;
+    /* No UV data */
+    if (uv_index < 0){
+      for (int i = 0; i < element.count; i++) {
+        /* Read line */
+        line = file.read_line();
+        p = line.data();
+        end = p + line.size();
 
-      const char *p = line.data();
-      const char *end = p + line.size();
-      int count = 0;
-
-      /* Skip any properties before vertex indices. */
-      /* TODO: redundancy? can we load all the elements in a single function?*/
-      for (int j = 0; j < prop_index; j++) {
-        p = drop_whitespace(p, end);
-        if (element.properties[j].count_type == PlyDataTypes::NONE) {
-          p = drop_non_whitespace(p, end);
+        int count = 0;
+        p = parse_int(p, end, 0, count);
+        if (count < 1 || count > 255) {
+          return "Invalid face size, must be between 1 and 255";
         }
-        else {
-          p = parse_int(p, end, 0, count);
-          for (int k = 0; k < count; ++k) {
-            p = drop_whitespace(p, end);
-            p = drop_non_whitespace(p, end);
-          }
+        /* Previous python based importer was accepting faces with fewer
+        * than 3 vertices, and silently dropping them. */
+        if (count < 3) {
+          CLOG_WARN(&LOG, "PLY Importer: ignoring face %i (%i vertices)", i, count);
+          continue;
+        }
+
+        /* Parse vertex indices list. */
+        parse_face_indices_ascii(p, end, count, data);
+
+        for (const int64_t ci : custom_attr_indices.index_range()) {
+          float value;
+          p = parse_float(p, end, 0, value);
+          data->face_custom_attr[ci].data[i] = value;
         }
       }
+      return nullptr;
+    }
+    if (uv_index < prop_index) {
+      for (int i = 0; i < element.count; i++) {
+        /* Read line */
+        line = file.read_line();
+        p = line.data();
+        end = p + line.size();
 
-      /* Parse vertex indices list. */
-      p = parse_int(p, end, 0, count);
-      if (count < 1 || count > 255) {
-        return "Invalid face size, must be between 1 and 255";
-      }
-      /* Previous python based importer was accepting faces with fewer
-       * than 3 vertices, and silently dropping them. */
-      if (count < 3) {
-        CLOG_WARN(&LOG, "PLY Importer: ignoring face %i (%i vertices)", i, count);
-        continue;
-      }
+        int count = 0;
+        p = parse_int(p, end, 0, count);
+        if (count < 2 || count > 255) {
+          return "Invalid UV size, must be between 2 and 255";
+        }
+        /* Previous python based importer was accepting faces with fewer
+        * than 3 vertices, and silently dropping them. */
+        if (count < 6) {
+          CLOG_WARN(&LOG, "PLY Importer: ignoring face %i (%i uv coordinates)", i, count);
+          continue;
+        }
 
-      for (int j = 0; j < count; j++) {
-        int index;
-        p = parse_int(p, end, 0, index);
-        data->face_vertices.append(index);
-      }
-      data->face_sizes.append(count);
+        /* Parse uv coordinates list. */
+        p =parse_uv_coordinates_ascii(p, end, count, data);
 
-      for (const int64_t ci : custom_attr_indices.index_range()) {
-        float value;
-        p = parse_float(p, end, 0, value);
-        data->face_custom_attr[ci].data[i] = value;
+        p = parse_int(p, end, 0, count);
+        if (count < 1 || count > 255) {
+          return "Invalid face size, must be between 1 and 255";
+        }
+        /* Previous python based importer was accepting faces with fewer
+        * than 3 vertices, and silently dropping them. */
+        if (count < 3) {
+          CLOG_WARN(&LOG, "PLY Importer: ignoring face %i (%i vertices)", i, count);
+          continue;
+        }
+
+        /* Parse face indices list. */
+        p = parse_face_indices_ascii(p, end, count, data);
+
+        for (const int64_t ci : custom_attr_indices.index_range()) {
+          float value;
+          p = parse_float(p, end, 0, value);
+          data->face_custom_attr[ci].data[i] = value;
+        }
+      }
+    } else {
+      for (int i = 0; i < element.count; i++) {
+        /* Read line */
+        line = file.read_line();
+
+        p = line.data();
+        end = p + line.size();
+        int count = 0;
+
+        /* TODO: redundancy? can we load all the elements in a single function then actually distributing them into*/
+        p = parse_int(p, end, 0, count);
+        if (count < 1 || count > 255) {
+          return "Invalid face size, must be between 1 and 255";
+        }
+        /* Previous python based importer was accepting faces with fewer
+        * than 3 vertices, and silently dropping them. */
+        if (count < 3) {
+          CLOG_WARN(&LOG, "PLY Importer: ignoring face %i (%i vertices)", i, count);
+          continue;
+        }
+
+        /* Parse face indices list. */
+        p = parse_face_indices_ascii(p, end, count, data);
+
+        p = parse_int(p, end, 0, count);
+        CLOG_WARN(&LOG, "PLY Importer: %i uv coordinates", count);
+        if (count < 2 || count > 255) {
+          return "Invalid UV size, must be between 2 and 255";
+        }
+        /* Previous python based importer was accepting faces with fewer
+        * than 3 vertices, and silently dropping them. */
+        if (count < 6) {
+          CLOG_WARN(&LOG, "PLY Importer: ignoring face %i (%i uv coordinates)", i, count);
+          continue;
+        }
+
+        /* Parse uv coordinates list. */
+        p = parse_uv_coordinates_ascii(p, end, count, data);
+        for (const int64_t ci : custom_attr_indices.index_range()) {
+          float value;
+          p = parse_float(p, end, 0, value);
+          data->face_custom_attr[ci].data[i] = value;
+        }
       }
     }
   }
   else {
     Vector<uint8_t> scratch(64);
+    if (uv_index < 0){
+      for (int i = 0; i < element.count; i++) {
+        const uint8_t *ptr;
 
-    for (int i = 0; i < element.count; i++) {
-      const uint8_t *ptr;
+        /* Read vertex indices list. */
+        uint32_t count = read_list_count(
+            file, prop, scratch, header.type == PlyFormatType::BINARY_BE);
+        if (count < 1 || count > 255) {
+          return "Invalid face size, must be between 1 and 255";
+        }
 
-      /* Skip any properties before vertex indices. */
-      for (int j = 0; j < prop_index; j++) {
-        skip_property(
-            file, element.properties[j], scratch, header.type == PlyFormatType::BINARY_BE);
-      }
-
-      /* Read vertex indices list. */
-      uint32_t count = read_list_count(
-          file, prop, scratch, header.type == PlyFormatType::BINARY_BE);
-      if (count < 1 || count > 255) {
-        return "Invalid face size, must be between 1 and 255";
-      }
-
-      scratch.resize(count * data_type_size[prop.type] +
-                     custom_attr_indices.size() * sizeof(float));
-      file.read_bytes(scratch.data(), scratch.size());
-      /* Previous python based importer was accepting faces with fewer
-       * than 3 vertices, and silently dropping them. */
-      if (count < 3) {
-        CLOG_WARN(&LOG, "PLY Importer: ignoring face %i (%u vertices)", i, count);
-      }
-      else {
+        scratch.resize(count * data_type_size[prop.type] +
+                      custom_attr_indices.size() * sizeof(float));
+        file.read_bytes(scratch.data(), scratch.size());
+        /* Previous python based importer was accepting faces with fewer
+        * than 3 vertices, and silently dropping them. */
+        if (count < 3) {
+          CLOG_WARN(&LOG, "PLY Importer: ignoring face %i (%u vertices)", i, count);
+          continue;
+        }
         ptr = scratch.data();
         if (header.type == PlyFormatType::BINARY_BE) {
           endian_switch_array((uint8_t *)ptr, data_type_size[prop.type], count);
@@ -513,6 +625,136 @@ static const char *load_face_element(PlyReadBuffer &file,
           data->face_vertices.append(index);
         }
         data->face_sizes.append(count);
+
+        int j = 0;
+        for (const int64_t ci : custom_attr_indices.index_range()) {
+          const PlyProperty &prop = element.properties[j + 1];
+          float value = get_binary_value<float>(prop.type, ptr);
+          data->face_custom_attr[ci].data[i] = value;
+          j += 1;
+        }
+      }
+      return nullptr;
+    }
+    if (uv_index < prop_index){
+      for (int i = 0; i < element.count; i++) {
+        const uint8_t *ptr;
+
+        /* Read vertex indices list. */
+        uint32_t count = read_list_count(
+            file, prop, scratch, header.type == PlyFormatType::BINARY_BE);
+        if (count < 2 || count > 255) {
+          return "Invalid face size, must be between 1 and 255";
+        }
+
+        scratch.resize(count * data_type_size[prop.type] +
+                      custom_attr_indices.size() * sizeof(float));
+        file.read_bytes(scratch.data(), scratch.size());
+        /* Previous python based importer was accepting faces with fewer
+        * than 3 vertices, and silently dropping them. */
+        if (count < 6) {
+          CLOG_WARN(&LOG, "PLY Importer: ignoring face %i (%u uv coordinates)", i, count);
+          continue;
+        }
+        ptr = scratch.data();
+        if (header.type == PlyFormatType::BINARY_BE) {
+          endian_switch_array((uint8_t *)ptr, data_type_size[prop.type], count);
+        }
+        for (int j = 0; j < count; ++j) {
+          float2 uvmap;
+          uvmap.x = get_binary_value<float>(prop.type, ptr);
+          uvmap.y = get_binary_value<float>(prop.type, ptr);
+          data->uv_coordinates.append(uvmap);
+        }
+
+        count = read_list_count(
+            file, prop, scratch, header.type == PlyFormatType::BINARY_BE);
+        if (count < 1 || count > 255) {
+          return "Invalid face size, must be between 1 and 255";
+        }
+
+        scratch.resize(count * data_type_size[prop.type] +
+                      custom_attr_indices.size() * sizeof(float));
+        file.read_bytes(scratch.data(), scratch.size());
+        /* Previous python based importer was accepting faces with fewer
+        * than 3 vertices, and silently dropping them. */
+        if (count < 3) {
+          CLOG_WARN(&LOG, "PLY Importer: ignoring face %i (%u uv coordinates)", i, count);
+          continue;
+        }
+        ptr = scratch.data();
+        if (header.type == PlyFormatType::BINARY_BE) {
+          endian_switch_array((uint8_t *)ptr, data_type_size[prop.type], count);
+        }
+        for (int j = 0; j < count; ++j) {
+          uint32_t index = get_binary_value<uint32_t>(prop.type, ptr);
+          data->face_vertices.append(index);
+        }
+        data->face_sizes.append(count);
+
+        int j = 0;
+        for (const int64_t ci : custom_attr_indices.index_range()) {
+          const PlyProperty &prop = element.properties[j + 1];
+          float value = get_binary_value<float>(prop.type, ptr);
+          data->face_custom_attr[ci].data[i] = value;
+          j += 1;
+        }
+      }
+    } else {
+      for (int i = 0; i < element.count; i++) {
+        const uint8_t *ptr;
+
+        /* Read vertex indices list. */
+        uint32_t count = read_list_count(
+            file, prop, scratch, header.type == PlyFormatType::BINARY_BE);
+        if (count < 1 || count > 255) {
+          return "Invalid face size, must be between 1 and 255";
+        }
+
+        scratch.resize(count * data_type_size[prop.type] +
+                      custom_attr_indices.size() * sizeof(float));
+        file.read_bytes(scratch.data(), scratch.size());
+        /* Previous python based importer was accepting faces with fewer
+        * than 3 vertices, and silently dropping them. */
+        if (count < 3) {
+          CLOG_WARN(&LOG, "PLY Importer: ignoring face %i (%u vertices)", i, count);
+          continue;
+        }
+        ptr = scratch.data();
+        if (header.type == PlyFormatType::BINARY_BE) {
+          endian_switch_array((uint8_t *)ptr, data_type_size[prop.type], count);
+        }
+        for (int j = 0; j < count; ++j) {
+          uint32_t index = get_binary_value<uint32_t>(prop.type, ptr);
+          data->face_vertices.append(index);
+        }
+        data->face_sizes.append(count);
+
+        count = read_list_count(
+            file, prop, scratch, header.type == PlyFormatType::BINARY_BE);
+        if (count < 2 || count > 255) {
+          return "Invalid face size, must be between 1 and 255";
+        }
+
+        scratch.resize(count * data_type_size[prop.type] +
+                      custom_attr_indices.size() * sizeof(float));
+        file.read_bytes(scratch.data(), scratch.size());
+        /* Previous python based importer was accepting faces with fewer
+        * than 3 vertices, and silently dropping them. */
+        if (count < 6) {
+          CLOG_WARN(&LOG, "PLY Importer: ignoring face %i (%u uv coordinates)", i, count);
+          continue;
+        }
+        ptr = scratch.data();
+        if (header.type == PlyFormatType::BINARY_BE) {
+          endian_switch_array((uint8_t *)ptr, data_type_size[prop.type], count);
+        }
+        for (int j = 0; j < count; ++j) {
+          float2 uvmap;
+          uvmap.x = get_binary_value<float>(prop.type, ptr);
+          uvmap.y = get_binary_value<float>(prop.type, ptr);
+          data->uv_coordinates.append(uvmap);
+        }
 
         int j = 0;
         for (const int64_t ci : custom_attr_indices.index_range()) {

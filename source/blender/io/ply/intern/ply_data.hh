@@ -15,6 +15,8 @@
 #include "BLI_string_ref.hh"
 #include "BLI_vector.hh"
 
+#include "BKE_attribute.hh"
+
 namespace blender::io::ply {
 
 enum PlyDataTypes { NONE, CHAR, UCHAR, SHORT, USHORT, INT, UINT, FLOAT, DOUBLE, PLY_TYPE_COUNT };
@@ -23,6 +25,14 @@ struct PlyCustomAttribute {
   PlyCustomAttribute(const StringRef name_, int64_t size) : name(name_), data(size, 0.0f) {}
   std::string name;
   Vector<float> data; /* Any custom PLY attributes are converted to floats. */
+};
+
+template <typename T>
+struct PlyListAttribute {
+  PlyListAttribute(const StringRef name_, int64_t size) : name(name_), data(size, 0.0f) {}
+  bke::AttrDomain domain;
+  std::string name;
+  Vector<T> data; 
 };
 
 struct PlyData {
