@@ -16,6 +16,7 @@
 
 #include "BKE_colortools.hh"
 
+#include "DNA_color_types.h"
 #include "IMB_colormanagement.hh"
 
 #include "DNA_vec_types.h"
@@ -65,26 +66,24 @@ struct GPUViewport {
   /** Depth buffer. Can be shared with GPUOffscreen. */
   blender::gpu::Texture *depth_tx;
   /** Compositing framebuffer for stereo viewport. */
-  GPUFrameBuffer *stereo_comp_fb;
+  blender::gpu::FrameBuffer *stereo_comp_fb;
   /** Color render and overlay frame-buffers for drawing outside of DRW module.
    * The render framebuffer is expected to be in the linear space and viewport will perform color
    * management on it to bring it to the display space.
    * The overlay frame-buffer is expected to be in the display space and viewport does not do any
    * color management on it. */
-  GPUFrameBuffer *render_fb;
-  GPUFrameBuffer *overlay_fb;
+  blender::gpu::FrameBuffer *render_fb;
+  blender::gpu::FrameBuffer *overlay_fb;
 
   /* Color management. */
   ColorManagedViewSettings view_settings;
   ColorManagedDisplaySettings display_settings;
+  bool use_hdr_display;
   CurveMapping *orig_curve_mapping;
   float dither;
   /* TODO(@fclem): the UV-image display use the viewport but do not set any view transform for the
    * moment. The end goal would be to let the GPUViewport do the color management. */
   bool do_color_management;
-  /* Used for rendering HDR content without clamping even if display doesn't necessarily support
-   * HDR. This is used for viewport render preview (see #77909). */
-  bool force_hdr_output;
   GPUViewportBatch batch;
 };
 
@@ -230,7 +229,7 @@ void GPU_viewport_bind(GPUViewport *viewport, int view, const rcti *rect)
 void GPU_viewport_bind_from_offscreen(GPUViewport *viewport, GPUOffScreen *ofs, bool is_xr_surface)
 {
   blender::gpu::Texture *color, *depth;
-  GPUFrameBuffer *fb;
+  blender::gpu::FrameBuffer *fb;
   viewport->size[0] = GPU_offscreen_width(ofs);
   viewport->size[1] = GPU_offscreen_height(ofs);
 
@@ -287,11 +286,8 @@ void GPU_viewport_colorspace_set(GPUViewport *viewport,
   BKE_color_managed_display_settings_copy(&viewport->display_settings, display_settings);
   viewport->dither = dither;
   viewport->do_color_management = true;
-}
-
-void GPU_viewport_force_hdr(GPUViewport *viewport)
-{
-  viewport->force_hdr_output = true;
+  viewport->use_hdr_display = IMB_colormanagement_display_is_hdr(
+      &viewport->display_settings, viewport->view_settings.view_transform);
 }
 
 void GPU_viewport_stereo_composite(GPUViewport *viewport, Stereo3dFormat *stereo_format)
@@ -455,12 +451,6 @@ static void gpu_viewport_draw_colormanaged(GPUViewport *viewport,
   blender::gpu::Texture *color_overlay = viewport->color_overlay_tx[view];
 
   bool use_ocio = false;
-  bool use_hdr = GPU_hdr_support() &&
-                 ((viewport->view_settings.flag & COLORMANAGE_VIEW_USE_HDR) != 0);
-
-  if (viewport->force_hdr_output) {
-    use_hdr = true;
-  }
 
   if (viewport->do_color_management && display_colorspace) {
     /* During the binding process the last used VertexFormat is tested and can assert as it is not
@@ -487,7 +477,7 @@ static void gpu_viewport_draw_colormanaged(GPUViewport *viewport,
     GPU_batch_program_set_builtin(batch, GPU_SHADER_2D_IMAGE_OVERLAYS_MERGE);
     GPU_batch_uniform_1i(batch, "overlay", do_overlay_merge);
     GPU_batch_uniform_1i(batch, "display_transform", display_colorspace);
-    GPU_batch_uniform_1i(batch, "use_hdr", use_hdr);
+    GPU_batch_uniform_1i(batch, "use_hdr_display", viewport->use_hdr_display);
   }
 
   GPU_texture_bind(color, 0);
@@ -621,7 +611,7 @@ blender::gpu::Texture *GPU_viewport_depth_texture(GPUViewport *viewport)
   return viewport->depth_tx;
 }
 
-GPUFrameBuffer *GPU_viewport_framebuffer_render_get(GPUViewport *viewport)
+blender::gpu::FrameBuffer *GPU_viewport_framebuffer_render_get(GPUViewport *viewport)
 {
   GPU_framebuffer_ensure_config(
       &viewport->render_fb,
@@ -632,7 +622,7 @@ GPUFrameBuffer *GPU_viewport_framebuffer_render_get(GPUViewport *viewport)
   return viewport->render_fb;
 }
 
-GPUFrameBuffer *GPU_viewport_framebuffer_overlay_get(GPUViewport *viewport)
+blender::gpu::FrameBuffer *GPU_viewport_framebuffer_overlay_get(GPUViewport *viewport)
 {
   GPU_framebuffer_ensure_config(
       &viewport->overlay_fb,

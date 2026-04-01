@@ -775,7 +775,6 @@ static void bm_edge_collapse_loop_customdata(
             CustomData_bmesh_interp_n(&bm->ldata,
                                       cd_src,
                                       w,
-                                      nullptr,
                                       ARRAY_SIZE(cd_src),
                                       POINTER_OFFSET(l_iter->head.data, offset),
                                       i);
@@ -1054,7 +1053,7 @@ static bool bm_edge_collapse(BMesh *bm,
     }
 #endif
 
-    // BM_mesh_validate(bm);
+    // BM_mesh_is_valid(bm);
 
     return true;
   }
@@ -1110,7 +1109,7 @@ static bool bm_edge_collapse(BMesh *bm,
     }
 #endif
 
-    // BM_mesh_validate(bm);
+    // BM_mesh_is_valid(bm);
 
     return true;
   }
@@ -1524,7 +1523,7 @@ void BM_mesh_decimate_collapse(BMesh *bm,
   BLI_heap_free(eheap, nullptr);
 
   /* testing only */
-  // BM_mesh_validate(bm);
+  // BM_mesh_is_valid(bm);
 
   /* quiet release build warning */
   (void)tot_edge_orig;

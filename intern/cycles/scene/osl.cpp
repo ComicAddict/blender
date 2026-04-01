@@ -123,14 +123,16 @@ bool OSLManager::need_update() const
 
 void OSLManager::device_update_pre(Device *device, Scene *scene)
 {
+  if (scene->shader_manager->use_osl() || !scene->camera->script_name.empty()) {
+    shading_system_init(scene->shader_manager->get_scene_linear_space());
+  }
+
   if (!need_update()) {
     return;
   }
 
   /* set texture system (only on CPU devices, since GPU devices cannot use OIIO) */
   if (scene->shader_manager->use_osl()) {
-    shading_system_init();
-
     /* add special builtin texture types */
     foreach_render_services([](OSLRenderServices *services) {
       services->textures.insert(OSLUStringHash("@ao"), OSLTextureHandle(OSLTextureHandle::AO));
@@ -341,7 +343,7 @@ void OSLManager::texture_system_free()
   }
 }
 
-void OSLManager::shading_system_init()
+void OSLManager::shading_system_init(ShaderManager::SceneLinearSpace colorspace)
 {
   /* No need to do anything if we already have shading systems. */
   if (!ss_map.empty()) {
@@ -351,7 +353,7 @@ void OSLManager::shading_system_init()
   /* create shading system, shared between different renders to reduce memory usage */
   const thread_scoped_lock lock(ss_shared_mutex);
 
-  foreach_osl_device(device_, [this](Device *sub_device, OSLGlobals *) {
+  foreach_osl_device(device_, [this, colorspace](Device *sub_device, OSLGlobals *) {
     const DeviceType device_type = sub_device->info.type;
 
     if (!ss_shared[device_type]) {
@@ -378,6 +380,21 @@ void OSLManager::shading_system_init()
       ss->attribute("commonspace", "world");
       ss->attribute("searchpath:shader", shader_path);
       ss->attribute("greedyjit", 1);
+
+      /* OSL doesn't accept an arbitrary space, so support a few specific spaces. */
+      switch (colorspace) {
+        case ShaderManager::SceneLinearSpace::Rec709:
+          ss->attribute("colorspace", OSL::Strings::Rec709);
+          break;
+        case ShaderManager::SceneLinearSpace::Rec2020:
+          ss->attribute("colorspace", OSL::Strings::HDTV);
+          break;
+        case ShaderManager::SceneLinearSpace::ACEScg:
+          ss->attribute("colorspace", OSL::Strings::ACEScg);
+          break;
+        case ShaderManager::SceneLinearSpace::Unknown:
+          break;
+      }
 
       const char *groupdata_alloc_str = getenv("CYCLES_OSL_GROUPDATA_ALLOC");
       if (groupdata_alloc_str) {
@@ -580,8 +597,6 @@ const char *OSLManager::shader_load_filepath(string filepath)
 
 const char *OSLManager::shader_load_bytecode(const string &hash, const string &bytecode)
 {
-  shading_system_init();
-
   foreach_shading_system(
       [hash, bytecode](OSL::ShadingSystem *ss) { ss->LoadMemoryCompiledShader(hash, bytecode); });
 
@@ -646,22 +661,31 @@ void OSLShaderManager::device_update_specific(Device *device,
     og->displacement_state.clear();
     og->bump_state.clear();
     og->background_state.reset();
+
+    /* Allocate space for the shader groups. Needs to be done here so the multithreaded
+     * compilation can write to it safely. */
+    og->surface_state.resize(scene->shaders.size());
+    og->volume_state.resize(scene->shaders.size());
+    og->displacement_state.resize(scene->shaders.size());
+    og->bump_state.resize(scene->shaders.size());
   });
 
   /* create shaders */
   Shader *background_shader = scene->background->get_shader(scene);
 
-  /* compile each shader to OSL shader groups */
+  /* Compile each shader to OSL shader groups. */
   TaskPool task_pool;
-  for (Shader *shader : scene->shaders) {
-    assert(shader->graph);
+  for (int shader_id = 0; shader_id < scene->shaders.size(); shader_id++) {
 
-    auto compile = [scene, shader, background_shader](Device *sub_device, OSLGlobals *) {
+    auto compile = [scene, shader_id, background_shader](Device *sub_device, OSLGlobals *og) {
+      Shader *shader = scene->shaders[shader_id];
+      assert(shader->graph);
+
       OSL::ShadingSystem *ss = scene->osl_manager->get_shading_system(sub_device);
 
       OSLCompiler compiler(ss, scene);
       compiler.background = (shader == background_shader);
-      compiler.compile(shader);
+      compiler.compile(og, shader_id, shader);
     };
 
     task_pool.push([device, compile] { OSLManager::foreach_osl_device(device, compile); });
@@ -672,21 +696,8 @@ void OSLShaderManager::device_update_specific(Device *device,
     return;
   }
 
-  /* collect shader groups from all shaders */
+  /* Tag updates after shader compilation is done. */
   for (Shader *shader : scene->shaders) {
-    OSLManager::OSLManager::foreach_osl_device(
-        device, [shader, background_shader](Device *, OSLGlobals *og) {
-          /* push state to array for lookup */
-          og->surface_state.push_back(shader->osl_surface_ref);
-          og->volume_state.push_back(shader->osl_volume_ref);
-          og->displacement_state.push_back(shader->osl_displacement_ref);
-          og->bump_state.push_back(shader->osl_surface_bump_ref);
-
-          if (shader == background_shader) {
-            og->background_state = shader->osl_surface_ref;
-          }
-        });
-
     if (shader->emission_sampling != EMISSION_SAMPLING_NONE) {
       scene->light_manager->tag_update(scene, LightManager::SHADER_COMPILED);
     }
@@ -738,7 +749,10 @@ OSLNode *OSLShaderManager::osl_node(ShaderGraph *graph,
     return nullptr;
   }
 
-  /* create query */
+  /* Ensure shading system exists before we try to load a shader. */
+  scene->osl_manager->shading_system_init(scene->shader_manager->get_scene_linear_space());
+
+  /* Load shader code. */
   const char *hash;
 
   if (!filepath.empty()) {
@@ -1522,67 +1536,31 @@ OSL::ShaderGroupRef OSLCompiler::compile_type(Shader *shader, ShaderGraph *graph
   return std::move(current_group);
 }
 
-void OSLCompiler::compile(Shader *shader)
+void OSLCompiler::compile(OSLGlobals *og, int shader_id, Shader *shader)
 {
   if (shader->is_modified()) {
     ShaderGraph *graph = shader->graph.get();
-    ShaderNode *output = (graph) ? graph->output() : nullptr;
-
-    const bool has_bump = (shader->get_displacement_method() != DISPLACE_TRUE) &&
-                          output->input("Surface")->link && output->input("Displacement")->link;
-
-    /* finalize */
-    shader->graph->finalize(scene, has_bump, shader->get_displacement_method() == DISPLACE_BOTH);
+    const bool has_bump = shader->has_bump;
 
     current_shader = shader;
 
-    shader->has_surface = false;
-    shader->has_surface_transparent = false;
-    shader->has_surface_raytrace = false;
-    shader->has_surface_bssrdf = false;
-    shader->has_bump = has_bump;
-    shader->has_bssrdf_bump = has_bump;
-    shader->has_volume = false;
-    shader->has_displacement = false;
-    shader->has_surface_spatial_varying = false;
-    shader->has_volume_spatial_varying = false;
-    shader->has_volume_attribute_dependency = false;
-
     /* generate surface shader */
-    if (shader->reference_count() && graph && output->input("Surface")->link) {
-      shader->osl_surface_ref = compile_type(shader, shader->graph.get(), SHADER_TYPE_SURFACE);
+    if (shader->reference_count() && shader->has_surface) {
+      og->surface_state[shader_id] = compile_type(shader, graph, SHADER_TYPE_SURFACE);
 
       if (has_bump) {
-        shader->osl_surface_bump_ref = compile_type(shader, shader->graph.get(), SHADER_TYPE_BUMP);
+        og->bump_state[shader_id] = compile_type(shader, graph, SHADER_TYPE_BUMP);
       }
-      else {
-        shader->osl_surface_bump_ref = OSL::ShaderGroupRef();
-      }
-
-      shader->has_surface = true;
-    }
-    else {
-      shader->osl_surface_ref = OSL::ShaderGroupRef();
-      shader->osl_surface_bump_ref = OSL::ShaderGroupRef();
     }
 
     /* generate volume shader */
-    if (shader->reference_count() && graph && output->input("Volume")->link) {
-      shader->osl_volume_ref = compile_type(shader, shader->graph.get(), SHADER_TYPE_VOLUME);
-      shader->has_volume = true;
-    }
-    else {
-      shader->osl_volume_ref = OSL::ShaderGroupRef();
+    if (shader->reference_count() && shader->has_volume) {
+      og->volume_state[shader_id] = compile_type(shader, graph, SHADER_TYPE_VOLUME);
     }
 
     /* generate displacement shader */
-    if (shader->reference_count() && graph && output->input("Displacement")->link) {
-      shader->osl_displacement_ref = compile_type(
-          shader, shader->graph.get(), SHADER_TYPE_DISPLACEMENT);
-      shader->has_displacement = true;
-    }
-    else {
-      shader->osl_displacement_ref = OSL::ShaderGroupRef();
+    if (shader->reference_count() && shader->has_displacement) {
+      og->displacement_state[shader_id] = compile_type(shader, graph, SHADER_TYPE_DISPLACEMENT);
     }
 
     /* Estimate emission for MIS. */

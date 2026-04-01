@@ -22,6 +22,7 @@
 #include "BKE_anim_data.hh"
 #include "BKE_image.hh"
 #include "BKE_lib_id.hh"
+#include "BKE_library.hh"
 #include "BKE_main.hh"
 #include "BKE_node.hh"
 #include "BKE_node_enum.hh"
@@ -32,13 +33,14 @@
 
 #include "MOD_nodes.hh"
 
-#include "NOD_geo_closure.hh"
+#include "NOD_geo_viewer.hh"
 #include "NOD_geometry_nodes_dependencies.hh"
 #include "NOD_geometry_nodes_gizmos.hh"
 #include "NOD_geometry_nodes_lazy_function.hh"
 #include "NOD_node_declaration.hh"
 #include "NOD_socket.hh"
 #include "NOD_socket_declarations.hh"
+#include "NOD_sync_sockets.hh"
 #include "NOD_texture.h"
 
 #include "DEG_depsgraph_build.hh"
@@ -195,7 +197,8 @@ static int get_internal_link_type_priority(const bNodeSocketType *from, const bN
 /* Check both the tree's own tags and the interface tags. */
 static bool is_tree_changed(const bNodeTree &tree)
 {
-  return tree.runtime->changed_flag != NTREE_CHANGED_NOTHING || tree.tree_interface.is_changed();
+  return tree.runtime->changed_flag != NTREE_CHANGED_NOTHING ||
+         tree.tree_interface.requires_dependent_tree_updates();
 }
 
 using TreeNodePair = std::pair<bNodeTree *, bNode *>;
@@ -290,6 +293,12 @@ struct NodeTreeRelations {
   {
     BLI_assert(group_node_users_.has_value());
     return group_node_users_->lookup(ntree);
+  }
+
+  Span<bNodeTree *> get_all_trees()
+  {
+    this->ensure_all_trees();
+    return *all_trees_;
   }
 };
 
@@ -408,6 +417,9 @@ class NodeTreeMainUpdater {
         DEG_relations_tag_update(bmain_);
       }
     }
+    if (bmain_) {
+      nodes::node_can_sync_cache_clear(*bmain_);
+    }
   }
 
  private:
@@ -499,6 +511,7 @@ class NodeTreeMainUpdater {
 
     ntree.runtime->link_errors.clear();
     ntree.runtime->invalid_zone_output_node_ids.clear();
+    ntree.runtime->shader_node_errors.clear();
 
     if (this->update_panel_toggle_names(ntree)) {
       result.interface_changed = true;
@@ -512,7 +525,7 @@ class NodeTreeMainUpdater {
     this->make_node_previews_dirty(ntree);
 
     this->propagate_runtime_flags(ntree);
-    if (ELEM(ntree.type, NTREE_GEOMETRY, NTREE_COMPOSIT)) {
+    if (ELEM(ntree.type, NTREE_GEOMETRY, NTREE_COMPOSIT, NTREE_SHADER)) {
       if (this->propagate_enum_definitions(ntree)) {
         result.interface_changed = true;
       }
@@ -561,7 +574,7 @@ class NodeTreeMainUpdater {
       ntreeTexCheckCyclics(&ntree);
     }
 
-    if (ntree.tree_interface.is_changed()) {
+    if (ntree.tree_interface.requires_dependent_tree_updates()) {
       result.interface_changed = true;
     }
 
@@ -610,6 +623,9 @@ class NodeTreeMainUpdater {
       bke::node_declaration_ensure(ntree, *node);
       if (this->should_update_individual_node(ntree, *node)) {
         bke::bNodeType &ntype = *node->typeinfo;
+        if (ntype.type_legacy == GEO_NODE_VIEWER) {
+          this->remove_unused_geometry_nodes_viewer_sockets(ntree, *node);
+        }
         if (ntype.declare) {
           /* Should have been created when the node was registered. */
           BLI_assert(ntype.static_declaration != nullptr);
@@ -648,7 +664,7 @@ class NodeTreeMainUpdater {
       /* Currently we have no way to tell if a node needs to be updated when a link changed. */
       return true;
     }
-    if (ntree.tree_interface.is_changed()) {
+    if (ntree.tree_interface.requires_dependent_tree_updates()) {
       if (node.is_group_input() || node.is_group_output()) {
         return true;
       }
@@ -663,6 +679,35 @@ class NodeTreeMainUpdater {
       }
     }
     return false;
+  }
+
+  void remove_unused_geometry_nodes_viewer_sockets(bNodeTree &ntree, bNode &viewer_node)
+  {
+    ntree.ensure_topology_cache();
+    Vector<int> item_indices_to_remove;
+    auto &storage = *static_cast<NodeGeometryViewer *>(viewer_node.storage);
+    for (const int i : IndexRange(storage.items_num)) {
+      const NodeGeometryViewerItem &item = storage.items[i];
+      if (!(item.flag & NODE_GEO_VIEWER_ITEM_FLAG_AUTO_REMOVE)) {
+        continue;
+      }
+      const std::string identifier_str = GeoViewerItemsAccessor::socket_identifier_for_item(item);
+      const bNodeSocket *socket = viewer_node.input_by_identifier(identifier_str.c_str());
+      if (!socket) {
+        continue;
+      }
+      if (!socket->is_directly_linked()) {
+        item_indices_to_remove.append(i);
+      }
+    }
+    std::reverse(item_indices_to_remove.begin(), item_indices_to_remove.end());
+    for (const int i : item_indices_to_remove) {
+      dna::array::remove_index(&storage.items,
+                               &storage.items_num,
+                               &storage.active_index,
+                               i,
+                               GeoViewerItemsAccessor::destruct_item);
+    }
   }
 
   struct InternalLink {
@@ -698,7 +743,9 @@ class NodeTreeMainUpdater {
         if (!output_socket->is_available()) {
           continue;
         }
-        if (output_socket->flag & SOCK_NO_INTERNAL_LINK) {
+        if (output_socket->runtime->declaration &&
+            output_socket->runtime->declaration->no_mute_links)
+        {
           continue;
         }
         const bNodeSocket *input_socket = this->find_internally_linked_input(ntree, output_socket);
@@ -753,7 +800,8 @@ class NodeTreeMainUpdater {
       if (!input_socket->is_available()) {
         continue;
       }
-      if (input_socket->flag & SOCK_NO_INTERNAL_LINK) {
+      if (input_socket->runtime->declaration && input_socket->runtime->declaration->no_mute_links)
+      {
         continue;
       }
       const int priority = get_internal_link_type_priority(input_socket->typeinfo,
@@ -886,13 +934,23 @@ class NodeTreeMainUpdater {
     }
   }
 
-  static int get_input_socket_shape(const SocketDeclaration &decl,
-                                    const StructureType structure_type)
+  static int get_socket_shape(const bNodeSocket &socket,
+                              const bool use_inferred_structure_type = false)
   {
-    if (decl.identifier == "__extend__") {
+    if (nodes::socket_type_always_single(socket.typeinfo->type)) {
+      return SOCK_DISPLAY_SHAPE_LINE;
+    }
+    const SocketDeclaration *decl = socket.runtime->declaration;
+    if (!decl) {
       return SOCK_DISPLAY_SHAPE_CIRCLE;
     }
-    switch (structure_type) {
+    if (decl->identifier == "__extend__") {
+      return SOCK_DISPLAY_SHAPE_CIRCLE;
+    }
+    const StructureType display_structure_type = use_inferred_structure_type ?
+                                                     socket.runtime->inferred_structure_type :
+                                                     decl->structure_type;
+    switch (display_structure_type) {
       case StructureType::Single:
         return SOCK_DISPLAY_SHAPE_LINE;
       case StructureType::Dynamic:
@@ -908,92 +966,101 @@ class NodeTreeMainUpdater {
     return SOCK_DISPLAY_SHAPE_CIRCLE;
   }
 
-  static int get_output_socket_shape(const SocketDeclaration &decl,
-                                     const StructureType structure_type)
-  {
-    if (decl.identifier == "__extend__") {
-      return SOCK_DISPLAY_SHAPE_CIRCLE;
-    }
-    switch (structure_type) {
-      case StructureType::Single: {
-        return SOCK_DISPLAY_SHAPE_LINE;
-      }
-      case StructureType::Dynamic: {
-        return SOCK_DISPLAY_SHAPE_CIRCLE;
-      }
-      case StructureType::Field: {
-        return SOCK_DISPLAY_SHAPE_DIAMOND;
-      }
-      case StructureType::Grid: {
-        return SOCK_DISPLAY_SHAPE_VOLUME_GRID;
-      }
-      case StructureType::List: {
-        return SOCK_DISPLAY_SHAPE_LIST;
-      }
-    }
-    BLI_assert_unreachable();
-    return SOCK_DISPLAY_SHAPE_CIRCLE;
-  }
-
   void update_socket_shapes(bNodeTree &ntree)
   {
     ntree.ensure_topology_cache();
-    if (U.experimental.use_socket_structure_type) {
-      for (bNode *node : ntree.all_nodes()) {
-        if (node->is_undefined()) {
-          continue;
+    for (bNode *node : ntree.all_nodes()) {
+      if (node->is_undefined()) {
+        continue;
+      }
+      const bke::bNodeZoneType *closure_zone_type = bke::zone_type_by_node_type(
+          NODE_CLOSURE_OUTPUT);
+      switch (node->type_legacy) {
+        case NODE_REROUTE: {
+          node->input_socket(0).display_shape = SOCK_DISPLAY_SHAPE_CIRCLE;
+          node->output_socket(0).display_shape = SOCK_DISPLAY_SHAPE_CIRCLE;
+          break;
         }
-        /* For input/output nodes we use the inferred structure types. */
-        if (node->is_group_input() || node->is_group_output() ||
-            ELEM(node->type_legacy, GEO_NODE_CLOSURE_INPUT, GEO_NODE_CLOSURE_OUTPUT))
-        {
+        case NODE_GROUP_OUTPUT:
+        case NODE_GROUP_INPUT: {
           for (bNodeSocket *socket : node->input_sockets()) {
-            socket->display_shape = get_input_socket_shape(
-                *socket->runtime->declaration,
-                ntree.runtime->inferred_structure_types[socket->index_in_tree()]);
+            socket->display_shape = get_socket_shape(*socket, true);
           }
           for (bNodeSocket *socket : node->output_sockets()) {
-            socket->display_shape = get_output_socket_shape(
-                *socket->runtime->declaration,
-                ntree.runtime->inferred_structure_types[socket->index_in_tree()]);
+            socket->display_shape = get_socket_shape(*socket, true);
           }
-          continue;
+          break;
         }
-        /* For other nodes we just use the static structure types defined in the declaration. */
-        for (bNodeSocket *socket : node->input_sockets()) {
-          if (const SocketDeclaration *declaration = socket->runtime->declaration) {
-            socket->display_shape = get_input_socket_shape(*declaration,
-                                                           declaration->structure_type);
+        case NODE_COMBINE_BUNDLE: {
+          const auto &storage = *static_cast<const NodeCombineBundle *>(node->storage);
+          for (const int i : IndexRange(storage.items_num)) {
+            const NodeCombineBundleItem &item = storage.items[i];
+            bNodeSocket &socket = node->input_socket(i);
+            socket.display_shape = get_socket_shape(
+                socket, item.structure_type == NODE_INTERFACE_SOCKET_STRUCTURE_TYPE_AUTO);
           }
+          break;
         }
-        for (bNodeSocket *socket : node->output_sockets()) {
-          if (const SocketDeclaration *declaration = socket->runtime->declaration) {
-            socket->display_shape = get_output_socket_shape(*declaration,
-                                                            declaration->structure_type);
+        case NODE_SEPARATE_BUNDLE: {
+          const auto &storage = *static_cast<const NodeSeparateBundle *>(node->storage);
+          for (const int i : IndexRange(storage.items_num)) {
+            const NodeSeparateBundleItem &item = storage.items[i];
+            bNodeSocket &socket = node->output_socket(i);
+            socket.display_shape = get_socket_shape(
+                socket, item.structure_type == NODE_INTERFACE_SOCKET_STRUCTURE_TYPE_AUTO);
           }
+          break;
         }
-      }
-    }
-    else {
-      if (ntree.type == NTREE_GEOMETRY) {
-        const Span<bke::FieldSocketState> field_states = ntree.runtime->field_states;
-        for (bNodeSocket *socket : ntree.all_sockets()) {
-          switch (field_states[socket->index_in_tree()]) {
-            case bke::FieldSocketState::RequiresSingle:
-              socket->display_shape = SOCK_DISPLAY_SHAPE_CIRCLE;
-              break;
-            case bke::FieldSocketState::CanBeField:
-              socket->display_shape = SOCK_DISPLAY_SHAPE_DIAMOND_DOT;
-              break;
-            case bke::FieldSocketState::IsField:
-              socket->display_shape = SOCK_DISPLAY_SHAPE_DIAMOND;
-              break;
+        case NODE_CLOSURE_INPUT: {
+          if (const bNode *closure_output_node = closure_zone_type->get_corresponding_output(
+                  ntree, *node))
+          {
+            const auto &storage = *static_cast<const NodeClosureOutput *>(
+                closure_output_node->storage);
+            for (const int i : IndexRange(storage.input_items.items_num)) {
+              const NodeClosureInputItem &item = storage.input_items.items[i];
+              bNodeSocket &socket = node->output_socket(i);
+              socket.display_shape = get_socket_shape(
+                  socket, item.structure_type == NODE_INTERFACE_SOCKET_STRUCTURE_TYPE_AUTO);
+            }
           }
+          break;
         }
-      }
-      else if (ntree.type == NTREE_COMPOSIT) {
-        for (bNodeSocket *socket : ntree.all_sockets()) {
-          socket->display_shape = SOCK_DISPLAY_SHAPE_CIRCLE;
+        case NODE_CLOSURE_OUTPUT: {
+          const auto &storage = *static_cast<const NodeClosureOutput *>(node->storage);
+          for (const int i : IndexRange(storage.output_items.items_num)) {
+            const NodeClosureOutputItem &item = storage.output_items.items[i];
+            bNodeSocket &socket = node->input_socket(i);
+            socket.display_shape = get_socket_shape(
+                socket, item.structure_type == NODE_INTERFACE_SOCKET_STRUCTURE_TYPE_AUTO);
+          }
+          break;
+        }
+        case NODE_EVALUATE_CLOSURE: {
+          const auto &storage = *static_cast<const NodeEvaluateClosure *>(node->storage);
+          for (const int i : IndexRange(storage.input_items.items_num)) {
+            const NodeEvaluateClosureInputItem &item = storage.input_items.items[i];
+            bNodeSocket &socket = node->input_socket(i + 1);
+            socket.display_shape = get_socket_shape(
+                socket, item.structure_type == NODE_INTERFACE_SOCKET_STRUCTURE_TYPE_AUTO);
+          }
+          for (const int i : IndexRange(storage.output_items.items_num)) {
+            const NodeEvaluateClosureOutputItem &item = storage.output_items.items[i];
+            bNodeSocket &socket = node->output_socket(i);
+            socket.display_shape = get_socket_shape(
+                socket, item.structure_type == NODE_INTERFACE_SOCKET_STRUCTURE_TYPE_AUTO);
+          }
+          break;
+        }
+        default: {
+          /* For other nodes we just use the static structure types defined in the declaration. */
+          for (bNodeSocket *socket : node->input_sockets()) {
+            socket->display_shape = get_socket_shape(*socket);
+          }
+          for (bNodeSocket *socket : node->output_sockets()) {
+            socket->display_shape = get_socket_shape(*socket);
+          }
+          break;
         }
       }
     }
@@ -1040,7 +1107,8 @@ class NodeTreeMainUpdater {
         }
         locally_defined_enums.append(&enum_input);
       }
-      else {
+      else if (!node->is_group()) {
+        /* Gather built-in menus defined by this node. */
         for (bNodeSocket *input_socket : node->input_sockets()) {
           if (!input_socket->is_available()) {
             continue;
@@ -1182,7 +1250,7 @@ class NodeTreeMainUpdater {
         }
       }
       if (found_conflict) {
-        /* Make sure that all group input sockets know that there is a socket. */
+        /* Make sure that all group input sockets know that there is a conflict. */
         for (bNode *input_node : group_input_nodes) {
           bNodeSocket &socket = input_node->output_socket(interface_input_i);
           auto &socket_value = *socket.default_value_typed<bNodeSocketValueMenu>();
@@ -1346,14 +1414,6 @@ class NodeTreeMainUpdater {
             NodeLinkError{TIP_("Use node groups to reuse the same menu multiple times")});
         continue;
       }
-      if (ntree.type == NTREE_GEOMETRY) {
-        if (link->fromsock->may_be_field() && !link->tosock->may_be_field()) {
-          link->flag &= ~NODE_LINK_VALID;
-          ntree.runtime->link_errors.add(
-              NodeLinkKey{*link}, NodeLinkError{TIP_("The node input does not support fields")});
-          continue;
-        }
-      }
       const bNode &from_node = *link->fromnode;
       const bNode &to_node = *link->tonode;
       if (from_node.runtime->toposort_left_to_right_index >
@@ -1394,7 +1454,67 @@ class NodeTreeMainUpdater {
           continue;
         }
       }
+      if (const char *error = this->get_structure_type_link_error(*link)) {
+        link->flag &= ~NODE_LINK_VALID;
+        ntree.runtime->link_errors.add(NodeLinkKey{*link}, NodeLinkError{error});
+        continue;
+      }
     }
+  }
+
+  const char *get_structure_type_link_error(const bNodeLink &link)
+  {
+    const nodes::StructureType from_inferred_type =
+        link.fromsock->runtime->inferred_structure_type;
+    if (from_inferred_type == StructureType::Dynamic) {
+      /* Showing errors in this case results in many false positives in cases where Blender is not
+       * sure what the actual type is. */
+      return nullptr;
+    }
+    const int from_shape = link.fromsock->display_shape;
+    const int to_shape = link.tosock->display_shape;
+    switch (to_shape) {
+      case SOCK_DISPLAY_SHAPE_CIRCLE: {
+        return nullptr;
+      }
+      case SOCK_DISPLAY_SHAPE_LINE: {
+        if (from_shape == SOCK_DISPLAY_SHAPE_LINE) {
+          return nullptr;
+        }
+        if (from_inferred_type == StructureType::Single) {
+          return nullptr;
+        }
+        return TIP_("Input expects a single value");
+      }
+      case SOCK_DISPLAY_SHAPE_DIAMOND: {
+        if (ELEM(from_shape, SOCK_DISPLAY_SHAPE_LINE, SOCK_DISPLAY_SHAPE_DIAMOND)) {
+          return nullptr;
+        }
+        if (ELEM(from_inferred_type, StructureType::Single, StructureType::Field)) {
+          return nullptr;
+        }
+        return TIP_("Input expects a field or single value");
+      }
+      case SOCK_DISPLAY_SHAPE_VOLUME_GRID: {
+        if (from_shape == SOCK_DISPLAY_SHAPE_VOLUME_GRID) {
+          return nullptr;
+        }
+        if (from_inferred_type == StructureType::Grid) {
+          return nullptr;
+        }
+        return TIP_("Input expects a volume grid");
+      }
+      case SOCK_DISPLAY_SHAPE_LIST: {
+        if (from_shape == SOCK_DISPLAY_SHAPE_LIST) {
+          return nullptr;
+        }
+        if (from_inferred_type == StructureType::List) {
+          return nullptr;
+        }
+        return TIP_("Input expects a list");
+      }
+    }
+    return nullptr;
   }
 
   bool check_if_output_changed(const bNodeTree &tree)
@@ -1879,7 +1999,7 @@ class NodeTreeMainUpdater {
       }
     }
 
-    ntree.tree_interface.reset_changed_flags();
+    ntree.tree_interface.reset_interface_changed();
   }
 
   /**

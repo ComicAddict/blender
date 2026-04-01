@@ -61,6 +61,7 @@
 #include "BKE_node_runtime.hh"
 #include "BKE_node_tree_update.hh"
 #include "BKE_paint.hh"
+#include "BKE_paint_types.hh"
 #include "BKE_screen.hh"
 #include "BKE_workspace.hh"
 
@@ -362,12 +363,12 @@ static void blo_update_defaults_paint(Paint *paint)
   const UnifiedPaintSettings &default_ups = *DNA_struct_default_get(UnifiedPaintSettings);
   paint->unified_paint_settings.size = default_ups.size;
   paint->unified_paint_settings.input_samples = default_ups.input_samples;
-  paint->unified_paint_settings.unprojected_radius = default_ups.unprojected_radius;
+  paint->unified_paint_settings.unprojected_size = default_ups.unprojected_size;
   paint->unified_paint_settings.alpha = default_ups.alpha;
   paint->unified_paint_settings.weight = default_ups.weight;
   paint->unified_paint_settings.flag = default_ups.flag;
-  copy_v3_v3(paint->unified_paint_settings.rgb, default_ups.rgb);
-  copy_v3_v3(paint->unified_paint_settings.secondary_rgb, default_ups.secondary_rgb);
+  copy_v3_v3(paint->unified_paint_settings.color, default_ups.color);
+  copy_v3_v3(paint->unified_paint_settings.secondary_color, default_ups.secondary_color);
 
   if (paint->unified_paint_settings.curve_rand_hue == nullptr) {
     paint->unified_paint_settings.curve_rand_hue = BKE_paint_default_curve();
@@ -387,6 +388,8 @@ static void blo_update_defaults_scene(Main *bmain, Scene *scene)
   STRNCPY_UTF8(scene->r.engine, RE_engine_id_BLENDER_EEVEE);
 
   scene->r.cfra = 1.0f;
+  scene->r.im_format.exr_flag |= R_IMF_EXR_FLAG_MULTIPART;
+  scene->r.bake.im_format.exr_flag |= R_IMF_EXR_FLAG_MULTIPART;
 
   /* Don't enable compositing nodes. */
   if (scene->nodetree) {
@@ -437,7 +440,7 @@ static void blo_update_defaults_scene(Main *bmain, Scene *scene)
     BKE_curvemap_reset(gp_falloff_curve->cm,
                        &gp_falloff_curve->clipr,
                        CURVE_PRESET_GAUSS,
-                       CURVEMAP_SLOPE_POSITIVE);
+                       CurveMapSlopeType::Positive);
   }
   if (ts->gp_sculpt.cur_primitive == nullptr) {
     ts->gp_sculpt.cur_primitive = BKE_curvemapping_add(1, 0.0f, 0.0f, 1.0f, 1.0f);
@@ -446,7 +449,7 @@ static void blo_update_defaults_scene(Main *bmain, Scene *scene)
     BKE_curvemap_reset(gp_primitive_curve->cm,
                        &gp_primitive_curve->clipr,
                        CURVE_PRESET_BELL,
-                       CURVEMAP_SLOPE_POSITIVE);
+                       CurveMapSlopeType::Positive);
   }
 
   if (ts->sculpt) {
@@ -464,9 +467,9 @@ static void blo_update_defaults_scene(Main *bmain, Scene *scene)
         {0.125, 0.50}, {0.375, 0.50}, {0.375, 0.75}, {0.125, 0.75}, {0.375, 0.50}, {0.625, 0.50},
         {0.625, 0.75}, {0.375, 0.75}, {0.375, 0.25}, {0.625, 0.25}, {0.625, 0.50}, {0.375, 0.50},
     };
-    float(*mloopuv)[2] = static_cast<float(*)[2]>(
+    float(*uv_map)[2] = static_cast<float(*)[2]>(
         CustomData_get_layer_for_write(&mesh->corner_data, CD_PROP_FLOAT2, mesh->corners_num));
-    memcpy(mloopuv, uv_values, sizeof(float[2]) * mesh->corners_num);
+    memcpy(uv_map, uv_values, sizeof(float[2]) * mesh->corners_num);
   }
 
   /* Make sure that the curve profile is initialized */
@@ -491,8 +494,8 @@ static void blo_update_defaults_scene(Main *bmain, Scene *scene)
 
   const UnifiedPaintSettings &default_ups = *DNA_struct_default_get(UnifiedPaintSettings);
   ts->unified_paint_settings.flag = default_ups.flag;
-  copy_v3_v3(ts->unified_paint_settings.rgb, default_ups.rgb);
-  copy_v3_v3(ts->unified_paint_settings.secondary_rgb, default_ups.secondary_rgb);
+  copy_v3_v3(ts->unified_paint_settings.color, default_ups.color);
+  copy_v3_v3(ts->unified_paint_settings.secondary_color, default_ups.secondary_color);
 
   if (ts->unified_paint_settings.curve_rand_hue == nullptr) {
     ts->unified_paint_settings.curve_rand_hue = BKE_paint_default_curve();
@@ -512,6 +515,9 @@ static void blo_update_defaults_scene(Main *bmain, Scene *scene)
   blo_update_defaults_paint(reinterpret_cast<Paint *>(ts->gp_sculptpaint));
   blo_update_defaults_paint(reinterpret_cast<Paint *>(ts->curves_sculpt));
   blo_update_defaults_paint(reinterpret_cast<Paint *>(&ts->imapaint));
+
+  /* Weight Paint settings */
+  ts->weightuser = OB_DRAW_GROUPUSER_ACTIVE;
 }
 
 void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
@@ -806,6 +812,16 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
           }
         }
       }
+    }
+  }
+
+  /* Grease Pencil Anti-Aliasing. */
+  {
+    LISTBASE_FOREACH (Scene *, scene, &bmain->scenes) {
+      scene->grease_pencil_settings.smaa_threshold = 1.0f;
+      scene->grease_pencil_settings.smaa_threshold_render = 0.25f;
+      scene->grease_pencil_settings.aa_samples = 8;
+      scene->grease_pencil_settings.motion_blur_steps = 8;
     }
   }
 }

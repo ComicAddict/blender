@@ -1,18 +1,18 @@
 
 msgid ""
 msgstr ""
-"Project-Id-Version: Blender 5.0.0 Alpha (b'a775d58b2e0e')\n"
+"Project-Id-Version: Blender 5.0.0 Alpha (b'7089def6cbcb')\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-07-21 08:48+0000\n"
-"PO-Revision-Date: 2025-04-14 08:19+0000\n"
-"Last-Translator: soheil ali-pasha <sapachannel.ir@gmail.com>\n"
+"POT-Creation-Date: 2025-09-29 09:33+0000\n"
+"PO-Revision-Date: 2025-07-23 15:03+0000\n"
+"Last-Translator: Nooby Noober <iamanoobynoober@gmail.com>\n"
 "Language-Team: Persian <https://translate.blender.org/projects/blender-ui/ui/fa/>\n"
 "Language: fa\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n > 1;\n"
-"X-Generator: Weblate 5.10.1\n"
+"X-Generator: Weblate 5.12.1\n"
 "X-Poedit-Country: IRAN, ISLAMIC REPUBLIC OF\n"
 "X-Poedit-Language: Persian\n"
 "X-Poedit-SourceCharset: utf-8"
@@ -1015,10 +1015,6 @@ msgid "Area width"
 msgstr "ﻪﻘﻄﻨﻣ ﯼﺎﻨﻬﭘ"
 
 
-msgid "Catalog Path"
-msgstr "ﮒﻮﻟﺎﺗﺎﮐ ﺮﯿﺴﻣ"
-
-
 msgid "Full Path"
 msgstr "ﻞﻣﺎﮐ ﺮﯿﺴﻣ"
 
@@ -1039,16 +1035,12 @@ msgid "Layer"
 msgstr "ﻪﯾﻻ﻿"
 
 
-msgid "Single"
-msgstr "ﯽﮑﺗ"
+msgid "Object"
+msgstr "ﺊﺷ"
 
 
 msgid "Extend"
 msgstr "ﺵﺮﺘﺴﮔ"
-
-
-msgid "Object"
-msgstr "ﺊﺷ"
 
 
 msgid "None"
@@ -1101,6 +1093,10 @@ msgstr "ﻥﺯﻭ"
 
 msgid "Cache Files"
 msgstr "ﺶﮐ ﯼﺎﻫ ﻞﯾﺎﻓ"
+
+
+msgid "Color Space"
+msgstr "ﮓﻧﺭ ﯼﺎﻀﻓ"
 
 
 msgid "Grease Pencil"
@@ -1520,16 +1516,16 @@ msgid "Kill collided particles"
 msgstr "ﺩﺭﻮﺧﺮﺑ ﺕﺍﺭﺫ ﻦﺘﺸﮐ"
 
 
-msgid "Color Space"
-msgstr "ﮓﻧﺭ ﯼﺎﻀﻓ"
-
-
 msgid "Curve"
 msgstr "ﯽﻨﺤﻨﻣ"
 
 
 msgid "Gamma"
 msgstr "ﺎﻣﺎﮔ"
+
+
+msgid "View"
+msgstr "ﺶﯾﺎﻤﻧ"
 
 
 msgid "Color mapping settings"
@@ -1940,10 +1936,6 @@ msgid "Plane"
 msgstr "ﻪﺤﻔﺻ"
 
 
-msgid "View"
-msgstr "ﺶﯾﺎﻤﻧ"
-
-
 msgid "Render"
 msgstr "ﺭﺪﻧﺭ"
 
@@ -2226,6 +2218,10 @@ msgstr "ﺪﻧﻮﯿﭘ"
 
 msgid "Append"
 msgstr "ﻥﺩﻭﺰﻓﺍ"
+
+
+msgid "Pack"
+msgstr "ﻪﺘﺴﺑ"
 
 
 msgid "Matrix"
@@ -2571,10 +2567,6 @@ msgstr "ﯼﺯﺎﺳ ﯼﺩﺎﻋ"
 
 msgid "Spot Blend"
 msgstr "ﻪﻄﻘﻧ ﺐﯿﮐﺮﺗ"
-
-
-msgid "Spot Size"
-msgstr "ﻪﻄﻘﻧ ﻩﺯﺍﺪﻧﺍ"
 
 
 msgctxt "Material"
@@ -2957,12 +2949,16 @@ msgid "Mix"
 msgstr "ﻁﻮﻠﺨﻣ"
 
 
-msgid "Pivot Point"
-msgstr "ﺶﺧﺮﭼ ﻪﻄﻘﻧ"
-
-
 msgid "Mirror"
 msgstr "ﻪﻨﯾﺁ"
+
+
+msgid "Layout"
+msgstr "ﺡﺮﻃ"
+
+
+msgid "Tracking"
+msgstr "ﯽﺑﺎﯾﺩﺭ"
 
 
 msgid "Add Image"
@@ -2985,6 +2981,22 @@ msgid "Text"
 msgstr "ﻦﺘﻣ"
 
 
+msgid "Import"
+msgstr "ﻥﺩﺮﮐ ﺩﺭﺍﻭ"
+
+
+msgid "Math"
+msgstr "ﯽﺿﺎﯾﺭ"
+
+
+msgid "UV"
+msgstr "UV"
+
+
+msgid "Pivot Point"
+msgstr "ﺶﺧﺮﭼ ﻪﻄﻘﻧ"
+
+
 msgid "Key"
 msgstr "ﺪﯿﻠﮐ"
 
@@ -2996,22 +3008,6 @@ msgstr "ﺮﮕﻧﺎﺸﻧ"
 msgctxt "Operator"
 msgid "Smooth"
 msgstr "ﻑﺎﺻ"
-
-
-msgid "UV"
-msgstr "UV"
-
-
-msgid "Math"
-msgstr "ﯽﺿﺎﯾﺭ"
-
-
-msgid "Import"
-msgstr "ﻥﺩﺮﮐ ﺩﺭﺍﻭ"
-
-
-msgid "Layout"
-msgstr "ﺡﺮﻃ"
 
 
 msgctxt "NodeTree"
@@ -3285,21 +3281,6 @@ msgid "Show Texture"
 msgstr "ﺖﻓﺎﺑ ﺶﯾﺎﻤﻧ"
 
 
-msgctxt "NodeTree"
-msgid "Filter Type"
-msgstr "ﺮﺘﻠﯿﻓ ﻉﻮﻧ"
-
-
-msgctxt "NodeTree"
-msgid "Flat"
-msgstr "ﺖﺨﺗ"
-
-
-msgctxt "NodeTree"
-msgid "Tent"
-msgstr "ﺭﺩﺎﭼ"
-
-
 msgid "Brightness/Contrast"
 msgstr "ﺖﺳﺍﺮﺘﻨﮐ /ﯽﯾﺎﻨﺷﻭﺭ"
 
@@ -3316,44 +3297,8 @@ msgid "Directional Blur"
 msgstr "ﺭﺍﺩ‌ﺖﻬﺟ ﯽﮔﺮﯿﺗ"
 
 
-msgid "Feather"
-msgstr "ﺮﭘ"
-
-
 msgid "Double Edge Mask"
 msgstr "ﻪﺒﻟ ﻭﺩ ﮏﺳﺎﻣ"
-
-
-msgid "Filter Type"
-msgstr "ﺮﺘﻠﯿﻓ ﻉﻮﻧ"
-
-
-msgid "Glare Type"
-msgstr "ﻊﺸﻌﺸﺗ ﻉﻮﻧ"
-
-
-msgid "Simple Star"
-msgstr "ﻩﺩﺎﺳ ﻩﺭﺎﺘﺳ"
-
-
-msgid "Combined"
-msgstr "ﻩﺪﺷ ﺐﯿﮐﺮﺗ"
-
-
-msgid "Red Channel"
-msgstr "ﺰﻣﺮﻗ ﻝﺎﻧﺎﮐ"
-
-
-msgid "Green Channel"
-msgstr "ﺰﺒﺳ ﻝﺎﻧﺎﮐ"
-
-
-msgid "Blue Channel"
-msgstr "ﯽﺑﺁ ﻝﺎﻧﺎﮐ"
-
-
-msgid "Scene Size"
-msgstr "ﻪﻨﺤﺻ ﻩﺯﺍﺪﻧﺍ"
 
 
 msgid "Rotate"
@@ -3495,6 +3440,10 @@ msgstr "ﻩﺮﮔ ﯽﺟﻭﺮﺧ"
 
 msgid "Value to Normal"
 msgstr "ﯼﺩﺎﻋ ﺖﻟﺎﺣ ﻪﺑ ﺭﺍﺪﻘﻣ"
+
+
+msgid "Single"
+msgstr "ﯽﮑﺗ"
 
 
 msgid "Linked"
@@ -3830,10 +3779,6 @@ msgid "Linear"
 msgstr "ﯽﻄﺧ"
 
 
-msgid "Join"
-msgstr "ﻦﺘﺳﻮﯿﭘ"
-
-
 msgid "By Material"
 msgstr "ﺩﺍﻮﻣ ﺎﺑ"
 
@@ -3856,6 +3801,10 @@ msgstr "Y ﻉﻭﺮﺷ"
 
 msgid "Zoom Out"
 msgstr "ﯽﯾﺎﻤﻨﮑﭼﻮﮐ"
+
+
+msgid "Feather"
+msgstr "ﺮﭘ"
 
 
 msgid "Select ring"
@@ -3908,6 +3857,10 @@ msgstr "ءﯽﺷ ﻥﺩﻭﺰﻓﺍ"
 msgctxt "Operator"
 msgid "Bake"
 msgstr "ﻦﺘﺨﭘ"
+
+
+msgid "Combined"
+msgstr "ﻩﺪﺷ ﺐﯿﮐﺮﺗ"
 
 
 msgctxt "Operator"
@@ -4070,9 +4023,17 @@ msgid "Experimental"
 msgstr "ﯽﺸﯾﺎﻣﺯﺁ"
 
 
+msgid "Filter Type"
+msgstr "ﺮﺘﻠﯿﻓ ﻉﻮﻧ"
+
+
 msgctxt "Operator"
 msgid "Sculpt Mode"
 msgstr "ﯼﺭﺎﺠﺣ ﺖﻟﺎﺣ"
+
+
+msgid "Join"
+msgstr "ﻦﺘﺳﻮﯿﭘ"
 
 
 msgctxt "Operator"
@@ -4386,10 +4347,6 @@ msgid "GPU Compute"
 msgstr "GPU ﺎﺑ ﻪﺒﺳﺎﺤﻣ"
 
 
-msgid "Supported"
-msgstr "ﻩﺪﺷ ﯽﻧﺎﺒﯿﺘﺸﭘ"
-
-
 msgid "Box filter"
 msgstr "ﻪﺒﻌﺟ ﺮﺘﻠﯿﻓ"
 
@@ -4567,10 +4524,6 @@ msgid "Lock Borders"
 msgstr "ﺯﺮﻣ ﻥﺩﺮﮐ ﻞﻔﻗ"
 
 
-msgid "Use Unified Radius"
-msgstr "ﺪﺤﺘﻣ ﻉﺎﻌﺷ ﺯﺍ ﻩﺩﺎﻔﺘﺳﺍ"
-
-
 msgid "Use Unified Strength"
 msgstr "ﺪﺤﺘﻣ ﺖﻣﻭﺎﻘﻣ ﺯﺍ ﻩﺩﺎﻔﺘﺳﺍ"
 
@@ -4635,10 +4588,6 @@ msgstr ":ﺭﺍﺪﺸﻫ"
 
 msgid "File:"
 msgstr ":ﻩﺪﻧﻭﺮﭘ"
-
-
-msgid "Tracking"
-msgstr "ﯽﺑﺎﯾﺩﺭ"
 
 
 msgctxt "Operator"
@@ -4728,6 +4677,10 @@ msgid "Build Original:"
 msgstr ":ﯽﻠﺻﺍ ﺖﺧﺎﺳ"
 
 
+msgid "Aspect Ratio"
+msgstr "ﺮﯾﻮﺼﺗ ﺖﺒﺴﻧ"
+
+
 msgid "3D Markers"
 msgstr "3D ﺮﮕﻧﺎﺸﻧ"
 
@@ -4736,17 +4689,9 @@ msgid "Image*"
 msgstr "ﺮﯾﻮﺼﺗ*"
 
 
-msgid "Aspect Ratio"
-msgstr "ﺮﯾﻮﺼﺗ ﺖﺒﺴﻧ"
-
-
 msgctxt "Operator"
 msgid "Mute"
 msgstr "ﺵﻮﻣ‌ﺎﺧ"
-
-
-msgid "Pack"
-msgstr "ﻪﺘﺴﺑ"
 
 
 msgid "Text: External"
@@ -4801,14 +4746,6 @@ msgstr "ﻥﺍﻮﺨﺘﺳﺍ ﺕﺎﻤﯿﻈﻨﺗ"
 msgctxt "Operator"
 msgid "View Selected"
 msgstr "ﻩﺪﺷ ﺏﺎﺨﺘﻧﺍ ﻩﺪﻫﺎﺸﻣ"
-
-
-msgid "Creases"
-msgstr "ﺎﻫ ﻦﯿﭼ"
-
-
-msgid "Seams"
-msgstr "ﺎﻫ ﺯﺭﺩ"
 
 
 msgid "Multi-Paint"
@@ -4895,11 +4832,6 @@ msgstr ":ﺎﻔﻟﺁ"
 
 msgid "Hex"
 msgstr "Hex"
-
-
-msgctxt "Color"
-msgid "Value:"
-msgstr ":ﺭﺍﺪﻘﻣ"
 
 
 msgid "OK"
@@ -5054,6 +4986,10 @@ msgid "Stop animation playback"
 msgstr "ﻦﺸﯿﻤﯿﻧﺍ ﺶﺨﭘ ﻒﻗﻮﺗ"
 
 
+msgid "Seams"
+msgstr "ﺎﻫ ﺯﺭﺩ"
+
+
 msgid "3D View "
 msgstr " .ﯼﺪﻌﺑ ﻪﺳ ﺪﯾﺩ"
 
@@ -5156,6 +5092,10 @@ msgstr ":ﻩﺯﺍﺪﻧﺍ"
 
 msgid "Motion"
 msgstr "ﺖﮐﺮﺣ"
+
+
+msgid "Simple Star"
+msgstr "ﻩﺩﺎﺳ ﻩﺭﺎﺘﺳ"
 
 
 msgid "Uniformity"

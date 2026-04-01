@@ -25,14 +25,19 @@
 #include "sculpt_undo.hh"
 
 #include <mutex>
+#include <zstd.h>
 
 #include "CLG_log.h"
 
 #include "BLI_array.hh"
 #include "BLI_bit_group_vector.hh"
+#include "BLI_compression.hh"
+#include "BLI_enumerable_thread_specific.hh"
 #include "BLI_listbase.h"
 #include "BLI_map.hh"
+#include "BLI_memory_counter.hh"
 #include "BLI_string_utf8.h"
+#include "BLI_task.h"
 #include "BLI_utildefines.h"
 #include "BLI_vector.hh"
 
@@ -54,9 +59,9 @@
 #include "BKE_multires.hh"
 #include "BKE_object.hh"
 #include "BKE_paint.hh"
+#include "BKE_paint_types.hh"
 #include "BKE_scene.hh"
 #include "BKE_subdiv_ccg.hh"
-#include "BKE_subsurf.hh"
 #include "BKE_undo_system.hh"
 
 /* TODO(sergey): Ideally should be no direct call to such low level things. */
@@ -79,6 +84,12 @@
 #include "sculpt_dyntopo.hh"
 #include "sculpt_face_set.hh"
 #include "sculpt_intern.hh"
+
+// #define DEBUG_TIME
+
+#ifdef DEBUG_TIME
+#  include "BLI_timeit.hh"
+#endif
 
 static CLG_LogRef LOG = {"undo.sculpt"};
 
@@ -172,13 +183,14 @@ struct NodeGeometry {
   CustomData face_data;
   int *face_offset_indices;
   const ImplicitSharingInfo *face_offsets_sharing_info;
-  int totvert;
-  int totedge;
-  int totloop;
+  int verts_num;
+  int edges_num;
+  int corners_num;
   int faces_num;
 };
 
 struct Node;
+struct PositionUndoStorage;
 
 struct StepData {
  private:
@@ -254,7 +266,7 @@ struct StepData {
 
   /** Storage of per-node undo data after creation of the undo step is finished. */
   Vector<std::unique_ptr<Node>> nodes;
-
+  std::unique_ptr<PositionUndoStorage> position_step_storage;
   size_t undo_size;
 
   /** Whether processing code needs to handle the current data as an undo step. */
@@ -274,6 +286,168 @@ struct StepData {
   }
 };
 
+namespace compression {
+
+/**
+ * Compress a span, using a prefiltering step that can improve compression speed and ratios for
+ * certain float data types.
+ */
+template<typename T>
+void filter_compress(const Span<T> src,
+                     Vector<std::byte> &filter_buffer,
+                     Vector<std::byte> &compress_buffer)
+{
+  filter_buffer.resize(src.size_in_bytes());
+  filter_transpose_delta(reinterpret_cast<const uint8_t *>(src.data()),
+                         reinterpret_cast<uint8_t *>(filter_buffer.data()),
+                         src.size(),
+                         sizeof(T));
+
+  /* Level 3 gives a good balance of compression performance and ratio, and is also used elsewhere
+   * across Blender for calls to #ZSTD_compress. */
+  constexpr int zstd_level = 3;
+  compress_buffer.resize(ZSTD_compressBound(src.size_in_bytes()));
+  const size_t dst_size = ZSTD_compress(compress_buffer.data(),
+                                        compress_buffer.size(),
+                                        filter_buffer.data(),
+                                        filter_buffer.size(),
+                                        zstd_level);
+  if (ZSTD_isError(dst_size)) {
+    compress_buffer.clear();
+    return;
+  }
+
+  compress_buffer.resize(dst_size);
+}
+
+template<typename T>
+void filter_decompress(const Span<std::byte> src, Vector<std::byte> &buffer, Vector<T> &dst)
+{
+  const unsigned long long dst_size_in_bytes = ZSTD_getFrameContentSize(src.data(), src.size());
+  if (ELEM(dst_size_in_bytes, ZSTD_CONTENTSIZE_ERROR, ZSTD_CONTENTSIZE_UNKNOWN)) {
+    dst.clear();
+    return;
+  }
+
+  buffer.resize(dst_size_in_bytes);
+  const size_t result = ZSTD_decompress(buffer.data(), buffer.size(), src.data(), src.size());
+  if (ZSTD_isError(result)) {
+    dst.clear();
+    return;
+  }
+
+  dst.resize(buffer.size() / sizeof(T));
+  unfilter_transpose_delta(reinterpret_cast<const uint8_t *>(buffer.data()),
+                           reinterpret_cast<uint8_t *>(dst.data()),
+                           dst.size(),
+                           sizeof(T));
+}
+
+template void filter_compress<float3>(Span<float3>, Vector<std::byte> &, Vector<std::byte> &);
+template void filter_compress<int>(Span<int>, Vector<std::byte> &, Vector<std::byte> &);
+
+template void filter_decompress<float3>(Span<std::byte>, Vector<std::byte> &, Vector<float3> &);
+template void filter_decompress<int>(Span<std::byte>, Vector<std::byte> &, Vector<int> &);
+
+}  // namespace compression
+
+struct PositionUndoStorage : NonMovable {
+  Vector<std::unique_ptr<Node>> nodes_to_compress;
+  bool multires_undo;
+
+  Array<Array<std::byte>> compressed_indices;
+
+  /* As undo and redo happen, the data in these arrays is swapped (an undo step becomes a redo
+   * step, and vice versa). */
+  Array<Array<std::byte>> compressed_positions;
+
+  Array<int> unique_verts_nums;
+
+  TaskPool *compression_task_pool;
+  std::atomic<bool> compression_ready = false;
+  std::atomic<bool> compression_started = false;
+  StepData *owner_step_data = nullptr;
+
+  explicit PositionUndoStorage(StepData &step_data)
+      : nodes_to_compress(std::move(step_data.nodes)), owner_step_data(&step_data)
+  {
+    this->multires_undo = step_data.grids.grids_num != 0;
+    if (!multires_undo) {
+      this->unique_verts_nums.reinitialize(this->nodes_to_compress.size());
+      for (const int i : this->nodes_to_compress.index_range()) {
+        this->unique_verts_nums[i] = this->nodes_to_compress[i]->unique_verts_num;
+      }
+    }
+
+    this->compression_task_pool = BLI_task_pool_create_background(this, TASK_PRIORITY_LOW);
+    this->compression_started = true;
+
+    BLI_task_pool_push(this->compression_task_pool, compress_fn, this, false, nullptr);
+  }
+
+  ~PositionUndoStorage()
+  {
+    if (compression_started.load() && compression_task_pool) {
+      BLI_task_pool_work_and_wait(compression_task_pool);
+      BLI_task_pool_free(compression_task_pool);
+    }
+  }
+
+  void ensure_compression_complete()
+  {
+    if (!compression_ready.load(std::memory_order_acquire)) {
+      BLI_task_pool_work_and_wait(compression_task_pool);
+    }
+  }
+
+  static void compress_fn(TaskPool * /*pool*/, void *task_data)
+  {
+#ifdef DEBUG_TIME
+    SCOPED_TIMER_AVERAGED(__func__);
+#endif
+    auto *data = static_cast<PositionUndoStorage *>(task_data);
+    MutableSpan<std::unique_ptr<Node>> nodes = data->nodes_to_compress;
+    const int nodes_num = nodes.size();
+
+    Array<Array<std::byte>> compressed_indices(nodes.size(), NoInitialization());
+    Array<Array<std::byte>> compressed_data(nodes.size(), NoInitialization());
+    struct CompressLocalData {
+      Vector<std::byte> filtered;
+      Vector<std::byte> compressed;
+    };
+    threading::isolate_task([&]() {
+      threading::EnumerableThreadSpecific<CompressLocalData> all_tls;
+      threading::parallel_for(IndexRange(nodes_num), 1, [&](const IndexRange range) {
+        CompressLocalData &local_data = all_tls.local();
+        for (const int i : range) {
+          const Span<int> indices = data->multires_undo ? nodes[i]->grids : nodes[i]->vert_indices;
+          const Span<float3> positions = !nodes[i]->orig_position.is_empty() ?
+                                             nodes[i]->orig_position :
+                                             nodes[i]->position;
+          compression::filter_compress(indices, local_data.filtered, local_data.compressed);
+          new (&compressed_indices[i]) Array<std::byte>(local_data.compressed.as_span());
+          compression::filter_compress(positions, local_data.filtered, local_data.compressed);
+          new (&compressed_data[i]) Array<std::byte>(local_data.compressed.as_span());
+          nodes[i].reset();
+        }
+      });
+    });
+    data->nodes_to_compress.clear_and_shrink();
+
+    size_t memory_size = 0;
+    for (const int i : IndexRange(nodes_num)) {
+      memory_size += compressed_indices[i].as_span().size_in_bytes();
+      memory_size += compressed_data[i].as_span().size_in_bytes();
+    }
+
+    data->compressed_indices = std::move(compressed_indices);
+    data->compressed_positions = std::move(compressed_data);
+    data->owner_step_data->undo_size += memory_size;
+
+    data->compression_ready.store(true, std::memory_order_release);
+  }
+};
+
 struct SculptUndoStep {
   UndoStep step;
   /* NOTE: will split out into list for multi-object-sculpt-mode. */
@@ -285,6 +459,21 @@ struct SculptUndoStep {
   /* Active color attribute at the end of this undo step. */
   SculptAttrRef active_color_end;
 };
+
+size_t step_memory_size_get(UndoStep *step)
+{
+  if (step->type != BKE_UNDOSYS_TYPE_SCULPT) {
+    return 0;
+  }
+
+  SculptUndoStep *sculpt_step = reinterpret_cast<SculptUndoStep *>(step);
+
+  if (sculpt_step->data.position_step_storage) {
+    sculpt_step->data.position_step_storage->ensure_compression_complete();
+  }
+
+  return sculpt_step->data.undo_size;
+}
 
 static SculptUndoStep *get_active_step()
 {
@@ -361,37 +550,57 @@ static void swap_indexed_data(MutableSpan<T> full, const Span<int> indices, Muta
 }
 
 static void restore_position_mesh(Object &object,
-                                  const Span<std::unique_ptr<Node>> unodes,
+                                  PositionUndoStorage &undo_data,
                                   const MutableSpan<bool> modified_verts)
 {
+#ifdef DEBUG_TIME
+  SCOPED_TIMER_AVERAGED(__func__);
+#endif
+  SculptSession &ss = *object.sculpt;
   Mesh &mesh = *static_cast<Mesh *>(object.data);
   MutableSpan<float3> positions = mesh.vert_positions_for_write();
   std::optional<ShapeKeyData> shape_key_data = ShapeKeyData::from_object(object);
 
-  threading::parallel_for(unodes.index_range(), 1, [&](const IndexRange range) {
-    for (const int node_i : range) {
-      Node &unode = *unodes[node_i];
-      const Span<int> verts = unode.vert_indices.as_span().take_front(unode.unique_verts_num);
+  undo_data.ensure_compression_complete();
 
-      if (unode.orig_position.is_empty()) {
+  const int nodes_num = undo_data.unique_verts_nums.size();
+
+  struct LocalData {
+    Vector<std::byte> compress_buffer;
+    Vector<std::byte> filter_buffer;
+    Vector<int> indices;
+    Vector<float3> positions;
+  };
+  threading::EnumerableThreadSpecific<LocalData> all_tls;
+  threading::parallel_for(IndexRange(nodes_num), 1, [&](const IndexRange range) {
+    LocalData &tls = all_tls.local();
+    for (const int i : range) {
+      compression::filter_decompress<int>(
+          undo_data.compressed_indices[i], tls.compress_buffer, tls.indices);
+      const int unique_verts_num = undo_data.unique_verts_nums[i];
+      const Span<int> verts = tls.indices.as_span().take_front(unique_verts_num);
+
+      compression::filter_decompress<float3>(
+          undo_data.compressed_positions[i], tls.compress_buffer, tls.positions);
+      MutableSpan undo_positions = tls.positions.as_mutable_span();
+
+      if (!ss.deform_modifiers_active) {
         /* When original positions aren't written separately in the undo step, there are no
          * deform modifiers. Therefore the original and evaluated deform positions will be the
          * same, and modifying the positions from the original mesh is enough. */
-        swap_indexed_data(
-            unode.position.as_mutable_span().take_front(unode.unique_verts_num), verts, positions);
+        swap_indexed_data(undo_positions.take_front(unique_verts_num), verts, positions);
       }
       else {
         /* When original positions are stored in the undo step, undo/redo will cause a reevaluation
          * of the object. The evaluation will recompute the evaluated positions, so dealing with
          * them here is unnecessary. */
-        MutableSpan<float3> undo_positions = unode.orig_position;
-
         if (shape_key_data) {
           MutableSpan<float3> active_data = shape_key_data->active_key_data;
 
           if (!shape_key_data->dependent_keys.is_empty()) {
             Array<float3, 1024> translations(verts.size());
-            translations_from_new_positions(undo_positions, verts, active_data, translations);
+            translations_from_new_positions(
+                undo_positions.take_front(unique_verts_num), verts, active_data, translations);
             for (MutableSpan<float3> data : shape_key_data->dependent_keys) {
               apply_translations(translations, verts, data);
             }
@@ -401,35 +610,61 @@ static void restore_position_mesh(Object &object,
             /* The basis key positions and the mesh positions are always kept in sync. */
             scatter_data_mesh(undo_positions.as_span(), verts, positions);
           }
-          swap_indexed_data(undo_positions.take_front(unode.unique_verts_num), verts, active_data);
+          swap_indexed_data(undo_positions.take_front(unique_verts_num), verts, active_data);
         }
         else {
           /* There is a deform modifier, but no shape keys. */
-          swap_indexed_data(undo_positions.take_front(unode.unique_verts_num), verts, positions);
+          swap_indexed_data(undo_positions.take_front(unique_verts_num), verts, positions);
         }
       }
+
       modified_verts.fill_indices(verts, true);
+
+      compression::filter_compress<float3>(undo_positions, tls.filter_buffer, tls.compress_buffer);
+      undo_data.compressed_positions[i] = tls.compress_buffer.as_span();
     }
   });
 }
 
 static void restore_position_grids(const MutableSpan<float3> positions,
                                    const CCGKey &key,
-                                   Node &unode,
+                                   PositionUndoStorage &undo_data,
                                    const MutableSpan<bool> modified_grids)
 {
-  const Span<int> grids = unode.grids;
-  const MutableSpan<float3> undo_position = unode.position;
+  const int nodes_num = undo_data.compressed_indices.size();
 
-  for (const int i : grids.index_range()) {
-    MutableSpan data = positions.slice(bke::ccg::grid_range(key, grids[i]));
-    MutableSpan undo_data = undo_position.slice(bke::ccg::grid_range(key, i));
-    for (const int offset : data.index_range()) {
-      std::swap(data[offset], undo_data[offset]);
+  struct LocalData {
+    Vector<std::byte> compress_buffer;
+    Vector<std::byte> filter_buffer;
+    Vector<int> indices;
+    Vector<float3> positions;
+  };
+  threading::EnumerableThreadSpecific<LocalData> all_tls;
+  threading::parallel_for(IndexRange(nodes_num), 1, [&](const IndexRange range) {
+    LocalData &tls = all_tls.local();
+    for (const int i : range) {
+      compression::filter_decompress<int>(
+          undo_data.compressed_indices[i], tls.compress_buffer, tls.indices);
+      const Span<int> grids = tls.indices.as_span();
+
+      compression::filter_decompress<float3>(
+          undo_data.compressed_positions[i], tls.compress_buffer, tls.positions);
+      MutableSpan node_positions = tls.positions.as_mutable_span();
+
+      for (const int i : grids.index_range()) {
+        MutableSpan data = positions.slice(bke::ccg::grid_range(key, grids[i]));
+        MutableSpan undo_data = node_positions.slice(bke::ccg::grid_range(key, i));
+        for (const int offset : data.index_range()) {
+          std::swap(data[offset], undo_data[offset]);
+        }
+      }
+
+      modified_grids.fill_indices(grids, true);
+
+      compression::filter_compress<float3>(node_positions, tls.filter_buffer, tls.compress_buffer);
+      undo_data.compressed_positions[i] = tls.compress_buffer.as_span();
     }
-  }
-
-  modified_grids.fill_indices(grids, true);
+  });
 }
 
 static void restore_vert_visibility_mesh(Object &object,
@@ -691,9 +926,9 @@ static void store_geometry_data(NodeGeometry *geometry, const Object &object)
                                         &geometry->face_offset_indices,
                                         &geometry->face_offsets_sharing_info);
 
-  geometry->totvert = mesh->verts_num;
-  geometry->totedge = mesh->edges_num;
-  geometry->totloop = mesh->corners_num;
+  geometry->verts_num = mesh->verts_num;
+  geometry->edges_num = mesh->edges_num;
+  geometry->corners_num = mesh->corners_num;
   geometry->faces_num = mesh->faces_num;
 }
 
@@ -703,18 +938,18 @@ static void restore_geometry_data(const NodeGeometry *geometry, Mesh *mesh)
 
   BKE_mesh_clear_geometry(mesh);
 
-  mesh->verts_num = geometry->totvert;
-  mesh->edges_num = geometry->totedge;
-  mesh->corners_num = geometry->totloop;
+  mesh->verts_num = geometry->verts_num;
+  mesh->edges_num = geometry->edges_num;
+  mesh->corners_num = geometry->corners_num;
   mesh->faces_num = geometry->faces_num;
   mesh->totface_legacy = 0;
 
   CustomData_init_from(
-      &geometry->vert_data, &mesh->vert_data, CD_MASK_MESH.vmask, geometry->totvert);
+      &geometry->vert_data, &mesh->vert_data, CD_MASK_MESH.vmask, geometry->verts_num);
   CustomData_init_from(
-      &geometry->edge_data, &mesh->edge_data, CD_MASK_MESH.emask, geometry->totedge);
+      &geometry->edge_data, &mesh->edge_data, CD_MASK_MESH.emask, geometry->edges_num);
   CustomData_init_from(
-      &geometry->corner_data, &mesh->corner_data, CD_MASK_MESH.lmask, geometry->totloop);
+      &geometry->corner_data, &mesh->corner_data, CD_MASK_MESH.lmask, geometry->corners_num);
   CustomData_init_from(
       &geometry->face_data, &mesh->face_data, CD_MASK_MESH.pmask, geometry->faces_num);
   implicit_sharing::copy_shared_pointer(geometry->face_offset_indices,
@@ -878,9 +1113,9 @@ static void restore_list(bContext *C, Depsgraph *depsgraph, StepData &step_data)
         const CCGKey key = BKE_subdiv_ccg_key_top_level(subdiv_ccg);
 
         Array<bool> modified_grids(subdiv_ccg.grids_num, false);
-        for (std::unique_ptr<Node> &unode : step_data.nodes) {
-          restore_position_grids(subdiv_ccg.positions, key, *unode, modified_grids);
-        }
+        restore_position_grids(
+            subdiv_ccg.positions, key, *step_data.position_step_storage, modified_grids);
+
         const IndexMask changed_nodes = IndexMask::from_predicate(
             node_mask, GrainSize(1), memory, [&](const int i) {
               return indices_contain_true(modified_grids, nodes[i].grids());
@@ -895,7 +1130,7 @@ static void restore_list(bContext *C, Depsgraph *depsgraph, StepData &step_data)
         }
         const Mesh &mesh = *static_cast<const Mesh *>(object.data);
         Array<bool> modified_verts(mesh.verts_num, false);
-        restore_position_mesh(object, step_data.nodes, modified_verts);
+        restore_position_mesh(object, *step_data.position_step_storage, modified_verts);
 
         const IndexMask changed_nodes = IndexMask::from_predicate(
             node_mask, GrainSize(1), memory, [&](const int i) {
@@ -1670,7 +1905,7 @@ static void save_active_attribute(Object &object, SculptAttrRef *attr)
     return;
   }
   if (!(ATTR_DOMAIN_AS_MASK(meta_data->domain) & ATTR_DOMAIN_MASK_COLOR) ||
-      !(ELEM(meta_data->data_type, bke::AttrType::ColorFloat, bke::AttrType::ColorByte)))
+      !ELEM(meta_data->data_type, bke::AttrType::ColorFloat, bke::AttrType::ColorByte))
   {
     return;
   }
@@ -1809,17 +2044,22 @@ void push_end_ex(Object &ob, const bool use_nested_undo)
    * just one positions array that has a different semantic meaning depending on whether there are
    * deform modifiers. */
 
-  step_data->undo_size = threading::parallel_reduce(
-      step_data->nodes.index_range(),
-      16,
-      0,
-      [&](const IndexRange range, size_t size) {
-        for (const int i : range) {
-          size += node_size_in_bytes(*step_data->nodes[i]);
-        }
-        return size;
-      },
-      std::plus<size_t>());
+  if (step_data->type == Type::Position) {
+    step_data->position_step_storage = std::make_unique<PositionUndoStorage>(*step_data);
+  }
+  else {
+    step_data->undo_size = threading::parallel_reduce(
+        step_data->nodes.index_range(),
+        16,
+        0,
+        [&](const IndexRange range, size_t size) {
+          for (const int i : range) {
+            size += node_size_in_bytes(*step_data->nodes[i]);
+          }
+          return size;
+        },
+        std::plus<size_t>());
+  }
 
   /* We could remove this and enforce all callers run in an operator using 'OPTYPE_UNDO'. */
   wmWindowManager *wm = static_cast<wmWindowManager *>(G_MAIN->wm.first);
@@ -2080,9 +2320,43 @@ void geometry_begin_ex(const Scene & /*scene*/, Object &ob, const char *name)
   geometry_push(ob);
 }
 
+static size_t calculate_node_geometry_allocated_size(const NodeGeometry &node_geometry)
+{
+  BLI_assert(node_geometry.is_initialized);
+
+  MemoryCount memory;
+  MemoryCounter memory_counter(memory);
+
+  memory_counter.add_shared(node_geometry.face_offsets_sharing_info,
+                            sizeof(int) * (node_geometry.faces_num + 1));
+
+  CustomData_count_memory(node_geometry.corner_data, node_geometry.corners_num, memory_counter);
+  CustomData_count_memory(node_geometry.face_data, node_geometry.faces_num, memory_counter);
+  CustomData_count_memory(node_geometry.vert_data, node_geometry.verts_num, memory_counter);
+  CustomData_count_memory(node_geometry.edge_data, node_geometry.edges_num, memory_counter);
+
+  return memory.total_bytes;
+}
+
+static size_t estimate_geometry_step_size(const StepData &step_data)
+{
+  size_t step_size = 0;
+
+  /* TODO: This calculation is not entirely accurate, as the current amount of memory consumed by
+   * Sculpt Undo is not updated when elements are evicted. Further changes to the overall undo
+   * system would be needed to measure this accurately. */
+  step_size += calculate_node_geometry_allocated_size(step_data.geometry_original);
+  step_size += calculate_node_geometry_allocated_size(step_data.geometry_modified);
+
+  return step_size;
+}
+
 void geometry_end(Object &ob)
 {
   geometry_push(ob);
+
+  StepData *step_data = get_step_data();
+  step_data->undo_size = estimate_geometry_step_size(*step_data);
 
   /* We could remove this and enforce all callers run in an operator using 'OPTYPE_UNDO'. */
   wmWindowManager *wm = static_cast<wmWindowManager *>(G_MAIN->wm.first);

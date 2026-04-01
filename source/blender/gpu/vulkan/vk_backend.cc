@@ -89,6 +89,19 @@ bool GPU_vulkan_is_supported_driver(VkPhysicalDevice vk_physical_device)
   {
     return false;
   }
+
+  /* NVIDIA driver 580.76.05 doesn't start using specific Wayland configurations #144625. There are
+   * multiple reports also not Blender related and NVIDIA mentions that a new driver will be
+   * released. It is unclear if that driver will fix our issue. For now disabling this driver on
+   * Linux. This also disables it for configurations that are working as well (including X11). */
+  if (vk_physical_device_driver_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
+      ((StringRefNull(vk_physical_device_driver_properties.driverInfo).find("580.76.5", 0) !=
+        StringRef::not_found) ||
+       (StringRefNull(vk_physical_device_driver_properties.driverInfo).find("580.76.05", 0) !=
+        StringRef::not_found)))
+  {
+    return false;
+  }
 #endif
 
 #ifdef _WIN32
@@ -119,8 +132,10 @@ static Vector<StringRefNull> missing_capabilities_get(VkPhysicalDevice vk_physic
   /* Check device features. */
   VkPhysicalDeviceVulkan12Features features_12 = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+  VkPhysicalDeviceVulkan11Features features_11 = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES, &features_12};
   VkPhysicalDeviceFeatures2 features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-                                        &features_12};
+                                        &features_11};
 
   vkGetPhysicalDeviceFeatures2(vk_physical_device, &features);
 
@@ -153,6 +168,9 @@ static Vector<StringRefNull> missing_capabilities_get(VkPhysicalDevice vk_physic
   if (features.features.fragmentStoresAndAtomics == VK_FALSE) {
     missing_capabilities.append("fragment stores and atomics");
   }
+  if (features_11.shaderDrawParameters == VK_FALSE) {
+    missing_capabilities.append("shader draw parameters");
+  }
   if (features_12.timelineSemaphore == VK_FALSE) {
     missing_capabilities.append("timeline semaphores");
   }
@@ -174,6 +192,9 @@ static Vector<StringRefNull> missing_capabilities_get(VkPhysicalDevice vk_physic
 
   if (!extensions.contains(VK_KHR_SWAPCHAIN_EXTENSION_NAME)) {
     missing_capabilities.append(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+  }
+  if (!extensions.contains(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME)) {
+    missing_capabilities.append(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
   }
 #ifndef __APPLE__
   /* Metal doesn't support provoking vertex. */
@@ -278,7 +299,7 @@ bool VKBackend::is_supported()
   return false;
 }
 
-static eGPUOSType determine_os_type()
+static GPUOSType determine_os_type()
 {
 #ifdef _WIN32
   return GPU_OS_WIN;
@@ -343,10 +364,10 @@ void VKBackend::platform_init(const VKDevice &device)
 {
   const VkPhysicalDeviceProperties &properties = device.physical_device_properties_get();
 
-  eGPUDeviceType device_type = device.device_type();
-  eGPUDriverType driver = device.driver_type();
-  eGPUOSType os = determine_os_type();
-  eGPUSupportLevel support_level = GPU_SUPPORT_LEVEL_SUPPORTED;
+  GPUDeviceType device_type = device.device_type();
+  GPUDriverType driver = device.driver_type();
+  GPUOSType os = determine_os_type();
+  GPUSupportLevel support_level = GPU_SUPPORT_LEVEL_SUPPORTED;
 
   std::string vendor_name = device.vendor_name();
   std::string driver_version = device.driver_version();
@@ -403,12 +424,12 @@ void VKBackend::detect_workarounds(VKDevice &device)
     extensions.shader_output_layer = false;
     extensions.shader_output_viewport_index = false;
     extensions.fragment_shader_barycentric = false;
-    extensions.dynamic_rendering = false;
     extensions.dynamic_rendering_local_read = false;
     extensions.dynamic_rendering_unused_attachments = false;
     extensions.descriptor_buffer = false;
-
-    GCaps.render_pass_workaround = true;
+    extensions.pageable_device_local_memory = false;
+    extensions.wide_lines = false;
+    GCaps.stencil_export_support = false;
 
     device.workarounds_ = workarounds;
     device.extensions_ = extensions;
@@ -419,17 +440,23 @@ void VKBackend::detect_workarounds(VKDevice &device)
       device.physical_device_vulkan_12_features_get().shaderOutputLayer;
   extensions.shader_output_viewport_index =
       device.physical_device_vulkan_12_features_get().shaderOutputViewportIndex;
+  extensions.wide_lines = device.physical_device_features_get().wideLines;
   extensions.fragment_shader_barycentric = device.supports_extension(
       VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
-  extensions.dynamic_rendering = device.supports_extension(
-      VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
   extensions.dynamic_rendering_local_read = device.supports_extension(
       VK_KHR_DYNAMIC_RENDERING_LOCAL_READ_EXTENSION_NAME);
   extensions.dynamic_rendering_unused_attachments = device.supports_extension(
       VK_EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_EXTENSION_NAME);
   extensions.logic_ops = device.physical_device_features_get().logicOp;
+  /* For stability reasons descriptor buffers have been disabled. */
+#if 0
   extensions.descriptor_buffer = device.supports_extension(
       VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME);
+#endif
+  extensions.maintenance4 = device.supports_extension(VK_KHR_MAINTENANCE_4_EXTENSION_NAME);
+  extensions.memory_priority = device.supports_extension(VK_EXT_MEMORY_PRIORITY_EXTENSION_NAME);
+  extensions.pageable_device_local_memory = device.supports_extension(
+      VK_EXT_PAGEABLE_DEVICE_LOCAL_MEMORY_EXTENSION_NAME);
 #ifdef _WIN32
   extensions.external_memory = device.supports_extension(
       VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
@@ -448,7 +475,7 @@ void VKBackend::detect_workarounds(VKDevice &device)
     extensions.descriptor_buffer = false;
   }
 
-  /* Running render tests fails consistenly in some scenes. The cause is that too many descriptor
+  /* Running render tests fails consistently in some scenes. The cause is that too many descriptor
    * sets are required for rendering resulting in failing allocations of the descriptor buffer. We
    * work around this issue by not using descriptor buffers on these platforms.
    *
@@ -490,17 +517,6 @@ void VKBackend::detect_workarounds(VKDevice &device)
       device.physical_device_get(), VK_FORMAT_R8G8B8_UNORM, &format_properties);
   workarounds.vertex_formats.r8g8b8 = (format_properties.bufferFeatures &
                                        VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT) == 0;
-
-  GCaps.render_pass_workaround = !extensions.dynamic_rendering;
-
-#ifdef __APPLE__
-  /* Due to a limitation in MoltenVK, attachments should be sequential even when using
-   * dynamic rendering. MoltenVK internally uses render passes to simulate dynamic rendering and
-   * same limitations apply. */
-  if (GPU_type_matches(GPU_DEVICE_APPLE, GPU_OS_MAC, GPU_DRIVER_ANY)) {
-    GCaps.render_pass_workaround = true;
-  }
-#endif
 
   device.workarounds_ = workarounds;
   device.extensions_ = extensions;
@@ -576,8 +592,8 @@ Context *VKBackend::context_alloc(void *ghost_window, void *ghost_context)
   VKContext *context = new VKContext(ghost_window, ghost_context);
   device.context_register(*context);
   GHOST_SetVulkanSwapBuffersCallbacks((GHOST_ContextHandle)ghost_context,
-                                      VKContext::swap_buffers_pre_callback,
-                                      VKContext::swap_buffers_post_callback,
+                                      VKContext::swap_buffer_draw_callback,
+                                      VKContext::swap_buffer_acquired_callback,
                                       VKContext::openxr_acquire_framebuffer_image_callback,
                                       VKContext::openxr_release_framebuffer_image_callback);
 
@@ -652,13 +668,14 @@ void VKBackend::render_end()
   thread_data.rendering_depth -= 1;
   BLI_assert_msg(thread_data.rendering_depth >= 0, "Unbalanced `GPU_render_begin/end`");
   if (G.background) {
-    /* Garbage collection when performing background rendering. */
     if (thread_data.rendering_depth == 0) {
       VKContext *context = VKContext::get();
       if (context != nullptr) {
-        context->flush_render_graph(RenderGraphFlushFlags::RENEW_RENDER_GRAPH);
+        context->flush();
       }
-      device.orphaned_data.destroy_discarded_resources(device);
+      std::scoped_lock lock(device.orphaned_data.mutex_get());
+      device.orphaned_data.move_data(device.orphaned_data_render,
+                                     device.orphaned_data.timeline_ + 1);
     }
   }
 
@@ -666,23 +683,9 @@ void VKBackend::render_end()
    * after each frame.
    */
   if (G.is_rendering && thread_data.rendering_depth == 0 && !BLI_thread_is_main()) {
-    {
-      std::scoped_lock lock(device.orphaned_data.mutex_get());
-      device.orphaned_data.move_data(device.orphaned_data_render,
-                                     device.orphaned_data.timeline_ + 1);
-    }
-    /* Fix #139284: During rendering when main thread is blocked or all screens are minimized the
-     * garbage collection will not happen resulting in crashes as resources are not freed.
-     *
-     * A better solution would be to do garbage collection in a separate thread but that requires a
-     * ref counting system. The specifics of such a system is still unclear.
-     *
-     * A possible solution for a Vulkan specific ref counting is to store the ref counts in the
-     * resource tracker. That would only handle images and buffers, but it would solve the most
-     * resource hungry issues.
-     */
-    device.wait_queue_idle();
-    device.orphaned_data.destroy_discarded_resources(device);
+    std::scoped_lock lock(device.orphaned_data.mutex_get());
+    device.orphaned_data.move_data(device.orphaned_data_render,
+                                   device.orphaned_data.timeline_ + 1);
   }
 }
 
@@ -703,11 +706,8 @@ void VKBackend::capabilities_init(VKDevice &device)
   /* Reset all capabilities from previous context. */
   GCaps = {};
   GCaps.geometry_shader_support = true;
-  GCaps.clip_control_support = true;
   GCaps.stencil_export_support = device.supports_extension(
       VK_EXT_SHADER_STENCIL_EXPORT_EXTENSION_NAME);
-  GCaps.shader_draw_parameters_support =
-      device.physical_device_vulkan_11_features_get().shaderDrawParameters;
 
   GCaps.max_texture_size = max_ii(limits.maxImageDimension1D, limits.maxImageDimension2D);
   GCaps.max_texture_3d_size = min_uu(limits.maxImageDimension3D, INT_MAX);
@@ -729,6 +729,7 @@ void VKBackend::capabilities_init(VKDevice &device)
   GCaps.max_varying_floats = min_uu(limits.maxVertexOutputComponents, INT_MAX);
   GCaps.max_shader_storage_buffer_bindings = GCaps.max_compute_shader_storage_blocks = min_uu(
       limits.maxPerStageDescriptorStorageBuffers, INT_MAX);
+  GCaps.max_uniform_buffer_size = size_t(limits.maxUniformBufferRange);
   GCaps.max_storage_buffer_size = size_t(limits.maxStorageBufferRange);
   GCaps.storage_buffer_alignment = limits.minStorageBufferOffsetAlignment;
 

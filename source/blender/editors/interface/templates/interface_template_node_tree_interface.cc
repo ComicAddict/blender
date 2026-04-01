@@ -52,7 +52,7 @@ class NodeTreeInterfaceDragController : public AbstractViewItemDragController {
                                            bNodeTree &tree);
   ~NodeTreeInterfaceDragController() override = default;
 
-  eWM_DragDataType get_drag_type() const override;
+  std::optional<eWM_DragDataType> get_drag_type() const override;
 
   void *create_drag_data() const override;
 };
@@ -150,7 +150,7 @@ class NodeSocketViewItem : public BasicTreeViewItem {
     MEM_SAFE_FREE(socket_.name);
 
     socket_.name = BLI_strdup(new_name.c_str());
-    nodetree_.tree_interface.tag_items_changed();
+    nodetree_.tree_interface.tag_item_property_changed();
     BKE_main_ensure_invariants(*CTX_data_main(&C), nodetree_.id);
     ED_undo_push(&const_cast<bContext &>(C), new_name.c_str());
     return true;
@@ -158,6 +158,15 @@ class NodeSocketViewItem : public BasicTreeViewItem {
   StringRef get_rename_string() const override
   {
     return socket_.name;
+  }
+
+  void delete_item(bContext *C) override
+  {
+    Main *bmain = CTX_data_main(C);
+    nodetree_.tree_interface.remove_item(socket_.item);
+    BKE_main_ensure_invariants(*bmain, nodetree_.id);
+    WM_main_add_notifier(NC_NODE | NA_EDITED, &nodetree_);
+    ED_undo_push(C, "Delete Node Interface Socket");
   }
 
   std::unique_ptr<AbstractViewItemDragController> create_drag_controller() const override;
@@ -214,6 +223,20 @@ class NodePanelViewItem : public BasicTreeViewItem {
     return &panel_ == &other_item->panel_;
   }
 
+  std::optional<bool> should_be_collapsed() const override
+  {
+    return panel_.flag & NODE_INTERFACE_PANEL_IS_COLLAPSED;
+  }
+
+  bool set_collapsed(const bool collapsed) override
+  {
+    if (!AbstractTreeViewItem::set_collapsed(collapsed)) {
+      return false;
+    }
+    SET_FLAG_FROM_TEST(panel_.flag, collapsed, NODE_INTERFACE_PANEL_IS_COLLAPSED);
+    return true;
+  }
+
   bool supports_renaming() const override
   {
     return !ID_IS_LINKED(&nodetree_);
@@ -230,6 +253,15 @@ class NodePanelViewItem : public BasicTreeViewItem {
   StringRef get_rename_string() const override
   {
     return panel_.name;
+  }
+
+  void delete_item(bContext *C) override
+  {
+    Main *bmain = CTX_data_main(C);
+    nodetree_.tree_interface.remove_item(panel_.item);
+    BKE_main_ensure_invariants(*bmain, nodetree_.id);
+    WM_main_add_notifier(NC_NODE | NA_EDITED, &nodetree_);
+    ED_undo_push(C, "Delete Node Interface Panel");
   }
 
   std::unique_ptr<AbstractViewItemDragController> create_drag_controller() const override;
@@ -327,7 +359,7 @@ NodeTreeInterfaceDragController::NodeTreeInterfaceDragController(NodeTreeInterfa
 {
 }
 
-eWM_DragDataType NodeTreeInterfaceDragController::get_drag_type() const
+std::optional<eWM_DragDataType> NodeTreeInterfaceDragController::get_drag_type() const
 {
   return WM_DRAG_NODE_TREE_INTERFACE;
 }

@@ -11,6 +11,7 @@ set(INC
   ../gpu/intern
   ../makesrna
   ../render/intern
+  ../imbuf/opencolorio/intern/libocio
 )
 
 set(INC_SYS
@@ -69,6 +70,7 @@ set(SRC
   intern/utilities.cc
 
   algorithms/intern/compute_preview.cc
+  algorithms/intern/convolve.cc
   algorithms/intern/deriche_gaussian_blur.cc
   algorithms/intern/extract_alpha.cc
   algorithms/intern/jump_flooding.cc
@@ -78,6 +80,7 @@ set(SRC
   algorithms/intern/pad.cc
   algorithms/intern/parallel_reduction.cc
   algorithms/intern/recursive_gaussian_blur.cc
+  algorithms/intern/sample_pixel.cc
   algorithms/intern/smaa.cc
   algorithms/intern/summed_area_table.cc
   algorithms/intern/symmetric_separable_blur.cc
@@ -85,6 +88,7 @@ set(SRC
   algorithms/intern/van_vliet_gaussian_blur.cc
 
   algorithms/COM_algorithm_compute_preview.hh
+  algorithms/COM_algorithm_convolve.hh
   algorithms/COM_algorithm_deriche_gaussian_blur.hh
   algorithms/COM_algorithm_extract_alpha.hh
   algorithms/COM_algorithm_jump_flooding.hh
@@ -94,6 +98,7 @@ set(SRC
   algorithms/COM_algorithm_pad.hh
   algorithms/COM_algorithm_parallel_reduction.hh
   algorithms/COM_algorithm_recursive_gaussian_blur.hh
+  algorithms/COM_algorithm_sample_pixel.hh
   algorithms/COM_algorithm_smaa.hh
   algorithms/COM_algorithm_summed_area_table.hh
   algorithms/COM_algorithm_symmetric_separable_blur.hh
@@ -157,10 +162,73 @@ set(LIB
   PRIVATE bf::blenlib
   PRIVATE bf::dna
   PRIVATE bf::intern::guardedalloc
+  PRIVATE bf::intern::clog
   PRIVATE bf::dependencies::optional::opencolorio
 )
 
 set(GLSL_SRC
+  shaders/infos/compositor_alpha_crop_infos.hh
+  shaders/infos/compositor_bilateral_blur_infos.hh
+  shaders/infos/compositor_bokeh_blur_infos.hh
+  shaders/infos/compositor_bokeh_blur_variable_size_infos.hh
+  shaders/infos/compositor_bokeh_image_infos.hh
+  shaders/infos/compositor_box_mask_infos.hh
+  shaders/infos/compositor_compute_preview_infos.hh
+  shaders/infos/compositor_convert_infos.hh
+  shaders/infos/compositor_cryptomatte_infos.hh
+  shaders/infos/compositor_defocus_infos.hh
+  shaders/infos/compositor_deriche_gaussian_blur_infos.hh
+  shaders/infos/compositor_despeckle_infos.hh
+  shaders/infos/compositor_directional_blur_infos.hh
+  shaders/infos/compositor_displace_infos.hh
+  shaders/infos/compositor_double_edge_mask_infos.hh
+  shaders/infos/compositor_edge_filter_infos.hh
+  shaders/infos/compositor_ellipse_mask_infos.hh
+  shaders/infos/compositor_filter_infos.hh
+  shaders/infos/compositor_flip_infos.hh
+  shaders/infos/compositor_gamma_correct_infos.hh
+  shaders/infos/compositor_glare_infos.hh
+  shaders/infos/compositor_id_mask_infos.hh
+  shaders/infos/compositor_image_coordinates_infos.hh
+  shaders/infos/compositor_image_crop_infos.hh
+  shaders/infos/compositor_inpaint_infos.hh
+  shaders/infos/compositor_jump_flooding_infos.hh
+  shaders/infos/compositor_keying_infos.hh
+  shaders/infos/compositor_keying_screen_infos.hh
+  shaders/infos/compositor_kuwahara_infos.hh
+  shaders/infos/compositor_lens_distortion_infos.hh
+  shaders/infos/compositor_map_uv_infos.hh
+  shaders/infos/compositor_morphological_blur_infos.hh
+  shaders/infos/compositor_morphological_distance_feather_infos.hh
+  shaders/infos/compositor_morphological_distance_infos.hh
+  shaders/infos/compositor_morphological_distance_threshold_infos.hh
+  shaders/infos/compositor_morphological_step_infos.hh
+  shaders/infos/compositor_motion_blur_infos.hh
+  shaders/infos/compositor_movie_distortion_infos.hh
+  shaders/infos/compositor_normalize_infos.hh
+  shaders/infos/compositor_pad_infos.hh
+  shaders/infos/compositor_parallel_reduction_infos.hh
+  shaders/infos/compositor_pixelate_infos.hh
+  shaders/infos/compositor_plane_deform_infos.hh
+  shaders/infos/compositor_premultiply_alpha_infos.hh
+  shaders/infos/compositor_read_input_infos.hh
+  shaders/infos/compositor_realize_on_domain_infos.hh
+  shaders/infos/compositor_sample_pixel_infos.hh
+  shaders/infos/compositor_scale_variable_infos.hh
+  shaders/infos/compositor_smaa_infos.hh
+  shaders/infos/compositor_split_infos.hh
+  shaders/infos/compositor_summed_area_table_infos.hh
+  shaders/infos/compositor_symmetric_blur_infos.hh
+  shaders/infos/compositor_symmetric_blur_variable_size_infos.hh
+  shaders/infos/compositor_symmetric_separable_blur_infos.hh
+  shaders/infos/compositor_symmetric_separable_blur_variable_size_infos.hh
+  shaders/infos/compositor_tone_map_photoreceptor_infos.hh
+  shaders/infos/compositor_tone_map_simple_infos.hh
+  shaders/infos/compositor_translate_wrapped_infos.hh
+  shaders/infos/compositor_van_vliet_gaussian_blur_infos.hh
+  shaders/infos/compositor_write_output_infos.hh
+  shaders/infos/compositor_z_combine_infos.hh
+
   shaders/compositor_alpha_crop.glsl
   shaders/compositor_bilateral_blur.glsl
   shaders/compositor_bokeh_blur.glsl
@@ -200,6 +268,7 @@ set(GLSL_SRC
   shaders/compositor_glare_simple_star_vertical_pass.glsl
   shaders/compositor_glare_streaks_accumulate.glsl
   shaders/compositor_glare_streaks_filter.glsl
+  shaders/compositor_glare_sun_beams.glsl
   shaders/compositor_glare_write_glare_output.glsl
   shaders/compositor_glare_write_highlights_output.glsl
   shaders/compositor_horizontal_lens_distortion.glsl
@@ -244,6 +313,7 @@ set(GLSL_SRC
   shaders/compositor_radial_lens_distortion.glsl
   shaders/compositor_read_input.glsl
   shaders/compositor_realize_on_domain.glsl
+  shaders/compositor_sample_pixel.glsl
   shaders/compositor_scale_variable.glsl
   shaders/compositor_smaa_blending_weight_calculation.glsl
   shaders/compositor_smaa_edge_detection.glsl
@@ -253,7 +323,6 @@ set(GLSL_SRC
   shaders/compositor_summed_area_table_compute_complete_x_prologues.glsl
   shaders/compositor_summed_area_table_compute_complete_y_prologues.glsl
   shaders/compositor_summed_area_table_compute_incomplete_prologues.glsl
-  shaders/compositor_sun_beams.glsl
   shaders/compositor_symmetric_blur.glsl
   shaders/compositor_symmetric_blur_variable_size.glsl
   shaders/compositor_symmetric_separable_blur.glsl
@@ -279,10 +348,11 @@ set(GLSL_SRC
   shaders/library/gpu_shader_compositor_color_matte.glsl
   shaders/library/gpu_shader_compositor_color_spill.glsl
   shaders/library/gpu_shader_compositor_color_to_luminance.glsl
+  shaders/library/gpu_shader_compositor_convert_alpha.glsl
   shaders/library/gpu_shader_compositor_difference_matte.glsl
   shaders/library/gpu_shader_compositor_distance_matte.glsl
+  shaders/library/gpu_shader_compositor_eval.glsl
   shaders/library/gpu_shader_compositor_exposure.glsl
-  shaders/library/gpu_shader_compositor_gamma.glsl
   shaders/library/gpu_shader_compositor_hue_correct.glsl
   shaders/library/gpu_shader_compositor_hue_saturation_value.glsl
   shaders/library/gpu_shader_compositor_image_diagonals.glsl
@@ -296,6 +366,7 @@ set(GLSL_SRC
   shaders/library/gpu_shader_compositor_posterize.glsl
   shaders/library/gpu_shader_compositor_separate_combine.glsl
   shaders/library/gpu_shader_compositor_set_alpha.glsl
+  shaders/library/gpu_shader_compositor_store.glsl
   shaders/library/gpu_shader_compositor_store_output.glsl
   shaders/library/gpu_shader_compositor_summed_area_table_lib.glsl
   shaders/library/gpu_shader_compositor_texture_utilities.glsl
@@ -316,11 +387,13 @@ list(APPEND LIB
 
 set(GLSL_SOURCE_CONTENT "")
 set(GLSL_METADATA_CONTENT "")
+set(GLSL_INFOS_CONTENT "")
 foreach(GLSL_FILE ${GLSL_SRC})
   get_filename_component(GLSL_FILE_NAME ${GLSL_FILE} NAME)
   string(REPLACE "." "_" GLSL_FILE_NAME_UNDERSCORES ${GLSL_FILE_NAME})
   string(APPEND GLSL_SOURCE_CONTENT "SHADER_SOURCE\(${GLSL_FILE_NAME_UNDERSCORES}, \"${GLSL_FILE_NAME}\", \"${GLSL_FILE}\"\)\n")
   string(APPEND GLSL_METADATA_CONTENT "#include \"${GLSL_FILE}.hh\"\n")
+  string(APPEND GLSL_INFOS_CONTENT "#include \"${GLSL_FILE}.info\"\n")
 endforeach()
 
 set(glsl_source_list_file "${CMAKE_CURRENT_BINARY_DIR}/glsl_compositor_source_list.h")
@@ -329,6 +402,9 @@ list(APPEND SRC ${glsl_source_list_file})
 set(glsl_metadata_list_file "${CMAKE_CURRENT_BINARY_DIR}/glsl_compositor_metadata_list.hh")
 file(GENERATE OUTPUT ${glsl_metadata_list_file} CONTENT "${GLSL_METADATA_CONTENT}")
 list(APPEND SRC ${glsl_metadata_list_file})
+set(glsl_infos_list_file "${CMAKE_CURRENT_BINARY_DIR}/glsl_compositor_infos_list.hh")
+file(GENERATE OUTPUT ${glsl_infos_list_file} CONTENT "${GLSL_INFOS_CONTENT}")
+list(APPEND SRC ${glsl_infos_list_file})
 list(APPEND INC ${CMAKE_CURRENT_BINARY_DIR})
 
 target_include_directories(bf_compositor_shaders PUBLIC ${CMAKE_CURRENT_BINARY_DIR})

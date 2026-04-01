@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 from bpy.types import Panel
+from bpy.app.translations import contexts as i18n_contexts
 from bl_ui.properties_grease_pencil_common import GreasePencilSimplifyPanel
 from bl_ui.space_view3d import (
     VIEW3D_PT_shading_lighting,
@@ -76,17 +77,18 @@ class RENDER_PT_color_management(RenderButtonsPanel, Panel):
         col.prop(view, "view_transform")
         col.prop(view, "look")
 
+        if view.is_hdr and not context.window.support_hdr_color:
+            row = col.split(factor=0.4)
+            row.label()
+            row.label(text="HDR display not supported", icon="INFO")
+
         col = flow.column()
         col.prop(view, "exposure")
         col.prop(view, "gamma")
 
-        col.separator()
 
-        col.prop(scene.sequencer_colorspace_settings, "name", text="Sequencer")
-
-
-class RENDER_PT_color_management_display_settings(RenderButtonsPanel, Panel):
-    bl_label = "Display"
+class RENDER_PT_color_management_working_space(RenderButtonsPanel, Panel):
+    bl_label = "Working Space"
     bl_parent_id = "RENDER_PT_color_management"
     bl_options = {'DEFAULT_CLOSED'}
     COMPAT_ENGINES = {
@@ -101,19 +103,46 @@ class RENDER_PT_color_management_display_settings(RenderButtonsPanel, Panel):
         layout.use_property_decorate = False  # No animation.
 
         scene = context.scene
-        view = scene.view_settings
+        blend_colorspace = context.blend_data.colorspace
 
-        # Only enable display sub-section if HDR support is available.
-        import gpu
-        layout.enabled = gpu.capabilities.hdr_support_get()
+        flow = layout.grid_flow(row_major=True, columns=0, even_columns=False, even_rows=False, align=True)
 
-        # Only display HDR toggle for non-Filmic display transforms.
-        col = layout.column(align=True)
-        sub = col.row()
-        sub.active = (not view.view_transform.startswith("Filmic") and not view.view_transform.startswith("AgX") and not
-                      view.view_transform.startswith("False Color") and not
-                      view.view_transform.startswith("Khronos PBR Neutral"))
-        sub.prop(view, "use_hdr_view")
+        col = flow.column()
+
+        split = col.split(factor=0.4)
+        row = split.row()
+        row.label(text="File")
+        row.alignment = 'RIGHT'
+        split.operator_menu_enum(
+            "wm.set_working_color_space",
+            "working_space",
+            text=blend_colorspace.working_space,
+            text_ctxt=i18n_contexts.default,
+        )
+
+        col.prop(scene.sequencer_colorspace_settings, "name", text="Sequencer")
+
+
+class RENDER_PT_color_management_advanced(RenderButtonsPanel, Panel):
+    bl_label = "Advanced"
+    bl_parent_id = "RENDER_PT_color_management"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {
+        'BLENDER_RENDER',
+        'BLENDER_EEVEE',
+        'BLENDER_WORKBENCH',
+    }
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False  # No animation.
+
+        scene = context.scene
+
+        col = layout.column()
+        col.active = scene.view_settings.support_emulation
+        col.prop(scene.display_settings, "emulation")
 
 
 class RENDER_PT_color_management_curves(RenderButtonsPanel, Panel):
@@ -714,7 +743,7 @@ def draw_curves_settings(self, context):
 class RENDER_PT_eevee_hair(RenderButtonsPanel, Panel):
     bl_label = "Curves"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_EEVEE'}
+    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
 
     @classmethod
     def poll(cls, context):
@@ -1138,10 +1167,11 @@ classes = (
     RENDER_PT_opengl_film,
     RENDER_PT_hydra_debug,
     RENDER_PT_color_management,
-    RENDER_PT_color_management_display_settings,
     RENDER_PT_color_management_curves,
     RENDER_PT_color_management_white_balance_presets,
     RENDER_PT_color_management_white_balance,
+    RENDER_PT_color_management_working_space,
+    RENDER_PT_color_management_advanced,
 )
 
 if __name__ == "__main__":  # only for live edit.

@@ -41,7 +41,7 @@ GPUNodeStack &ShaderNode::get_output(const StringRef identifier)
   return get_shader_node_output(*node_, outputs_.data(), identifier);
 }
 
-static eGPUType gpu_type_from_socket(DSocket socket)
+static GPUType gpu_type_from_socket(DSocket socket)
 {
   switch (eNodeSocketDatatype(socket->type)) {
     case SOCK_FLOAT:
@@ -67,6 +67,9 @@ static eGPUType gpu_type_from_socket(DSocket socket)
     case SOCK_RGBA:
       return GPU_VEC4;
     case SOCK_MENU:
+      /* GPUMaterial doesn't support int, so it is passed as a float. */
+      return GPU_FLOAT;
+    case SOCK_STRING:
       /* Single only types do not support GPU code path. */
       BLI_assert(Result::is_single_value_only_type(get_node_socket_result_type(socket.bsocket())));
       BLI_assert_unreachable();

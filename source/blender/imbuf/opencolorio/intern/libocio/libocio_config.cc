@@ -78,14 +78,16 @@ LibOCIOConfig::LibOCIOConfig(const OCIO_NAMESPACE::ConstConfigRcPtr &ocio_config
   OCIO_NAMESPACE::SetCurrentConfig(ocio_config);
   ocio_config_ = OCIO_NAMESPACE::GetCurrentConfig();
 
-  initialize_color_spaces();
+  initialize_active_color_spaces();
+  initialize_inactive_color_spaces();
+  initialize_hdr_color_spaces();
   initialize_looks();
   initialize_displays();
 }
 
 LibOCIOConfig::~LibOCIOConfig() {}
 
-void LibOCIOConfig::initialize_color_spaces()
+void LibOCIOConfig::initialize_active_color_spaces()
 {
   OCIO_NAMESPACE::ColorSpaceSetRcPtr ocio_color_spaces;
 
@@ -123,6 +125,34 @@ void LibOCIOConfig::initialize_color_spaces()
   std::sort(sorted_color_space_index_.begin(), sorted_color_space_index_.end(), [&](int a, int b) {
     return color_spaces_[a].name() < color_spaces_[b].name();
   });
+}
+
+void LibOCIOConfig::initialize_inactive_color_spaces()
+{
+  const int num_inactive_color_spaces = ocio_config_->getNumColorSpaces(
+      OCIO_NAMESPACE::SEARCH_REFERENCE_SPACE_ALL, OCIO_NAMESPACE::COLORSPACE_INACTIVE);
+  if (num_inactive_color_spaces < 0) {
+    report_error(fmt::format(
+        "Invalid OpenColorIO configuration: invalid number of inactive color spaces {}",
+        num_inactive_color_spaces));
+    return;
+  }
+
+  for (const int i : IndexRange(num_inactive_color_spaces)) {
+    const char *colorspace_name = ocio_config_->getColorSpaceNameByIndex(
+        OCIO_NAMESPACE::SEARCH_REFERENCE_SPACE_ALL, OCIO_NAMESPACE::COLORSPACE_INACTIVE, i);
+
+    OCIO_NAMESPACE::ConstColorSpaceRcPtr ocio_color_space;
+    try {
+      ocio_color_space = ocio_config_->getColorSpace(colorspace_name);
+    }
+    catch (OCIO_NAMESPACE::Exception &exception) {
+      report_exception(exception);
+      continue;
+    }
+
+    inactive_color_spaces_.append_as(i, ocio_config_, ocio_color_space);
+  }
 }
 
 void LibOCIOConfig::initialize_looks()
@@ -234,12 +264,13 @@ float3x3 LibOCIOConfig::get_xyz_to_scene_linear_matrix() const
 
 const char *LibOCIOConfig::get_color_space_from_filepath(const char *filepath) const
 {
-  /* If Blender specific default_byte or default_float roles exist, don't use the default rule
-   * which can't distinguish between these two cases automatically. */
-  if (ocio_config_->filepathOnlyMatchesDefaultRule(filepath) &&
-      (ocio_config_->hasRole(OCIO_ROLE_DEFAULT_BYTE) ||
-       ocio_config_->hasRole(OCIO_ROLE_DEFAULT_FLOAT)))
-  {
+  /* Ignore the default rule, same behavior as for example OpenImageIO and xStudio.
+   * The ACES studio config has only a default rule set to ACES2065-1, which works
+   * poorly if we assign it to every file as default.
+   *
+   * It's unclear if the default rule should be used for anything, and if not why
+   * it even exists. */
+  if (ocio_config_->filepathOnlyMatchesDefaultRule(filepath)) {
     return nullptr;
   }
 
@@ -269,18 +300,28 @@ const ColorSpace *LibOCIOConfig::get_color_space(const StringRefNull name) const
     return nullptr;
   }
 
+  /* TODO(sergey): Is there faster way to lookup Blender-side color space?
+   * It does not seem that pointer in ConstColorSpaceRcPtr is unique enough to use for
+   * comparison. */
   for (const LibOCIOColorSpace &color_space : color_spaces_) {
-    /* TODO(sergey): Is there faster way to lookup Blender-side color space?
-     * It does not seem that pointer in ConstColorSpaceRcPtr is unique enough to use for
-     * comparison. */
     if (color_space.name() == ocio_color_space->getName()) {
       return &color_space;
     }
   }
 
-  report_error(
-      fmt::format("Invalid OpenColorIO configuration: color space {} not found on Blender side",
-                  ocio_color_space->getName()));
+  /* Also lookup in the inactive color space, as the requested space might be coming from the
+   * display and marked as inactive to prevent it from showing up in the application menu. */
+  for (const LibOCIOColorSpace &color_space : inactive_color_spaces_) {
+    if (color_space.name() == ocio_color_space->getName()) {
+      return &color_space;
+    }
+  }
+
+  if (!ocio_config_->isInactiveColorSpace(ocio_color_space->getName())) {
+    report_error(
+        fmt::format("Invalid OpenColorIO configuration: color space {} not found on Blender side",
+                    ocio_color_space->getName()));
+  }
 
   return nullptr;
 }
@@ -305,6 +346,109 @@ const ColorSpace *LibOCIOConfig::get_sorted_color_space_by_index(const int index
     return nullptr;
   }
   return get_color_space_by_index(sorted_color_space_index_[index]);
+}
+
+const ColorSpace *LibOCIOConfig::get_color_space_by_interop_id(StringRefNull interop_id) const
+{
+  for (const LibOCIOColorSpace &color_space : color_spaces_) {
+    if (color_space.interop_id() == interop_id) {
+      return &color_space;
+    }
+  }
+
+  for (const LibOCIOColorSpace &color_space : inactive_color_spaces_) {
+    if (color_space.interop_id() == interop_id) {
+      return &color_space;
+    }
+  }
+
+  return nullptr;
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name HDR image API
+ * \{ */
+
+const ColorSpace *LibOCIOConfig::get_color_space_for_hdr_image(StringRefNull name) const
+{
+  /* Based on emperical testing,  ideo works with 100 nits diffuse white, while
+   * images need 203 nits diffuse whites to show matching results. */
+  const ColorSpace *colorspece = get_color_space(name);
+  if (colorspece->interop_id() == "pq_rec2020_display") {
+    return get_color_space("blender:pq_rec2020_display_203nits");
+  }
+  if (colorspece->interop_id() == "hlg_rec2020_display") {
+    return get_color_space("blender:hlg_rec2020_display_203nits");
+  }
+  return nullptr;
+}
+
+void LibOCIOConfig::initialize_hdr_color_spaces()
+{
+  for (StringRefNull interop_id : {"pq_rec2020_display", "hlg_rec2020_display"}) {
+    const auto *colorspace = static_cast<const LibOCIOColorSpace *>(
+        get_color_space_by_interop_id(interop_id));
+    if (!colorspace || !colorspace->is_display_referred()) {
+      continue;
+    }
+
+    /* Create colorspace that uses 203 nits diffuse white instead of 100 nits. */
+    const auto hdr_100_colorspace = ocio_config_->getColorSpace(colorspace->name().c_str());
+    const auto hdr_colorspace = OCIO_NAMESPACE::ColorSpace::Create(
+        OCIO_NAMESPACE::REFERENCE_SPACE_DISPLAY);
+    const auto group = OCIO_NAMESPACE::GroupTransform::Create();
+
+    hdr_colorspace->setName(("blender:" + interop_id + "_203nits").c_str());
+
+    const auto to_203_nits = OCIO_NAMESPACE::MatrixTransform::Create();
+    to_203_nits->setMatrix(double4x4(double3x3::diagonal(203.0 / 100.0)).base_ptr());
+    group->appendTransform(to_203_nits);
+
+    const auto to_display = hdr_100_colorspace
+                                ->getTransform(OCIO_NAMESPACE::COLORSPACE_DIR_FROM_REFERENCE)
+                                ->createEditableCopy();
+    group->appendTransform(to_display);
+
+    hdr_colorspace->setTransform(group, OCIO_NAMESPACE::COLORSPACE_DIR_FROM_REFERENCE);
+
+    OCIO_NAMESPACE::Config *mutable_ocio_config = const_cast<OCIO_NAMESPACE::Config *>(
+        ocio_config_.get());
+    mutable_ocio_config->addColorSpace(hdr_colorspace);
+
+    inactive_color_spaces_.append_as(inactive_color_spaces_.size(), ocio_config_, hdr_colorspace);
+  }
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Working space API
+ * \{ */
+
+void LibOCIOConfig::set_scene_linear_role(StringRefNull name)
+{
+  if (ocio_config_->getRoleColorSpace(OCIO_NAMESPACE::ROLE_SCENE_LINEAR) == name) {
+    return;
+  }
+
+  /* This is a bad const cast, but seems to work ok, and reloading the whole config is
+   * something we don't support yet. When we do this could be changed. */
+  OCIO_NAMESPACE::Config *mutable_ocio_config = const_cast<OCIO_NAMESPACE::Config *>(
+      ocio_config_.get());
+  mutable_ocio_config->setRole(OCIO_NAMESPACE::ROLE_SCENE_LINEAR, name.c_str());
+
+  for (LibOCIOColorSpace &color_space : color_spaces_) {
+    color_space.clear_caches();
+  }
+  for (LibOCIOColorSpace &color_space : inactive_color_spaces_) {
+    color_space.clear_caches();
+  }
+  for (LibOCIODisplay &display : displays_) {
+    display.clear_caches();
+  }
+  gpu_shader_binder_.clear_caches();
 }
 
 /** \} */

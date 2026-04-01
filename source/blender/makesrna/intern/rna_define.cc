@@ -15,7 +15,6 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "BLI_utildefines.h"
 #include "MEM_guardedalloc.h"
 
 #include "DNA_defaults.h"
@@ -27,6 +26,9 @@
 #include "BLI_listbase.h"
 #include "BLI_math_bits.h"
 #include "BLI_string.h"
+#include "BLI_utildefines.h"
+
+#include "BKE_blender_version.h" /* For #BLENDER_VERSION deprecation warnings. */
 
 #include "BLT_translation.hh"
 
@@ -598,7 +600,7 @@ void RNA_identifier_sanitize(char *identifier, int property)
 {
   int a = 0;
 
-  /*  list from http://docs.python.org/py3k/reference/lexical_analysis.html#keywords */
+  /* List from: http://docs.python.org/py3k/reference/lexical_analysis.html#keywords */
   static const char *kwlist[] = {
       /* "False", "None", "True", */
       "and",    "as",     "assert", "break",   "class",    "continue", "def",    "del",
@@ -1477,6 +1479,7 @@ PropertyRNA *RNA_def_property(StructOrFunctionRNA *cont_,
   prop->subtype = PropertySubType(subtype);
   prop->name = identifier;
   prop->description = "";
+  prop->deprecated = nullptr;
   prop->translation_context = BLT_I18NCONTEXT_DEFAULT_BPYRNA;
   /* a priori not raw editable */
   prop->rawtype = RawPropertyType(-1);
@@ -1566,7 +1569,29 @@ PropertyRNA *RNA_def_property(StructOrFunctionRNA *cont_,
 
 void RNA_def_property_flag(PropertyRNA *prop, PropertyFlag flag)
 {
+  switch (prop->type) {
+    case PROP_ENUM: {
+      /* In some cases the flag will have been set, ignore that case. */
+      if ((flag & PROP_ENUM_FLAG) && (prop->flag & PROP_ENUM_FLAG) == 0) {
+        EnumPropertyRNA *eprop = (EnumPropertyRNA *)prop;
+        if (eprop->item) {
+          StructRNA *srna = DefRNA.laststruct;
+          CLOG_ERROR(&LOG,
+                     "\"%s.%s\", PROP_ENUM_FLAG must be set before setting items",
+                     srna->identifier,
+                     prop->identifier);
+          DefRNA.error = true;
+        }
+      }
+    }
+    default:
+      break;
+  }
+
   prop->flag |= flag;
+  if (flag & PROP_ID_REFCOUNT) {
+    prop->flag_internal |= PROP_INTERN_PTR_ID_REFCOUNT_FORCED;
+  }
 }
 
 void RNA_def_property_clear_flag(PropertyRNA *prop, PropertyFlag flag)
@@ -1574,6 +1599,9 @@ void RNA_def_property_clear_flag(PropertyRNA *prop, PropertyFlag flag)
   prop->flag &= ~flag;
   if (flag & PROP_PTR_NO_OWNERSHIP) {
     prop->flag_internal |= PROP_INTERN_PTR_OWNERSHIP_FORCED;
+  }
+  if (flag & PROP_ID_REFCOUNT) {
+    prop->flag_internal |= PROP_INTERN_PTR_ID_REFCOUNT_FORCED;
   }
 }
 
@@ -1747,6 +1775,47 @@ void RNA_def_property_ui_text(PropertyRNA *prop, const char *name, const char *d
 {
   prop->name = name;
   prop->description = description;
+}
+
+void RNA_def_property_deprecated(PropertyRNA *prop,
+                                 const char *note,
+                                 const short version,
+                                 const short removal_version)
+{
+  if (!DefRNA.preprocess) {
+    fprintf(stderr, "%s: \"%s\": only during preprocessing.", __func__, prop->identifier);
+    return;
+  }
+
+#ifndef RNA_RUNTIME
+  StructRNA *srna = DefRNA.laststruct;
+  BLI_assert(prop->deprecated == nullptr);
+  BLI_assert(note != nullptr);
+  BLI_assert(version > 0);
+  BLI_assert(removal_version > version);
+
+  /* This message is to alert developers of deprecation
+   * without breaking the build after a version bump. */
+  if (removal_version <= BLENDER_VERSION) {
+    fprintf(stderr,
+            "\nWARNING: \"%s.%s\" deprecation starting at %d.%d marks this property to be removed "
+            "in the current Blender version!\n\n",
+            srna->identifier,
+            prop->identifier,
+            version / 100,
+            version % 100);
+  }
+
+  DeprecatedRNA *deprecated = static_cast<DeprecatedRNA *>(rna_calloc(sizeof(DeprecatedRNA)));
+  deprecated->note = note;
+  deprecated->version = version;
+  deprecated->removal_version = removal_version;
+  prop->deprecated = deprecated;
+#else
+  (void)note;
+  (void)version;
+  (void)removal_version;
+#endif
 }
 
 void RNA_def_property_ui_icon(PropertyRNA *prop, int icon, int consecutive)
@@ -1926,8 +1995,12 @@ void RNA_def_property_struct_runtime(StructOrFunctionRNA *cont, PropertyRNA *pro
         return;
       }
 
-      if (type && (type->flag & STRUCT_ID_REFCOUNT)) {
-        RNA_def_property_flag(prop, PROP_ID_REFCOUNT);
+      if ((prop->flag_internal & PROP_INTERN_PTR_ID_REFCOUNT_FORCED) == 0 && type &&
+          (type->flag & STRUCT_ID_REFCOUNT))
+      {
+        /* Do not use #RNA_def_property_flag, to avoid this automatic flag definition to set
+         * #PROP_INTERN_PTR_ID_REFCOUNT_FORCED. */
+        prop->flag |= PROP_ID_REFCOUNT;
       }
 
       break;
@@ -1971,7 +2044,7 @@ void RNA_def_property_enum_native_type(PropertyRNA *prop, const char *native_enu
 void RNA_def_property_enum_items(PropertyRNA *prop, const EnumPropertyItem *item)
 {
   StructRNA *srna = DefRNA.laststruct;
-  int i, defaultfound = 0;
+  int i, defaultfound = 0, defaultflag = 0;
 
   switch (prop->type) {
     case PROP_ENUM: {
@@ -2062,17 +2135,30 @@ void RNA_def_property_enum_items(PropertyRNA *prop, const EnumPropertyItem *item
             }
           }
 
-          if (item[i].value == eprop->defaultvalue) {
-            defaultfound = 1;
+          if (prop->flag & PROP_ENUM_FLAG) {
+            defaultflag |= item[i].value;
+          }
+          else {
+            if (item[i].value == eprop->defaultvalue) {
+              defaultfound = 1;
+            }
           }
         }
       }
 
-      if (!defaultfound) {
-        for (i = 0; item[i].identifier; i++) {
-          if (item[i].identifier[0]) {
-            eprop->defaultvalue = item[i].value;
-            break;
+      if (prop->flag & PROP_ENUM_FLAG) {
+        /* This may have been initialized from the DNA defaults.
+         * In rare cases the DNA defaults define flags assigned to other RNA properties.
+         * In this case it's necessary to mask the default. */
+        eprop->defaultvalue &= defaultflag;
+      }
+      else {
+        if (!defaultfound) {
+          for (i = 0; item[i].identifier; i++) {
+            if (item[i].identifier[0]) {
+              eprop->defaultvalue = item[i].value;
+              break;
+            }
           }
         }
       }
@@ -2921,17 +3007,6 @@ void RNA_def_property_enum_bitflag_sdna(PropertyRNA *prop,
 
   if (dp) {
     dp->enumbitflags = 1;
-
-#ifndef RNA_RUNTIME
-    int defaultvalue_mask = 0;
-    EnumPropertyRNA *eprop = (EnumPropertyRNA *)prop;
-    for (int i = 0; i < eprop->totitem; i++) {
-      if (eprop->item[i].identifier[0]) {
-        defaultvalue_mask |= eprop->defaultvalue & eprop->item[i].value;
-      }
-    }
-    eprop->defaultvalue = defaultvalue_mask;
-#endif
   }
 }
 
@@ -3237,7 +3312,9 @@ void RNA_def_property_boolean_funcs(PropertyRNA *prop, const char *get, const ch
 
 void RNA_def_property_boolean_funcs_runtime(PropertyRNA *prop,
                                             BooleanPropertyGetFunc getfunc,
-                                            BooleanPropertySetFunc setfunc)
+                                            BooleanPropertySetFunc setfunc,
+                                            BooleanPropertyGetTransformFunc get_transform_fn,
+                                            BooleanPropertySetTransformFunc set_transform_fn)
 {
   BoolPropertyRNA *bprop = (BoolPropertyRNA *)prop;
 
@@ -3256,11 +3333,21 @@ void RNA_def_property_boolean_funcs_runtime(PropertyRNA *prop,
       RNA_def_property_clear_flag(prop, PROP_EDITABLE);
     }
   }
+
+  if (get_transform_fn) {
+    bprop->get_transform = get_transform_fn;
+  }
+  if (set_transform_fn) {
+    bprop->set_transform = set_transform_fn;
+  }
 }
 
-void RNA_def_property_boolean_array_funcs_runtime(PropertyRNA *prop,
-                                                  BooleanArrayPropertyGetFunc getfunc,
-                                                  BooleanArrayPropertySetFunc setfunc)
+void RNA_def_property_boolean_array_funcs_runtime(
+    PropertyRNA *prop,
+    BooleanArrayPropertyGetFunc getfunc,
+    BooleanArrayPropertySetFunc setfunc,
+    BooleanArrayPropertyGetTransformFunc get_transform_fn,
+    BooleanArrayPropertySetTransformFunc set_transform_fn)
 {
   BoolPropertyRNA *bprop = (BoolPropertyRNA *)prop;
 
@@ -3278,6 +3365,13 @@ void RNA_def_property_boolean_array_funcs_runtime(PropertyRNA *prop,
     if (!setfunc) {
       RNA_def_property_clear_flag(prop, PROP_EDITABLE);
     }
+  }
+
+  if (get_transform_fn) {
+    bprop->getarray_transform = get_transform_fn;
+  }
+  if (set_transform_fn) {
+    bprop->setarray_transform = set_transform_fn;
   }
 }
 
@@ -3328,7 +3422,9 @@ void RNA_def_property_int_funcs(PropertyRNA *prop,
 void RNA_def_property_int_funcs_runtime(PropertyRNA *prop,
                                         IntPropertyGetFunc getfunc,
                                         IntPropertySetFunc setfunc,
-                                        IntPropertyRangeFunc rangefunc)
+                                        IntPropertyRangeFunc rangefunc,
+                                        IntPropertyGetTransformFunc get_transform_fn,
+                                        IntPropertySetTransformFunc set_transform_fn)
 {
   IntPropertyRNA *iprop = (IntPropertyRNA *)prop;
 
@@ -3350,12 +3446,21 @@ void RNA_def_property_int_funcs_runtime(PropertyRNA *prop,
       RNA_def_property_clear_flag(prop, PROP_EDITABLE);
     }
   }
+
+  if (get_transform_fn) {
+    iprop->get_transform = get_transform_fn;
+  }
+  if (set_transform_fn) {
+    iprop->set_transform = set_transform_fn;
+  }
 }
 
 void RNA_def_property_int_array_funcs_runtime(PropertyRNA *prop,
                                               IntArrayPropertyGetFunc getfunc,
                                               IntArrayPropertySetFunc setfunc,
-                                              IntPropertyRangeFunc rangefunc)
+                                              IntPropertyRangeFunc rangefunc,
+                                              IntArrayPropertyGetTransformFunc get_transform_fn,
+                                              IntArrayPropertySetTransformFunc set_transform_fn)
 {
   IntPropertyRNA *iprop = (IntPropertyRNA *)prop;
 
@@ -3376,6 +3481,13 @@ void RNA_def_property_int_array_funcs_runtime(PropertyRNA *prop,
     if (!setfunc) {
       RNA_def_property_clear_flag(prop, PROP_EDITABLE);
     }
+  }
+
+  if (get_transform_fn) {
+    iprop->getarray_transform = get_transform_fn;
+  }
+  if (set_transform_fn) {
+    iprop->setarray_transform = set_transform_fn;
   }
 }
 
@@ -3426,7 +3538,9 @@ void RNA_def_property_float_funcs(PropertyRNA *prop,
 void RNA_def_property_float_funcs_runtime(PropertyRNA *prop,
                                           FloatPropertyGetFunc getfunc,
                                           FloatPropertySetFunc setfunc,
-                                          FloatPropertyRangeFunc rangefunc)
+                                          FloatPropertyRangeFunc rangefunc,
+                                          FloatPropertyGetTransformFunc get_transform_fn,
+                                          FloatPropertySetTransformFunc set_transform_fn)
 {
   FloatPropertyRNA *fprop = (FloatPropertyRNA *)prop;
 
@@ -3448,12 +3562,22 @@ void RNA_def_property_float_funcs_runtime(PropertyRNA *prop,
       RNA_def_property_clear_flag(prop, PROP_EDITABLE);
     }
   }
+
+  if (get_transform_fn) {
+    fprop->get_transform = get_transform_fn;
+  }
+  if (set_transform_fn) {
+    fprop->set_transform = set_transform_fn;
+  }
 }
 
-void RNA_def_property_float_array_funcs_runtime(PropertyRNA *prop,
-                                                FloatArrayPropertyGetFunc getfunc,
-                                                FloatArrayPropertySetFunc setfunc,
-                                                FloatPropertyRangeFunc rangefunc)
+void RNA_def_property_float_array_funcs_runtime(
+    PropertyRNA *prop,
+    FloatArrayPropertyGetFunc getfunc,
+    FloatArrayPropertySetFunc setfunc,
+    FloatPropertyRangeFunc rangefunc,
+    FloatArrayPropertyGetTransformFunc get_transform_fn,
+    FloatArrayPropertySetTransformFunc set_transform_fn)
 {
   FloatPropertyRNA *fprop = (FloatPropertyRNA *)prop;
 
@@ -3474,6 +3598,13 @@ void RNA_def_property_float_array_funcs_runtime(PropertyRNA *prop,
     if (!setfunc) {
       RNA_def_property_clear_flag(prop, PROP_EDITABLE);
     }
+  }
+
+  if (get_transform_fn) {
+    fprop->getarray_transform = get_transform_fn;
+  }
+  if (set_transform_fn) {
+    fprop->setarray_transform = set_transform_fn;
   }
 }
 
@@ -3514,7 +3645,9 @@ void RNA_def_property_enum_funcs(PropertyRNA *prop,
 void RNA_def_property_enum_funcs_runtime(PropertyRNA *prop,
                                          EnumPropertyGetFunc getfunc,
                                          EnumPropertySetFunc setfunc,
-                                         EnumPropertyItemFunc itemfunc)
+                                         EnumPropertyItemFunc itemfunc,
+                                         EnumPropertyGetTransformFunc get_transform_fn,
+                                         EnumPropertySetTransformFunc set_transform_fn)
 {
   EnumPropertyRNA *eprop = (EnumPropertyRNA *)prop;
 
@@ -3535,6 +3668,13 @@ void RNA_def_property_enum_funcs_runtime(PropertyRNA *prop,
     if (!setfunc) {
       RNA_def_property_clear_flag(prop, PROP_EDITABLE);
     }
+  }
+
+  if (get_transform_fn) {
+    eprop->get_transform = get_transform_fn;
+  }
+  if (set_transform_fn) {
+    eprop->set_transform = set_transform_fn;
   }
 }
 
@@ -3624,7 +3764,9 @@ void RNA_def_property_string_filepath_filter_func(PropertyRNA *prop, const char 
 void RNA_def_property_string_funcs_runtime(PropertyRNA *prop,
                                            StringPropertyGetFunc getfunc,
                                            StringPropertyLengthFunc lengthfunc,
-                                           StringPropertySetFunc setfunc)
+                                           StringPropertySetFunc setfunc,
+                                           StringPropertyGetTransformFunc get_transform_fn,
+                                           StringPropertySetTransformFunc set_transform_fn)
 {
   StringPropertyRNA *sprop = (StringPropertyRNA *)prop;
 
@@ -3645,6 +3787,13 @@ void RNA_def_property_string_funcs_runtime(PropertyRNA *prop,
     if (!setfunc) {
       RNA_def_property_clear_flag(prop, PROP_EDITABLE);
     }
+  }
+
+  if (get_transform_fn) {
+    sprop->get_transform = get_transform_fn;
+  }
+  if (set_transform_fn) {
+    sprop->set_transform = set_transform_fn;
   }
 }
 
@@ -5081,6 +5230,9 @@ void RNA_def_property_free_pointers(PropertyRNA *prop)
     }
     if (prop->py_data) {
       MEM_freeN(prop->py_data);
+    }
+    if (prop->deprecated) {
+      MEM_freeN(prop->deprecated);
     }
 
     switch (prop->type) {

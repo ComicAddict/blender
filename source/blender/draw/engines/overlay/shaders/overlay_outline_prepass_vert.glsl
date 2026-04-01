@@ -2,7 +2,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#include "infos/overlay_outline_info.hh"
+#include "infos/overlay_outline_infos.hh"
 
 VERTEX_SHADER_CREATE_INFO(overlay_outline_prepass_mesh)
 
@@ -35,9 +35,6 @@ void main()
   float3 world_pos = drw_point_object_to_world(pos);
 
   gl_Position = drw_point_world_to_homogenous(world_pos);
-#ifdef USE_GEOM
-  vert.pos = drw_point_world_to_view(world_pos);
-#endif
 
   /* Small bias to always be on top of the geom. */
   gl_Position.z -= 1e-3f;

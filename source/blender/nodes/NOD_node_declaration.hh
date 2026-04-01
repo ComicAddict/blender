@@ -9,6 +9,7 @@
 #include <type_traits>
 
 #include "BLI_array.hh"
+#include "BLI_map.hh"
 #include "BLI_string_ref.hh"
 #include "BLI_utildefines.h"
 #include "BLI_vector.hh"
@@ -189,6 +190,10 @@ struct CustomSocketDrawParams {
   bNodeSocket &socket;
   PointerRNA node_ptr;
   PointerRNA socket_ptr;
+  StringRefNull label;
+  const Map<const bNode *, const bNode *> *menu_switch_source_by_index_switch = nullptr;
+
+  void draw_standard(uiLayout &layout, std::optional<StringRefNull> label_override = std::nullopt);
 };
 
 using CustomSocketDrawFn = std::function<void(CustomSocketDrawParams &params)>;
@@ -210,7 +215,11 @@ class SocketDeclaration : public ItemDeclaration {
   eNodeSocketInOut in_out;
   /** Socket type that corresponds to this socket declaration. */
   eNodeSocketDatatype socket_type;
-  bool hide_label = false;
+  /**
+   * Indicates that the meaning of the socket values is clear even if the label is not shown. This
+   * can result in cleaner UIs in some cases. The drawing code will still draw the label sometimes.
+   */
+  bool optional_label = false;
   bool hide_value = false;
   bool compact = false;
   bool is_multi_input = false;
@@ -311,7 +320,7 @@ class BaseSocketDeclarationBuilder {
  public:
   virtual ~BaseSocketDeclarationBuilder() = default;
 
-  BaseSocketDeclarationBuilder &hide_label(bool value = true);
+  BaseSocketDeclarationBuilder &optional_label(bool value = true);
 
   BaseSocketDeclarationBuilder &hide_value(bool value = true);
 
@@ -427,6 +436,20 @@ class BaseSocketDeclarationBuilder {
    * when the menu input has a specific value.
    */
   BaseSocketDeclarationBuilder &usage_by_single_menu(const int menu_value);
+
+  /**
+   * Utility method for the case when this socket is only used when the menu input of the given
+   * identifier has a specific value.
+   */
+  BaseSocketDeclarationBuilder &usage_by_menu(const StringRef menu_input_identifier,
+                                              const int menu_value);
+
+  /**
+   * Utility method for the case when this socket is only used when the menu input of the given
+   * identifier has one of the specifies values.
+   */
+  BaseSocketDeclarationBuilder &usage_by_menu(const StringRef menu_input_identifier,
+                                              const Array<int> menu_values);
 
   /**
    * Puts this socket on the same row as the previous socket. This only works when one of them is

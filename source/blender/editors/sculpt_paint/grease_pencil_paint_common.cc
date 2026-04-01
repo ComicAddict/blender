@@ -73,7 +73,7 @@ void init_brush(Brush &brush)
     BKE_brush_init_gpencil_settings(&brush);
   }
   BLI_assert(brush.gpencil_settings != nullptr);
-  BKE_curvemapping_init(brush.curve);
+  BKE_curvemapping_init(brush.curve_distance_falloff);
   BKE_curvemapping_init(brush.gpencil_settings->curve_strength);
   BKE_curvemapping_init(brush.gpencil_settings->curve_sensitivity);
   BKE_curvemapping_init(brush.gpencil_settings->curve_jitter);
@@ -87,7 +87,7 @@ void init_brush(Brush &brush)
 
 float brush_radius(const Paint &paint, const Brush &brush, const float pressure = 1.0f)
 {
-  float radius = BKE_brush_size_get(&paint, &brush);
+  float radius = BKE_brush_radius_get(&paint, &brush);
   if (BKE_brush_use_size_pressure(&brush)) {
     radius *= BKE_curvemapping_evaluateF(brush.gpencil_settings->curve_sensitivity, 0, pressure);
   }

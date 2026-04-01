@@ -144,8 +144,6 @@ struct VKGraphicsInfo {
     VkFormat depth_attachment_format;
     VkFormat stencil_attachment_format;
     Vector<VkFormat> color_attachment_formats;
-    /* Render pass rendering */
-    VkRenderPass vk_render_pass;
 
     bool operator==(const FragmentOut &other) const
     {
@@ -154,7 +152,6 @@ struct VKGraphicsInfo {
 #else
       if (depth_attachment_format != other.depth_attachment_format ||
           stencil_attachment_format != other.stencil_attachment_format ||
-          vk_render_pass != other.vk_render_pass ||
           color_attachment_formats.size() != other.color_attachment_formats.size())
       {
         return false;
@@ -172,8 +169,7 @@ struct VKGraphicsInfo {
 
     uint64_t hash() const
     {
-      uint64_t hash = uint64_t(vk_render_pass);
-      hash = hash * 33 ^ uint64_t(depth_attachment_format);
+      uint64_t hash = uint64_t(depth_attachment_format);
       hash = hash * 33 ^ uint64_t(stencil_attachment_format);
       hash = hash * 33 ^ XXH3_64bits(color_attachment_formats.data(),
                                      color_attachment_formats.size() * sizeof(VkFormat));
@@ -244,7 +240,7 @@ struct VKGraphicsInfo {
  * some platforms where the driver isn't been updated and doesn't implement this extension. In
  * that case shader modules should still be used.
  *
- * TODO: GPUMaterials (or any other large shader) should be unloaded when the GPUShader is
+ * TODO: GPUMaterials (or any other large shader) should be unloaded when the gpu::Shader is
  * destroyed. Exact details what the best approach is unclear as support for EEVEE is still
  * lacking.
  */

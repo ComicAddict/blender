@@ -63,24 +63,6 @@ void ntreeCompositUpdateRLayers(bNodeTree *ntree);
 
 void ntreeCompositClearTags(bNodeTree *ntree);
 
-bNodeSocket *ntreeCompositOutputFileAddSocket(bNodeTree *ntree,
-                                              bNode *node,
-                                              const char *name,
-                                              const ImageFormatData *im_format);
-
-int ntreeCompositOutputFileRemoveActiveSocket(bNodeTree *ntree, bNode *node);
-void ntreeCompositOutputFileSetPath(bNode *node, bNodeSocket *sock, const char *name);
-void ntreeCompositOutputFileSetLayer(bNode *node, bNodeSocket *sock, const char *name);
-/* needed in do_versions */
-void ntreeCompositOutputFileUniquePath(ListBase *list,
-                                       bNodeSocket *sock,
-                                       const char defname[],
-                                       char delim);
-void ntreeCompositOutputFileUniqueLayer(ListBase *list,
-                                        bNodeSocket *sock,
-                                        const char defname[],
-                                        char delim);
-
 void ntreeCompositCryptomatteSyncFromAdd(bNode *node);
 void ntreeCompositCryptomatteSyncFromRemove(bNode *node);
 bNodeSocket *ntreeCompositCryptomatteAddSocket(bNodeTree *ntree, bNode *node);
@@ -101,5 +83,6 @@ compositor::NodeOperation *get_group_input_compositor_operation(compositor::Cont
 compositor::NodeOperation *get_group_output_compositor_operation(compositor::Context &context,
                                                                  DNode node);
 void get_compositor_group_output_extra_info(blender::nodes::NodeExtraInfoParams &parameters);
+void get_compositor_group_input_extra_info(blender::nodes::NodeExtraInfoParams &parameters);
 
 }  // namespace blender::nodes

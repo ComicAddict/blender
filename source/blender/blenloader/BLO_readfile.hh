@@ -145,6 +145,9 @@ struct BlendFileReadReport {
   int resynced_lib_overrides_libraries_count;
   bool do_resynced_lib_overrides_libraries_list;
   LinkNode *resynced_lib_overrides_libraries;
+
+  /** Whether a pre-2.50 blend file was loaded, in which case any animation is lost. */
+  bool pre_animato_file_loaded;
 };
 
 /** Skip reading some data-block types (may want to skip screen data too). */
@@ -375,6 +378,11 @@ enum eBLOLibLinkFlags {
   BLO_LIBLINK_USE_PLACEHOLDERS = 1 << 16,
   /** Force loaded ID to be tagged as #ID_TAG_INDIRECT (used in reload context only). */
   BLO_LIBLINK_FORCE_INDIRECT = 1 << 17,
+  /**
+   * Set the object active when #OB_FLAG_ACTIVE_CLIPBOARD is set.
+   * Used for copy & paste so the active object is preserved.
+   */
+  BLO_LIBLINK_APPEND_SET_OB_ACTIVE_CLIPBOARD = 1 << 18,
   /** Set fake user on appended IDs. */
   BLO_LIBLINK_APPEND_SET_FAKEUSER = 1 << 19,
   /**
@@ -398,6 +406,10 @@ enum eBLOLibLinkFlags {
    * see e.g. #BKE_blendfile_library_relocate.
    */
   BLO_LIBLINK_COLLECTION_NO_HIERARCHY_REBUILD = 1 << 26,
+  /**
+   * Pack the linked data-blocks to keep them working even if the source file is not available.
+   */
+  BLO_LIBLINK_PACK = 1 << 27,
 };
 
 /**
@@ -576,13 +588,13 @@ struct ID_Readfile_Data {
 };
 
 /**
- * Return `id->runtime.readfile_data->tags` if the `readfile_data` is allocated,
+ * Return `id->runtime->readfile_data->tags` if the `readfile_data` is allocated,
  * otherwise return an all-zero set of tags.
  */
 ID_Readfile_Data::Tags BLO_readfile_id_runtime_tags(ID &id);
 
 /**
- * Create the `readfile_data` if needed, and return `id->runtime.readfile_data->tags`.
+ * Create the `readfile_data` if needed, and return `id->runtime->readfile_data->tags`.
  *
  * Use it instead of #BLO_readfile_id_runtime_tags when tags need to be set.
  */

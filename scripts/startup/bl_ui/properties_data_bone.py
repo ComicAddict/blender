@@ -323,17 +323,18 @@ class BONE_PT_display(BoneButtonsPanel, Panel):
         bone = context.bone
 
         col = layout.column()
-        col.prop(bone, "hide", text="Hide", toggle=False)
+        # Figure out the pose bone.
+        ob = context.object
+        pose_bone = ob and ob.pose.bones[bone.name]
         hide_select_sub = col.column()
-        hide_select_sub.active = not bone.hide
+        if pose_bone:
+            col.prop(pose_bone, "hide", text="Hide", toggle=False)
+            hide_select_sub.active = not pose_bone.hide
         hide_select_sub.prop(bone, "hide_select", invert_checkbox=True)
         col.prop(bone, "display_type", text="Display As")
 
-        # Figure out the pose bone.
-        ob = context.object
-        if not ob:
+        if not pose_bone:
             return
-        pose_bone = ob.pose.bones[bone.name]
 
         # Allow the layout to use the space normally occupied by the 'set a key' diamond.
         layout.use_property_decorate = False
@@ -417,6 +418,12 @@ class BONE_PT_display_custom_shape(BoneButtonsPanel, Panel):
             sub.prop(pchan, "custom_shape_scale_xyz", text="Scale")
 
             sub.prop_search(pchan, "custom_shape_transform", ob.pose, "bones", text="Override Transform")
+            subsub = sub.column()
+            subsub.active = bool(pchan and pchan.custom_shape and pchan.custom_shape_transform)
+            subsub.prop(pchan, "use_transform_at_custom_shape")
+            subsubsub = subsub.column()
+            subsubsub.active = subsub.active and pchan.use_transform_at_custom_shape
+            subsubsub.prop(pchan, "use_transform_around_custom_shape")
             sub.prop(pchan, "use_custom_shape_bone_size")
 
             sub.separator()

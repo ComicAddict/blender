@@ -51,7 +51,6 @@ struct UpdateObjectTransformState {
   KernelObject *objects;
   Transform *object_motion_pass;
   DecomposedTransform *object_motion;
-  float *object_volume_step;
 
   /* Flags which will be synchronized to Integrator. */
   bool have_motion;
@@ -227,6 +226,9 @@ void Object::tag_update(Scene *scene)
   if (geometry) {
     if (tfm_is_modified() || motion_is_modified()) {
       flag |= ObjectManager::TRANSFORM_MODIFIED;
+      if (geometry->has_volume) {
+        scene->volume_manager->tag_update(this, flag);
+      }
     }
 
     if (visibility_is_modified()) {
@@ -289,7 +291,20 @@ uint Object::visibility_for_tracing() const
 
 float Object::compute_volume_step_size() const
 {
-  if (geometry->geometry_type != Geometry::MESH && geometry->geometry_type != Geometry::VOLUME) {
+  if (geometry->is_light()) {
+    /* World volume. */
+    assert(static_cast<const Light *>(geometry)->get_light_type() == LIGHT_BACKGROUND);
+    for (const Node *node : geometry->get_used_shaders()) {
+      const Shader *shader = static_cast<const Shader *>(node);
+      if (shader->has_volume) {
+        return shader->get_volume_step_rate();
+      }
+    }
+    assert(false);
+    return FLT_MAX;
+  }
+
+  if (!geometry->is_mesh() && !geometry->is_volume()) {
     return FLT_MAX;
   }
 
@@ -305,9 +320,7 @@ float Object::compute_volume_step_size() const
   for (Node *node : mesh->get_used_shaders()) {
     Shader *shader = static_cast<Shader *>(node);
     if (shader->has_volume) {
-      if ((shader->get_heterogeneous_volume() && shader->has_volume_spatial_varying) ||
-          (shader->has_volume_attribute_dependency))
-      {
+      if (shader->has_volume_spatial_varying || shader->has_volume_attribute_dependency) {
         step_rate = fminf(shader->get_volume_step_rate(), step_rate);
       }
     }
@@ -616,7 +629,6 @@ void ObjectManager::device_update_object_transform(UpdateObjectTransformState *s
     flag |= SD_OBJECT_HOLDOUT_MASK;
   }
   state->object_flag[ob->index] = flag;
-  state->object_volume_step[ob->index] = FLT_MAX;
 
   /* Have curves. */
   if (geom->is_hair()) {
@@ -685,7 +697,6 @@ void ObjectManager::device_update_transforms(DeviceScene *dscene, Scene *scene, 
 
   state.objects = dscene->objects.alloc(scene->objects.size());
   state.object_flag = dscene->object_flag.alloc(scene->objects.size());
-  state.object_volume_step = dscene->object_volume_step.alloc(scene->objects.size());
   state.object_motion = nullptr;
   state.object_motion_pass = nullptr;
 
@@ -769,7 +780,11 @@ void ObjectManager::device_update(Device *device,
     dscene->object_motion_pass.tag_realloc();
     dscene->object_motion.tag_realloc();
     dscene->object_flag.tag_realloc();
-    dscene->object_volume_step.tag_realloc();
+    dscene->volume_step_size.tag_realloc();
+
+    /* If objects are added to the scene or deleted, the object indices might change, so we need to
+     * update the root indices of the volume octrees. */
+    scene->volume_manager->tag_update_indices();
   }
 
   if (update_flags & HOLDOUT_MODIFIED) {
@@ -807,7 +822,17 @@ void ObjectManager::device_update(Device *device,
         dscene->object_motion_pass.tag_modified();
         dscene->object_motion.tag_modified();
         dscene->object_flag.tag_modified();
-        dscene->object_volume_step.tag_modified();
+        dscene->volume_step_size.tag_modified();
+      }
+
+      /* Update world object index. */
+      if (!object->get_geometry()->is_light()) {
+        continue;
+      }
+
+      const Light *light = static_cast<const Light *>(object->get_geometry());
+      if (light->get_light_type() == LIGHT_BACKGROUND) {
+        dscene->data.background.object_index = object->index;
       }
     }
   }
@@ -862,7 +887,6 @@ void ObjectManager::device_update_flags(Device * /*unused*/,
 
   /* Object info flag. */
   uint *object_flag = dscene->object_flag.data();
-  float *object_volume_step = dscene->object_volume_step.data();
 
   /* Object volume intersection. */
   vector<Object *> volume_objects;
@@ -874,15 +898,8 @@ void ObjectManager::device_update_flags(Device * /*unused*/,
        * step size until the final bounds are known. */
       if (bounds_valid) {
         volume_objects.push_back(object);
-        object_volume_step[object->index] = object->compute_volume_step_size();
-      }
-      else {
-        object_volume_step[object->index] = FLT_MAX;
       }
       has_volume_objects = true;
-    }
-    else {
-      object_volume_step[object->index] = FLT_MAX;
     }
   }
 
@@ -931,10 +948,7 @@ void ObjectManager::device_update_flags(Device * /*unused*/,
 
   /* Copy object flag. */
   dscene->object_flag.copy_to_device();
-  dscene->object_volume_step.copy_to_device();
-
   dscene->object_flag.clear_modified();
-  dscene->object_volume_step.clear_modified();
 }
 
 void ObjectManager::device_update_geom_offsets(Device * /*unused*/,
@@ -984,7 +998,6 @@ void ObjectManager::device_free(Device * /*unused*/, DeviceScene *dscene, bool f
   dscene->object_motion_pass.free_if_need_realloc(force_free);
   dscene->object_motion.free_if_need_realloc(force_free);
   dscene->object_flag.free_if_need_realloc(force_free);
-  dscene->object_volume_step.free_if_need_realloc(force_free);
   dscene->object_prim_offset.free_if_need_realloc(force_free);
 }
 

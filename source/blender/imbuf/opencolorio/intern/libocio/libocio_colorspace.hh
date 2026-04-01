@@ -22,9 +22,10 @@ class LibOCIOColorSpace : public ColorSpace {
   OCIO_NAMESPACE::ConstColorSpaceRcPtr ocio_color_space_;
 
   std::string clean_description_;
+  StringRefNull interop_id_;
   bool is_invertible_ = false;
 
-  /*  Mutable because they are lazily initialized and cached from the is_scene_linear() and
+  /* Mutable because they are lazily initialized and cached from the is_scene_linear() and
    * is_srgb(). */
   mutable bool is_info_cached_ = false;
   mutable bool is_scene_linear_ = false;
@@ -48,6 +49,11 @@ class LibOCIOColorSpace : public ColorSpace {
     return clean_description_;
   }
 
+  StringRefNull interop_id() const override
+  {
+    return interop_id_;
+  }
+
   bool is_invertible() const override
   {
     return is_invertible_;
@@ -61,8 +67,15 @@ class LibOCIOColorSpace : public ColorSpace {
     return ocio_color_space_->isData();
   }
 
+  bool is_display_referred() const override
+  {
+    return ocio_color_space_->getReferenceSpaceType() == OCIO_NAMESPACE::REFERENCE_SPACE_DISPLAY;
+  }
+
   const CPUProcessor *get_to_scene_linear_cpu_processor() const override;
   const CPUProcessor *get_from_scene_linear_cpu_processor() const override;
+
+  void clear_caches();
 
   MEM_CXX_CLASS_ALLOC_FUNCS("LibOCIOColorSpace");
 

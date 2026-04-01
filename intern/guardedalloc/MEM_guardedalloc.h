@@ -340,6 +340,13 @@ void MEM_use_guarded_allocator(void);
  *
  * \{ */
 
+namespace mem_guarded::internal {
+/* Note that we intentionally don't care about a non-trivial default constructor here. */
+template<typename T>
+constexpr bool is_trivial_after_construction = std::is_trivially_copyable_v<T> &&
+                                               std::is_trivially_destructible_v<T>;
+}  // namespace mem_guarded::internal
+
 /**
  * Allocate new memory for an object of type #T, and construct it.
  * #MEM_delete must be used to delete the object. Calling #MEM_freeN on it is illegal.
@@ -363,6 +370,46 @@ inline T *MEM_new(const char *allocation_name, Args &&...args)
 }
 
 /**
+ * Allocate new memory for an object of type #T, and construct it with its default constructor.
+ * Both #MEM_delete and #MEM_freeN can be used to delete the object.
+ *
+ * Designed to be used with 'pseudo-POD' types, that are trivially copyable and destructible, but
+ * not trivially constructible. Once constructed, this data can be managed as a C-type one (using
+ * `MEM_dupallocN`, `MEM_freeN`, safely assigned to a void pointer and freed as such, etc.).
+ *
+ * The typical use-cases are C-like structs containing only trivial data, that define default
+ * values for (some of) their members.
+ *
+ * \note This function uses 'default initialization' on zero-initialized memory, _not_ 'value
+ * initialization'. This means that even if a user-defined default constructor is provided,
+ * non-explicitly initialized data will be zero-initialized. For POD types (e.g. pure C-style
+ * structs), its behavior is functionally identical to using `MEM_callocN<T>()`.
+ *
+ * \warning This function is intended as a temporary work-around during the process of converting
+ * Blender data management from C-style (alloc/free) to C++-style (new/delete). It will be removed
+ * once not needed anymore (i.e. mainly when there is no more need to dupalloc and free untyped
+ * data stored in void pointers).
+ */
+template<typename T> inline T *MEM_new_for_free(const char *allocation_name)
+{
+  static_assert(mem_guarded::internal::is_trivial_after_construction<T>,
+                "MEM_new_for_free can only construct types that are trivially copyable and "
+                "destructible, use MEM_new instead.");
+  void *buffer;
+  /* There is no lower level #calloc with an alignment parameter, so unless the alignment is less
+   * than or equal to what we'd get by default, we have to fall back to #memset unfortunately. */
+  if (alignof(T) <= MEM_MIN_CPP_ALIGNMENT) {
+    buffer = MEM_callocN(sizeof(T), allocation_name);
+  }
+  else {
+    buffer = mem_guarded::internal::mem_mallocN_aligned_ex(
+        sizeof(T), alignof(T), allocation_name, mem_guarded::internal::AllocationType::ALLOC_FREE);
+    memset(buffer, 0, sizeof(T));
+  }
+  return new (buffer) T;
+}
+
+/**
  * Destruct and deallocate an object previously allocated and constructed with #MEM_new, or some
  * type-overloaded `new` operators using MEM_guardedalloc as backend.
  *
@@ -379,9 +426,23 @@ template<typename T> inline void MEM_delete(const T *ptr)
   if (ptr == nullptr) {
     return;
   }
+  const void *complete_ptr = [ptr]() {
+    if constexpr (std::is_polymorphic_v<T>) {
+      /* Polymorphic objects lifetime can be managed with pointers to their most derived type or
+       * with pointers to any of their ancestor types in their hierarchy tree that define a virtual
+       * destructor, however ancestor pointers may differ in a offset from the same derived object.
+       * For freeing the correct memory allocated with #MEM_new, we need to ensure that the given
+       * pointer is equal to the pointer to the most derived object, which can be obtained with
+       * `dynamic_cast<void *>(ptr)`. */
+      return dynamic_cast<const void *>(ptr);
+    }
+    else {
+      return static_cast<const void *>(ptr);
+    }
+  }();
   /* C++ allows destruction of `const` objects, so the pointer is allowed to be `const`. */
   ptr->~T();
-  mem_guarded::internal::mem_freeN_ex(const_cast<T *>(ptr),
+  mem_guarded::internal::mem_freeN_ex(const_cast<void *>(complete_ptr),
                                       mem_guarded::internal::AllocationType::NEW_DELETE);
 }
 
@@ -564,10 +625,13 @@ template<typename T> inline T *MEM_malloc_arrayN(const size_t length, const char
 template<typename T> inline T *MEM_dupallocN(const char *allocation_name, const T &other)
 {
 #  ifdef _MSC_VER
-  static_assert(std::is_trivially_constructible_v<T>,
-                "For non-trivial types, MEM_new must be used.");
+  static_assert(std::is_trivially_assignable_v<T &, T> && std::is_trivially_destructible_v<T>,
+                "MEM_dupallocN can only duplicate types that are trivially copyable and "
+                "destructible, use MEM_new instead.");
 #  else
-  static_assert(std::is_trivial_v<T>, "For non-trivial types, MEM_new must be used.");
+  static_assert(mem_guarded::internal::is_trivial_after_construction<T>,
+                "MEM_dupallocN can only duplicate types that are trivially copyable and "
+                "destructible, use MEM_new instead.");
 #  endif
   T *new_object = static_cast<T *>(MEM_mallocN_aligned(sizeof(T), alignof(T), allocation_name));
   if (new_object) {
@@ -580,9 +644,12 @@ template<typename T> inline void MEM_freeN(T *ptr)
 {
 #  ifdef _MSC_VER
   static_assert(std::is_trivially_destructible_v<T>,
-                "For non-trivial types, MEM_delete must be used.");
+                "MEM_freeN can only free types that are trivially copyable and destructible, use "
+                "MEM_delete instead.");
 #  else
-  static_assert(std::is_trivial_v<T>, "For non-trivial types, MEM_delete must be used.");
+  static_assert(mem_guarded::internal::is_trivial_after_construction<T>,
+                "MEM_freeN can only free types that are trivially copyable and destructible, use "
+                "MEM_delete instead.");
 #  endif
   mem_guarded::internal::mem_freeN_ex(const_cast<void *>(static_cast<const void *>(ptr)),
                                       mem_guarded::internal::AllocationType::ALLOC_FREE);

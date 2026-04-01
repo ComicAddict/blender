@@ -36,6 +36,19 @@ class FallbackColorSpace : public ColorSpace {
   {
     return "";
   }
+  StringRefNull interop_id() const override
+  {
+    switch (type_) {
+      case Type::LINEAR:
+        return "lin_rec709_scene";
+      case Type::SRGB:
+        return "srgb_rec709_display";
+      case Type::DATA:
+        return "data";
+    }
+
+    return "";
+  }
 
   bool is_invertible() const override
   {
@@ -54,6 +67,11 @@ class FallbackColorSpace : public ColorSpace {
   bool is_data() const override
   {
     return type_ == Type::DATA;
+  }
+
+  bool is_display_referred() const override
+  {
+    return type_ == Type::SRGB;
   }
 
   const CPUProcessor *get_to_scene_linear_cpu_processor() const override

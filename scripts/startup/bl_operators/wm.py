@@ -1243,6 +1243,9 @@ def _wm_doc_get_id(doc_id, *, do_url=True, url_prefix="", report=None):
                 rna_class = bpy.types.PropertyGroup.bl_rna_get_subclass_py(class_name)
 
             if rna_class is None:
+                rna_class = bpy.types.AddonPreferences.bl_rna_get_subclass_py(class_name)
+
+            if rna_class is None:
                 if report is not None:
                     report({'ERROR'}, rpt_("Type \"{:s}\" cannot be found").format(class_name))
                 return None
@@ -2912,7 +2915,7 @@ class WM_OT_batch_rename(Operator):
             'CURVE': ("curves", iface_("Curve(s)"), bpy.types.Curve),
             'META': ("metaballs", iface_("Metaball(s)"), bpy.types.MetaBall),
             'VOLUME': ("volumes", iface_("Volume(s)"), bpy.types.Volume),
-            'GREASEPENCIL': ("grease_pencils_v3", iface_("Grease Pencil(s)"), bpy.types.GreasePencilv3),
+            'GREASEPENCIL': ("grease_pencils", iface_("Grease Pencil(s)"), bpy.types.GreasePencil),
             'ARMATURE': ("armatures", iface_("Armature(s)"), bpy.types.Armature),
             'LATTICE': ("lattices", iface_("Lattice(s)"), bpy.types.Lattice),
             'LIGHT': ("lights", iface_("Light(s)"), bpy.types.Light),
@@ -3419,21 +3422,29 @@ class WM_MT_splash(Menu):
         col2 = split.column()
         col2_title = col2.row()
 
-        found_recent = col2.template_recent_files()
+        found_recent = col2.template_recent_files(rows=5)
 
         if found_recent:
             col2_title.label(text="Recent Files")
+
+            col_more = col2.column()
+            col_more.operator_context = 'INVOKE_DEFAULT'
+            more_props = col_more.operator("wm.search_single_menu", text="More...", icon='VIEWZOOM')
+            more_props.menu_idname = "TOPBAR_MT_file_open_recent"
         else:
             # Links if no recent files.
             col2_title.label(text="Getting Started")
 
             col2.operator("wm.url_open_preset", text="Manual", icon='URL').type = 'MANUAL'
-            col2.operator("wm.url_open", text="Tutorials", icon='URL').url = "https://www.blender.org/tutorials/"
             col2.operator("wm.url_open", text="Support", icon='URL').url = "https://www.blender.org/support/"
             col2.operator("wm.url_open", text="User Communities", icon='URL').url = "https://www.blender.org/community/"
+            col2.operator("wm.url_open", text="Get Involved", icon='URL').url = "https://www.blender.org/get-involved/"
             col2.operator("wm.url_open_preset", text="Blender Website", icon='URL').type = 'BLENDER'
 
-        layout.separator()
+        col_sep = layout.column()
+        col_sep.separator()
+        col_sep.separator(type='LINE')
+        col_sep.separator()
 
         split = layout.split()
 
@@ -3445,8 +3456,8 @@ class WM_MT_splash(Menu):
 
         col2 = split.column()
 
-        col2.operator("wm.url_open_preset", text="Donate", icon='FUND').type = 'FUND'
         col2.operator("wm.url_open_preset", text="What's New", icon='URL').type = 'RELEASE_NOTES'
+        col2.operator("wm.url_open_preset", text="Donate to Blender", icon='FUND').type = 'FUND'
 
         layout.separator()
 
@@ -3553,6 +3564,10 @@ class WM_MT_region_toggle_pie(Menu):
                 continue
             # In some cases channels exists but can't be toggled.
             assert hasattr(space_data, attr)
+
+            if space_data.is_property_readonly(attr):
+                continue
+
             # Technically possible these double-up, in practice this should never happen.
             if region_type in region_by_type:
                 print("{:s}: Unexpected double-up of region types {!r}".format(cls.__name__, region_type))

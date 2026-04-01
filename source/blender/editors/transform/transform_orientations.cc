@@ -665,6 +665,7 @@ short calc_orientation_from_type_ex(const Scene *scene,
       if (ob) {
         if (ob->mode & OB_MODE_POSE) {
           const bPoseChannel *pchan = BKE_pose_channel_active_if_bonecoll_visible(ob);
+
           if (pchan && gimbal_axis_pose(ob, pchan, r_mat)) {
             break;
           }
@@ -792,12 +793,12 @@ short transform_orientation_matrix_get(bContext *C,
     }
   }
 
-  short r_orient_index = calc_orientation_from_type_ex(
+  const short orient_index_result = calc_orientation_from_type_ex(
       scene, t->view_layer, v3d, rv3d, ob, obedit, orient_index, t->around, r_spacemtx);
 
   if (rv3d && (t->options & CTX_PAINT_CURVE)) {
     /* Screen space in the 3d region. */
-    if (r_orient_index == V3D_ORIENT_VIEW) {
+    if (orient_index_result == V3D_ORIENT_VIEW) {
       unit_m3(r_spacemtx);
     }
     else {
@@ -806,7 +807,7 @@ short transform_orientation_matrix_get(bContext *C,
     }
   }
 
-  return r_orient_index;
+  return orient_index_result;
 }
 
 const char *transform_orientations_spacename_get(TransInfo *t, const short orient_type)
@@ -1371,7 +1372,7 @@ int getTransformOrientation_ex(const Scene *scene,
         zero_v3(fallback_plane);
 
         LISTBASE_FOREACH (EditBone *, ebone, arm->edbo) {
-          if (blender::animrig::bone_is_visible_editbone(arm, ebone)) {
+          if (blender::animrig::bone_is_visible(arm, ebone)) {
             if (ebone->flag & BONE_SELECTED) {
               ED_armature_ebone_to_mat3(ebone, tmat);
               add_v3_v3(r_normal, tmat[2]);
@@ -1428,8 +1429,11 @@ int getTransformOrientation_ex(const Scene *scene,
     bool ok = false;
 
     if (activeOnly && (pchan = BKE_pose_channel_active_if_bonecoll_visible(ob))) {
-      add_v3_v3(r_normal, pchan->pose_mat[2]);
-      add_v3_v3(r_plane, pchan->pose_mat[1]);
+      float pose_mat[3][3];
+      BKE_pose_channel_transform_orientation(arm, pchan, pose_mat);
+
+      add_v3_v3(r_normal, pose_mat[2]);
+      add_v3_v3(r_plane, pose_mat[1]);
       ok = true;
     }
     else {
@@ -1439,8 +1443,11 @@ int getTransformOrientation_ex(const Scene *scene,
         /* Use channels to get stats. */
         LISTBASE_FOREACH (bPoseChannel *, pchan, &ob->pose->chanbase) {
           if (pchan->bone && pchan->bone->flag & BONE_TRANSFORM) {
-            add_v3_v3(r_normal, pchan->pose_mat[2]);
-            add_v3_v3(r_plane, pchan->pose_mat[1]);
+            float pose_mat[3][3];
+            BKE_pose_channel_transform_orientation(arm, pchan, pose_mat);
+
+            add_v3_v3(r_normal, pose_mat[2]);
+            add_v3_v3(r_plane, pose_mat[1]);
           }
         }
         ok = true;

@@ -43,6 +43,7 @@
 #include "BKE_curveprofile.h"
 #include "BKE_movieclip.h"
 #include "BKE_paint.hh"
+#include "BKE_paint_types.hh"
 #include "BKE_report.hh"
 #include "BKE_scene.hh"
 #include "BKE_screen.hh"
@@ -70,6 +71,8 @@
 #include "RNA_access.hh"
 #include "RNA_prototypes.hh"
 
+#include "CLG_log.h"
+
 #include "WM_api.hh"
 #include "WM_types.hh"
 #include "wm_event_system.hh"
@@ -79,6 +82,8 @@
 #endif
 
 using blender::StringRef;
+
+static CLG_LogRef LOG = {"ui.handler"};
 
 /* -------------------------------------------------------------------- */
 /** \name Feature Defines
@@ -740,11 +745,42 @@ static bool ui_rna_is_userdef(PointerRNA *ptr, PropertyRNA *prop)
   if (base == nullptr) {
     base = ptr->type;
   }
-  return ELEM(base,
-              &RNA_AddonPreferences,
-              &RNA_KeyConfigPreferences,
-              &RNA_KeyMapItem,
-              &RNA_UserAssetLibrary);
+
+  bool is_userdef = false;
+  if (ELEM(base,
+           &RNA_AddonPreferences,
+           &RNA_KeyConfigPreferences,
+           &RNA_KeyMapItem,
+           &RNA_UserAssetLibrary))
+  {
+    is_userdef = true;
+  }
+  else if (ptr->owner_id) {
+    switch (GS(ptr->owner_id->name)) {
+      case ID_WM: {
+        for (const AncestorPointerRNA &ancestor : ptr->ancestors) {
+          if (RNA_struct_is_a(ancestor.type, &RNA_KeyConfigPreferences)) {
+            is_userdef = true;
+            break;
+          }
+        }
+        break;
+      }
+      default: {
+        break;
+      }
+    }
+  }
+  else if (ptr->owner_id == nullptr) {
+    for (const AncestorPointerRNA &ancestor : ptr->ancestors) {
+      if (RNA_struct_is_a(ancestor.type, &RNA_AddonPreferences)) {
+        is_userdef = true;
+        break;
+      }
+    }
+  }
+
+  return is_userdef;
 }
 
 bool UI_but_is_userdef(const uiBut *but)
@@ -1576,7 +1612,7 @@ static void ui_multibut_states_apply(bContext *C, uiHandleButtonData *data, uiBl
 
     if (mbut_state == nullptr) {
       /* Highly unlikely. */
-      printf("%s: Can't find button\n", __func__);
+      CLOG_WARN(&LOG, "%s: Can't find button", __func__);
       /* While this avoids crashing, multi-button dragging will fail,
        * which is still a bug from the user perspective. See #83651. */
       continue;
@@ -1647,11 +1683,8 @@ static bool ui_drag_toggle_but_is_supported(const uiBut *but)
     return true;
   }
   if (UI_but_is_decorator(but)) {
-    return ELEM(but->icon,
-                ICON_DECORATE,
-                ICON_DECORATE_KEYFRAME,
-                ICON_DECORATE_ANIMATE,
-                ICON_DECORATE_OVERRIDE);
+    const uiButDecorator *but_decorate = static_cast<const uiButDecorator *>(but);
+    return but_decorate->toggle_keyframe_on_click;
   }
   return false;
 }
@@ -3606,7 +3639,7 @@ static void ui_textedit_end(bContext *C, uiBut *but, uiHandleButtonData *data)
        * This could check could be made into an assertion if `but->editstr`
        * is valid UTF8 when #ui_textedit_begin assigns the string. */
       if (strip) {
-        printf("%s: invalid utf8 - stripped chars %d\n", __func__, strip);
+        CLOG_INFO_NOCHECK(&LOG, "%s: invalid utf8 - stripped chars %d", __func__, strip);
       }
     }
 
@@ -4385,6 +4418,9 @@ static void ui_block_open_begin(bContext *C, uiBut *but, uiHandleButtonData *dat
   uiBlockHandleCreateFunc handlefunc = nullptr;
   uiMenuCreateFunc menufunc = nullptr;
   uiMenuCreateFunc popoverfunc = nullptr;
+  /* The checks for the panel type being null are for exceptional cases where script
+   * authors intentionally unregister built-in panels for example.
+   * While this should only ever happen rarely, it shouldn't crash, see #144716. */
   PanelType *popover_panel_type = nullptr;
   void *arg = nullptr;
 
@@ -4409,9 +4445,12 @@ static void ui_block_open_begin(bContext *C, uiBut *but, uiHandleButtonData *dat
     case ButType::Menu:
       BLI_assert(but->menu_create_func);
       if (ui_but_menu_draw_as_popover(but)) {
-        popoverfunc = but->menu_create_func;
         const char *idname = static_cast<const char *>(but->func_argN);
         popover_panel_type = WM_paneltype_find(idname, false);
+      }
+
+      if (popover_panel_type) {
+        popoverfunc = but->menu_create_func;
       }
       else {
         menufunc = but->menu_create_func;
@@ -4429,9 +4468,12 @@ static void ui_block_open_begin(bContext *C, uiBut *but, uiHandleButtonData *dat
       but->editvec = data->vec;
 
       if (ui_but_menu_draw_as_popover(but)) {
-        popoverfunc = but->menu_create_func;
         const char *idname = static_cast<const char *>(but->func_argN);
         popover_panel_type = WM_paneltype_find(idname, false);
+      }
+
+      if (popover_panel_type) {
+        popoverfunc = but->menu_create_func;
       }
       else {
         handlefunc = ui_block_func_COLOR;
@@ -5077,7 +5119,12 @@ static void force_activate_view_item_but(bContext *C,
 
   /* For popups. Other abstract view instances correctly calls the select operator, see:
    * #141235. */
+  if (but->context) {
+    CTX_store_set(C, but->context);
+  }
   but->view_item->activate(*C);
+  CTX_store_set(C, nullptr);
+
   ED_region_tag_redraw_no_rebuild(region);
   ED_region_tag_refresh_ui(region);
 
@@ -5095,7 +5142,7 @@ static int ui_do_but_VIEW_ITEM(bContext *C,
   BLI_assert(view_item_but->type == ButType::ViewItem);
 
   if (data->state == BUTTON_STATE_HIGHLIGHT) {
-    if ((event->type == LEFTMOUSE) && (event->modifier == 0)) {
+    if (event->type == LEFTMOUSE) {
       switch (event->val) {
         case KM_PRESS:
           /* Extra icons have priority, don't mess with them. */
@@ -5108,9 +5155,6 @@ static int ui_do_but_VIEW_ITEM(bContext *C,
             data->dragstartx = event->xy[0];
             data->dragstarty = event->xy[1];
           }
-          else {
-            force_activate_view_item_but(C, data->region, view_item_but);
-          }
 
           /* Always continue for drag and drop handling. Also for cases where keymap items are
            * registered to add custom activate or drag operators (the pose library does this for
@@ -5120,7 +5164,8 @@ static int ui_do_but_VIEW_ITEM(bContext *C,
           if (UI_view_item_can_rename(*view_item_but->view_item)) {
             data->cancel = true;
             UI_view_item_begin_rename(*view_item_but->view_item);
-            ED_region_tag_redraw(CTX_wm_region(C));
+            ED_region_tag_redraw(data->region);
+            ED_region_tag_refresh_ui(data->region);
             return WM_UI_HANDLER_BREAK;
           }
           return WM_UI_HANDLER_CONTINUE;
@@ -6649,13 +6694,13 @@ static int ui_do_but_COLOR(bContext *C, uiBut *but, uiHandleButtonData *data, co
               if (but->rnaprop && RNA_property_subtype(but->rnaprop) == PROP_COLOR_GAMMA) {
                 RNA_property_float_get_array_at_most(
                     &but->rnapoin, but->rnaprop, color, ARRAY_SIZE(color));
+                IMB_colormanagement_srgb_to_scene_linear_v3(color, color);
                 BKE_brush_color_set(paint, brush, color);
                 updated = true;
               }
               else if (but->rnaprop && RNA_property_subtype(but->rnaprop) == PROP_COLOR) {
                 RNA_property_float_get_array_at_most(
                     &but->rnapoin, but->rnaprop, color, ARRAY_SIZE(color));
-                IMB_colormanagement_scene_linear_to_srgb_v3(color, color);
                 BKE_brush_color_set(paint, brush, color);
                 updated = true;
               }
@@ -8263,7 +8308,7 @@ static int ui_do_button(bContext *C, uiBlock *block, uiBut *but, const wmEvent *
 
   const bool is_disabled = but->flag & UI_BUT_DISABLED || data->disable_force;
 
-  /* if but->pointype is set, but->poin should be too */
+  /* If `but->pointype` is set, `but->poin` should be too. */
   BLI_assert(!bool(but->pointype) || but->poin);
 
   /* Only hard-coded stuff here, button interactions with configurable
@@ -8305,7 +8350,8 @@ static int ui_do_button(bContext *C, uiBlock *block, uiBut *but, const wmEvent *
           but->type == ButType::ViewItem ? but :
                                            ui_view_item_find_mouse_over(data->region, event->xy));
       if (clicked_view_item_but) {
-        clicked_view_item_but->view_item->activate(*C);
+        clicked_view_item_but->view_item->activate_for_context_menu(*C);
+        ED_region_tag_redraw_no_rebuild(data->region);
       }
 
       /* RMB has two options now */
@@ -8611,7 +8657,7 @@ static void button_tooltip_timer_reset(bContext *C, uiBut *but)
 
   if ((U.flag & USER_TOOLTIPS) || (data->tooltip_force)) {
     if (!but->block->tooltipdisabled) {
-      if (!wm->drags.first) {
+      if (!wm->runtime->drags.first) {
         const bool is_quick_tip = UI_but_has_quick_tooltip(but);
         const double delay = is_quick_tip ? UI_TOOLTIP_DELAY_QUICK : UI_TOOLTIP_DELAY;
         WM_tooltip_timer_init_ex(
@@ -9503,7 +9549,7 @@ static bool ui_handle_button_activate_by_type(bContext *C, ARegion *region, uiBu
   }
   else {
 #ifndef NDEBUG
-    printf("%s: error, unhandled type: %d\n", __func__, int(but->type));
+    CLOG_WARN(&LOG, "%s: error, unhandled type: %d", __func__, int(but->type));
 #endif
     return false;
   }
@@ -9913,7 +9959,7 @@ static int ui_list_get_increment(const uiList *ui_list, const int type, const in
 
   /* Handle column offsets for grid layouts. */
   if (ELEM(type, EVT_UPARROWKEY, EVT_DOWNARROWKEY) &&
-      ELEM(ui_list->layout_type, UILST_LAYOUT_GRID, UILST_LAYOUT_BIG_PREVIEW_GRID))
+      ELEM(ui_list->layout_type, UILST_LAYOUT_BIG_PREVIEW_GRID))
   {
     increment = (type == EVT_UPARROWKEY) ? -columns : columns;
   }
@@ -10131,15 +10177,25 @@ static int ui_handle_view_item_event(bContext *C,
       }
       break;
     case LEFTMOUSE:
-      if ((event->val == KM_PRESS) && (event->modifier == 0)) {
+      if (event->modifier == 0) {
         /* Only bother finding the active view item button if the active button isn't already a
          * view item. */
         uiButViewItem *view_but = static_cast<uiButViewItem *>(
             (active_but && active_but->type == ButType::ViewItem) ?
                 active_but :
                 ui_view_item_find_mouse_over(region, event->xy));
-        /* Will free active button if there already is one. */
+
         if (view_but) {
+          if (UI_view_item_supports_drag(*view_but->view_item)) {
+            if (event->val != KM_CLICK) {
+              break;
+            }
+          }
+          else if (event->val != KM_PRESS) {
+            break;
+          }
+
+          /* Will free active button if there already is one. */
           /* Close the popup when clicking on the view item directly, not any overlapped button. */
           const bool close_popup = view_but == active_but;
           force_activate_view_item_but(C, region, view_but, close_popup);
@@ -10274,7 +10330,7 @@ static bool ui_mouse_motion_towards_check(uiBlock *block,
    * don't mouse-out of a menu if another menu has been created after it.
    * if this causes problems we could remove it and check on a different fix - campbell */
   if (menu->region->next) {
-    /* am I the last menu (test) */
+    /* Test if this is the last menu. */
     ARegion *region = menu->region->next;
     do {
       uiBlock *block_iter = static_cast<uiBlock *>(region->runtime->uiblocks.first);
@@ -11499,7 +11555,9 @@ static int ui_pie_handler(bContext *C, const wmEvent *event, uiPopupBlockHandle 
 
         /* handle animation */
         if (!(block->pie_data.flags & UI_PIE_ANIMATION_FINISHED)) {
-          const double final_time = 0.01 * U.pie_animation_timeout;
+          const double final_time = (U.uiflag & USER_REDUCE_MOTION) ?
+                                        0.0f :
+                                        0.01 * U.pie_animation_timeout;
           float fac = duration / final_time;
           const float pie_radius = U.pie_menu_radius * UI_SCALE_FAC;
 

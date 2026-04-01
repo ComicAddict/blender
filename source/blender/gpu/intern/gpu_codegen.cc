@@ -26,6 +26,7 @@
 #include "GPU_vertex_format.hh"
 
 #include "gpu_codegen.hh"
+#include "gpu_material_library.hh"
 #include "gpu_shader_dependency_private.hh"
 
 #include <cstdarg>
@@ -82,7 +83,7 @@ static std::ostream &operator<<(std::ostream &stream, const GPUOutput *output)
 /* Print data constructor (i.e: vec2(1.0f, 1.0f)). */
 static std::ostream &operator<<(std::ostream &stream, const Span<float> &span)
 {
-  stream << (eGPUType)span.size() << "(";
+  stream << (GPUType)span.size() << "(";
   /* Use uint representation to allow exact same bit pattern even if NaN. This is
    * because we can pass UINTs as floats for constants. */
   const Span<uint32_t> uint_span = span.cast<uint32_t>();
@@ -170,7 +171,9 @@ void GPUCodegen::generate_attribs()
   /* Input declaration, loading / assignment to interface and geometry shader passthrough. */
   std::stringstream load_ss;
 
-  int slot = GPU_shader_draw_parameters_support() ? 15 : 14;
+  /* Index of the attribute as ordered in graph.attributes. */
+  int attr_n = 0;
+  int slot = 15;
   LISTBASE_FOREACH (GPUMaterialAttribute *, attr, &graph.attributes) {
     if (slot == -1) {
       BLI_assert_msg(0, "Too many attributes");
@@ -182,12 +185,13 @@ void GPUCodegen::generate_attribs()
     StringRefNull attr_name = info.name_buffer.attr_names[slot];
     StringRefNull var_name = info.name_buffer.var_names[slot];
 
-    eGPUType input_type, iface_type;
+    GPUType input_type, iface_type;
 
     load_ss << "var_attrs." << var_name;
-    if (attr->is_hair_length) {
+    if (attr->is_hair_length || attr->is_hair_intercept) {
       iface_type = input_type = GPU_FLOAT;
-      load_ss << " = attr_load_" << input_type << "(" << attr_name << ");\n";
+      load_ss << " = attr_load_" << input_type << "(domain, " << attr_name << ", " << attr_n
+              << ");\n";
     }
     else {
       switch (attr->type) {
@@ -195,18 +199,20 @@ void GPUCodegen::generate_attribs()
           /* Need vec4 to detect usage of default attribute. */
           input_type = GPU_VEC4;
           iface_type = GPU_VEC3;
-          load_ss << " = attr_load_orco(" << attr_name << ");\n";
+          load_ss << " = attr_load_orco(domain, " << attr_name << ", " << attr_n << ");\n";
           break;
         case CD_TANGENT:
           iface_type = input_type = GPU_VEC4;
-          load_ss << " = attr_load_tangent(" << attr_name << ");\n";
+          load_ss << " = attr_load_tangent(domain, " << attr_name << ", " << attr_n << ");\n";
           break;
         default:
           iface_type = input_type = GPU_VEC4;
-          load_ss << " = attr_load_" << input_type << "(" << attr_name << ");\n";
+          load_ss << " = attr_load_" << input_type << "(domain, " << attr_name << ", " << attr_n
+                  << ");\n";
           break;
       }
     }
+    attr_n++;
 
     info.vertex_in(slot--, to_type(input_type), attr_name);
     iface.smooth(to_type(iface_type), var_name);
@@ -284,35 +290,12 @@ void GPUCodegen::generate_resources()
   info.typedef_source_generated = ss.str();
 }
 
-void GPUCodegen::generate_library()
+void GPUCodegen::node_serialize(Set<StringRefNull> &used_libraries,
+                                std::stringstream &eval_ss,
+                                const GPUNode *node)
 {
-  GPUCodegenCreateInfo &info = *create_info;
+  gpu_material_library_use_function(used_libraries, node->name);
 
-  void *value;
-  Vector<std::string> source_files;
-
-  /* Iterate over libraries. We need to keep this struct intact in case it is required for the
-   * optimization pass. The first pass just collects the keys from the GSET, given items in a GSET
-   * are unordered this can cause order differences between invocations, so we collect the keys
-   * first, and sort them before doing actual work, to guarantee stable behavior while still
-   * having cheap insertions into the GSET */
-  GHashIterator *ihash = BLI_ghashIterator_new((GHash *)graph.used_libraries);
-  while (!BLI_ghashIterator_done(ihash)) {
-    value = BLI_ghashIterator_getKey(ihash);
-    source_files.append((const char *)value);
-    BLI_ghashIterator_step(ihash);
-  }
-  BLI_ghashIterator_free(ihash);
-
-  std::sort(source_files.begin(), source_files.end());
-  for (auto &key : source_files) {
-    auto deps = gpu_shader_dependency_get_resolved_source(key.c_str(), {});
-    info.dependencies_generated.extend_non_duplicates(deps);
-  }
-}
-
-void GPUCodegen::node_serialize(std::stringstream &eval_ss, const GPUNode *node)
-{
   /* Declare constants. */
   LISTBASE_FOREACH (GPUInput *, input, &node->inputs) {
     switch (input->source) {
@@ -342,9 +325,9 @@ void GPUCodegen::node_serialize(std::stringstream &eval_ss, const GPUNode *node)
       case GPU_SOURCE_OUTPUT:
       case GPU_SOURCE_ATTR: {
         /* These inputs can have non matching types. Do conversion. */
-        eGPUType to = input->type;
-        eGPUType from = (input->source == GPU_SOURCE_ATTR) ? input->attr->gputype :
-                                                             input->link->output->type;
+        GPUType to = input->type;
+        GPUType from = (input->source == GPU_SOURCE_ATTR) ? input->attr->gputype :
+                                                            input->link->output->type;
         if (from != to) {
           /* Use defines declared inside codegen_lib (i.e: vec4_from_float). */
           eval_ss << to << "_from_" << from << "(";
@@ -388,14 +371,26 @@ void GPUCodegen::node_serialize(std::stringstream &eval_ss, const GPUNode *node)
   nodes_total_++;
 }
 
-std::string GPUCodegen::graph_serialize(eGPUNodeTag tree_tag,
-                                        GPUNodeLink *output_link,
-                                        const char *output_default)
+static Vector<StringRefNull> set_to_vector_stable(Set<StringRefNull> &set)
+{
+  Vector<StringRefNull> source_files;
+  for (const StringRefNull &str : set) {
+    source_files.append(str);
+  }
+  /* Sort dependencies to avoid random order causing shader caching to fail (see #108289). */
+  std::sort(source_files.begin(), source_files.end());
+  return source_files;
+}
+
+GPUGraphOutput GPUCodegen::graph_serialize(GPUNodeTag tree_tag,
+                                           GPUNodeLink *output_link,
+                                           const char *output_default)
 {
   if (output_link == nullptr && output_default == nullptr) {
-    return "";
+    return {};
   }
 
+  Set<StringRefNull> used_libraries;
   std::stringstream eval_ss;
   bool has_nodes = false;
   /* NOTE: The node order is already top to bottom (or left to right in node editor)
@@ -404,12 +399,12 @@ std::string GPUCodegen::graph_serialize(eGPUNodeTag tree_tag,
     if ((node->tag & tree_tag) == 0) {
       continue;
     }
-    node_serialize(eval_ss, node);
+    node_serialize(used_libraries, eval_ss, node);
     has_nodes = true;
   }
 
   if (!has_nodes) {
-    return "";
+    return {};
   }
 
   if (output_link) {
@@ -422,20 +417,21 @@ std::string GPUCodegen::graph_serialize(eGPUNodeTag tree_tag,
 
   std::string str = eval_ss.str();
   BLI_hash_mm2a_add(&hm2a_, reinterpret_cast<const uchar *>(str.c_str()), str.size());
-  return str;
+  return {str, set_to_vector_stable(used_libraries)};
 }
 
-std::string GPUCodegen::graph_serialize(eGPUNodeTag tree_tag)
+GPUGraphOutput GPUCodegen::graph_serialize(GPUNodeTag tree_tag)
 {
   std::stringstream eval_ss;
+  Set<StringRefNull> used_libraries;
   LISTBASE_FOREACH (GPUNode *, node, &graph.nodes) {
     if (node->tag & tree_tag) {
-      node_serialize(eval_ss, node);
+      node_serialize(used_libraries, eval_ss, node);
     }
   }
   std::string str = eval_ss.str();
   BLI_hash_mm2a_add(&hm2a_, reinterpret_cast<const uchar *>(str.c_str()), str.size());
-  return str;
+  return {str, set_to_vector_stable(used_libraries)};
 }
 
 void GPUCodegen::generate_cryptomatte()
@@ -503,19 +499,18 @@ void GPUCodegen::generate_graphs()
   }
 
   if (!BLI_listbase_is_empty(&graph.material_functions)) {
-    std::stringstream eval_ss;
-    eval_ss << "\n/* Generated Functions */\n\n";
     LISTBASE_FOREACH (GPUNodeGraphFunctionLink *, func_link, &graph.material_functions) {
+      std::stringstream eval_ss;
       /* Untag every node in the graph to avoid serializing nodes from other functions */
       LISTBASE_FOREACH (GPUNode *, node, &graph.nodes) {
         node->tag &= ~GPU_NODE_TAG_FUNCTION;
       }
       /* Tag only the nodes needed for the current function */
       gpu_nodes_tag(func_link->outlink, GPU_NODE_TAG_FUNCTION);
-      const std::string fn = graph_serialize(GPU_NODE_TAG_FUNCTION, func_link->outlink);
-      eval_ss << "float " << func_link->name << "() {\n" << fn << "}\n\n";
+      GPUGraphOutput graph = graph_serialize(GPU_NODE_TAG_FUNCTION, func_link->outlink);
+      eval_ss << "float " << func_link->name << "() {\n" << graph.serialized << "}\n\n";
+      output.material_functions.append({eval_ss.str(), graph.dependencies});
     }
-    output.material_functions = eval_ss.str();
     /* Leave the function tags as they were before serialization */
     LISTBASE_FOREACH (GPUNodeGraphFunctionLink *, funclink, &graph.material_functions) {
       gpu_nodes_tag(funclink->outlink, GPU_NODE_TAG_FUNCTION);

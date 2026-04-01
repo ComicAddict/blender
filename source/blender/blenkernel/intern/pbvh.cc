@@ -787,14 +787,14 @@ static Node *pbvh_iter_next_occluded(PBVHIter *iter)
   return nullptr;
 }
 
-struct node_tree {
+struct NodeTree {
   Node *data;
 
-  node_tree *left;
-  node_tree *right;
+  NodeTree *left;
+  NodeTree *right;
 };
 
-static void node_tree_insert(node_tree *tree, node_tree *new_node)
+static void node_tree_insert(NodeTree *tree, NodeTree *new_node)
 {
   if (new_node->data->tmin_ < tree->data->tmin_) {
     if (tree->left) {
@@ -814,7 +814,7 @@ static void node_tree_insert(node_tree *tree, node_tree *new_node)
   }
 }
 
-static void traverse_tree(node_tree *tree,
+static void traverse_tree(NodeTree *tree,
                           const FunctionRef<void(Node &node, float *tmin)> hit_fn,
                           float *tmin)
 {
@@ -829,7 +829,7 @@ static void traverse_tree(node_tree *tree,
   }
 }
 
-static void free_tree(node_tree *tree)
+static void free_tree(NodeTree *tree)
 {
   if (tree->left) {
     free_tree(tree->left);
@@ -862,13 +862,13 @@ static void search_callback_occluded(Tree &pbvh,
   }
   PBVHIter iter;
   Node *node;
-  node_tree *tree = nullptr;
+  NodeTree *tree = nullptr;
 
   pbvh_iter_begin(&iter, pbvh, scb);
 
   while ((node = pbvh_iter_next_occluded(&iter))) {
     if (node->flag_ & Node::Leaf) {
-      node_tree *new_node = static_cast<node_tree *>(malloc(sizeof(node_tree)));
+      NodeTree *new_node = static_cast<NodeTree *>(malloc(sizeof(NodeTree)));
 
       new_node->data = node;
 
@@ -902,8 +902,19 @@ static bool mesh_topology_count_matches(const Mesh &a, const Mesh &b)
          a.verts_num == b.verts_num;
 }
 
-static const SharedCache<Vector<float3>> &vert_normals_cache_eval(const Object &object_orig,
-                                                                  const Object &object_eval)
+enum class PositionSource : int8_t {
+  Eval,
+  EvalDeform,
+  Orig,
+  RuntimeDeform,
+};
+
+struct PositionSourceResult {
+  PositionSource cache_source;
+  const Mesh *mesh_eval;
+};
+
+static PositionSourceResult cache_source_get(const Object &object_orig, const Object &object_eval)
 {
   const SculptSession &ss = *object_orig.sculpt;
   const Mesh &mesh_orig = *static_cast<const Mesh *>(object_orig.data);
@@ -911,19 +922,45 @@ static const SharedCache<Vector<float3>> &vert_normals_cache_eval(const Object &
   if (object_orig.mode & (OB_MODE_VERTEX_PAINT | OB_MODE_WEIGHT_PAINT)) {
     if (const Mesh *mesh_eval = BKE_object_get_evaluated_mesh_no_subsurf(&object_eval)) {
       if (mesh_topology_count_matches(*mesh_eval, mesh_orig)) {
-        return mesh_eval->runtime->vert_normals_true_cache;
+        return {PositionSource::Eval, mesh_eval};
       }
     }
+    if (!ss.deform_cos.is_empty()) {
+      BLI_assert(ss.deform_cos.size() == mesh_orig.verts_num);
+      return {PositionSource::RuntimeDeform, nullptr};
+    }
     if (const Mesh *mesh_eval = BKE_object_get_mesh_deform_eval(&object_eval)) {
-      return mesh_eval->runtime->vert_normals_true_cache;
+      return {PositionSource::EvalDeform, mesh_eval};
     }
   }
 
   if (!ss.deform_cos.is_empty()) {
     BLI_assert(ss.deform_cos.size() == mesh_orig.verts_num);
-    return ss.vert_normals_deform;
+    return {PositionSource::RuntimeDeform, nullptr};
   }
 
+  return {PositionSource::Orig, nullptr};
+}
+
+static const SharedCache<Vector<float3>> &vert_normals_cache_eval(const Object &object_orig,
+                                                                  const Object &object_eval)
+{
+  const SculptSession &ss = *object_orig.sculpt;
+  const Mesh &mesh_orig = *static_cast<const Mesh *>(object_orig.data);
+  BLI_assert(bke::object::pbvh_get(object_orig)->type() == Type::Mesh);
+
+  const PositionSourceResult result = cache_source_get(object_orig, object_eval);
+  switch (result.cache_source) {
+    case PositionSource::EvalDeform:
+      return result.mesh_eval->runtime->vert_normals_true_cache;
+    case PositionSource::Eval:
+      return result.mesh_eval->runtime->vert_normals_true_cache;
+    case PositionSource::RuntimeDeform:
+      return ss.vert_normals_deform;
+    case PositionSource::Orig:
+      return mesh_orig.runtime->vert_normals_true_cache;
+  }
+  BLI_assert_unreachable();
   return mesh_orig.runtime->vert_normals_true_cache;
 }
 static SharedCache<Vector<float3>> &vert_normals_cache_eval_for_write(Object &object_orig,
@@ -939,22 +976,18 @@ static const SharedCache<Vector<float3>> &face_normals_cache_eval(const Object &
   const SculptSession &ss = *object_orig.sculpt;
   const Mesh &mesh_orig = *static_cast<const Mesh *>(object_orig.data);
   BLI_assert(bke::object::pbvh_get(object_orig)->type() == Type::Mesh);
-  if (object_orig.mode & (OB_MODE_VERTEX_PAINT | OB_MODE_WEIGHT_PAINT)) {
-    if (const Mesh *mesh_eval = BKE_object_get_evaluated_mesh_no_subsurf(&object_eval)) {
-      if (mesh_topology_count_matches(*mesh_eval, mesh_orig)) {
-        return mesh_eval->runtime->face_normals_true_cache;
-      }
-    }
-    if (const Mesh *mesh_eval = BKE_object_get_mesh_deform_eval(&object_eval)) {
-      return mesh_eval->runtime->face_normals_true_cache;
-    }
+  const PositionSourceResult result = cache_source_get(object_orig, object_eval);
+  switch (result.cache_source) {
+    case PositionSource::EvalDeform:
+      return result.mesh_eval->runtime->face_normals_true_cache;
+    case PositionSource::Eval:
+      return result.mesh_eval->runtime->face_normals_true_cache;
+    case PositionSource::RuntimeDeform:
+      return ss.face_normals_deform;
+    case PositionSource::Orig:
+      return mesh_orig.runtime->face_normals_true_cache;
   }
-
-  if (!ss.deform_cos.is_empty()) {
-    BLI_assert(ss.deform_cos.size() == mesh_orig.verts_num);
-    return ss.face_normals_deform;
-  }
-
+  BLI_assert_unreachable();
   return mesh_orig.runtime->face_normals_true_cache;
 }
 static SharedCache<Vector<float3>> &face_normals_cache_eval_for_write(Object &object_orig,
@@ -962,6 +995,85 @@ static SharedCache<Vector<float3>> &face_normals_cache_eval_for_write(Object &ob
 {
   return const_cast<SharedCache<Vector<float3>> &>(
       face_normals_cache_eval(object_orig, object_eval));
+}
+
+static Span<float3> vert_positions_eval(const Object &object_orig, const Object &object_eval)
+{
+  const SculptSession &ss = *object_orig.sculpt;
+  const Mesh &mesh_orig = *static_cast<const Mesh *>(object_orig.data);
+  BLI_assert(bke::object::pbvh_get(object_orig)->type() == Type::Mesh);
+  const PositionSourceResult result = cache_source_get(object_orig, object_eval);
+  switch (result.cache_source) {
+    case PositionSource::EvalDeform:
+      return result.mesh_eval->vert_positions();
+    case PositionSource::Eval:
+      return result.mesh_eval->vert_positions();
+    case PositionSource::RuntimeDeform:
+      return ss.deform_cos;
+    case PositionSource::Orig:
+      return mesh_orig.vert_positions();
+  }
+  BLI_assert_unreachable();
+  return mesh_orig.vert_positions();
+}
+
+static MutableSpan<float3> vert_positions_eval_for_write(Object &object_orig, Object &object_eval)
+{
+  SculptSession &ss = *object_orig.sculpt;
+  Mesh &mesh_orig = *static_cast<Mesh *>(object_orig.data);
+  BLI_assert(bke::object::pbvh_get(object_orig)->type() == Type::Mesh);
+  const PositionSourceResult result = cache_source_get(object_orig, object_eval);
+  switch (result.cache_source) {
+    case PositionSource::EvalDeform:
+      return const_cast<Mesh *>(result.mesh_eval)->vert_positions_for_write();
+    case PositionSource::Eval:
+      return const_cast<Mesh *>(result.mesh_eval)->vert_positions_for_write();
+    case PositionSource::RuntimeDeform:
+      return ss.deform_cos;
+    case PositionSource::Orig:
+      return mesh_orig.vert_positions_for_write();
+  }
+  BLI_assert_unreachable();
+  return mesh_orig.vert_positions_for_write();
+}
+
+Span<float3> vert_positions_eval(const Depsgraph &depsgraph, const Object &object_orig)
+{
+  const Object &object_eval = *DEG_get_evaluated(&depsgraph, &const_cast<Object &>(object_orig));
+  return vert_positions_eval(object_orig, object_eval);
+}
+
+Span<float3> vert_positions_eval_from_eval(const Object &object_eval)
+{
+  BLI_assert(!DEG_is_original(&object_eval));
+  const Object &object_orig = *DEG_get_original(&object_eval);
+  return vert_positions_eval(object_orig, object_eval);
+}
+
+MutableSpan<float3> vert_positions_eval_for_write(const Depsgraph &depsgraph, Object &object_orig)
+{
+  Object &object_eval = *DEG_get_evaluated(&depsgraph, &object_orig);
+  return vert_positions_eval_for_write(object_orig, object_eval);
+}
+
+Span<float3> vert_normals_eval(const Depsgraph &depsgraph, const Object &object_orig)
+{
+  const Object &object_eval = *DEG_get_evaluated(&depsgraph, &object_orig);
+  return vert_normals_cache_eval(object_orig, object_eval).data();
+}
+
+Span<float3> vert_normals_eval_from_eval(const Object &object_eval)
+{
+  BLI_assert(!DEG_is_original(&object_eval));
+  const Object &object_orig = *DEG_get_original(&object_eval);
+  return vert_normals_cache_eval(object_orig, object_eval).data();
+}
+
+Span<float3> face_normals_eval_from_eval(const Object &object_eval)
+{
+  BLI_assert(!DEG_is_original(&object_eval));
+  const Object &object_orig = *DEG_get_original(&object_eval);
+  return face_normals_cache_eval(object_orig, object_eval).data();
 }
 
 static void normals_calc_faces(const Span<float3> positions,
@@ -1008,7 +1120,11 @@ static void normals_calc_verts_simple(const GroupedSpan<int> vert_to_face_map,
     for (const int face : vert_to_face_map[vert]) {
       normal += face_normals[face];
     }
-    vert_normals[vert] = math::normalize(normal);
+    float length;
+    vert_normals[vert] = math::normalize_and_get_length(normal, length);
+    if (length == 0.0f) {
+      vert_normals[vert] = float3(0, 0, 1);
+    }
   }
 }
 
@@ -2360,10 +2476,10 @@ bool find_nearest_to_ray_node(Tree &pbvh,
   return false;
 }
 
-enum PlaneAABBIsect {
-  ISECT_INSIDE,
-  ISECT_OUTSIDE,
-  ISECT_INTERSECT,
+enum class PlaneAABBIsect : int8_t {
+  Inside,
+  Outside,
+  Intersect,
 };
 
 /* Adapted from:
@@ -2374,7 +2490,7 @@ enum PlaneAABBIsect {
 static PlaneAABBIsect test_frustum_aabb(const Bounds<float3> &bounds,
                                         const Span<float4> frustum_planes)
 {
-  PlaneAABBIsect ret = ISECT_INSIDE;
+  PlaneAABBIsect ret = PlaneAABBIsect::Inside;
 
   for (const int i : frustum_planes.index_range()) {
     float vmin[3], vmax[3];
@@ -2391,10 +2507,10 @@ static PlaneAABBIsect test_frustum_aabb(const Bounds<float3> &bounds,
     }
 
     if (dot_v3v3(frustum_planes[i], vmin) + frustum_planes[i][3] < 0) {
-      return ISECT_OUTSIDE;
+      return PlaneAABBIsect::Outside;
     }
     if (dot_v3v3(frustum_planes[i], vmax) + frustum_planes[i][3] <= 0) {
-      ret = ISECT_INTERSECT;
+      ret = PlaneAABBIsect::Intersect;
     }
   }
 
@@ -2403,12 +2519,12 @@ static PlaneAABBIsect test_frustum_aabb(const Bounds<float3> &bounds,
 
 bool node_frustum_contain_aabb(const Node &node, const Span<float4> frustum_planes)
 {
-  return test_frustum_aabb(node.bounds_, frustum_planes) != ISECT_OUTSIDE;
+  return test_frustum_aabb(node.bounds_, frustum_planes) != PlaneAABBIsect::Outside;
 }
 
 bool node_frustum_exclude_aabb(const Node &node, const Span<float4> frustum_planes)
 {
-  return test_frustum_aabb(node.bounds_, frustum_planes) != ISECT_INSIDE;
+  return test_frustum_aabb(node.bounds_, frustum_planes) != PlaneAABBIsect::Inside;
 }
 
 }  // namespace blender::bke::pbvh
@@ -2421,106 +2537,6 @@ void BKE_pbvh_vert_coords_apply(blender::bke::pbvh::Tree &pbvh,
   pbvh.update_bounds_mesh(vert_positions);
   store_bounds_orig(pbvh);
 }
-
-namespace blender::bke::pbvh {
-
-static Span<float3> vert_positions_eval(const Object &object_orig, const Object &object_eval)
-{
-  const SculptSession &ss = *object_orig.sculpt;
-  const Mesh &mesh_orig = *static_cast<const Mesh *>(object_orig.data);
-  BLI_assert(bke::object::pbvh_get(object_orig)->type() == Type::Mesh);
-  if (object_orig.mode & (OB_MODE_VERTEX_PAINT | OB_MODE_WEIGHT_PAINT)) {
-    if (const Mesh *mesh_eval = BKE_object_get_evaluated_mesh_no_subsurf(&object_eval)) {
-      if (mesh_topology_count_matches(*mesh_eval, mesh_orig)) {
-        return mesh_eval->vert_positions();
-      }
-    }
-    if (!ss.deform_cos.is_empty()) {
-      BLI_assert(ss.deform_cos.size() == mesh_orig.verts_num);
-      return ss.deform_cos;
-    }
-    if (const Mesh *mesh_eval = BKE_object_get_mesh_deform_eval(&object_eval)) {
-      return mesh_eval->vert_positions();
-    }
-  }
-
-  if (!ss.deform_cos.is_empty()) {
-    BLI_assert(ss.deform_cos.size() == mesh_orig.verts_num);
-    return ss.deform_cos;
-  }
-
-  return mesh_orig.vert_positions();
-}
-static MutableSpan<float3> vert_positions_eval_for_write(Object &object_orig, Object &object_eval)
-{
-  SculptSession &ss = *object_orig.sculpt;
-  Mesh &mesh_orig = *static_cast<Mesh *>(object_orig.data);
-  BLI_assert(bke::object::pbvh_get(object_orig)->type() == Type::Mesh);
-  if (object_orig.mode & (OB_MODE_VERTEX_PAINT | OB_MODE_WEIGHT_PAINT)) {
-    if (const Mesh *mesh_eval = BKE_object_get_evaluated_mesh_no_subsurf(&object_eval)) {
-      if (mesh_topology_count_matches(*mesh_eval, mesh_orig)) {
-        Mesh *mesh_eval_mut = const_cast<Mesh *>(mesh_eval);
-        return mesh_eval_mut->vert_positions_for_write();
-      }
-    }
-    if (!ss.deform_cos.is_empty()) {
-      BLI_assert(ss.deform_cos.size() == mesh_orig.verts_num);
-      return ss.deform_cos;
-    }
-    if (const Mesh *mesh_eval = BKE_object_get_mesh_deform_eval(&object_eval)) {
-      Mesh *mesh_eval_mut = const_cast<Mesh *>(mesh_eval);
-      return mesh_eval_mut->vert_positions_for_write();
-    }
-  }
-
-  if (!ss.deform_cos.is_empty()) {
-    BLI_assert(ss.deform_cos.size() == mesh_orig.verts_num);
-    return ss.deform_cos;
-  }
-
-  return mesh_orig.vert_positions_for_write();
-}
-
-Span<float3> vert_positions_eval(const Depsgraph &depsgraph, const Object &object_orig)
-{
-  const Object &object_eval = *DEG_get_evaluated(&depsgraph, &const_cast<Object &>(object_orig));
-  return vert_positions_eval(object_orig, object_eval);
-}
-
-Span<float3> vert_positions_eval_from_eval(const Object &object_eval)
-{
-  BLI_assert(!DEG_is_original(&object_eval));
-  const Object &object_orig = *DEG_get_original(&object_eval);
-  return vert_positions_eval(object_orig, object_eval);
-}
-
-MutableSpan<float3> vert_positions_eval_for_write(const Depsgraph &depsgraph, Object &object_orig)
-{
-  Object &object_eval = *DEG_get_evaluated(&depsgraph, &object_orig);
-  return vert_positions_eval_for_write(object_orig, object_eval);
-}
-
-Span<float3> vert_normals_eval(const Depsgraph &depsgraph, const Object &object_orig)
-{
-  const Object &object_eval = *DEG_get_evaluated(&depsgraph, &object_orig);
-  return vert_normals_cache_eval(object_orig, object_eval).data();
-}
-
-Span<float3> vert_normals_eval_from_eval(const Object &object_eval)
-{
-  BLI_assert(!DEG_is_original(&object_eval));
-  const Object &object_orig = *DEG_get_original(&object_eval);
-  return vert_normals_cache_eval(object_orig, object_eval).data();
-}
-
-Span<float3> face_normals_eval_from_eval(const Object &object_eval)
-{
-  BLI_assert(!DEG_is_original(&object_eval));
-  const Object &object_orig = *DEG_get_original(&object_eval);
-  return face_normals_cache_eval(object_orig, object_eval).data();
-}
-
-}  // namespace blender::bke::pbvh
 
 int BKE_pbvh_debug_draw_gen_get(blender::bke::pbvh::Node &node)
 {

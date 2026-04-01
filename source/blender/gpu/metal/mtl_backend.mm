@@ -188,10 +188,10 @@ void MTLBackend::platform_init(MTLContext *ctx)
     return;
   }
 
-  eGPUDeviceType device = GPU_DEVICE_UNKNOWN;
-  eGPUOSType os = GPU_OS_MAC;
-  eGPUDriverType driver = GPU_DRIVER_ANY;
-  eGPUSupportLevel support_level = GPU_SUPPORT_LEVEL_SUPPORTED;
+  GPUDeviceType device = GPU_DEVICE_UNKNOWN;
+  GPUOSType os = GPU_OS_MAC;
+  GPUDriverType driver = GPU_DRIVER_ANY;
+  GPUSupportLevel support_level = GPU_SUPPORT_LEVEL_SUPPORTED;
 
   BLI_assert(ctx);
   id<MTLDevice> mtl_device = ctx->device;
@@ -520,7 +520,6 @@ void MTLBackend::capabilities_init(MTLContext *ctx)
 
   /* Feature support */
   GCaps.mem_stats_support = false;
-  GCaps.shader_draw_parameters_support = true;
   GCaps.hdr_viewport_support = true;
 
   GCaps.geometry_shader_support = false;
@@ -535,6 +534,7 @@ void MTLBackend::capabilities_init(MTLContext *ctx)
   GCaps.max_shader_storage_buffer_bindings = 14;
   GCaps.max_compute_shader_storage_blocks = 14;
   GCaps.max_storage_buffer_size = size_t(ctx->device.maxBufferLength);
+  GCaps.max_uniform_buffer_size = size_t(ctx->device.maxBufferLength);
   GCaps.storage_buffer_alignment = 256; /* TODO(fclem): But also unused. */
 
   GCaps.max_work_group_count[0] = 65535;
@@ -551,14 +551,12 @@ void MTLBackend::capabilities_init(MTLContext *ctx)
   GCaps.max_work_group_size[2] = max_threads_per_threadgroup_per_dim;
 
   GCaps.stencil_export_support = true;
-  GCaps.clip_control_support = true;
 
   /* OPENGL Related workarounds -- none needed for Metal. */
   GCaps.extensions_len = 0;
   GCaps.extension_get = mtl_extensions_get_null;
   GCaps.depth_blitting_workaround = false;
   GCaps.use_main_context_workaround = false;
-  GCaps.broken_amd_driver = false;
 
   /* Metal related workarounds. */
   /* Minimum per-vertex stride is 4 bytes in Metal.

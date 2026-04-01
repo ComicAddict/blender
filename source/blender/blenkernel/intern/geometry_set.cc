@@ -164,19 +164,6 @@ void GeometrySet::keep_only(const Span<GeometryComponent::Type> component_types)
   }
 }
 
-void GeometrySet::keep_only_during_modify(const Span<GeometryComponent::Type> component_types)
-{
-  Vector<GeometryComponent::Type> extended_types = component_types;
-  extended_types.append_non_duplicates(GeometryComponent::Type::Instance);
-  extended_types.append_non_duplicates(GeometryComponent::Type::Edit);
-  this->keep_only(extended_types);
-}
-
-void GeometrySet::remove_geometry_during_modify()
-{
-  this->keep_only_during_modify({});
-}
-
 void GeometrySet::add(const GeometryComponent &component)
 {
   BLI_assert(!components_[size_t(component.type())]);
@@ -417,7 +404,10 @@ bool GeometrySet::has_realized_data() const
 {
   for (const GeometryComponentPtr &component_ptr : components_) {
     if (component_ptr) {
-      if (component_ptr->type() != GeometryComponent::Type::Instance) {
+      if (!ELEM(component_ptr->type(),
+                GeometryComponent::Type::Instance,
+                GeometryComponent::Type::Edit))
+      {
         return true;
       }
     }
@@ -714,12 +704,26 @@ bool attribute_is_builtin_on_component_type(const GeometryComponent::Type type,
   return false;
 }
 
+void GeometrySet::GatheredAttributes::add(const StringRef name, const AttributeDomainAndType &kind)
+{
+  const int index = this->names.index_of_or_add(name);
+  if (index >= this->kinds.size()) {
+    this->kinds.append(AttributeDomainAndType{kind.domain, kind.data_type});
+  }
+  else {
+    this->kinds[index].domain = bke::attribute_domain_highest_priority(
+        {this->kinds[index].domain, kind.domain});
+    this->kinds[index].data_type = bke::attribute_data_type_highest_complexity(
+        {this->kinds[index].data_type, kind.data_type});
+  }
+}
+
 void GeometrySet::gather_attributes_for_propagation(
     const Span<GeometryComponent::Type> component_types,
     const GeometryComponent::Type dst_component_type,
     bool include_instances,
     const AttributeFilter &attribute_filter,
-    Map<StringRef, AttributeDomainAndType> &r_attributes) const
+    GatheredAttributes &r_attributes) const
 {
   this->attribute_foreach(
       component_types,
@@ -748,17 +752,7 @@ void GeometrySet::gather_attributes_for_propagation(
           domain = AttrDomain::Point;
         }
 
-        auto add_info = [&](AttributeDomainAndType *attribute_kind) {
-          attribute_kind->domain = domain;
-          attribute_kind->data_type = meta_data.data_type;
-        };
-        auto modify_info = [&](AttributeDomainAndType *attribute_kind) {
-          attribute_kind->domain = bke::attribute_domain_highest_priority(
-              {attribute_kind->domain, domain});
-          attribute_kind->data_type = bke::attribute_data_type_highest_complexity(
-              {attribute_kind->data_type, meta_data.data_type});
-        };
-        r_attributes.add_or_modify(attribute_id, add_info, modify_info);
+        r_attributes.add(attribute_id, AttributeDomainAndType{domain, meta_data.data_type});
       });
 }
 
@@ -794,39 +788,6 @@ Vector<GeometryComponent::Type> GeometrySet::gather_component_types(const bool i
   Vector<GeometryComponent::Type> types;
   gather_component_types_recursive(*this, include_instances, ignore_empty, types);
   return types;
-}
-
-static void gather_mutable_geometry_sets(GeometrySet &geometry_set,
-                                         Vector<GeometrySet *> &r_geometry_sets)
-{
-  r_geometry_sets.append(&geometry_set);
-  if (!geometry_set.has_instances()) {
-    return;
-  }
-  /* In the future this can be improved by deduplicating instance references across different
-   * instances. */
-  Instances &instances = *geometry_set.get_instances_for_write();
-  instances.ensure_geometry_instances();
-  for (const int handle : instances.references().index_range()) {
-    if (instances.references()[handle].type() == InstanceReference::Type::GeometrySet) {
-      GeometrySet &instance_geometry = instances.geometry_set_from_reference(handle);
-      gather_mutable_geometry_sets(instance_geometry, r_geometry_sets);
-    }
-  }
-}
-
-void GeometrySet::modify_geometry_sets(ForeachSubGeometryCallback callback)
-{
-  Vector<GeometrySet *> geometry_sets;
-  gather_mutable_geometry_sets(*this, geometry_sets);
-  if (geometry_sets.size() == 1) {
-    /* Avoid possible overhead and a large call stack when multithreading is pointless. */
-    callback(*geometry_sets.first());
-  }
-  else {
-    threading::parallel_for_each(geometry_sets,
-                                 [&](GeometrySet *geometry_set) { callback(*geometry_set); });
-  }
 }
 
 bool object_has_geometry_set_instances(const Object &object)

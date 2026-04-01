@@ -192,19 +192,6 @@ void ED_render_engine_changed(Main *bmain, const bool update_scene_data)
     }
   }
   BKE_main_ensure_invariants(*bmain);
-
-  /* Update #CacheFiles to ensure that procedurals are properly taken into account. */
-  LISTBASE_FOREACH (CacheFile *, cachefile, &bmain->cachefiles) {
-    /* Only update cache-files which are set to use a render procedural.
-     * We do not use #BKE_cachefile_uses_render_procedural here as we need to update regardless of
-     * the current engine or its settings. */
-    if (cachefile->use_render_procedural) {
-      DEG_id_tag_update(&cachefile->id, ID_RECALC_SYNC_TO_EVAL);
-      /* Rebuild relations so that modifiers are reconnected to or disconnected from the
-       * cache-file. */
-      DEG_relations_tag_update(bmain);
-    }
-  }
 }
 
 void ED_render_view_layer_changed(Main *bmain, bScreen *screen)
@@ -339,6 +326,14 @@ static void update_sequencer(const DEGEditorUpdateContext *update_ctx, Main *bma
     {
       blender::seq::prefetch_stop(changed_scene);
       blender::seq::cache_cleanup(changed_scene);
+    }
+  }
+
+  /* Invalidate cache for strips that use this compositing tree as a modifier.  */
+  if (GS(id->name) == ID_NT) {
+    const bNodeTree *node_tree = reinterpret_cast<const bNodeTree *>(id);
+    if (node_tree->type == NTREE_COMPOSIT) {
+      blender::seq::relations_invalidate_compositor_modifiers(bmain, node_tree);
     }
   }
 }

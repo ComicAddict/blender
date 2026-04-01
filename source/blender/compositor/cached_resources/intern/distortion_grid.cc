@@ -52,7 +52,7 @@ bool operator==(const DistortionGridKey &a, const DistortionGridKey &b)
 
 DistortionGrid::DistortionGrid(
     Context &context, MovieClip *movie_clip, int2 size, DistortionType type, int2 calibration_size)
-    : result(context.create_result(ResultType::Float2))
+    : result(context.create_result(ResultType::Float2, ResultPrecision::Full))
 {
   MovieDistortion *distortion = BKE_tracking_distortion_new(
       &movie_clip->tracking, calibration_size.x, calibration_size.y);
@@ -86,7 +86,7 @@ DistortionGrid::DistortionGrid(
     /* The tracking distortion functions expect the coordinates to be in the space of the image
      * where the tracking camera was calibrated. So we first remap the coordinates into that space,
      * apply the distortion, then remap back to the original coordinates space. This is done by
-     * dividing the by the size then multiplying by the calibration size, making sure to add 0.5 to
+     * dividing by the size then multiplying by the calibration size, making sure to add 0.5 to
      * evaluate at the center of pixels.
      *
      * Subtract the lower left bounds delta since we are looping over the extended domain. */

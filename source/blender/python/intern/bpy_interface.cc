@@ -12,6 +12,7 @@
 
 #include <Python.h>
 #include <frameobject.h>
+#include <optional>
 
 #ifdef WITH_PYTHON_MODULE
 #  include "pylifecycle.h" /* For `Py_Version`. */
@@ -21,9 +22,13 @@
 #include "CLG_log.h"
 
 #include "BLI_path_utils.hh"
+#include "BLI_string.h"
 #include "BLI_string_utf8.h"
 #include "BLI_threads.h"
 #include "BLI_utildefines.h"
+#ifdef WITH_PYTHON_MODULE
+#  include "BLI_string.h"
+#endif
 
 #include "BLT_translation.hh"
 
@@ -412,6 +417,31 @@ void BPY_python_start(bContext *C, int argc, const char **argv)
      * While harmless, it's noisy. */
     config.pathconfig_warnings = 0;
 
+    {
+      /* NOTE: running scripts directly uses the default behavior *but* the default
+       * warning filter doesn't show warnings form module besides `__main__`.
+       * Use the default behavior unless debugging Python. See: !139487. */
+      bool show_python_warnings = false;
+
+#  ifdef NDEBUG
+      show_python_warnings = G.debug & G_DEBUG_PYTHON;
+#  else
+      /* Always show warnings for debug builds so developers are made aware
+       * of outdated API use before any breakages occur. */
+      show_python_warnings = true;
+#  endif
+
+      if (show_python_warnings) {
+        /* Don't overwrite warning settings if they have been set by the environment. */
+        if (!(py_use_system_env && BLI_getenv("PYTHONWARNINGS"))) {
+          /* Confusingly `default` is not the default.
+           * Setting to `default` without any module names shows warnings for all modules.
+           * Useful for development since most functionality occurs outside of `__main__`. */
+          PyWideStringList_Append(&config.warnoptions, L"default");
+        }
+      }
+    }
+
     /* Allow the user site directory because this is used
      * when PIP installing packages from Blender, see: #104000.
      *
@@ -770,7 +800,7 @@ bool BPY_context_member_get(bContext *C, const char *member, bContextDataResult 
 
     // result->ptr = ((BPy_StructRNA *)item)->ptr;
     CTX_data_pointer_set_ptr(result, ptr);
-    CTX_data_type_set(result, CTX_DATA_TYPE_POINTER);
+    CTX_data_type_set(result, ContextDataType::Pointer);
     done = true;
   }
   else if (PySequence_Check(item)) {
@@ -798,7 +828,7 @@ bool BPY_context_member_get(bContext *C, const char *member, bContextDataResult 
         }
       }
       Py_DECREF(seq_fast);
-      CTX_data_type_set(result, CTX_DATA_TYPE_COLLECTION);
+      CTX_data_type_set(result, ContextDataType::Collection);
       done = true;
     }
   }
@@ -820,6 +850,37 @@ bool BPY_context_member_get(bContext *C, const char *member, bContextDataResult 
   }
 
   return done;
+}
+
+std::optional<std::string> BPY_python_current_file_and_line()
+{
+  /* Early return if Python is not initialized, usually during startup.
+   * This function shouldn't operate if Python isn't initialized yet.
+   *
+   * In most cases this shouldn't be done, make an exception as it's needed for logging. */
+  if (!Py_IsInitialized()) {
+    return std::nullopt;
+  }
+
+  PyGILState_STATE gilstate;
+  const bool use_gil = !PyC_IsInterpreterActive();
+  std::optional<std::string> result = std::nullopt;
+  if (use_gil) {
+    gilstate = PyGILState_Ensure();
+  }
+
+  const char *filename = nullptr;
+  int lineno = -1;
+  PyC_FileAndNum_Safe(&filename, &lineno);
+
+  if (filename) {
+    result = std::string(filename) + ":" + std::to_string(lineno);
+  }
+
+  if (use_gil) {
+    PyGILState_Release(gilstate);
+  }
+  return result;
 }
 
 #ifdef WITH_PYTHON_MODULE

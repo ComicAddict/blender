@@ -453,6 +453,8 @@ static BMOpDefine bmo_find_doubles_def = {
         {"verts", BMO_OP_SLOT_ELEMENT_BUF, {BM_VERT}},
         /* List of verts to keep. */
         {"keep_verts", BMO_OP_SLOT_ELEMENT_BUF, {BM_VERT}},
+        /* Limit the search for doubles by connected geometry. */
+        {"use_connected", BMO_OP_SLOT_BOOL},
         /* Maximum distance. */
         {"dist", BMO_OP_SLOT_FLT},
         {{'\0'}},
@@ -481,7 +483,8 @@ static BMOpDefine bmo_remove_doubles_def = {
     {
         /* Input verts. */
         {"verts", BMO_OP_SLOT_ELEMENT_BUF, {BM_VERT}},
-
+        /* Limit the search for doubles by connected geometry. */
+        {"use_connected", BMO_OP_SLOT_BOOL},
         /* Minimum distance. */
         {"dist", BMO_OP_SLOT_FLT},
         {{'\0'}},
@@ -620,6 +623,9 @@ static BMOpDefine bmo_weld_verts_def = {
     {
         /* Maps welded vertices to verts they should weld to. */
         {"targetmap", BMO_OP_SLOT_MAPPING, {eBMOpSlotSubType_Elem(BMO_OP_SLOT_SUBTYPE_MAP_ELEM)}},
+        /* Merged vertices to their centroid position,
+         * otherwise the position of the target vertex is used. */
+        {"use_centroid", BMO_OP_SLOT_BOOL},
         {{'\0'}},
     },
     /*slot_types_out*/
@@ -760,7 +766,7 @@ static BMOpDefine bmo_bridge_loops_def = {
         {"use_cyclic", BMO_OP_SLOT_BOOL},
         /* Merge rather than creating faces. */
         {"use_merge", BMO_OP_SLOT_BOOL},
-        /*  merge factor */
+        /* Merge factor. */
         {"merge_factor", BMO_OP_SLOT_FLT},
         /* Twist offset for closed loops. */
         {"twist_offset", BMO_OP_SLOT_INT},

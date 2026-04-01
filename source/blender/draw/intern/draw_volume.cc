@@ -77,7 +77,7 @@ struct VolumeModule {
     GPU_texture_extend_mode(dummy_one, GPU_SAMPLER_EXTEND_MODE_REPEAT);
   }
 
-  gpu::Texture *grid_default_texture(eGPUDefaultValue default_value)
+  gpu::Texture *grid_default_texture(GPUDefaultValue default_value)
   {
     switch (default_value) {
       case GPU_DEFAULT_0:
@@ -97,6 +97,7 @@ void DRW_volume_init(DRWData *drw_data)
   if (drw_data->volume_module == nullptr) {
     drw_data->volume_module = MEM_new<VolumeModule>("VolumeModule");
   }
+  drw_data->volume_module->ubo_pool.reset();
 }
 
 void DRW_volume_module_free(draw::VolumeModule *module)

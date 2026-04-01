@@ -35,7 +35,7 @@ static void cmp_node_split_declare(NodeDeclarationBuilder &b)
   b.add_input<decl::Float>("Rotation")
       .default_value(math::numbers::pi_v<float> / 4.0f)
       .subtype(PROP_ANGLE)
-      .description("Line angle where the image should be split.");
+      .description("Line angle where the image should be split");
 
   b.add_input<decl::Color>("Image").structure_type(StructureType::Dynamic);
   b.add_input<decl::Color>("Image", "Image_001").structure_type(StructureType::Dynamic);
@@ -61,7 +61,7 @@ class SplitOperation : public NodeOperation {
 
   void execute_gpu()
   {
-    GPUShader *shader = this->context().get_shader("compositor_split");
+    gpu::Shader *shader = this->context().get_shader("compositor_split");
     GPU_shader_bind(shader);
 
     const Domain domain = this->compute_domain();

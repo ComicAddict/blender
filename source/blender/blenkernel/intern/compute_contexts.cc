@@ -9,6 +9,7 @@
 
 #include "BKE_compute_context_cache.hh"
 #include "BKE_compute_contexts.hh"
+#include "BKE_lib_id.hh"
 #include "BKE_node.hh"
 #include "BKE_node_runtime.hh"
 
@@ -147,6 +148,31 @@ EvaluateClosureComputeContext::EvaluateClosureComputeContext(
 {
 }
 
+bool EvaluateClosureComputeContext::is_recursive() const
+{
+  if (!closure_source_location_) {
+    /* Can't determine recursiveness in this case. */
+    return false;
+  }
+  for (const ComputeContext *parent = parent_; parent; parent = parent->parent()) {
+    if (const auto *evaluate_closure_compute_context =
+            dynamic_cast<const EvaluateClosureComputeContext *>(parent))
+    {
+      if (!evaluate_closure_compute_context->closure_source_location_) {
+        continue;
+      }
+      if (evaluate_closure_compute_context->closure_source_location_->tree ==
+              closure_source_location_->tree &&
+          evaluate_closure_compute_context->closure_source_location_->closure_output_node_id ==
+              closure_source_location_->closure_output_node_id)
+      {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 OperatorComputeContext::OperatorComputeContext() : OperatorComputeContext(nullptr) {}
 
 OperatorComputeContext::OperatorComputeContext(const ComputeContext *parent)
@@ -168,6 +194,24 @@ ComputeContextHash OperatorComputeContext::compute_hash() const
 void OperatorComputeContext::print_current_in_line(std::ostream &stream) const
 {
   stream << "Operator";
+}
+
+ShaderComputeContext::ShaderComputeContext(const ComputeContext *parent, const bNodeTree *tree)
+    : ComputeContext(parent), tree_(tree)
+{
+}
+
+ComputeContextHash ShaderComputeContext::compute_hash() const
+{
+  return ComputeContextHash::from(parent_, "SHADER");
+}
+
+void ShaderComputeContext::print_current_in_line(std::ostream &stream) const
+{
+  stream << "Shader ";
+  if (tree_) {
+    stream << BKE_id_name(tree_->id);
+  }
 }
 
 const ModifierComputeContext &ComputeContextCache::for_modifier(const ComputeContext *parent,
@@ -197,6 +241,13 @@ const OperatorComputeContext &ComputeContextCache::for_operator(const ComputeCon
 {
   return *operator_contexts_cache_.lookup_or_add_cb(
       parent, [&]() { return &this->for_any_uncached<OperatorComputeContext>(parent, tree); });
+}
+
+const ShaderComputeContext &ComputeContextCache::for_shader(const ComputeContext *parent,
+                                                            const bNodeTree *tree)
+{
+  return *shader_contexts_cache_.lookup_or_add_cb(
+      parent, [&]() { return &this->for_any_uncached<ShaderComputeContext>(parent, tree); });
 }
 
 const GroupNodeComputeContext &ComputeContextCache::for_group_node(const ComputeContext *parent,

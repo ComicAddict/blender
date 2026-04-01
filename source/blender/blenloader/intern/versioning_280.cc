@@ -85,6 +85,7 @@
 #include "BKE_node.hh"
 #include "BKE_node_legacy_types.hh"
 #include "BKE_paint.hh"
+#include "BKE_paint_types.hh"
 #include "BKE_pointcache.h"
 #include "BKE_report.hh"
 #include "BKE_rigidbody.h"
@@ -779,11 +780,11 @@ static void do_version_curvemapping_walker(Main *bmain, void (*callback)(CurveMa
               smd->type);
 
           if (smti) {
-            if (smd->type == seqModifierType_Curves) {
+            if (smd->type == eSeqModifierType_Curves) {
               CurvesModifierData *cmd = (CurvesModifierData *)smd;
               callback(&cmd->curve_mapping);
             }
-            else if (smd->type == seqModifierType_HueCorrect) {
+            else if (smd->type == eSeqModifierType_HueCorrect) {
               HueCorrectModifierData *hcmd = (HueCorrectModifierData *)smd;
               callback(&hcmd->curve_mapping);
             }
@@ -837,8 +838,8 @@ static void do_version_curvemapping_walker(Main *bmain, void (*callback)(CurveMa
   FOREACH_NODETREE_END;
 
   LISTBASE_FOREACH (Brush *, brush, &bmain->brushes) {
-    if (brush->curve) {
-      callback(brush->curve);
+    if (brush->curve_distance_falloff) {
+      callback(brush->curve_distance_falloff);
     }
     if (brush->gpencil_settings) {
       if (brush->gpencil_settings->curve_sensitivity) {
@@ -3179,7 +3180,7 @@ void blo_do_versions_280(FileData *fd, Library * /*lib*/, Main *bmain)
             BKE_curvemap_reset(gset.cur_falloff->cm,
                                &gset.cur_falloff->clipr,
                                CURVE_PRESET_GAUSS,
-                               CURVEMAP_SLOPE_POSITIVE);
+                               CurveMapSlopeType::Positive);
           }
         }
       }
@@ -3291,8 +3292,6 @@ void blo_do_versions_280(FileData *fd, Library * /*lib*/, Main *bmain)
       if (STR_ELEM(scene->r.engine, "BLENDER_RENDER", "BLENDER_GAME")) {
         STRNCPY_UTF8(scene->r.engine, RE_engine_id_BLENDER_EEVEE);
       }
-
-      scene->r.bake_mode = 0;
     }
 
     LISTBASE_FOREACH (Tex *, tex, &bmain->textures) {
@@ -3463,7 +3462,7 @@ void blo_do_versions_280(FileData *fd, Library * /*lib*/, Main *bmain)
   { \
     IDProperty *_idprop = IDP_GetPropertyFromGroup(_props, #_name); \
     if (_idprop != nullptr) { \
-      const int _value = IDP_Int(_idprop); \
+      const int _value = IDP_int_get(_idprop); \
       if (_value) { \
         scene->eevee.flag |= _flag; \
       } \
@@ -3478,7 +3477,7 @@ void blo_do_versions_280(FileData *fd, Library * /*lib*/, Main *bmain)
   { \
     IDProperty *_idprop = IDP_GetPropertyFromGroup(_props, #_name); \
     if (_idprop != nullptr) { \
-      scene->eevee._name = IDP_Int(_idprop); \
+      scene->eevee._name = IDP_int_get(_idprop); \
     } \
   } \
   ((void)0)
@@ -3487,7 +3486,7 @@ void blo_do_versions_280(FileData *fd, Library * /*lib*/, Main *bmain)
   { \
     IDProperty *_idprop = IDP_GetPropertyFromGroup(_props, #_name); \
     if (_idprop != nullptr) { \
-      scene->eevee._name = IDP_Float(_idprop); \
+      scene->eevee._name = IDP_float_get(_idprop); \
     } \
   } \
   ((void)0)
@@ -4555,7 +4554,7 @@ void blo_do_versions_280(FileData *fd, Library * /*lib*/, Main *bmain)
           BKE_curvemap_reset(gset.cur_primitive->cm,
                              &gset.cur_primitive->clipr,
                              CURVE_PRESET_BELL,
-                             CURVEMAP_SLOPE_POSITIVE);
+                             CurveMapSlopeType::Positive);
         }
       }
     }
@@ -4657,7 +4656,7 @@ void blo_do_versions_280(FileData *fd, Library * /*lib*/, Main *bmain)
     }
 
     LISTBASE_FOREACH (Object *, ob, &bmain->objects) {
-      ob->flag &= ~(OB_FLAG_USE_SIMULATION_CACHE | OB_FLAG_UNUSED_12);
+      ob->flag &= ~(OB_FLAG_USE_SIMULATION_CACHE | OB_FLAG_ACTIVE_CLIPBOARD);
       ob->transflag &= ~(OB_TRANSFORM_ADJUST_ROOT_PARENT_FOR_VIEW_LOCK | OB_TRANSFLAG_UNUSED_1);
       ob->shapeflag &= ~OB_SHAPE_FLAG_UNUSED_1;
     }
@@ -4848,15 +4847,15 @@ void blo_do_versions_280(FileData *fd, Library * /*lib*/, Main *bmain)
        * properly initialized previously. This is mere copy of #scene_init_data code. */
       if (scene->r.im_format.view_settings.look[0] == '\0') {
         BKE_color_managed_display_settings_init(&scene->r.im_format.display_settings);
-        BKE_color_managed_view_settings_init_render(
+        BKE_color_managed_view_settings_init(
             &scene->r.im_format.view_settings, &scene->r.im_format.display_settings, "Filmic");
       }
 
       if (scene->r.bake.im_format.view_settings.look[0] == '\0') {
         BKE_color_managed_display_settings_init(&scene->r.bake.im_format.display_settings);
-        BKE_color_managed_view_settings_init_render(&scene->r.bake.im_format.view_settings,
-                                                    &scene->r.bake.im_format.display_settings,
-                                                    "Filmic");
+        BKE_color_managed_view_settings_init(&scene->r.bake.im_format.view_settings,
+                                             &scene->r.bake.im_format.display_settings,
+                                             "Filmic");
       }
     }
   }

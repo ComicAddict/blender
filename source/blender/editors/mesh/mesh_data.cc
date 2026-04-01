@@ -12,6 +12,7 @@
 #include "DNA_scene_types.h"
 
 #include "BLI_array.hh"
+#include "BLI_math_constants.h"
 
 #include "BKE_attribute.hh"
 #include "BKE_context.hh"
@@ -148,7 +149,7 @@ static void mesh_uv_reset_array(float **fuv, const int len)
   }
 }
 
-static void mesh_uv_reset_bmface(BMFace *f, const int cd_loop_uv_offset)
+static void reset_uvs_bmesh(BMFace *f, const int cd_loop_uv_offset)
 {
   Array<float *, BM_DEFAULT_NGON_STACK_SIZE> fuv(f->len);
   BMIter liter;
@@ -162,47 +163,43 @@ static void mesh_uv_reset_bmface(BMFace *f, const int cd_loop_uv_offset)
   mesh_uv_reset_array(fuv.data(), f->len);
 }
 
-static void mesh_uv_reset_mface(const blender::IndexRange face, float2 *mloopuv)
+static void reset_uvs_mesh(const blender::IndexRange face, MutableSpan<float2> uv_map)
 {
   Array<float *, BM_DEFAULT_NGON_STACK_SIZE> fuv(face.size());
 
   for (int i = 0; i < face.size(); i++) {
-    fuv[i] = mloopuv[face[i]];
+    fuv[i] = &uv_map[face[i]].x;
   }
 
   mesh_uv_reset_array(fuv.data(), face.size());
 }
 
-void ED_mesh_uv_loop_reset_ex(Mesh *mesh, const int layernum)
+static void reset_uv_map(Mesh *mesh, const StringRef name)
 {
+  using namespace blender;
   if (BMEditMesh *em = mesh->runtime->edit_mesh.get()) {
-    /* Collect BMesh UVs */
-    const int cd_loop_uv_offset = CustomData_get_n_offset(
-        &em->bm->ldata, CD_PROP_FLOAT2, layernum);
+    const int cd_loop_uv_offset = CustomData_get_offset_named(
+        &em->bm->ldata, CD_PROP_FLOAT2, name);
+    BLI_assert(cd_loop_uv_offset >= 0);
 
     BMFace *efa;
     BMIter iter;
-
-    BLI_assert(cd_loop_uv_offset >= 0);
-
     BM_ITER_MESH (efa, &iter, em->bm, BM_FACES_OF_MESH) {
       if (!BM_elem_flag_test(efa, BM_ELEM_SELECT)) {
         continue;
       }
-
-      mesh_uv_reset_bmface(efa, cd_loop_uv_offset);
+      reset_uvs_bmesh(efa, cd_loop_uv_offset);
     }
   }
   else {
-    /* Collect Mesh UVs */
-    BLI_assert(CustomData_has_layer(&mesh->corner_data, CD_PROP_FLOAT2));
-    float2 *mloopuv = static_cast<float2 *>(CustomData_get_layer_n_for_write(
-        &mesh->corner_data, CD_PROP_FLOAT2, layernum, mesh->corners_num));
-
-    const blender::OffsetIndices polys = mesh->faces();
-    for (const int i : polys.index_range()) {
-      mesh_uv_reset_mface(polys[i], mloopuv);
+    const OffsetIndices faces = mesh->faces();
+    bke::MutableAttributeAccessor attributes = mesh->attributes_for_write();
+    bke::SpanAttributeWriter uv_map = attributes.lookup_for_write_span<float2>(name);
+    BLI_assert(uv_map.domain == bke::AttrDomain::Corner);
+    for (const int i : faces.index_range()) {
+      reset_uvs_mesh(faces[i], uv_map.span);
     }
+    uv_map.finish();
   }
 
   DEG_id_tag_update(&mesh->id, 0);
@@ -212,8 +209,8 @@ void ED_mesh_uv_loop_reset(bContext *C, Mesh *mesh)
 {
   /* could be ldata or pdata */
   CustomData *ldata = mesh_customdata_get_type(mesh, BM_LOOP, nullptr);
-  const int layernum = CustomData_get_active_layer(ldata, CD_PROP_FLOAT2);
-  ED_mesh_uv_loop_reset_ex(mesh, layernum);
+  const char *name = CustomData_get_active_layer_name(ldata, CD_PROP_FLOAT2);
+  reset_uv_map(mesh, name);
 
   WM_event_add_notifier(C, NC_GEOM | ND_DATA, mesh);
 }
@@ -283,7 +280,7 @@ int ED_mesh_uv_add(
 
   /* don't overwrite our copied coords */
   if (!is_init && do_init) {
-    ED_mesh_uv_loop_reset_ex(mesh, layernum_dst);
+    reset_uv_map(mesh, unique_name);
   }
 
   DEG_id_tag_update(&mesh->id, 0);
@@ -1088,7 +1085,7 @@ void ED_mesh_geometry_clear(Mesh *mesh)
 
 /** \} */
 
-void ED_mesh_report_mirror_ex(wmOperator *op, int totmirr, int totfail, char selectmode)
+void ED_mesh_report_mirror_ex(ReportList &reports, int totmirr, int totfail, char selectmode)
 {
   const char *elem_type;
 
@@ -1103,17 +1100,16 @@ void ED_mesh_report_mirror_ex(wmOperator *op, int totmirr, int totfail, char sel
   }
 
   if (totfail) {
-    BKE_reportf(
-        op->reports, RPT_WARNING, "%d %s mirrored, %d failed", totmirr, elem_type, totfail);
+    BKE_reportf(&reports, RPT_WARNING, "%d %s mirrored, %d failed", totmirr, elem_type, totfail);
   }
   else {
-    BKE_reportf(op->reports, RPT_INFO, "%d %s mirrored", totmirr, elem_type);
+    BKE_reportf(&reports, RPT_INFO, "%d %s mirrored", totmirr, elem_type);
   }
 }
 
-void ED_mesh_report_mirror(wmOperator *op, int totmirr, int totfail)
+void ED_mesh_report_mirror(ReportList &reports, int totmirr, int totfail)
 {
-  ED_mesh_report_mirror_ex(op, totmirr, totfail, SCE_SELECT_VERTEX);
+  ED_mesh_report_mirror_ex(reports, totmirr, totfail, SCE_SELECT_VERTEX);
 }
 
 KeyBlock *ED_mesh_get_edit_shape_key(const Mesh *me)

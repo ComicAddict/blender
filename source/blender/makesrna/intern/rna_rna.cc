@@ -64,6 +64,7 @@ const EnumPropertyItem rna_enum_property_type_items[] = {
 
 #define RNA_ENUM_PROPERTY_SUBTYPE_NUMBER_ITEMS \
   {PROP_PIXEL, "PIXEL", 0, "Pixel", "A distance on screen"}, \
+  {PROP_PIXEL_DIAMETER, "PIXEL_DIAMETER", 0, "Pixel", "A distance on screen, specifically representing a diameter value"}, \
   {PROP_UNSIGNED, "UNSIGNED", 0, "Unsigned", ""}, \
   {PROP_PERCENTAGE, "PERCENTAGE", 0, "Percentage", "A percentage between 0 and 100"}, \
   {PROP_FACTOR, "FACTOR", 0, "Factor", "A factor between 0.0 and 1.0"}, \
@@ -73,6 +74,7 @@ const EnumPropertyItem rna_enum_property_type_items[] = {
   {PROP_TIME_ABSOLUTE, "TIME_ABSOLUTE", 0, "Time (Absolute)", \
    "Time specified in seconds, independent of the scene"}, \
   {PROP_DISTANCE, "DISTANCE", 0, "Distance", "A distance between two points"}, \
+  {PROP_DISTANCE_DIAMETER, "DISTANCE_DIAMETER", 0, "Distance", "A distance between two points, specifically representing a diameter value"}, \
   {PROP_DISTANCE_CAMERA, "DISTANCE_CAMERA", 0, "Camera Distance", ""}, \
   {PROP_POWER, "POWER", 0, "Power", ""}, \
   {PROP_TEMPERATURE, "TEMPERATURE", 0, "Temperature", ""}, \
@@ -81,8 +83,8 @@ const EnumPropertyItem rna_enum_property_type_items[] = {
   {PROP_FREQUENCY, "FREQUENCY", 0, "Frequency", ""}
 
 #define RNA_ENUM_PROPERTY_SUBTYPE_NUMBER_ARRAY_ITEMS \
-  {PROP_COLOR, "COLOR", 0, "Linear Color", "Color in the linear space"}, \
-  {PROP_TRANSLATION, "TRANSLATION", 0, "Translation", "Color in the gamma corrected space"}, \
+  {PROP_COLOR, "COLOR", 0, "Linear Color", "Color in the scene linear working color space"}, \
+  {PROP_TRANSLATION, "TRANSLATION", 0, "Translation", ""}, \
   {PROP_DIRECTION, "DIRECTION", 0, "Direction", ""}, \
   {PROP_VELOCITY, "VELOCITY", 0, "Velocity", ""}, \
   {PROP_ACCELERATION, "ACCELERATION", 0, "Acceleration", ""}, \
@@ -92,7 +94,7 @@ const EnumPropertyItem rna_enum_property_type_items[] = {
   {PROP_AXISANGLE, "AXISANGLE", 0, "Axis-Angle", "Angle and axis to rotate around"}, \
   {PROP_XYZ, "XYZ", 0, "XYZ", ""}, \
   {PROP_XYZ_LENGTH, "XYZ_LENGTH", 0, "XYZ Length", ""}, \
-  {PROP_COLOR_GAMMA, "COLOR_GAMMA", 0, "Gamma-Corrected Color", ""}, \
+  {PROP_COLOR_GAMMA, "COLOR_GAMMA", 0, "sRGB Color", "Color in sRGB color space (mainly for user interface colors)"}, \
   {PROP_COORDS, "COORDINATES", 0, "Coordinates", ""}, \
   /* Boolean. */ \
   {PROP_LAYER, "LAYER", 0, "Layer", ""}, \
@@ -157,6 +159,7 @@ const EnumPropertyItem rna_enum_property_unit_items[] = {
 };
 
 /* Descriptions for rna_enum_property_flag_items and rna_enum_property_flag_enum_items. */
+static constexpr auto PROP_READ_ONLY_DESCR = "When set, the property cannot be edited";
 static constexpr auto PROP_HIDDEN_DESCR =
     "For operators: hide from places in the user interface where Blender would add the property "
     "automatically, like Adjust Last Operation. Also this property is not written to presets.";
@@ -181,6 +184,19 @@ static constexpr auto PROP_PATH_SUPPORTS_TEMPLATES_DESCR =
 static constexpr auto PROP_ENUM_FLAG_DESCR = "";
 
 const EnumPropertyItem rna_enum_property_flag_items[] = {
+    /* NOTE: This is used only in the `bpy.props` module to define runtime RNA properties.
+     * The value of this 'READ_ONLY' enum item is logically inverted compared to the
+     * `PROP_EDITABLE` used everywhere else in RNA-related code.
+     *
+     * This inversion logic is handled by the bpy property definition code (see
+     * #bpy_prop_assign_flag), and does not affect any other code area.
+     *
+     * This special handling is done to allow python property definitions to create by default
+     * editable properties, without having to specify the `options={'EDITABLE', ...}` parameter all
+     * the time.
+     */
+    {PROP_EDITABLE, "READ_ONLY", 0, "Read Only", PROP_READ_ONLY_DESCR},
+
     {PROP_HIDDEN, "HIDDEN", 0, "Hidden", PROP_HIDDEN_DESCR},
     {PROP_SKIP_SAVE, "SKIP_SAVE", 0, "Skip Save", PROP_SKIP_SAVE_DESCR},
     {PROP_SKIP_PRESET, "SKIP_PRESET", 0, "Skip Preset", PROP_SKIP_PRESET_DESCR},
@@ -212,6 +228,19 @@ const EnumPropertyItem rna_enum_property_flag_items[] = {
 
 /** Only for enum type properties. */
 const EnumPropertyItem rna_enum_property_flag_enum_items[] = {
+    /* NOTE: This is used only in the `bpy.props` module to define runtime RNA properties.
+     * The value of this 'READ_ONLY' enum item is logically inverted compared to the
+     * `PROP_EDITABLE` used everywhere else in RNA-related code.
+     *
+     * This inversion logic is handled by the bpy property definition code (see
+     * #bpy_prop_assign_flag), and does not affect any other code area.
+     *
+     * This special handling is done to allow python property definitions to create by default
+     * editable properties, without having to specify the `options={'EDITABLE', ...}` parameter all
+     * the time.
+     */
+    {PROP_EDITABLE, "READ_ONLY", 0, "Read Only", PROP_READ_ONLY_DESCR},
+
     {PROP_HIDDEN, "HIDDEN", 0, "Hidden", PROP_HIDDEN_DESCR},
     {PROP_SKIP_SAVE, "SKIP_SAVE", 0, "Skip Save", PROP_SKIP_SAVE_DESCR},
     {PROP_ANIMATABLE, "ANIMATABLE", 0, "Animatable", PROP_ANIMATABLE_DESCR},
@@ -265,6 +294,7 @@ const EnumPropertyItem rna_enum_property_string_search_flag_items[] = {
 #ifdef RNA_RUNTIME
 #  include "BLI_ghash.h"
 #  include "BLI_string.h"
+
 #  include "MEM_guardedalloc.h"
 
 #  include "BKE_idprop.hh"
@@ -457,9 +487,13 @@ static void rna_Struct_properties_next(CollectionPropertyIterator *iter)
     /* regular properties */
     rna_inheritance_properties_listbase_next(iter, rna_property_builtin);
 
-    /* try id properties */
+    /* Try IDProperties (i.e. custom data).
+     *
+     * NOTE: System IDProperties should not need to be handled here, as they are expected to have a
+     * valid (runtime-defined) RNA property to wrap them, which will have been processed above as
+     * part of `rna_inheritance_properties_listbase_next`. */
     if (!iter->valid) {
-      group = RNA_struct_system_idprops(&iter->builtin_parent, 0);
+      group = RNA_struct_idprops(&iter->builtin_parent, 0);
 
       if (group) {
         rna_iterator_listbase_end(iter);
@@ -884,6 +918,53 @@ static bool rna_Property_is_runtime_get(PointerRNA *ptr)
 {
   PropertyRNA *prop = (PropertyRNA *)ptr->data;
   return RNA_property_is_runtime(prop);
+}
+
+static bool rna_Property_is_deprecated_get(PointerRNA *ptr)
+{
+  const PropertyRNA *prop = (const PropertyRNA *)ptr->data;
+  return RNA_property_deprecated(prop) != nullptr;
+}
+
+static int rna_Property_deprecated_note_length(PointerRNA *ptr)
+{
+  const PropertyRNA *prop = (const PropertyRNA *)ptr->data;
+  if (const DeprecatedRNA *deprecated = RNA_property_deprecated(prop)) {
+    return strlen(deprecated->note);
+  }
+  return 0;
+}
+
+static void rna_Property_deprecated_note_get(PointerRNA *ptr, char *value)
+{
+  const PropertyRNA *prop = (const PropertyRNA *)ptr->data;
+  if (const DeprecatedRNA *deprecated = RNA_property_deprecated(prop)) {
+    strcpy(value, deprecated->note);
+  }
+  else {
+    value[0] = '\0';
+  }
+}
+
+static void rna_Property_deprecated_version_get(PointerRNA *ptr, int *value)
+{
+  const PropertyRNA *prop = (const PropertyRNA *)ptr->data;
+  short version = 0;
+  if (const DeprecatedRNA *deprecated = RNA_property_deprecated(prop)) {
+    version = deprecated->version;
+  }
+  ARRAY_SET_ITEMS(value, version / 100, version % 100, 0);
+}
+
+static void rna_Property_deprecated_removal_version_get(PointerRNA *ptr, int *value)
+{
+  const PropertyRNA *prop = (const PropertyRNA *)ptr->data;
+  short version = 0;
+  if (const DeprecatedRNA *deprecated = RNA_property_deprecated(prop)) {
+    version = deprecated->removal_version;
+  }
+
+  ARRAY_SET_ITEMS(value, version / 100, version % 100, 0);
 }
 
 static bool rna_BoolProperty_default_get(PointerRNA *ptr)
@@ -1597,16 +1678,24 @@ static void rna_property_override_diff_propptr(Main *bmain,
             if (opop == nullptr) {
               const char *subitem_refname = rna_itemname_b ? rna_itemname_b->c_str() : nullptr;
               const char *subitem_locname = rna_itemname_a ? rna_itemname_a->c_str() : nullptr;
-              opop = BKE_lib_override_library_property_operation_find(op,
-                                                                      subitem_refname,
-                                                                      subitem_locname,
-                                                                      ptrdiff_ctx.rna_itemid_b,
-                                                                      ptrdiff_ctx.rna_itemid_a,
-                                                                      rna_itemindex_b,
-                                                                      rna_itemindex_a,
-                                                                      true,
-                                                                      nullptr);
+              opop = BKE_lib_override_library_property_operation_get(op,
+                                                                     LIBOVERRIDE_OP_REPLACE,
+                                                                     subitem_refname,
+                                                                     subitem_locname,
+                                                                     ptrdiff_ctx.rna_itemid_b,
+                                                                     ptrdiff_ctx.rna_itemid_a,
+                                                                     rna_itemindex_b,
+                                                                     rna_itemindex_a,
+                                                                     true,
+                                                                     nullptr,
+                                                                     &created);
+              /* Do not use BKE_lib_override_library_operations_tag here, we do not want to
+               * validate as used all of its operations. */
+              op->tag &= ~LIBOVERRIDE_PROP_OP_TAG_UNUSED;
               opop->tag &= ~LIBOVERRIDE_PROP_OP_TAG_UNUSED;
+              if (created) {
+                ptrdiff_ctx.rnadiff_ctx.report_flag |= RNA_OVERRIDE_MATCH_RESULT_CREATED;
+              }
             }
 
             BLI_assert(propptr_a->data == propptr_a->owner_id);
@@ -3260,7 +3349,7 @@ static void rna_def_property(BlenderRNA *brna)
   prop = RNA_def_property(srna, "is_never_none", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_clear_flag(prop, PROP_EDITABLE);
   RNA_def_property_boolean_funcs(prop, "rna_Property_is_never_none_get", nullptr);
-  RNA_def_property_ui_text(prop, "Never None", "True when this value can't be set to None");
+  RNA_def_property_ui_text(prop, "Never None", "True when this value cannot be set to None");
 
   prop = RNA_def_property(srna, "is_hidden", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_clear_flag(prop, PROP_EDITABLE);
@@ -3338,11 +3427,37 @@ static void rna_def_property(BlenderRNA *brna)
       "Property is a path which supports the \"{variable_name}\" variable expression syntax, "
       "which substitutes the value of the referenced variable in place of the expression");
 
+  prop = RNA_def_property(srna, "is_deprecated", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_boolean_funcs(prop, "rna_Property_is_deprecated_get", nullptr);
+  RNA_def_property_ui_text(prop, "Deprecated", "The property is deprecated");
+
+  prop = RNA_def_property(srna, "deprecated_note", PROP_STRING, PROP_NONE);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_string_funcs(
+      prop, "rna_Property_deprecated_note_get", "rna_Property_deprecated_note_length", nullptr);
+  RNA_def_property_ui_text(prop, "Deprecated Note", "A note regarding deprecation");
+
+  prop = RNA_def_property(srna, "deprecated_version", PROP_INT, PROP_NONE);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  /* Use 3 values to match `bpy.app.version`. */
+  RNA_def_property_array(prop, 3);
+  RNA_def_property_ui_text(prop, "Deprecated Version", "The Blender version this was deprecated");
+  RNA_def_property_int_funcs(prop, "rna_Property_deprecated_version_get", nullptr, nullptr);
+
+  prop = RNA_def_property(srna, "deprecated_removal_version", PROP_INT, PROP_NONE);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_array(prop, 3);
+  RNA_def_property_ui_text(
+      prop, "Deprecated Removal Version", "The Blender version this is expected to be removed");
+  RNA_def_property_int_funcs(
+      prop, "rna_Property_deprecated_removal_version_get", nullptr, nullptr);
+
   prop = RNA_def_property(srna, "tags", PROP_ENUM, PROP_NONE);
   RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_flag(prop, PROP_REGISTER_OPTIONAL | PROP_ENUM_FLAG);
   RNA_def_property_enum_items(prop, dummy_prop_tags);
   RNA_def_property_enum_funcs(prop, "rna_Property_tags_get", nullptr, "rna_Property_tags_itemf");
-  RNA_def_property_flag(prop, PROP_REGISTER_OPTIONAL | PROP_ENUM_FLAG);
   RNA_def_property_ui_text(
       prop, "Tags", "Subset of tags (defined in parent struct) that are set for this property");
 }

@@ -11,6 +11,8 @@
  * The store_[type] functions are dynamically generated in
  * ShaderOperation::generate_code_for_outputs. */
 
+#include "gpu_shader_compositor_store.glsl"
+
 void node_compositor_store_output_float(const float id, float value, out float out_value)
 {
   store_float(floatBitsToUint(id), value);
@@ -60,5 +62,12 @@ void node_compositor_store_output_int2(const float id, float3 value, out float3 
 void node_compositor_store_output_bool(const float id, float value, out float out_value)
 {
   store_bool(floatBitsToUint(id), value);
+  out_value = value;
+}
+
+/* GPUMaterial doesn't support int, so it is passed as a float. */
+void node_compositor_store_output_menu(const float id, float value, out float out_value)
+{
+  store_menu(floatBitsToUint(id), value);
   out_value = value;
 }

@@ -57,6 +57,7 @@ NODE_DEFINE(Integrator)
   SOCKET_FLOAT(ao_distance, "AO Distance", FLT_MAX);
   SOCKET_FLOAT(ao_additive_factor, "AO Additive Factor", 0.0f);
 
+  SOCKET_BOOLEAN(volume_ray_marching, "Biased", false);
   SOCKET_INT(volume_max_steps, "Volume Max Steps", 1024);
   SOCKET_FLOAT(volume_step_rate, "Volume Step Rate", 1.0f);
 
@@ -227,8 +228,8 @@ void Integrator::device_update(Device *device, DeviceScene *dscene, Scene *scene
     }
   }
 
+  kintegrator->volume_ray_marching = volume_ray_marching;
   kintegrator->volume_max_steps = volume_max_steps;
-  kintegrator->volume_step_rate = volume_step_rate;
 
   kintegrator->caustics_reflective = caustics_reflective;
   kintegrator->caustics_refractive = caustics_refractive;

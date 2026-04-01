@@ -42,7 +42,7 @@ GPUVertFormat *immVertexFormat()
   return &imm->vertex_format;
 }
 
-void immBindShader(GPUShader *shader)
+void immBindShader(blender::gpu::Shader *shader)
 {
   BLI_assert(imm->shader == nullptr);
 
@@ -58,9 +58,9 @@ void immBindShader(GPUShader *shader)
   GPU_matrix_bind(shader);
 }
 
-void immBindBuiltinProgram(eGPUBuiltinShader shader_id)
+void immBindBuiltinProgram(GPUBuiltinShader shader_id)
 {
-  GPUShader *shader = GPU_shader_get_builtin_shader(shader_id);
+  blender::gpu::Shader *shader = GPU_shader_get_builtin_shader(shader_id);
   immBindShader(shader);
   imm->builtin_shader_bound = shader_id;
 }
@@ -78,7 +78,7 @@ bool immIsShaderBound()
   return imm->shader != nullptr;
 }
 
-GPUShader *immGetShader()
+blender::gpu::Shader *immGetShader()
 {
   return imm->shader;
 }
@@ -135,7 +135,7 @@ static void wide_line_workaround_start(GPUPrimType prim_type)
     return;
   }
 
-  eGPUBuiltinShader polyline_sh;
+  GPUBuiltinShader polyline_sh;
   switch (*imm->builtin_shader_bound) {
     case GPU_SHADER_3D_CLIPPED_UNIFORM_COLOR:
       polyline_sh = GPU_SHADER_3D_POLYLINE_CLIPPED_UNIFORM_COLOR;
@@ -271,7 +271,7 @@ void immEnd()
     imm->batch = nullptr; /* don't free, batch belongs to caller */
   }
   else {
-    Context::get()->assert_framebuffer_shader_compatibility(unwrap(imm->shader));
+    Context::get()->assert_framebuffer_shader_compatibility(imm->shader);
     imm->end();
   }
 
@@ -640,7 +640,7 @@ void immBindTextureSampler(const char *name, blender::gpu::Texture *tex, GPUSamp
   GPU_texture_bind_ex(tex, state, binding);
 }
 
-void immBindUniformBuf(const char *name, GPUUniformBuf *ubo)
+void immBindUniformBuf(const char *name, blender::gpu::UniformBuf *ubo)
 {
   int binding = GPU_shader_get_ubo_binding(imm->shader, name);
   GPU_uniformbuf_bind(ubo, binding);

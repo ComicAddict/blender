@@ -157,6 +157,7 @@ bool Light::has_contribution(const Scene *scene, const Object *object)
     return false;
   }
   if (light_type == LIGHT_BACKGROUND) {
+    /* Will be determined after finishing processing all the lights. */
     return true;
   }
   if (light_type == LIGHT_AREA) {
@@ -271,7 +272,7 @@ void LightManager::test_enabled_lights(Scene *scene)
       background_lights.push_back(light);
     }
 
-    num_lights++;
+    num_lights += light->is_enabled;
   }
 
   LOG_INFO << "Total " << num_lights << " lights.";
@@ -285,14 +286,16 @@ void LightManager::test_enabled_lights(Scene *scene)
      * - If we don't need it (no HDRs etc.)
      */
     Shader *shader = scene->background->get_shader(scene);
-    const bool disable_mis = !(has_portal || shader->has_surface_spatial_varying);
-    if (disable_mis) {
-      LOG_INFO << "Background MIS has been disabled.";
-    }
     for (Light *light : background_lights) {
-      light->is_enabled = !disable_mis;
-      background_enabled = !disable_mis;
-      background_resolution = light->map_resolution;
+      light->is_enabled = has_portal || (light->use_mis && shader->has_surface_spatial_varying);
+      if (light->is_enabled) {
+        background_enabled = true;
+        background_resolution = light->map_resolution;
+      }
+    }
+
+    if (!background_enabled) {
+      LOG_INFO << "Background MIS has been disabled.";
     }
   }
 
@@ -1018,9 +1021,9 @@ void LightManager::device_update_background(Device *device,
     }
     if (node->type == SkyTextureNode::get_node_type()) {
       SkyTextureNode *sky = (SkyTextureNode *)node;
-      if (sky->get_sky_type() == NODE_SKY_NISHITA && sky->get_sun_disc()) {
+      if (sky->get_sun_disc()) {
         /* Ensure that the input coordinates aren't transformed before they reach the node.
-         * If that is the case, the logic used for sampling the sun's location does not work
+         * If that is the case, the logic used for sampling the Sun's location does not work
          * and we have to fall back to map-based sampling. */
         const ShaderInput *vec_in = sky->input("Vector");
         if (vec_in && vec_in->link && vec_in->link->parent) {
@@ -1034,7 +1037,7 @@ void LightManager::device_update_background(Device *device,
           }
         }
 
-        /* Determine sun direction from lat/long and texture mapping. */
+        /* Determine Sun direction from lat/long and texture mapping. */
         const float latitude = sky->get_sun_elevation();
         const float longitude = sky->get_sun_rotation() + M_PI_2_F;
         float3 sun_direction = make_float3(
@@ -1042,11 +1045,11 @@ void LightManager::device_update_background(Device *device,
         const Transform sky_transform = transform_inverse(sky->tex_mapping.compute_transform());
         sun_direction = transform_direction(&sky_transform, sun_direction);
 
-        /* Pack sun direction and size. */
+        /* Pack Sun direction and size. */
         const float half_angle = sky->get_sun_size() * 0.5f;
         kbackground->sun = make_float4(sun_direction, half_angle);
 
-        /* empirical value */
+        /* Empirical value */
         kbackground->sun_weight = 4.0f;
         sun_average_radiance = sky->get_sun_average_radiance();
         environment_res.x = max(environment_res.x, 512);
@@ -1056,7 +1059,7 @@ void LightManager::device_update_background(Device *device,
     }
   }
 
-  /* If there's more than one sun, fall back to map sampling instead. */
+  /* If there's more than one Sun, fall back to map sampling instead. */
   kbackground->use_sun_guiding = (num_suns == 1);
   if (!kbackground->use_sun_guiding) {
     kbackground->sun_weight = 0.0f;
@@ -1121,7 +1124,7 @@ void LightManager::device_update_background(Device *device,
   const float map_average_radiance = cdf_total * M_PI_2_F;
   if (sun_average_radiance > 0.0f) {
     /* The weighting here is just a heuristic that was empirically determined.
-     * The sun's average radiance is much higher than the map's average radiance,
+     * The Sun's average radiance is much higher than the map's average radiance,
      * but we don't want to weight the background light too much because
      * visibility is not accounted for anyway. */
     background_light->set_average_radiance(0.8f * map_average_radiance +
@@ -1139,7 +1142,7 @@ void LightManager::device_update_background(Device *device,
 
   marg_cdf[res.y].y = 1.0f;
 
-  LOG_WORK << "Background MIS build time " << time_dt() - time_start;
+  LOG_DEBUG << "Background MIS build time " << time_dt() - time_start;
 
   /* update device */
   dscene->light_background_marginal_cdf.copy_to_device();

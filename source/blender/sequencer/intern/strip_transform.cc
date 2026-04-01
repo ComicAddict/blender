@@ -44,7 +44,7 @@ bool transform_single_image_check(const Strip *strip)
 
 bool transform_strip_can_be_translated(const Strip *strip)
 {
-  return !(strip->type & STRIP_TYPE_EFFECT) || (effect_get_num_inputs(strip->type) == 0);
+  return !strip->is_effect() || (effect_get_num_inputs(strip->type) == 0);
 }
 
 bool transform_test_overlap(const Scene *scene, Strip *strip1, Strip *strip2)
@@ -259,7 +259,7 @@ static blender::VectorSet<Strip *> extract_standalone_strips(
   blender::VectorSet<Strip *> standalone_strips;
 
   for (Strip *strip : transformed_strips) {
-    if ((strip->type & STRIP_TYPE_EFFECT) == 0 || strip->input1 == nullptr) {
+    if (!strip->is_effect() || strip->input1 == nullptr) {
       standalone_strips.add(strip);
     }
   }
@@ -434,13 +434,13 @@ static void strip_transform_handle_overwrite_trim(Scene *scene,
       target, scene, seqbasep, query_strip_effect_chain);
 
   /* Expand collection by adding all target's children, effects and their children. */
-  if ((target->type & STRIP_TYPE_EFFECT) != 0) {
+  if (target->is_effect()) {
     iterator_set_expand(scene, seqbasep, targets, query_strip_effect_chain);
   }
 
   /* Trim all non effects, that have influence on effect length which is overlapping. */
   for (Strip *strip : targets) {
-    if ((strip->type & STRIP_TYPE_EFFECT) != 0 && effect_get_num_inputs(strip->type) > 0) {
+    if (strip->is_effect() && effect_get_num_inputs(strip->type) > 0) {
       continue;
     }
     if (overlap == STRIP_OVERLAP_LEFT_SIDE) {
@@ -609,8 +609,8 @@ float2 transform_image_raw_size_get(const Scene *scene, const Strip *strip)
 
   if (strip->type == STRIP_TYPE_TEXT) {
     const TextVars *data = static_cast<TextVars *>(strip->effectdata);
-    const int font_flags = ((data->flag & SEQ_TEXT_BOLD) ? BLF_BOLD : 0) |
-                           ((data->flag & SEQ_TEXT_ITALIC) ? BLF_ITALIC : 0);
+    const FontFlags font_flags = ((data->flag & SEQ_TEXT_BOLD) ? BLF_BOLD : BLF_NONE) |
+                                 ((data->flag & SEQ_TEXT_ITALIC) ? BLF_ITALIC : BLF_NONE);
     const int font = text_effect_font_init(nullptr, strip, font_flags);
 
     const TextVarsRuntime *runtime = text_effect_calc_runtime(

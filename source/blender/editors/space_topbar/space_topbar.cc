@@ -90,7 +90,8 @@ static void topbar_main_region_init(wmWindowManager *wm, ARegion *region)
   }
   UI_view2d_region_reinit(&region->v2d, V2D_COMMONVIEW_HEADER, region->winx, region->winy);
 
-  keymap = WM_keymap_ensure(wm->defaultconf, "View2D Buttons List", SPACE_EMPTY, RGN_TYPE_WINDOW);
+  keymap = WM_keymap_ensure(
+      wm->runtime->defaultconf, "View2D Buttons List", SPACE_EMPTY, RGN_TYPE_WINDOW);
   WM_event_add_keymap_handler(&region->runtime->handlers, keymap);
 }
 
@@ -185,16 +186,26 @@ static void topbar_header_region_message_subscribe(const wmRegionMessageSubscrib
       mbus, &workspace->id, workspace, WorkSpace, tools, &msg_sub_value_region_tag_redraw);
 }
 
-static void recent_files_menu_draw(const bContext * /*C*/, Menu *menu)
+static void recent_files_menu_draw(const bContext *C, Menu *menu)
 {
   uiLayout *layout = menu->layout;
   layout->operator_context_set(blender::wm::OpCallContext::InvokeDefault);
-  if (uiTemplateRecentFiles(layout, U.recent_files) != 0) {
-    layout->separator();
-    layout->op("WM_OT_clear_recent_files", IFACE_("Clear Recent Files List..."), ICON_TRASH);
+  const bool is_menu_search = CTX_data_int_get(C, "is_menu_search").value_or(false);
+  if (is_menu_search) {
+    uiTemplateRecentFiles(layout, U.recent_files);
   }
   else {
-    layout->label(IFACE_("No Recent Files"), ICON_NONE);
+    const int limit = std::min<int>(U.recent_files, 20);
+    if (uiTemplateRecentFiles(layout, limit) != 0) {
+      layout->separator();
+      PointerRNA search_props = layout->op(
+          "WM_OT_search_single_menu", IFACE_("More..."), ICON_VIEWZOOM);
+      RNA_string_set(&search_props, "menu_idname", "TOPBAR_MT_file_open_recent");
+      layout->op("WM_OT_clear_recent_files", IFACE_("Clear Recent Files List..."), ICON_TRASH);
+    }
+    else {
+      layout->label(IFACE_("No Recent Files"), ICON_NONE);
+    }
   }
 }
 
@@ -213,13 +224,13 @@ static void recent_files_menu_register()
 static void undo_history_draw_menu(const bContext *C, Menu *menu)
 {
   wmWindowManager *wm = CTX_wm_manager(C);
-  if (wm->undo_stack == nullptr) {
+  if (wm->runtime->undo_stack == nullptr) {
     return;
   }
 
   int undo_step_count = 0;
   int undo_step_count_all = 0;
-  LISTBASE_FOREACH_BACKWARD (UndoStep *, us, &wm->undo_stack->steps) {
+  LISTBASE_FOREACH_BACKWARD (UndoStep *, us, &wm->runtime->undo_stack->steps) {
     undo_step_count_all += 1;
     if (us->skip) {
       continue;
@@ -236,7 +247,8 @@ static void undo_history_draw_menu(const bContext *C, Menu *menu)
 
   /* Reverse the order so the most recent state is first in the menu. */
   int i = undo_step_count_all - 1;
-  for (UndoStep *us = static_cast<UndoStep *>(wm->undo_stack->steps.last); us; us = us->prev, i--)
+  for (UndoStep *us = static_cast<UndoStep *>(wm->runtime->undo_stack->steps.last); us;
+       us = us->prev, i--)
   {
     if (us->skip) {
       continue;
@@ -244,7 +256,7 @@ static void undo_history_draw_menu(const bContext *C, Menu *menu)
     if (!(undo_step_count % col_size)) {
       column = &split->column(false);
     }
-    const bool is_active = (us == wm->undo_stack->step_active);
+    const bool is_active = (us == wm->runtime->undo_stack->step_active);
     uiLayout *row = &column->row(false);
     row->enabled_set(!is_active);
     PointerRNA op_ptr = row->op("ED_OT_undo_history",

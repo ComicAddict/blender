@@ -13,6 +13,8 @@
 #include "BLI_any.hh"
 #include "BLI_generic_pointer.hh"
 
+#include "BKE_node_socket_value_fwd.hh"
+
 namespace blender::bke {
 
 /**
@@ -91,10 +93,10 @@ class SocketValueVariant {
 
   /**
    * Create a variant based on the given value. This works for primitive types. For more complex
-   * types use #set explicity. Alternatively, one can use the #From or #ConstructIn utilities.
+   * types use #set explicitly. Alternatively, one can use the #From or #ConstructIn utilities.
    */
   template<typename T,
-           /* The enable-if is necessary to avoid overridding the copy/moveconstructors. */
+           /* The enable-if is necessary to avoid overriding the copy/moveconstructors. */
            BLI_ENABLE_IF((std::is_trivial_v<std::decay_t<T>> ||
                           is_same_any_v<std::decay_t<T>, std::string>))>
   explicit SocketValueVariant(T &&value)
@@ -216,6 +218,7 @@ template<typename T> inline SocketValueVariant SocketValueVariant::From(T &&valu
 
 template<typename T> inline void SocketValueVariant::set(T &&value)
 {
+  static_assert(!is_same_any_v<std::decay_t<T>, SocketValueVariant, bke::SocketValueVariant *>);
   this->store_impl<std::decay_t<T>>(std::forward<T>(value));
 }
 

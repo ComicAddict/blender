@@ -26,14 +26,24 @@ namespace gpu {
 class GLVaoCache;
 
 class GLSharedOrphanLists {
- public:
-  /** Mutex for the below structures. */
-  std::mutex lists_mutex;
-  /** Buffers and textures are shared across context. Any context can free them. */
-  Vector<GLuint> textures;
-  Vector<GLuint> buffers;
+  class OrphanList {
+    /** Mutex for the below structures. */
+    std::mutex mutex_;
+    /** Buffers and textures are shared across context. Any context can free them. */
+    Vector<GLuint> handles_;
+
+   public:
+    void clear(FunctionRef<void(GLuint, GLuint *)> free_fn);
+    void append(GLuint handle);
+  };
 
  public:
+  /** Shaders, Buffers and textures are shared across context. */
+  OrphanList textures;
+  OrphanList buffers;
+  OrphanList shaders;
+  OrphanList programs;
+
   void orphans_clear();
 };
 
@@ -42,13 +52,11 @@ class GLContext : public Context {
   /** Capabilities. */
 
   static GLint max_cubemap_size;
-  static GLint max_ubo_size;
   static GLint max_ubo_binds;
   static GLint max_ssbo_binds;
 
   /** Extensions. */
 
-  static bool clip_control_support;
   static bool debug_layer_support;
   static bool direct_state_access_support;
   static bool explicit_location_support;
@@ -57,8 +65,6 @@ class GLContext : public Context {
   static bool native_barycentric_support;
   static bool multi_bind_support;
   static bool multi_bind_image_support;
-  static bool multi_draw_indirect_support;
-  static bool shader_draw_parameters_support;
   static bool stencil_texturing_support;
   static bool texture_barrier_support;
   static bool texture_filter_anisotropic_support;
@@ -82,7 +88,7 @@ class GLContext : public Context {
    * context is destroyed, we need to remove any reference to it.
    */
   Set<GLVaoCache *> vao_caches_;
-  Set<GPUFrameBuffer *> framebuffers_;
+  Set<gpu::FrameBuffer *> framebuffers_;
   /** Mutex for the below structures. */
   std::mutex lists_mutex_;
   /** VertexArrays and framebuffers are not shared across context. */
@@ -141,8 +147,10 @@ class GLContext : public Context {
   void vao_free(GLuint vao_id);
   void fbo_free(GLuint fbo_id);
   /* These can be called by any threads even without OpenGL ctx. Deletion will be delayed. */
-  static void buf_free(GLuint buf_id);
-  static void tex_free(GLuint tex_id);
+  static void buffer_free(GLuint buf_id);
+  static void texture_free(GLuint tex_id);
+  static void shader_free(GLuint shader_id);
+  static void program_free(GLuint program_id);
 
   void vao_cache_register(GLVaoCache *cache);
   void vao_cache_unregister(GLVaoCache *cache);

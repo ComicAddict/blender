@@ -233,7 +233,7 @@ void BKE_blendfile_link_append_context_library_add(BlendfileLinkAppendContext *l
  *
  * \param userdata: an opaque user-data pointer stored in generated link/append item.
  *
- * TODO: Add a more friendly version of this that combines it with the call to
+ * TODO: Add a more friendly version of this function that combines it with the call to
  * #BKE_blendfile_link_append_context_item_library_index_enable to enable the added item for all
  * added library sources.
  */
@@ -333,6 +333,14 @@ void BKE_blendfile_link_append_context_init_done(BlendfileLinkAppendContext *lap
  * Perform linking operation on all items added to given `lapp_context`.
  */
 void BKE_blendfile_link(BlendfileLinkAppendContext *lapp_context, ReportList *reports);
+
+/**
+ * Perform packing operation.
+ *
+ * The IDs processed by this functions are the one that have been linked by a previous call to
+ * #BKE_blendfile_link on the same `lapp_context`.
+ */
+void BKE_blendfile_link_pack(BlendfileLinkAppendContext *lapp_context, ReportList *reports);
 
 /**
  * Perform append operation, using modern ID usage looper to detect which ID should be kept

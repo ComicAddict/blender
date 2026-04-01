@@ -90,16 +90,6 @@ if(WITH_OPENGL_BACKEND)
 endif()
 
 if(WITH_VULKAN_BACKEND)
-  if(WITH_VULKAN_MOLTENVK)
-    list(APPEND INC_SYS
-      PUBLIC ${MOLTENVK_INCLUDE_DIRS}
-    )
-
-    list(APPEND LIB
-      ${MOLTENVK_LIBRARIES}
-    )
-  endif()
-
   list(APPEND SRC
     intern/GHOST_ContextVK.cc
 
@@ -398,7 +388,7 @@ elseif(WITH_GHOST_X11 OR WITH_GHOST_WAYLAND)
     generate_protocol_bindings(
       "${WAYLAND_PROTOCOLS_DIR}/staging/fractional-scale/fractional-scale-v1.xml"
     )
-    # Viewport (only required when fractional scale is in use).
+    # ViewPorter (only required when fractional scale is in use).
     generate_protocol_bindings(
       "${WAYLAND_PROTOCOLS_DIR}/stable/viewporter/viewporter.xml"
     )

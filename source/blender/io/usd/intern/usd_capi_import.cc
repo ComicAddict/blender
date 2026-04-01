@@ -135,7 +135,7 @@ static void import_startjob(void *customdata, wmJobWorkerStatus *worker_status)
 
   data->params.worker_status = worker_status;
 
-  WM_set_locked_interface(data->wm, true);
+  WM_locked_interface_set(data->wm, true);
   G.is_break = false;
 
   if (data->params.create_collection) {
@@ -217,6 +217,9 @@ static void import_startjob(void *customdata, wmJobWorkerStatus *worker_status)
       data->cache_file->is_sequence = data->params.is_sequence;
       data->cache_file->scale = scene_scale;
       STRNCPY(data->cache_file->filepath, data->filepath);
+      if (data->params.relative_path && !BLI_path_is_rel(data->cache_file->filepath)) {
+        BLI_path_rel(data->cache_file->filepath, BKE_main_blendfile_path_from_global());
+      }
     }
     return data->cache_file;
   };
@@ -393,7 +396,7 @@ static void import_endjob(void *customdata)
     }
   }
 
-  WM_set_locked_interface(data->wm, false);
+  WM_locked_interface_set(data->wm, false);
 
   switch (data->error_code) {
     default:
@@ -449,7 +452,7 @@ bool USD_import(const bContext *C,
     wmJob *wm_job = WM_jobs_get(CTX_wm_manager(C),
                                 CTX_wm_window(C),
                                 job->scene,
-                                "USD Import",
+                                "Importing USD...",
                                 WM_JOB_PROGRESS,
                                 WM_JOB_TYPE_USD_IMPORT);
 

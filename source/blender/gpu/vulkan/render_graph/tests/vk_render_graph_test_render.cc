@@ -172,13 +172,13 @@ TEST_P(VKRenderGraphTestRender, begin_draw_end)
     draw.node_data.first_vertex = 0;
     draw.node_data.instance_count = 1;
     draw.node_data.vertex_count = 4;
-    draw.node_data.pipeline_data.push_constants_data = nullptr;
-    draw.node_data.pipeline_data.push_constants_size = 0;
-    draw.node_data.pipeline_data.vk_descriptor_set = VK_NULL_HANDLE;
-    draw.node_data.pipeline_data.vk_pipeline = pipeline;
-    draw.node_data.pipeline_data.vk_pipeline_layout = pipeline_layout;
-    draw.node_data.viewport_data.viewports.append(VkViewport{});
-    draw.node_data.viewport_data.scissors.append(VkRect2D{});
+    draw.node_data.graphics.pipeline_data.push_constants_data = nullptr;
+    draw.node_data.graphics.pipeline_data.push_constants_size = 0;
+    draw.node_data.graphics.pipeline_data.vk_descriptor_set = VK_NULL_HANDLE;
+    draw.node_data.graphics.pipeline_data.vk_pipeline = pipeline;
+    draw.node_data.graphics.pipeline_data.vk_pipeline_layout = pipeline_layout;
+    draw.node_data.graphics.viewport.viewports.append(VkViewport{});
+    draw.node_data.graphics.viewport.scissors.append(VkRect2D{});
     render_graph->add_node(draw);
   }
 
@@ -258,13 +258,13 @@ TEST_P(VKRenderGraphTestRender, begin_draw_end__layered)
     draw.node_data.first_vertex = 0;
     draw.node_data.instance_count = 1;
     draw.node_data.vertex_count = 4;
-    draw.node_data.pipeline_data.push_constants_data = nullptr;
-    draw.node_data.pipeline_data.push_constants_size = 0;
-    draw.node_data.pipeline_data.vk_descriptor_set = VK_NULL_HANDLE;
-    draw.node_data.pipeline_data.vk_pipeline = pipeline;
-    draw.node_data.pipeline_data.vk_pipeline_layout = pipeline_layout;
-    draw.node_data.viewport_data.viewports.append(VkViewport{});
-    draw.node_data.viewport_data.scissors.append(VkRect2D{});
+    draw.node_data.graphics.pipeline_data.push_constants_data = nullptr;
+    draw.node_data.graphics.pipeline_data.push_constants_size = 0;
+    draw.node_data.graphics.pipeline_data.vk_descriptor_set = VK_NULL_HANDLE;
+    draw.node_data.graphics.pipeline_data.vk_pipeline = pipeline;
+    draw.node_data.graphics.pipeline_data.vk_pipeline_layout = pipeline_layout;
+    draw.node_data.graphics.viewport.viewports.append(VkViewport{});
+    draw.node_data.graphics.viewport.scissors.append(VkRect2D{});
     render_graph->add_node(draw);
   }
 
@@ -342,9 +342,6 @@ TEST_P(VKRenderGraphTestRender, begin_draw_end__layered)
       log[8]);
 }
 
-INSTANTIATE_TEST_SUITE_P(,
-                         VKRenderGraphTestRender,
-                         ::testing::Values(std::make_tuple(true, true),
-                                           std::make_tuple(true, false)));
+INSTANTIATE_TEST_SUITE_P(, VKRenderGraphTestRender, ::testing::Values(true, false));
 
 }  // namespace blender::gpu::render_graph

@@ -1,10 +1,10 @@
 
 msgid ""
 msgstr ""
-"Project-Id-Version: Blender 5.0.0 Alpha (b'a775d58b2e0e')\n"
+"Project-Id-Version: Blender 5.0.0 Alpha (b'7089def6cbcb')\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-07-21 08:48+0000\n"
-"PO-Revision-Date: 2025-06-11 19:59+0000\n"
+"POT-Creation-Date: 2025-09-29 09:33+0000\n"
+"PO-Revision-Date: 2025-07-31 16:24+0000\n"
 "Last-Translator: leif larsen <linuxdk1978@gmail.com>\n"
 "Language-Team: Danish <https://translate.blender.org/projects/blender-ui/ui/da/>\n"
 "Language: da\n"
@@ -12,7 +12,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
-"X-Generator: Weblate 5.11"
+"X-Generator: Weblate 5.12.1"
 
 
 msgid "Shader AOV"
@@ -665,10 +665,6 @@ msgstr "Fordel hukommelse på tværs af enheder"
 
 msgid "Make more room for large scenes to fit by distributing memory across interconnected devices (e.g. via NVLink) rather than duplicating it"
 msgstr "Giv mere plads til, at store scener kan passe ved at distribuere hukommelse på tværs af sammenkoblede enheder (f.eks. via NVLink) i stedet for at duplikere det"
-
-
-msgid "HIP RT enables AMD hardware ray tracing on RDNA2 and above"
-msgstr "HIP RT muliggør AMD hardware ray tracing på RDNA2 og derover"
 
 
 msgid "Embree on GPU"
@@ -1491,10 +1487,6 @@ msgid "Armatures active edit bone"
 msgstr "Armaturer aktive redigere knogle"
 
 
-msgid "Catalog Path"
-msgstr "Katalogsti"
-
-
 msgid "User Asset Libraries"
 msgstr "Bruger Asset Libraries"
 
@@ -1732,10 +1724,6 @@ msgid "Space Type"
 msgstr "område type"
 
 
-msgid "The space where the asset shelf is going to be used in"
-msgstr "Det rum, hvor aktivhylden skal bruges i"
-
-
 msgid "Preview Size"
 msgstr "Forhåndsvisningsstørrelse"
 
@@ -1812,6 +1800,14 @@ msgid "32-bit integer"
 msgstr "32-bit heltal"
 
 
+msgid "Boolean"
+msgstr "Boolean"
+
+
+msgid "True or false"
+msgstr "Sandt eller falsk"
+
+
 msgid "Vector"
 msgstr "Vektor"
 
@@ -1824,12 +1820,20 @@ msgid "RGBA color with 32-bit floating-point values"
 msgstr "RGBA farver med 32-bit floating-point værdier"
 
 
-msgid "Byte Color"
-msgstr "Byte farve"
+msgid "Quaternion"
+msgstr "Kvaternion"
 
 
-msgid "RGBA color with 8-bit positive integer values"
-msgstr "RRGB farver med 8-bit positive intenger værdier"
+msgid "Floating point quaternion rotation"
+msgstr "Flydende komma quaternion rotation"
+
+
+msgid "4x4 Matrix"
+msgstr "4x4 Matrix"
+
+
+msgid "Floating point matrix"
+msgstr "Floating point matrix"
 
 
 msgid "String"
@@ -1838,22 +1842,6 @@ msgstr "Streng"
 
 msgid "Text string"
 msgstr "tekst string"
-
-
-msgid "Boolean"
-msgstr "Boolean"
-
-
-msgid "True or false"
-msgstr "Sandt eller falsk"
-
-
-msgid "2D Vector"
-msgstr "2D Vektor"
-
-
-msgid "2D vector with floating-point values"
-msgstr "2D vector med floating-point værdier"
 
 
 msgid "8-Bit Integer"
@@ -1880,20 +1868,20 @@ msgid "32-bit signed integer vector"
 msgstr "32-Bit signed integer vector"
 
 
-msgid "Quaternion"
-msgstr "Kvaternion"
+msgid "2D Vector"
+msgstr "2D Vektor"
 
 
-msgid "Floating point quaternion rotation"
-msgstr "Flydende komma quaternion rotation"
+msgid "2D vector with floating-point values"
+msgstr "2D vector med floating-point værdier"
 
 
-msgid "4x4 Matrix"
-msgstr "4x4 Matrix"
+msgid "Byte Color"
+msgstr "Byte farve"
 
 
-msgid "Floating point matrix"
-msgstr "Floating point matrix"
+msgid "RGBA color with 8-bit positive integer values"
+msgstr "RRGB farver med 8-bit positive intenger værdier"
 
 
 msgid "Domain"
@@ -2168,6 +2156,14 @@ msgid "Object to use as cage instead of calculating the cage from the active obj
 msgstr "Objekt til brug som bur i stedet for at beregne buret ud fra det aktive objekt med bur ekstrudering"
 
 
+msgid "Object"
+msgstr "Objekt"
+
+
+msgid "Tangent"
+msgstr "Tangent"
+
+
 msgid "File Path"
 msgstr "Fil sti"
 
@@ -2260,16 +2256,8 @@ msgid "Choose normal space for baking"
 msgstr "Vælg normal plads til bagning"
 
 
-msgid "Object"
-msgstr "Objekt"
-
-
 msgid "Bake the normals in object space"
 msgstr "Bag normalerne i objekt rummet"
-
-
-msgid "Tangent"
-msgstr "Tangent"
 
 
 msgid "Bake the normals in tangent space"
@@ -3533,6 +3521,10 @@ msgid "Blend Mode"
 msgstr "Blandings måde"
 
 
+msgid "Library Override"
+msgstr "Bibliotek tilsidesætter"
+
+
 msgid "Local"
 msgstr "Lokal"
 
@@ -3567,6 +3559,10 @@ msgstr "Minimum"
 
 msgid "Max"
 msgstr "Maximum"
+
+
+msgid "Tool"
+msgstr "Værktøj"
 
 
 msgid "Mesh"
@@ -3912,10 +3908,6 @@ msgstr "Nøglebillede kant"
 
 msgid "Keyframe Border Selected"
 msgstr "Nøglebillede kant valgt"
-
-
-msgid "Face Dot Selected"
-msgstr "Overflade punkt valgt"
 
 
 msgid "Face Dot Size"

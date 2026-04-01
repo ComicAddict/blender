@@ -435,6 +435,16 @@ class BlenderCameraParamQuery : public OSLCameraParamQuery {
         data.push_back(RNA_property_boolean_get(&custom_props, prop));
       }
     }
+    else if (RNA_property_type(prop) == PROP_ENUM) {
+      const char *identifier = "";
+      const int value = RNA_property_enum_get(&custom_props, prop);
+      if (RNA_property_enum_identifier(nullptr, &custom_props, prop, value, &identifier)) {
+        data.push_back(atoi(identifier));
+      }
+      else {
+        data.push_back(value);
+      }
+    }
     else {
       if (array_len > 0) {
         data.resize(array_len);
@@ -786,7 +796,7 @@ void BlenderSync::sync_camera_motion(BL::RenderSettings &b_render,
     /* TODO(sergey): De-duplicate calculation with camera sync. */
     const float fov = 2.0f * atanf((0.5f * sensor_size) / bcam.lens / aspectratio);
     if (fov != cam->get_fov()) {
-      LOG_WORK << "Camera " << b_ob.name() << " FOV change detected.";
+      LOG_DEBUG << "Camera " << b_ob.name() << " FOV change detected.";
       if (motion_time == 0.0f) {
         cam->set_fov(fov);
       }

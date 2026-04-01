@@ -125,9 +125,7 @@ void ED_fileselect_set_params_from_userdef(SpaceFile *sfile);
  * \param temp_win_size: If the browser was opened in a temporary window,
  * pass its size here so we can store that in the preferences. Otherwise NULL.
  */
-void ED_fileselect_params_to_userdef(SpaceFile *sfile,
-                                     const int temp_win_size[2],
-                                     bool is_maximized);
+void ED_fileselect_params_to_userdef(SpaceFile *sfile);
 
 void ED_fileselect_init_layout(SpaceFile *sfile, ARegion *region);
 
@@ -238,7 +236,6 @@ struct FSMenuEntry {
   char *path;
   char name[/*FILE_MAXFILE*/ 256];
   short save;
-  short valid;
   int icon;
 };
 
@@ -258,8 +255,6 @@ enum FSMenuInsert {
   FS_INSERT_FIRST = (1 << 2),
   /** just append to preserve delivered order */
   FS_INSERT_LAST = (1 << 3),
-  /** Do not validate the link when inserted. */
-  FS_INSERT_NO_VALIDATE = (1 << 4),
 };
 
 FSMenu *ED_fsmenu_get();

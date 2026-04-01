@@ -17,6 +17,7 @@
 #include "BLI_string_utf8.h"
 #include "BLI_utildefines.h"
 
+#include "BKE_compositor.hh"
 #include "BKE_context.hh"
 #include "BKE_global.hh"
 #include "BKE_image.hh"
@@ -28,6 +29,7 @@
 
 #include "DNA_image_types.h"
 #include "DNA_scene_types.h"
+#include "DNA_space_types.h"
 #include "DNA_vec_types.h"
 
 #include "RE_engine.h"
@@ -40,6 +42,8 @@
 #include "UI_resources.hh"
 
 #include "GPU_shader.hh"
+
+#include "NOD_node_extra_info.hh"
 
 #include "COM_algorithm_extract_alpha.hh"
 #include "COM_node_operation.hh"
@@ -83,6 +87,66 @@ static blender::bke::bNodeSocketTemplate cmp_node_rlayers_out[] = {
 };
 #define NUM_LEGACY_SOCKETS (ARRAY_SIZE(cmp_node_rlayers_out) - 1)
 
+static const char *cmp_node_legacy_pass_name(const char *name)
+{
+  if (STREQ(name, "Diffuse Direct")) {
+    return "DiffDir";
+  }
+  if (STREQ(name, "Diffuse Indirect")) {
+    return "DiffInd";
+  }
+  if (STREQ(name, "Diffuse Color")) {
+    return "DiffCol";
+  }
+  if (STREQ(name, "Glossy Direct")) {
+    return "GlossDir";
+  }
+  if (STREQ(name, "Glossy Indirect")) {
+    return "GlossInd";
+  }
+  if (STREQ(name, "Glossy Color")) {
+    return "GlossCol";
+  }
+  if (STREQ(name, "Transmission Direct")) {
+    return "TransDir";
+  }
+  if (STREQ(name, "Transmission Indirect")) {
+    return "TransInd";
+  }
+  if (STREQ(name, "Transmission Color")) {
+    return "TransCol";
+  }
+  if (STREQ(name, "Volume Direct")) {
+    return "VolumeDir";
+  }
+  if (STREQ(name, "Volume Indirect")) {
+    return "VolumeInd";
+  }
+  if (STREQ(name, "Volume Color")) {
+    return "VolumeCol";
+  }
+  if (STREQ(name, "Ambient Occlusion")) {
+    return "AO";
+  }
+  if (STREQ(name, "Environment")) {
+    return "Env";
+  }
+  if (STREQ(name, "Material Index")) {
+    return "IndexMA";
+  }
+  if (STREQ(name, "Object Index")) {
+    return "IndexOB";
+  }
+  if (STREQ(name, "Grease Pencil")) {
+    return "GreasePencil";
+  }
+  if (STREQ(name, "Emission")) {
+    return "Emit";
+  }
+
+  return nullptr;
+}
+
 static void cmp_node_image_add_pass_output(bNodeTree *ntree,
                                            bNode *node,
                                            const char *name,
@@ -95,6 +159,19 @@ static void cmp_node_image_add_pass_output(bNodeTree *ntree,
 {
   bNodeSocket *sock = (bNodeSocket *)BLI_findstring(
       &node->outputs, name, offsetof(bNodeSocket, name));
+
+  /* Rename legacy socket names to new ones. */
+  if (sock == nullptr) {
+    const char *legacy_name = cmp_node_legacy_pass_name(name);
+    if (legacy_name) {
+      sock = (bNodeSocket *)BLI_findstring(
+          &node->outputs, legacy_name, offsetof(bNodeSocket, name));
+      if (sock) {
+        STRNCPY(sock->name, name);
+        STRNCPY(sock->identifier, name);
+      }
+    }
+  }
 
   /* Replace if types don't match. */
   if (sock && sock->type != type) {
@@ -490,8 +567,9 @@ class ImageOperation : public NodeOperation {
       return;
     }
 
+    const StringRef pass_name = this->get_pass_name(identifier);
     Result cached_image = context().cache_manager().cached_images.get(
-        context(), get_image(), get_image_user(), get_pass_name(identifier));
+        context(), get_image(), get_image_user(), pass_name.data());
 
     Result &result = get_result(identifier);
     if (!cached_image.is_allocated()) {
@@ -500,7 +578,7 @@ class ImageOperation : public NodeOperation {
     }
 
     /* Alpha is not an actual pass, but one that is extracted from the combined pass. */
-    if (identifier == "Alpha") {
+    if (identifier == "Alpha" && pass_name == RE_PASSNAME_COMBINED) {
       extract_alpha(context(), cached_image, result);
     }
     else {
@@ -672,6 +750,50 @@ static void node_composit_buts_viewlayers(uiLayout *layout, bContext *C, Pointer
   RNA_string_set(&op_ptr, "scene", scene_name);
 }
 
+static void node_extra_info(NodeExtraInfoParams &parameters)
+{
+  SpaceNode *space_node = CTX_wm_space_node(&parameters.C);
+  if (space_node->node_tree_sub_type != SNODE_COMPOSITOR_SCENE) {
+    NodeExtraInfoRow row;
+    row.text = RPT_("Node Unsupported");
+    row.tooltip = TIP_("The Render Layers node is only supported for scene compositing");
+    row.icon = ICON_ERROR;
+    parameters.rows.append(std::move(row));
+  }
+
+  /* EEVEE supports passes. */
+  const Scene *scene = CTX_data_scene(&parameters.C);
+  if (StringRef(scene->r.engine) == RE_engine_id_BLENDER_EEVEE) {
+    return;
+  }
+
+  if (!bke::compositor::is_viewport_compositor_used(parameters.C)) {
+    return;
+  }
+
+  bool is_any_pass_used = false;
+  for (const bNodeSocket *output : parameters.node.output_sockets()) {
+    /* Combined pass is always available. */
+    if (StringRef(output->name) == "Image" || StringRef(output->name) == "Alpha") {
+      continue;
+    }
+    if (output->is_logically_linked()) {
+      is_any_pass_used = true;
+      break;
+    }
+  }
+
+  if (!is_any_pass_used) {
+    return;
+  }
+
+  NodeExtraInfoRow row;
+  row.text = RPT_("Passes Not Supported");
+  row.tooltip = TIP_("Render passes in the Viewport compositor are only supported in EEVEE");
+  row.icon = ICON_ERROR;
+  parameters.rows.append(std::move(row));
+}
+
 using namespace blender::compositor;
 
 class RenderLayerOperation : public NodeOperation {
@@ -724,7 +846,6 @@ class RenderLayerOperation : public NodeOperation {
     if (!pass.is_allocated()) {
       /* Pass not rendered yet, or not supported by viewport. */
       result.allocate_invalid();
-      this->context().set_info_message("Viewport compositor setup not fully supported");
       return;
     }
 
@@ -750,8 +871,8 @@ class RenderLayerOperation : public NodeOperation {
 
   void execute_pass_gpu(const Result &pass, Result &result)
   {
-    GPUShader *shader = this->context().get_shader(this->get_shader_name(pass, result),
-                                                   result.precision());
+    gpu::Shader *shader = this->context().get_shader(this->get_shader_name(pass, result),
+                                                     result.precision());
     GPU_shader_bind(shader);
 
     /* The compositing space might be limited to a subset of the pass texture, so only read that
@@ -789,9 +910,10 @@ class RenderLayerOperation : public NodeOperation {
       case ResultType::Int2:
       case ResultType::Float2:
       case ResultType::Bool:
+      case ResultType::Menu:
         /* Not supported. */
         break;
-      case ResultType::Menu:
+      case ResultType::String:
         /* Single only types do not support GPU code path. */
         BLI_assert(Result::is_single_value_only_type(pass.type()));
         BLI_assert_unreachable();
@@ -854,8 +976,6 @@ static void register_node_type_cmp_rlayers()
   ntype.initfunc_api = file_ns::node_composit_init_rlayers;
   ntype.poll = file_ns::node_composit_poll_rlayers;
   ntype.get_compositor_operation = file_ns::get_compositor_operation;
-  ntype.compositor_unsupported_message = N_(
-      "Render passes in the Viewport compositor are only supported in EEVEE");
   ntype.flag |= NODE_PREVIEW;
   blender::bke::node_type_storage(ntype,
                                   std::nullopt,
@@ -863,6 +983,7 @@ static void register_node_type_cmp_rlayers()
                                   file_ns::node_composit_copy_rlayers);
   ntype.updatefunc = file_ns::cmp_node_rlayers_update;
   ntype.initfunc = node_cmp_rlayers_outputs;
+  ntype.get_extra_info = file_ns::node_extra_info;
   blender::bke::node_type_size_preset(ntype, blender::bke::eNodeSizePreset::Large);
 
   blender::bke::node_register_type(ntype);

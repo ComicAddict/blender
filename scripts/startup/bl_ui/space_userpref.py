@@ -58,7 +58,8 @@ class USERPREF_HT_header(Header):
 class USERPREF_PT_navigation_bar(Panel):
     bl_label = "Preferences Navigation"
     bl_space_type = 'PREFERENCES'
-    bl_region_type = 'NAVIGATION_BAR'
+    bl_region_type = 'UI'
+    bl_category = "Navigation"
     bl_options = {'HIDE_HEADER'}
 
     def draw(self, context):
@@ -86,8 +87,12 @@ class USERPREF_MT_editor_menus(Menu):
 class USERPREF_MT_view(Menu):
     bl_label = "View"
 
-    def draw(self, _context):
+    def draw(self, context):
         layout = self.layout
+        view = context.space_data
+
+        layout.prop(view, "show_region_ui")
+        layout.separator()
 
         layout.menu("INFO_MT_area")
 
@@ -270,6 +275,19 @@ class USERPREF_PT_interface_translation(InterfacePanel, CenterAlignMixIn, Panel)
         col.prop(view, "use_translate_new_dataname", text="New Data")
 
 
+class USERPREF_PT_interface_accessibility(InterfacePanel, CenterAlignMixIn, Panel):
+    bl_label = "Accessibility"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_centered(self, context, layout):
+        prefs = context.preferences
+        view = prefs.view
+
+        flow = layout.grid_flow(row_major=False, columns=0, even_columns=True, even_rows=False, align=False)
+
+        flow.prop(view, "use_reduce_motion")
+
+
 class USERPREF_PT_interface_editors(InterfacePanel, CenterAlignMixIn, Panel):
     bl_label = "Editors"
 
@@ -280,7 +298,13 @@ class USERPREF_PT_interface_editors(InterfacePanel, CenterAlignMixIn, Panel):
 
         col = layout.column()
         col.prop(system, "use_region_overlap")
+
+        col = layout.column(heading="Show", align=True)
+        col.prop(view, "show_area_handle")
+        col.prop(view, "show_number_arrows", text="Numeric Input Arrows")
         col.prop(view, "show_navigate_ui")
+
+        col = layout.column()
         col.prop(view, "border_width")
         col.prop(view, "color_picker_type")
         col.row().prop(view, "header_align")
@@ -299,6 +323,7 @@ class USERPREF_PT_interface_temporary_windows(InterfacePanel, CenterAlignMixIn, 
         col = layout.column()
         col.prop(view, "render_display_type", text="Render In")
         col.prop(view, "filebrowser_display_type", text="File Browser")
+        col.prop(view, "preferences_display_type", text="Preferences")
 
 
 class USERPREF_PT_interface_statusbar(InterfacePanel, CenterAlignMixIn, Panel):
@@ -543,7 +568,6 @@ class USERPREF_PT_edit_sequence_editor(EditingPanel, CenterAlignMixIn, Panel):
         prefs = context.preferences
         edit = prefs.edit
 
-        layout.prop(edit, "use_sequencer_simplified_tweaking")
         layout.prop(edit, "connect_strips_by_default")
 
 
@@ -682,7 +706,7 @@ class USERPREF_PT_system_display_graphics(SystemPanel, CenterAlignMixIn, Panel):
     @classmethod
     def poll(cls, _context):
         import platform
-        return platform.system() != 'Darwin'
+        return platform.system() != "Darwin"
 
     def draw_centered(self, context, layout):
         prefs = context.preferences
@@ -814,8 +838,8 @@ class USERPREF_PT_system_memory(SystemPanel, CenterAlignMixIn, Panel):
             col = layout.column(align=True)
             col.active = system.gpu_backend != 'VULKAN'
             col.row().prop(system, "shader_compilation_method", expand=True)
-            label = "Threads" if system.shader_compilation_method == 'THREAD' else "Subprocesses"
-            col.prop(system, "gpu_shader_workers", text=label)
+            label = iface_("Threads") if system.shader_compilation_method == 'THREAD' else iface_("Subprocesses")
+            col.prop(system, "gpu_shader_workers", text=label, translate=False)
 
 
 class USERPREF_PT_system_video_sequencer(SystemPanel, CenterAlignMixIn, Panel):
@@ -944,10 +968,12 @@ class USERPREF_MT_interface_theme_presets(Menu):
     # Prevent untrusted XML files "escaping" from these types.
     preset_xml_secure_types = {
         "Theme",
-        "ThemeAssetShelf",
         "ThemeBoneColorSet",
         "ThemeClipEditor",
         "ThemeCollectionColor",
+        "ThemeCommon",
+        "ThemeCommonAnim",
+        "ThemeCommonCurves",
         "ThemeConsole",
         "ThemeDopeSheet",
         "ThemeFileBrowser",
@@ -961,11 +987,15 @@ class USERPREF_MT_interface_theme_presets(Menu):
         "ThemeOutliner",
         "ThemePreferences",
         "ThemeProperties",
+        "ThemeRegions",
+        "ThemeRegionsAssetShelf",
+        "ThemeRegionsChannels",
+        "ThemeRegionsScrubbing",
+        "ThemeRegionsSidebars",
         "ThemeSequenceEditor",
         "ThemeSpaceGeneric",
         "ThemeSpaceGradient",
         "ThemeSpaceListGeneric",
-        "ThemeSpaceRegionGeneric",
         "ThemeSpreadsheet",
         "ThemeStatusBar",
         "ThemeStripColor",
@@ -1115,6 +1145,9 @@ class USERPREF_PT_theme_interface_panel(ThemePanel, CenterAlignMixIn, Panel):
         col.prop(ui, "panel_back", text="Background")
         col.prop(ui, "panel_sub_back", text="Sub-Panel")
 
+        col = col.column()
+        col.prop(ui, "panel_active", text="Active")
+
         col = flow.column(align=True)
         col.prop(ui, "panel_title", text="Title")
         col.prop(ui, "panel_text", text="Text")
@@ -1233,6 +1266,7 @@ class USERPREF_PT_theme_interface_gizmos(ThemePanel, CenterAlignMixIn, Panel):
         col.prop(ui, "axis_x", text="Axis X")
         col.prop(ui, "axis_y", text="Y")
         col.prop(ui, "axis_z", text="Z")
+        col.prop(ui, "axis_w", text="W")
 
         col = flow.column()
         col.prop(ui, "gizmo_primary")
@@ -1421,6 +1455,7 @@ class ThemeGenericClassGenerator:
     def generate_panel_classes_for_wcols():
         wcols = [
             ("Box", "wcol_box"),
+            ("Curve", "wcol_curve"),
             ("List Item", "wcol_list_item"),
             ("Menu", "wcol_menu"),
             ("Menu Background", "wcol_menu_back"),
@@ -2089,27 +2124,31 @@ class USERPREF_PT_ndof_settings(Panel):
     @staticmethod
     def draw_settings(layout, props, show_3dview_settings=True):
 
-        layout.separator()
+        # Include this setting as it impacts 2D views as well (inverting translation).
+        col = layout.column()
+        col.row().prop(props, "ndof_navigation_mode", text="Navigation Mode")
 
         if show_3dview_settings:
-            col = layout.column()
-            col.row().prop(props, "ndof_navigation_mode", text="Navigation Mode")
             col.prop(props, "ndof_lock_horizon", text="Lock Horizon")
 
             layout.separator()
 
         if show_3dview_settings:
             col = layout.column(heading="Orbit Center")
+            col.active = props.ndof_navigation_mode == 'OBJECT'
             col.prop(props, "ndof_orbit_center_auto")
             colsub = col.column()
+            colsub.active = props.ndof_orbit_center_auto
             colsub.prop(props, "ndof_orbit_center_selected")
-            colsub.enabled = props.ndof_orbit_center_auto
             del colsub
             col.separator()
 
             col = layout.column(heading="Show")
             col.prop(props, "ndof_show_guide_orbit_axis", text="Orbit Axis")
-            col.prop(props, "ndof_show_guide_orbit_center", text="Orbit Center")
+            colsub = col.column()
+            colsub.active = props.ndof_navigation_mode == 'OBJECT'
+            colsub.prop(props, "ndof_show_guide_orbit_center", text="Orbit Center")
+            del colsub
 
         layout.separator()
 
@@ -2463,7 +2502,7 @@ class USERPREF_PT_addons(AddOnPanel, Panel):
         prefs = context.preferences
 
         if self.is_extended():
-            # Rely on the draw function being appended to by the extensions add-on.
+            # Rely on the draw function being extended by the extensions add-on (`bl_pkg`).
             return
 
         layout = self.layout
@@ -2800,40 +2839,68 @@ class USERPREF_PT_studiolight_light_editor(StudioLightPanel, Panel):
 # -----------------------------------------------------------------------------
 # Experimental Panels
 
+# Also used for "Developer Tools" which are stored in `preferences.experimental` too.
+def _draw_experimental_items(layout, preferences, items, url_prefix="https://projects.blender.org/"):
+    experimental = preferences.experimental
+
+    layout.use_property_split = False
+    layout.use_property_decorate = False
+
+    for prop_keywords, reference in items:
+        split = layout.split(factor=0.66)
+        col = split.split()
+        col.prop(experimental, **prop_keywords)
+
+        if reference:
+            if type(reference) is tuple:
+                url_ext = reference[0]
+                text = reference[1]
+            else:
+                url_ext = reference
+                text = reference
+
+            col = split.split()
+            col.operator("wm.url_open", text=text, icon='URL').url = url_prefix + url_ext
+
+
+class USERPREF_PT_developer_tools(Panel):
+    bl_space_type = 'PREFERENCES'
+    bl_region_type = 'WINDOW'
+    bl_context = "developer_tools"
+    bl_label = "Debug"
+
+    @classmethod
+    def poll(cls, context):
+        return context.preferences.view.show_developer_ui
+
+    def draw(self, context):
+        _draw_experimental_items(
+            self.layout,
+            context.preferences,
+            (
+                ({"property": "use_undo_legacy"}, ("blender/blender/issues/60695", "#60695")),
+                ({"property": "override_auto_resync"}, ("blender/blender/issues/83811", "#83811")),
+                ({"property": "use_all_linked_data_direct"}, None),
+                ({"property": "use_recompute_usercount_on_save_debug"}, None),
+                ({"property": "use_cycles_debug"}, None),
+                ({"property": "show_asset_debug_info"}, None),
+                ({"property": "use_asset_indexing"}, None),
+                ({"property": "use_viewport_debug"}, None),
+                ({"property": "use_eevee_debug"}, None),
+                ({"property": "use_extensions_debug"}, ("/blender/blender/issues/119521", "#119521")),
+                ({"property": "no_data_block_packing"}, ("/blender/blender/issues/132167", "#132167")),
+            ),
+        )
+
+
 class ExperimentalPanel:
     bl_space_type = 'PREFERENCES'
     bl_region_type = 'WINDOW'
     bl_context = "experimental"
 
-    url_prefix = "https://projects.blender.org/"
-
     @classmethod
     def poll(cls, _context):
         return bpy.app.version_cycle == "alpha"
-
-    def _draw_items(self, context, items):
-        prefs = context.preferences
-        experimental = prefs.experimental
-
-        layout = self.layout
-        layout.use_property_split = False
-        layout.use_property_decorate = False
-
-        for prop_keywords, reference in items:
-            split = layout.split(factor=0.66)
-            col = split.split()
-            col.prop(experimental, **prop_keywords)
-
-            if reference:
-                if type(reference) is tuple:
-                    url_ext = reference[0]
-                    text = reference[1]
-                else:
-                    url_ext = reference
-                    text = reference
-
-                col = split.split()
-                col.operator("wm.url_open", text=text, icon='URL').url = self.url_prefix + url_ext
 
 
 """
@@ -2844,8 +2911,10 @@ class USERPREF_PT_experimental_virtual_reality(ExperimentalPanel, Panel):
     bl_label = "Virtual Reality"
 
     def draw(self, context):
-        self._draw_items(
-            context, (
+        _draw_experimental_items(
+            self.layout,
+            context.preferences,
+            (
                 ({"property": "use_virtual_reality_scene_inspection"}, ("blender/blender/issues/71347", "#71347")),
                 ({"property": "use_virtual_reality_immersive_drawing"}, ("blender/blender/issues/71348", "#71348")),
             ),
@@ -2857,14 +2926,14 @@ class USERPREF_PT_experimental_new_features(ExperimentalPanel, Panel):
     bl_label = "New Features"
 
     def draw(self, context):
-        self._draw_items(
-            context, (
+        _draw_experimental_items(
+            self.layout,
+            context.preferences,
+            (
                 ({"property": "use_extended_asset_browser"},
                  ("blender/blender/projects/10", "Pipeline, Assets & IO Project Page")),
                 ({"property": "use_new_volume_nodes"}, ("blender/blender/issues/103248", "#103248")),
                 ({"property": "use_shader_node_previews"}, ("blender/blender/issues/110353", "#110353")),
-                ({"property": "use_bundle_and_closure_nodes"}, ("blender/blender/issues/134029", "#134029")),
-                ({"property": "use_socket_structure_type"}, ("blender/blender/issues/127106", "#127106")),
                 ({"property": "use_geometry_nodes_lists"}, ("blender/blender/issues/140918", "#140918")),
             ),
         )
@@ -2874,8 +2943,10 @@ class USERPREF_PT_experimental_prototypes(ExperimentalPanel, Panel):
     bl_label = "Prototypes"
 
     def draw(self, context):
-        self._draw_items(
-            context, (
+        _draw_experimental_items(
+            self.layout,
+            context.preferences,
+            (
                 ({"property": "use_new_curves_tools"}, ("blender/blender/issues/68981", "#68981")),
                 ({"property": "use_sculpt_texture_paint"}, ("blender/blender/issues/96225", "#96225")),
                 ({"property": "write_legacy_blend_file_format"}, ("/blender/blender/issues/129309", "#129309")),
@@ -2889,40 +2960,15 @@ class USERPREF_PT_experimental_tweaks(ExperimentalPanel, Panel):
     bl_label = "Tweaks"
 
     def draw(self, context):
-        self._draw_items(
-            context, (
+        _draw_experimental_items(
+            self.layout,
+            context.preferences,
+            (
                 ({"property": "use_select_nearest_on_first_click"}, ("blender/blender/issues/96752", "#96752")),
             ),
         )
 
 """
-
-
-class USERPREF_PT_experimental_debugging(ExperimentalPanel, Panel):
-    bl_label = "Debugging"
-
-    @classmethod
-    def poll(cls, _context):
-        # Unlike the other experimental panels, the debugging one is always visible
-        # even in beta or release.
-        return True
-
-    def draw(self, context):
-        self._draw_items(
-            context, (
-                ({"property": "use_undo_legacy"}, ("blender/blender/issues/60695", "#60695")),
-                ({"property": "override_auto_resync"}, ("blender/blender/issues/83811", "#83811")),
-                ({"property": "use_all_linked_data_direct"}, None),
-                ({"property": "use_recompute_usercount_on_save_debug"}, None),
-                ({"property": "use_cycles_debug"}, None),
-                ({"property": "show_asset_debug_info"}, None),
-                ({"property": "use_asset_indexing"}, None),
-                ({"property": "use_viewport_debug"}, None),
-                ({"property": "use_eevee_debug"}, None),
-                ({"property": "use_extensions_debug"}, ("/blender/blender/issues/119521", "#119521")),
-            ),
-        )
-
 
 # -----------------------------------------------------------------------------
 # Class Registration
@@ -2944,6 +2990,7 @@ classes = (
     USERPREF_PT_interface_temporary_windows,
     USERPREF_PT_interface_statusbar,
     USERPREF_PT_interface_translation,
+    USERPREF_PT_interface_accessibility,
     USERPREF_PT_interface_text,
     USERPREF_PT_interface_menus,
     USERPREF_PT_interface_menus_mouse_over,
@@ -3038,7 +3085,8 @@ classes = (
     USERPREF_PT_experimental_new_features,
     USERPREF_PT_experimental_prototypes,
     # USERPREF_PT_experimental_tweaks,
-    USERPREF_PT_experimental_debugging,
+
+    USERPREF_PT_developer_tools,
 
     # UI lists
     USERPREF_UL_asset_libraries,

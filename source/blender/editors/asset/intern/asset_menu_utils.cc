@@ -56,6 +56,13 @@ void operator_asset_reference_props_set(const asset_system::AssetRepresentation 
   RNA_string_set(&ptr, "relative_asset_identifier", weak_ref.relative_asset_identifier);
 }
 
+bool operator_asset_reference_props_is_set(PointerRNA &ptr)
+{
+  return RNA_struct_property_is_set(&ptr, "asset_library_type") &&
+         RNA_struct_property_is_set(&ptr, "asset_library_identifier") &&
+         RNA_struct_property_is_set(&ptr, "relative_asset_identifier");
+}
+
 /**
  * #AssetLibrary::resolve_asset_weak_reference_to_full_path() currently does not support local
  * assets.
@@ -142,6 +149,17 @@ void draw_menu_for_catalog(const asset_system::AssetCatalogTreeItem &item,
 {
   uiLayout *col = &layout.column(false);
   col->context_string_set("asset_catalog_path", item.catalog_path().c_str());
+  col->menu(menu_name, IFACE_(item.get_name()), ICON_NONE);
+}
+
+void draw_node_menu_for_catalog(const asset_system::AssetCatalogTreeItem &item,
+                                const StringRefNull operator_id,
+                                const StringRefNull menu_name,
+                                uiLayout &layout)
+{
+  uiLayout *col = &layout.column(false);
+  col->context_string_set("asset_catalog_path", item.catalog_path().c_str());
+  col->context_string_set("operator_id", operator_id);
   col->menu(menu_name, IFACE_(item.get_name()), ICON_NONE);
 }
 

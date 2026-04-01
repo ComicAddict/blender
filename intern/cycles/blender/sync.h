@@ -237,14 +237,14 @@ class BlenderSync {
   set<float> motion_times;
   void *world_map;
   bool world_recalc;
-  bool world_use_portal = false;
   BlenderViewportParameters viewport_parameters;
 
   Scene *scene;
   bool preview;
-  bool use_experimental_procedural = false;
   bool use_adaptive_subdivision = false;
   bool use_developer_ui;
+
+  CurveShapeType curve_shape = CURVE_RIBBON;
 
   float dicing_rate;
   int max_subdivisions;

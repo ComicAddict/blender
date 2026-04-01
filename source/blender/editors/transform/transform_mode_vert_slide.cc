@@ -334,7 +334,12 @@ static void drawVertSlide(TransInfo *t)
       }
       immEnd();
 
+      immUnbindProgram();
+
+      immBindBuiltinProgram(GPU_SHADER_3D_POINT_UNIFORM_COLOR);
+
       GPU_point_size(ctrl_size);
+      immUniformThemeColorShadeAlpha(TH_VERTEX_ACTIVE, 80, alpha_shade);
 
       immBegin(GPU_PRIM_POINTS, 1);
       immVertex3fv(shdr_pos, (slp->flipped && slp->use_even) ? co_dest_3d_act : co_orig_3d_act);
@@ -640,11 +645,11 @@ static void initVertSlide(TransInfo *t, wmOperator *op)
   if (op) {
     PropertyRNA *prop;
     prop = RNA_struct_find_property(op->ptr, "use_even");
-    use_even = (prop) ? !RNA_property_boolean_get(op->ptr, prop) : false;
+    use_even = (prop) ? RNA_property_boolean_get(op->ptr, prop) : false;
     prop = RNA_struct_find_property(op->ptr, "flipped");
-    flipped = (prop) ? !RNA_property_boolean_get(op->ptr, prop) : false;
+    flipped = (prop) ? RNA_property_boolean_get(op->ptr, prop) : false;
     prop = RNA_struct_find_property(op->ptr, "use_clamp");
-    use_clamp = (prop) ? !RNA_property_boolean_get(op->ptr, prop) : true;
+    use_clamp = (prop) ? RNA_property_boolean_get(op->ptr, prop) : true;
   }
   initVertSlide_ex(t, op, use_even, flipped, use_clamp);
 }

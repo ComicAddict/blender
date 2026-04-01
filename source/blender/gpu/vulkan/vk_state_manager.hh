@@ -72,7 +72,10 @@ template<int Offset> class BindSpaceImages {
  public:
   Vector<VKTexture *> bound_resources;
 
-  void bind(VKTexture *resource, int binding)
+  void bind(VKTexture *resource,
+            int binding,
+            TextureWriteFormat format,
+            StateManager *state_manager)
   {
     if (binding >= Offset) {
       binding -= Offset;
@@ -81,6 +84,7 @@ template<int Offset> class BindSpaceImages {
       bound_resources.resize(binding + 1);
     }
     bound_resources[binding] = resource;
+    state_manager->image_formats[binding] = format;
   }
 
   VKTexture *get(int binding) const
@@ -91,11 +95,12 @@ template<int Offset> class BindSpaceImages {
     return bound_resources[binding];
   }
 
-  void unbind(void *resource)
+  void unbind(void *resource, StateManager *state_manager)
   {
     for (int index : IndexRange(bound_resources.size())) {
       if (bound_resources[index] == resource) {
         bound_resources[index] = nullptr;
+        state_manager->image_formats[index] = TextureWriteFormat::Invalid;
       }
     }
   }
@@ -225,7 +230,7 @@ class VKStateManager : public StateManager {
   void apply_state() override;
   void force_state() override;
 
-  void issue_barrier(eGPUBarrier barrier_bits) override;
+  void issue_barrier(GPUBarrier barrier_bits) override;
 
   void texture_bind(Texture *tex, GPUSamplerState sampler, int unit) override;
   void texture_unbind(Texture *tex) override;
@@ -246,7 +251,7 @@ class VKStateManager : public StateManager {
                            void *resource,
                            int binding)
   {
-    storage_buffer_bind(resource_type, resource, binding, 0u);
+    storage_buffer_bind(resource_type, resource, binding, 0);
   }
   void storage_buffer_bind(BindSpaceStorageBuffers::Type resource_type,
                            void *resource,

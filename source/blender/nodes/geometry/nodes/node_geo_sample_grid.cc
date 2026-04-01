@@ -29,6 +29,13 @@ enum class InterpolationMode {
   TriQuadratic = 2,
 };
 
+static const EnumPropertyItem interpolation_mode_items[] = {
+    {int(InterpolationMode::Nearest), "NEAREST", 0, "Nearest Neighbor", ""},
+    {int(InterpolationMode::TriLinear), "TRILINEAR", 0, "Trilinear", ""},
+    {int(InterpolationMode::TriQuadratic), "TRIQUADRATIC", 0, "Triquadratic", ""},
+    {0, nullptr, 0, nullptr, nullptr},
+};
+
 static void node_declare(NodeDeclarationBuilder &b)
 {
   const bNode *node = b.node_or_null();
@@ -39,6 +46,11 @@ static void node_declare(NodeDeclarationBuilder &b)
 
   b.add_input(data_type, "Grid").hide_value().structure_type(StructureType::Grid);
   b.add_input<decl::Vector>("Position").implicit_field(NODE_DEFAULT_INPUT_POSITION_FIELD);
+  b.add_input<decl::Menu>("Interpolation")
+      .static_items(interpolation_mode_items)
+      .default_value(InterpolationMode::TriLinear)
+      .optional_label()
+      .description("How to interpolate the values between neighboring voxels");
 
   b.add_output(data_type, "Value").dependent_field({1});
 }
@@ -96,13 +108,6 @@ static void node_gather_link_search_ops(GatherLinkSearchOpParams &params)
 static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
 {
   layout->prop(ptr, "data_type", UI_ITEM_NONE, "", ICON_NONE);
-  layout->prop(ptr, "interpolation_mode", UI_ITEM_NONE, "", ICON_NONE);
-}
-
-static void node_init(bNodeTree * /*tree*/, bNode *node)
-{
-  node->custom1 = SOCK_FLOAT;
-  node->custom2 = int16_t(InterpolationMode::TriLinear);
 }
 
 #ifdef WITH_OPENVDB
@@ -219,7 +224,7 @@ static void node_geo_exec(GeoNodeExecParams params)
 #ifdef WITH_OPENVDB
   const bNode &node = params.node();
   const eNodeSocketDatatype data_type = eNodeSocketDatatype(node.custom1);
-  const InterpolationMode interpolation = InterpolationMode(node.custom2);
+  const auto interpolation = params.get_input<InterpolationMode>("Interpolation");
 
   bke::GVolumeGrid grid = params.extract_input<bke::GVolumeGrid>("Grid");
   if (!grid) {
@@ -240,16 +245,9 @@ static void node_geo_exec(GeoNodeExecParams params)
 #endif
 }
 
-static const EnumPropertyItem *data_type_filter_fn(bContext * /*C*/,
-                                                   PointerRNA * /*ptr*/,
-                                                   PropertyRNA * /*prop*/,
-                                                   bool *r_free)
+static void node_init(bNodeTree * /*tree*/, bNode *node)
 {
-  *r_free = true;
-  return enum_items_filter(
-      rna_enum_node_socket_data_type_items, [](const EnumPropertyItem &item) -> bool {
-        return ELEM(item.value, SOCK_FLOAT, SOCK_INT, SOCK_BOOLEAN, SOCK_VECTOR);
-      });
+  node->custom1 = SOCK_FLOAT;
 }
 
 static void node_rna(StructRNA *srna)
@@ -261,22 +259,7 @@ static void node_rna(StructRNA *srna)
                     rna_enum_node_socket_data_type_items,
                     NOD_inline_enum_accessors(custom1),
                     SOCK_FLOAT,
-                    data_type_filter_fn);
-
-  static const EnumPropertyItem interpolation_mode_items[] = {
-      {int(InterpolationMode::Nearest), "NEAREST", 0, "Nearest Neighbor", ""},
-      {int(InterpolationMode::TriLinear), "TRILINEAR", 0, "Trilinear", ""},
-      {int(InterpolationMode::TriQuadratic), "TRIQUADRATIC", 0, "Triquadratic", ""},
-      {0, nullptr, 0, nullptr, nullptr},
-  };
-
-  RNA_def_node_enum(srna,
-                    "interpolation_mode",
-                    "Interpolation Mode",
-                    "How to interpolate the values between neighboring voxels",
-                    interpolation_mode_items,
-                    NOD_inline_enum_accessors(custom2),
-                    int(InterpolationMode::TriLinear));
+                    grid_socket_type_items_filter_fn);
 }
 
 static void node_register()
@@ -285,6 +268,7 @@ static void node_register()
 
   geo_node_type_base(&ntype, "GeometryNodeSampleGrid", GEO_NODE_SAMPLE_GRID);
   ntype.ui_name = "Sample Grid";
+  ntype.ui_description = "Retrieve values from the specified volume grid";
   ntype.enum_name_legacy = "SAMPLE_GRID";
   ntype.nclass = NODE_CLASS_CONVERTER;
   ntype.initfunc = node_init;

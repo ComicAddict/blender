@@ -6,16 +6,15 @@
  * \ingroup modifiers
  */
 
-#include "BLI_color.hh"
 #include "MEM_guardedalloc.h"
 
-#include "BLI_utildefines.h"
-
+#include "BLI_color.hh"
 #include "BLI_listbase.h"
 #include "BLI_math_matrix.h"
 #include "BLI_math_rotation.h"
 #include "BLI_math_vector.h"
 #include "BLI_rand.h"
+#include "BLI_utildefines.h"
 
 #include "BLT_translation.hh"
 
@@ -198,7 +197,8 @@ static Mesh *modify_mesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh 
   int totvert, faces_num, totloop, totedge;
   int maxvert, maxpoly, maxloop, maxedge, part_end = 0, part_start;
   int k, p, p_skip;
-  short track = ctx->object->trackflag % 3, trackneg, axis = pimd->axis;
+  const uint track = uint(ctx->object->trackflag) % 3;
+  short trackneg, axis = pimd->axis;
   float max_co = 0.0, min_co = 0.0, temp_co[3];
   float *size = nullptr;
   float spacemat[4][4];
@@ -669,4 +669,5 @@ ModifierTypeInfo modifierType_ParticleInstance = {
     /*blend_write*/ nullptr,
     /*blend_read*/ nullptr,
     /*foreach_cache*/ nullptr,
+    /*foreach_working_space_color*/ nullptr,
 };

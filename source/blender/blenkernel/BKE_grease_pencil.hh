@@ -11,7 +11,7 @@
 
 #include <atomic>
 
-#include "BLI_color.hh"
+#include "BLI_color_types.hh"
 #include "BLI_implicit_sharing_ptr.hh"
 #include "BLI_map.hh"
 #include "BLI_math_matrix_types.hh"
@@ -125,7 +125,7 @@ class Drawing : public ::GreasePencilDrawing {
    */
   Span<float4x2> texture_matrices() const;
   /**
-   * Sets the matrices the that transform from a 3D point in layer-space to a 2D point in
+   * Sets the matrices that transform from a 3D point in layer-space to a 2D point in
    * texture-space
    */
   void set_texture_matrices(Span<float4x2> matrices, const IndexMask &selection);

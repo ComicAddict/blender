@@ -1058,8 +1058,8 @@ static void pack_islands_optimal_pack(const Span<std::unique_ptr<UVAABBIsland>> 
   if (island_count_patch == 66) {
     island_count_patch = 67; /* TODO, Stenlund 1980. */
   }
-  /*  See https://www.combinatorics.org/files/Surveys/ds7/ds7v5-2009/ds7-2009.html
-   *  https://erich-friedman.github.io/packing/squinsqu */
+  /* See https://www.combinatorics.org/files/Surveys/ds7/ds7v5-2009/ds7-2009.html
+   * https://erich-friedman.github.io/packing/squinsqu */
   for (int a = 1; a < 20; a++) {
     int n = a * a + a + 3 + floorf((a - 1) * sqrtf(2.0f));
     if (island_count_patch == n) {
@@ -1308,7 +1308,7 @@ float Occupancy::trace_island(const PackIsland *island,
   float2 pivot_transformed;
   mul_v2_m2v2(pivot_transformed, matrix, island->pivot_);
 
-  /* TODO: Support `ED_UVPACK_SHAPE_AABB`. */
+  /* TODO: Support #ED_UVPACK_SHAPE_AABB. */
 
   /* TODO: If the PackIsland has the same shape as it's convex hull, we can trace the hull instead
    * of the individual triangles, which is faster and provides a better value of `extent`.
@@ -1782,7 +1782,7 @@ static int64_t pack_island_xatlas(const Span<std::unique_ptr<UVAABBIsland>> isla
  * \param margin: Add `margin` units around islands before packing.
  * \param params: Additional parameters. Scale and margin information is ignored.
  * \param r_phis: Island layout information will be written here.
- * \return Size of square covering the resulting packed UVs. The maximum `u` or `v` co-ordinate.
+ * \return Size of square covering the resulting packed UVs. The maximum `u` or `v` coordinate.
  */
 static float pack_islands_scale_margin(const Span<PackIsland *> islands,
                                        const float scale,

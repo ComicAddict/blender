@@ -1,10 +1,10 @@
 
 msgid ""
 msgstr ""
-"Project-Id-Version: Blender 5.0.0 Alpha (b'a775d58b2e0e')\n"
+"Project-Id-Version: Blender 5.0.0 Alpha (b'7089def6cbcb')\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-07-21 08:48+0000\n"
-"PO-Revision-Date: 2025-04-14 08:32+0000\n"
+"POT-Creation-Date: 2025-09-29 09:33+0000\n"
+"PO-Revision-Date: 2025-07-23 15:06+0000\n"
 "Last-Translator: Anonymous <noreply@weblate.org>\n"
 "Language-Team: Nepali <https://translate.blender.org/projects/blender-ui/ui/ne/>\n"
 "Language: ne\n"
@@ -12,7 +12,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
-"X-Generator: Weblate 5.10.1\n"
+"X-Generator: Weblate 5.12.1\n"
 "X-Poedit-Bookmarks: 167,6662,21,-1,-1,3821,-1,-1,1898,-1\n"
 "X-Poedit-Country: NEPAL\n"
 "X-Poedit-Language: Nepali\n"
@@ -115,6 +115,10 @@ msgid "Scale"
 msgstr "डाल "
 
 
+msgid "Display"
+msgstr "देखाउन"
+
+
 msgid "Inverse Kinematics"
 msgstr "बिपरित 'गति-बिज्ञान'"
 
@@ -189,10 +193,6 @@ msgstr "बिन्दु समुहहरु"
 
 msgid "Damp"
 msgstr "असर कम "
-
-
-msgid "Display"
-msgstr "देखाउन"
 
 
 msgid "Stiffness"

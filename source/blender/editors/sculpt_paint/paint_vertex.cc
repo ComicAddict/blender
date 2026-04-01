@@ -18,10 +18,8 @@
 #include "BLI_color.hh"
 #include "BLI_color_mix.hh"
 #include "BLI_enumerable_thread_specific.hh"
-#include "BLI_listbase.h"
 #include "BLI_math_geom.h"
 #include "BLI_math_matrix.hh"
-#include "BLI_math_rotation.h"
 #include "BLI_task.hh"
 #include "BLI_vector.hh"
 
@@ -100,7 +98,7 @@ static bool isZero(ColorPaint4b c)
 template<typename Color> static ColorPaint4f toFloat(const Color &c)
 {
   if constexpr (std::is_same_v<Color, ColorPaint4b>) {
-    return c.decode();
+    return blender::color::decode(c);
   }
   else {
     return c;
@@ -110,7 +108,7 @@ template<typename Color> static ColorPaint4f toFloat(const Color &c)
 template<typename Color> static Color fromFloat(const ColorPaint4f &c)
 {
   if constexpr (std::is_same_v<Color, ColorPaint4b>) {
-    return c.encode();
+    return blender::color::encode(c);
   }
   else {
     return c;
@@ -324,7 +322,7 @@ void mode_enter_generic(
     BKE_paint_ensure(scene.toolsettings, (Paint **)&scene.toolsettings->vpaint);
     paint = BKE_paint_get_active_from_paintmode(&scene, paint_mode);
     ED_paint_cursor_start(paint, vertex_paint_poll);
-    BKE_paint_init(&bmain, &scene, paint_mode, PAINT_CURSOR_VERTEX_PAINT);
+    BKE_paint_init(&bmain, &scene, paint_mode);
   }
   else if (mode_flag == OB_MODE_WEIGHT_PAINT) {
     const PaintMode paint_mode = PaintMode::Weight;
@@ -332,7 +330,7 @@ void mode_enter_generic(
     BKE_paint_ensure(scene.toolsettings, (Paint **)&scene.toolsettings->wpaint);
     paint = BKE_paint_get_active_from_paintmode(&scene, paint_mode);
     ED_paint_cursor_start(paint, weight_paint_poll);
-    BKE_paint_init(&bmain, &scene, paint_mode, PAINT_CURSOR_WEIGHT_PAINT);
+    BKE_paint_init(&bmain, &scene, paint_mode);
 
     /* weight paint specific */
     ED_mesh_mirror_spatial_table_end(&ob);
@@ -507,6 +505,7 @@ void update_cache_variants(bContext *C, VPaint &vp, Object &ob, PointerRNA *ptr)
 {
   using namespace blender;
   const Depsgraph &depsgraph = *CTX_data_depsgraph_pointer(C);
+  const PaintMode paint_mode = BKE_paintmode_get_active_from_context(C);
   SculptSession &ss = *ob.sculpt;
   StrokeCache *cache = ss.cache;
   Brush &brush = *BKE_paint_brush(&vp.paint);
@@ -524,20 +523,20 @@ void update_cache_variants(bContext *C, VPaint &vp, Object &ob, PointerRNA *ptr)
    * brush coord/pressure/etc.
    * It's more an events design issue, which doesn't split coordinate/pressure/angle
    * changing events. We should avoid this after events system re-design */
-  if (paint_supports_dynamic_size(brush, PaintMode::Sculpt) || cache->first_time) {
+  if (paint_supports_dynamic_size(brush, paint_mode) || cache->first_time) {
     cache->pressure = RNA_float_get(ptr, "pressure");
   }
 
   /* Truly temporary data that isn't stored in properties */
   if (cache->first_time) {
     cache->initial_radius = paint_calc_object_space_radius(
-        *cache->vc, cache->location, BKE_brush_size_get(&vp.paint, &brush));
-    BKE_brush_unprojected_radius_set(&vp.paint, &brush, cache->initial_radius);
+        *cache->vc, cache->location, BKE_brush_radius_get(&vp.paint, &brush));
+    BKE_brush_unprojected_size_set(&vp.paint, &brush, cache->initial_radius);
   }
 
-  if (BKE_brush_use_size_pressure(&brush) && paint_supports_dynamic_size(brush, PaintMode::Sculpt))
-  {
-    cache->radius = cache->initial_radius * cache->pressure;
+  if (BKE_brush_use_size_pressure(&brush) && paint_supports_dynamic_size(brush, paint_mode)) {
+    cache->radius = cache->initial_radius *
+                    BKE_curvemapping_evaluateF(brush.curve_size, 0, cache->pressure);
   }
   else {
     cache->radius = cache->initial_radius;
@@ -557,10 +556,16 @@ void get_brush_alpha_data(const SculptSession &ss,
                           float *r_brush_alpha_value,
                           float *r_brush_alpha_pressure)
 {
-  *r_brush_size_pressure = BKE_brush_size_get(&paint, &brush) *
-                           (BKE_brush_use_size_pressure(&brush) ? ss.cache->pressure : 1.0f);
+  *r_brush_size_pressure = BKE_brush_radius_get(&paint, &brush) *
+                           (BKE_brush_use_size_pressure(&brush) ?
+                                BKE_curvemapping_evaluateF(
+                                    brush.curve_size, 0, ss.cache->pressure) :
+                                1.0f);
   *r_brush_alpha_value = BKE_brush_alpha_get(&paint, &brush);
-  *r_brush_alpha_pressure = (BKE_brush_use_alpha_pressure(&brush) ? ss.cache->pressure : 1.0f);
+  *r_brush_alpha_pressure = BKE_brush_use_alpha_pressure(&brush) ?
+                                BKE_curvemapping_evaluateF(
+                                    brush.curve_strength, 0, ss.cache->pressure) :
+                                1.0f;
 }
 
 void last_stroke_update(const float location[3], Paint &paint)
@@ -594,7 +599,7 @@ void smooth_brush_toggle_on(const bContext *C, Paint *paint, StrokeCache *cache)
   cache->saved_active_brush = cur_brush;
   cache->saved_smooth_size = BKE_brush_size_get(paint, smooth_brush);
   BKE_brush_size_set(paint, smooth_brush, cur_brush_size);
-  BKE_curvemapping_init(smooth_brush->curve);
+  BKE_curvemapping_init(smooth_brush->curve_distance_falloff);
 }
 /** \} */
 }  // namespace blender::ed::sculpt_paint::vwpaint
@@ -650,7 +655,7 @@ static ColorPaint4f vpaint_get_current_col(VPaint &vp, bool secondary)
   float color[4];
   const float *brush_color = secondary ? BKE_brush_secondary_color_get(&vp.paint, brush) :
                                          BKE_brush_color_get(&vp.paint, brush);
-  IMB_colormanagement_srgb_to_scene_linear_v3(color, brush_color);
+  copy_v3_v3(color, brush_color);
 
   color[3] = 1.0f; /* alpha isn't used, could even be removed to speedup paint a little */
 
@@ -716,8 +721,13 @@ static Color vpaint_blend(const VPaint &vp,
   return color_blend;
 }
 
-/* If in accumulate mode, blend brush mark directly onto mesh, else blend into temporary
- * stroke_buffer and blend the stroke onto the mesh. */
+/**
+ * If in accumulate mode, blend brush mark directly onto mesh, else blend into temporary
+ * stroke_buffer and blend the stroke onto the mesh.
+ *
+ * \param brush_mark_alpha: Modulated strength on a per-vertex basis
+ * \param brush_strength: Unmodified raw value of the brush
+ */
 template<typename Color, typename Traits>
 static Color vpaint_blend_stroke(const VPaint &vp,
                                  MutableSpan<Color> prev_vertex_colors,
@@ -744,14 +754,16 @@ static Color vpaint_blend_stroke(const VPaint &vp,
       stroke_buffer[index].a = 0;
     }
 
-    stroke_buffer[index] = BLI_mix_colors<Color, Traits>(
-        IMB_BlendMode::IMB_BLEND_MIX, stroke_buffer[index], brush_mark_color, brush_mark_alpha);
+    stroke_buffer[index] = BLI_mix_colors<Color, Traits>(IMB_BlendMode::IMB_BLEND_MIX,
+                                                         brush_mark_color,
+                                                         stroke_buffer[index],
+                                                         stroke_buffer[index].a);
 
     result = vpaint_blend<Color, Traits>(vp,
-                                         prev_vertex_colors[index],
+                                         vertex_colors[index],
                                          prev_vertex_colors[index],
                                          stroke_buffer[index],
-                                         stroke_buffer[index].a,
+                                         brush_mark_alpha,
                                          Traits::range * brush_strength);
   }
   else {
@@ -2171,8 +2183,8 @@ void PAINT_OT_vertex_paint(wmOperatorType *ot)
       "override_location",
       false,
       "Override Location",
-      "Override the given `location` array by recalculating object space positions from the "
-      "provided `mouse_event` positions");
+      "Override the given \"location\" array by recalculating object space positions from the "
+      "provided \"mouse_event\" positions");
   RNA_def_property_flag(prop, PROP_HIDDEN | PROP_SKIP_SAVE);
 }
 
@@ -2270,7 +2282,7 @@ static void fill_mesh_color(Mesh &mesh,
     }
     else if (layer->type == CD_PROP_BYTE_COLOR) {
       fill_bm_face_or_corner_attribute<ColorPaint4b>(
-          *bm, color.encode(), domain, layer->offset, use_vert_sel);
+          *bm, blender::color::encode(color), domain, layer->offset, use_vert_sel);
     }
   }
   else {
@@ -2289,7 +2301,7 @@ static void fill_mesh_color(Mesh &mesh,
     else if (attribute.span.type().is<ColorGeometry4b>()) {
       fill_mesh_face_or_corner_attribute<ColorPaint4b>(
           mesh,
-          color.encode(),
+          blender::color::encode(color),
           attribute.domain,
           attribute.span.typed<ColorGeometry4b>().cast<ColorPaint4b>(),
           use_vert_sel,

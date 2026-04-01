@@ -709,7 +709,7 @@ They work together as a stack.
 | [Inter](https://rsms.me/inter/) | [SIL Open Font License 1.1](https://spdx.org/licenses/OFL-1.1.html) | `Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)` |
 | [Noto Fonts](https://fonts.google.com/noto) | [SIL Open Font License 1.1](https://spdx.org/licenses/OFL-1.1.html) | `Copyright 2018 The Noto Project Authors (github.com/googlei18n/noto-fonts)`|
 | [Last Resort](https://github.com/unicode-org/last-resort-font) | [SIL Open Font License 1.1](https://spdx.org/licenses/OFL-1.1.html) | `Copyright © 1998-2024 Unicode, Inc. Unicode and the Unicode Logo are registered trademarks of Unicode, Inc. in the United States and other countries.` |
-| [DejaVu Sans Mono](https://github.com/dejavu-fonts/dejavu-fonts) | [Arev Fonts License](http://tavmjong.free.fr/FONTS/ArevCopyright.txt) + [Bistream Vera Font License](https://spdx.org/licenses/Bitstream-Vera.html) | `2003 Bitstream, Inc. (Bitstream font glyphs). 2006 Tavmjong Bah (Arev font glyphs). DejaVu changes are in public domain` |
+| [DejaVu Sans Mono](https://github.com/dejavu-fonts/dejavu-fonts) | [Arev Fonts License](http://tavmjong.free.fr/FONTS/ArevCopyright.txt) + [Bitstream Vera Font License](https://spdx.org/licenses/Bitstream-Vera.html) | `2003 Bitstream, Inc. (Bitstream font glyphs). 2006 Tavmjong Bah (Arev font glyphs). DejaVu changes are in public domain` |
 
 <details>
 <summary>Arev Fonts License</summary>
@@ -763,7 +763,7 @@ from Tavmjong Bah. For further information, contact: tavmjong @ free
 . fr.
 </details>
 <details>
-<summary>Bistream Vera Font License</summary>
+<summary>Bitstream Vera Font License</summary>
 
 Bitstream Vera Fonts Copyright
 ------------------------------
@@ -1469,7 +1469,6 @@ Legal Terms
 | [FFTW](https://www.fftw.org/) | 3.3.10 | `Copyright (c) 2003, 2007-14 Matteo Frigo. Copyright (c) 2003, 2007-14 Massachusetts Institute of Technology` |
 | [Flac](https://xiph.org/flac/) | 1.4.2 | `Copyright (C) 2001-2009  Josh Coalson. Copyright (C) 2011-2016  Xiph.Org Foundation.` |
 | [GMP](https://gmplib.org/) | 6.3.0 | `Copyright 1996-2020 Free Software Foundation, Inc.` |
-| [miniLZO](http://www.oberhumer.com/opensource/lzo/) | 2.08 | `Copyright (C) 1996-2014 Markus Franz Xaver Oberhumer All Rights Reserved.` |
 | [Potrace](https://potrace.sourceforge.net/) | 1.16 | `Copyright © 2001-2019 Peter Selinger.` |
 | [X Drag and Drop](http://www.newplanetsoftware.com/xdnd/ (defunct)) | 2000-08-08 | `Copyright (C) 1996-2000 Paul Sheer` |
 | [X264](https://www.videolan.org/developers/x264.html) | 35fe20d1ba4 | `Copyright (C) 2003-2021 x264 project` |

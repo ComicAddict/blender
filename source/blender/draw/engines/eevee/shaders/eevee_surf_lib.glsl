@@ -4,16 +4,15 @@
 
 #pragma once
 
-#include "infos/eevee_material_info.hh"
+#include "infos/eevee_material_infos.hh"
 
 SHADER_LIBRARY_CREATE_INFO(eevee_geom_mesh)
+SHADER_LIBRARY_CREATE_INFO(eevee_global_ubo)
 
-#include "draw_model_lib.glsl"
-#include "eevee_nodetree_lib.glsl"
-#include "eevee_sampling_lib.glsl"
+#include "draw_view_lib.glsl"
 #include "gpu_shader_codegen_lib.glsl"
 #include "gpu_shader_math_base_lib.glsl"
-#include "gpu_shader_math_vector_lib.glsl"
+#include "gpu_shader_math_vector_safe_lib.glsl"
 
 #if defined(USE_BARYCENTRICS) && defined(GPU_FRAGMENT_SHADER) && defined(MAT_GEOM_MESH)
 float3 barycentric_distances_get()
@@ -37,21 +36,8 @@ void init_globals_curves()
 {
 #if defined(MAT_GEOM_CURVES)
   /* Shade as a cylinder. */
-  float cos_theta = curve_interp.time_width / curve_interp.thickness;
-#  if defined(GPU_FRAGMENT_SHADER)
-  if (hairThicknessRes == 1) {
-#    ifdef EEVEE_UTILITY_TX
-    /* Random cosine normal distribution on the hair surface. */
-    float noise = utility_tx_fetch(utility_tx, gl_FragCoord.xy, UTIL_BLUE_NOISE_LAYER).x;
-#      ifdef EEVEE_SAMPLING_DATA
-    /* Needs to check for SAMPLING_DATA, otherwise surfel shader validation fails. */
-    noise = fract(noise + sampling_rng_1D_get(SAMPLING_CURVES_U));
-#      endif
-    cos_theta = noise * 2.0f - 1.0f;
-#    endif
-  }
-#  endif
-  float sin_theta = sqrt(max(0.0f, 1.0f - cos_theta * cos_theta));
+  float cos_theta = curve_interp.time_width / curve_interp.radius;
+  float sin_theta = sin_from_cos(cos_theta);
   g_data.N = g_data.Ni = normalize(interp.N * sin_theta + curve_interp.binormal * cos_theta);
 
   /* Costly, but follows cycles per pixel tangent space (not following curve shape). */
@@ -61,19 +47,13 @@ void init_globals_curves()
   g_data.curve_N = safe_normalize(cross(g_data.curve_T, g_data.curve_B));
 
   g_data.is_strand = true;
-  g_data.hair_time = curve_interp.time;
-  g_data.hair_thickness = curve_interp.thickness;
+  g_data.hair_diameter = curve_interp.radius * 2.0;
   g_data.hair_strand_id = curve_interp_flat.strand_id;
 #  if defined(USE_BARYCENTRICS) && defined(GPU_FRAGMENT_SHADER)
-  g_data.barycentric_coords = hair_resolve_barycentric(curve_interp.barycentric_coords);
+  g_data.barycentric_coords.y = fract(curve_interp.point_id);
+  g_data.barycentric_coords.x = 1.0 - g_data.barycentric_coords.y;
 #  endif
 #endif
-}
-
-void init_globals_gpencil()
-{
-  /* Undo back-face flip as the grease-pencil normal is already pointing towards the camera. */
-  g_data.N = g_data.Ni = interp.N;
 }
 
 void init_globals()
@@ -84,8 +64,7 @@ void init_globals()
   g_data.N = safe_normalize(interp.N);
   g_data.Ng = g_data.N;
   g_data.is_strand = false;
-  g_data.hair_time = 0.0f;
-  g_data.hair_thickness = 0.0f;
+  g_data.hair_diameter = 0.0f;
   g_data.hair_strand_id = 0;
 #if defined(MAT_SHADOW)
   g_data.ray_type = RAY_TYPE_SHADOW;
@@ -105,8 +84,8 @@ void init_globals()
   g_data.barycentric_dists = float3(0.0f);
 
 #ifdef GPU_FRAGMENT_SHADER
-  g_data.N = (FrontFacing) ? g_data.N : -g_data.N;
-  g_data.Ni = (FrontFacing) ? g_data.Ni : -g_data.Ni;
+  g_data.N = (gl_FrontFacing) ? g_data.N : -g_data.N;
+  g_data.Ni = (gl_FrontFacing) ? g_data.Ni : -g_data.Ni;
   g_data.Ng = safe_normalize(cross(gpu_dfdx(g_data.P), gpu_dfdy(g_data.P)));
 #endif
 
@@ -114,8 +93,6 @@ void init_globals()
   init_globals_mesh();
 #elif defined(MAT_GEOM_CURVES)
   init_globals_curves();
-#elif defined(MAT_GEOM_GPENCIL)
-  init_globals_gpencil();
 #endif
 }
 
@@ -125,7 +102,7 @@ void init_interface()
 #ifdef GPU_VERTEX_SHADER
   interp.P = float3(0.0f);
   interp.N = float3(0.0f);
-  drw_ResourceID_iface.resource_index = drw_resource_id();
+  drw_ResourceID_iface.resource_index = drw_resource_id_raw();
 #endif
 }
 

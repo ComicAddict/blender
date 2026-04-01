@@ -413,7 +413,7 @@ ccl_device
 
   if (is_transmission) {
 #ifdef __VOLUME__
-    shadow_volume_stack_enter_exit(kg, shadow_state, sd);
+    volume_stack_enter_exit<true>(kg, shadow_state, sd);
 #endif
   }
 
@@ -820,7 +820,7 @@ ccl_device int integrate_surface(KernelGlobals kg,
 
   if (continue_path_label & LABEL_TRANSMIT) {
     /* Enter/Exit volume. */
-    volume_stack_enter_exit(kg, state, &sd);
+    volume_stack_enter_exit<false>(kg, state, &sd);
   }
 #endif
 
@@ -847,14 +847,14 @@ ccl_device_forceinline void integrator_shade_surface(KernelGlobals kg,
 {
   const int continue_path_label = integrate_surface<node_feature_mask>(kg, state, render_buffer);
   if (continue_path_label == LABEL_NONE) {
-    integrator_path_terminate(state, current_kernel);
+    integrator_path_terminate(kg, state, render_buffer, current_kernel);
     return;
   }
 
 #ifdef __SHADOW_LINKING__
   /* No need to cast shadow linking rays at a transparent bounce: the lights will be accumulated
-   * via the main path in this case. */
-  if ((continue_path_label & LABEL_TRANSPARENT) == 0) {
+   * via the main path in this case. BSSRDF bounces continue with intersect_subsurface. */
+  if ((continue_path_label & (LABEL_TRANSPARENT | LABEL_SUBSURFACE_SCATTER)) == 0) {
     if (shadow_linking_schedule_intersection_kernel<current_kernel>(kg, state)) {
       return;
     }

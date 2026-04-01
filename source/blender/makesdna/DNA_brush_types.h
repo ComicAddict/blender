@@ -172,13 +172,9 @@ typedef struct Brush {
 
   ID id;
 
-  /** Falloff curve. */
-  struct CurveMapping *curve;
+  struct CurveMapping *curve_distance_falloff;
   struct MTex mtex;
   struct MTex mask_mtex;
-
-  /* TODO (Sean): To be removed in 5.0 */
-  struct Brush *toggle_brush DNA_DEPRECATED;
 
   PreviewImage *preview;
   /** Color gradient. */
@@ -222,7 +218,7 @@ typedef struct Brush {
   float rate;
 
   /** Color. */
-  float rgb[3];
+  float color[3];
   int color_jitter_flag;
   float hsv_jitter[3];
 
@@ -230,6 +226,10 @@ typedef struct Brush {
   struct CurveMapping *curve_rand_hue;
   struct CurveMapping *curve_rand_saturation;
   struct CurveMapping *curve_rand_value;
+
+  struct CurveMapping *curve_size;
+  struct CurveMapping *curve_strength;
+  struct CurveMapping *curve_jitter;
 
   /** Opacity. */
   float alpha;
@@ -251,7 +251,11 @@ typedef struct Brush {
   float tip_scale_x;
 
   /** Background color. */
-  float secondary_rgb[3];
+  float secondary_color[3];
+
+  /* Deprecated sRGB color for forward compatibility. */
+  float rgb[3] DNA_DEPRECATED;
+  float secondary_rgb[3] DNA_DEPRECATED;
 
   /** Rate */
   float dash_ratio;
@@ -326,7 +330,7 @@ typedef struct Brush {
 
   float texture_sample_bias;
 
-  int curve_preset;
+  int curve_distance_falloff_preset;
 
   /* Maximum distance to search fake neighbors from a vertex. */
   float disconnected_distance_max;
@@ -393,7 +397,7 @@ typedef struct Brush {
   int mask_overlay_alpha;
   int cursor_overlay_alpha;
 
-  float unprojected_radius;
+  float unprojected_size;
 
   /* soften/sharpen */
   float sharp_threshold;
@@ -422,6 +426,8 @@ typedef struct Brush {
 } Brush;
 
 /* Struct to hold palette colors for sorting. */
+#
+#
 typedef struct tPaletteColorHSV {
   float rgb[3];
   float value;
@@ -432,9 +438,13 @@ typedef struct tPaletteColorHSV {
 
 typedef struct PaletteColor {
   struct PaletteColor *next, *prev;
-  /* two values, one to store rgb, other to store values for sculpt/weight */
-  float rgb[3];
+  /* Two values, one to store color, other to store values for sculpt/weight. */
+  float color[3];
   float value;
+
+  /* For forward compatibility. */
+  float rgb[3] DNA_DEPRECATED;
+  float _pad;
 } PaletteColor;
 
 typedef struct Palette {

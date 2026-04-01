@@ -61,7 +61,7 @@ class Context {
   int context_id = 0;
 
   /* Used as a stack. Each render_begin/end pair will push pop from the stack. */
-  Vector<GPUStorageBuf *> printf_buf;
+  Vector<StorageBuf *> printf_buf;
 
   /** Dummy VBO to feed the procedural batches. */
   VertBuf *dummy_vbo = nullptr;
@@ -134,7 +134,7 @@ class Context {
       return;
     }
 
-    if (!(state_manager->state.write_mask & eGPUWriteMask::GPU_WRITE_COLOR)) {
+    if (!(state_manager->state.write_mask & GPUWriteMask::GPU_WRITE_COLOR)) {
       return;
     }
 

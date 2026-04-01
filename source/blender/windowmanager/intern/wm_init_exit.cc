@@ -165,6 +165,9 @@ void WM_init_gpu()
     GPU_shader_compile_static();
   }
 
+  /* Some part of the code assumes no context is left bound. */
+  DRW_gpu_context_disable_ex(true);
+
   gpu_is_init = true;
 }
 
@@ -348,7 +351,7 @@ void WM_init(bContext *C, int argc, const char **argv)
   wm_init_scripts_extensions_once(C);
 
   WM_keyconfig_update_postpone_end();
-  WM_keyconfig_update(static_cast<wmWindowManager *>(G_MAIN->wm.first));
+  WM_keyconfig_update_on_startup(static_cast<wmWindowManager *>(G_MAIN->wm.first));
 
   wm_homefile_read_post(C, params_file_read_post);
 }

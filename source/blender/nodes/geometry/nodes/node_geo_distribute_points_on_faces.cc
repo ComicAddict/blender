@@ -20,6 +20,7 @@
 #include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
+#include "GEO_foreach_geometry.hh"
 #include "GEO_randomize.hh"
 
 #include "node_geometry_util.hh"
@@ -289,7 +290,7 @@ BLI_NOINLINE static void interpolate_attribute(const Mesh &mesh,
 
 BLI_NOINLINE static void propagate_existing_attributes(
     const Mesh &mesh,
-    const Map<StringRef, AttributeDomainAndType> &attributes,
+    const GeometrySet::GatheredAttributes &attributes,
     PointCloud &points,
     const Span<float3> bary_coords,
     const Span<int> tri_indices)
@@ -297,9 +298,12 @@ BLI_NOINLINE static void propagate_existing_attributes(
   const AttributeAccessor mesh_attributes = mesh.attributes();
   MutableAttributeAccessor point_attributes = points.attributes_for_write();
 
-  for (MapItem<StringRef, AttributeDomainAndType> entry : attributes.items()) {
-    const StringRef attribute_id = entry.key;
-    const bke::AttrType output_data_type = entry.value.data_type;
+  for (const int i : attributes.names.index_range()) {
+    const StringRef attribute_id = attributes.names[i];
+    const bke::AttrType output_data_type = attributes.kinds[i].data_type;
+    if (attribute_id == "position") {
+      continue;
+    }
 
     GAttributeReader src = mesh_attributes.lookup(attribute_id);
     if (!src) {
@@ -558,15 +562,12 @@ static void point_distribution_calculate(GeometrySet &geometry_set,
 
   geometry_set.replace_pointcloud(pointcloud);
 
-  Map<StringRef, AttributeDomainAndType> attributes;
+  GeometrySet::GatheredAttributes attributes;
   geometry_set.gather_attributes_for_propagation({GeometryComponent::Type::Mesh},
                                                  GeometryComponent::Type::PointCloud,
                                                  false,
                                                  params.get_attribute_filter("Points"),
                                                  attributes);
-
-  /* Position is set separately. */
-  attributes.remove("position");
 
   propagate_existing_attributes(mesh, attributes, *pointcloud, bary_coords, tri_indices);
 
@@ -594,12 +595,12 @@ static void node_geo_exec(GeoNodeExecParams params)
 
   lazy_threading::send_hint();
 
-  geometry_set.modify_geometry_sets([&](GeometrySet &geometry_set) {
+  geometry::foreach_real_geometry(geometry_set, [&](GeometrySet &geometry_set) {
     point_distribution_calculate(
         geometry_set, selection_field, method, seed, attribute_outputs, params);
     /* Keep instances because the original geometry set may contain instances that are processed as
      * well. */
-    geometry_set.keep_only_during_modify({GeometryComponent::Type::PointCloud});
+    geometry_set.keep_only({GeometryComponent::Type::PointCloud, GeometryComponent::Type::Edit});
   });
 
   params.set_output("Points", std::move(geometry_set));

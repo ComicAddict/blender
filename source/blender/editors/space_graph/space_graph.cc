@@ -186,10 +186,12 @@ static void graph_main_region_init(wmWindowManager *wm, ARegion *region)
   UI_view2d_region_reinit(&region->v2d, V2D_COMMONVIEW_CUSTOM, region->winx, region->winy);
 
   /* own keymap */
-  keymap = WM_keymap_ensure(wm->defaultconf, "Graph Editor", SPACE_GRAPH, RGN_TYPE_WINDOW);
+  keymap = WM_keymap_ensure(
+      wm->runtime->defaultconf, "Graph Editor", SPACE_GRAPH, RGN_TYPE_WINDOW);
   WM_event_add_keymap_handler_poll(
       &region->runtime->handlers, keymap, WM_event_handler_region_v2d_mask_no_marker_poll);
-  keymap = WM_keymap_ensure(wm->defaultconf, "Graph Editor Generic", SPACE_GRAPH, RGN_TYPE_WINDOW);
+  keymap = WM_keymap_ensure(
+      wm->runtime->defaultconf, "Graph Editor Generic", SPACE_GRAPH, RGN_TYPE_WINDOW);
   WM_event_add_keymap_handler(&region->runtime->handlers, keymap);
 }
 
@@ -231,11 +233,19 @@ static void graph_main_region_draw(const bContext *C, ARegion *region)
 
   UI_view2d_view_ortho(v2d);
 
+  /* In driver mode, both X and Y axes are in the same units as the driven property, and so the
+   * grid size should be independent of the scene's frame rate. */
+  constexpr int driver_step = 10;
   /* grid */
   bool display_seconds = (sipo->mode == SIPO_MODE_ANIMATION) && (sipo->flag & SIPO_DRAWTIME);
   if (region->winy > min_height) {
-    UI_view2d_draw_lines_x__frames_or_seconds(v2d, scene, display_seconds);
-    UI_view2d_draw_lines_y__values(v2d);
+    if (sipo->mode == SIPO_MODE_DRIVERS) {
+      UI_view2d_draw_lines_x__values(v2d, driver_step);
+    }
+    else {
+      UI_view2d_draw_lines_x__frames_or_seconds(v2d, scene, display_seconds);
+    }
+    UI_view2d_draw_lines_y__values(v2d, 10);
   }
 
   ED_region_draw_cb_draw(C, region, REGION_DRAW_PRE_VIEW);
@@ -334,7 +344,11 @@ static void graph_main_region_draw(const bContext *C, ARegion *region)
   UI_view2d_view_restore(C);
 
   /* time-scrubbing */
-  ED_time_scrub_draw(region, scene, display_seconds, false);
+  int base = round_db_to_int(scene->frames_per_second());
+  if (sipo->mode == SIPO_MODE_DRIVERS) {
+    base = driver_step;
+  }
+  ED_time_scrub_draw(region, scene, display_seconds, false, base);
 }
 
 static void graph_main_region_draw_overlay(const bContext *C, ARegion *region)
@@ -364,7 +378,7 @@ static void graph_main_region_draw_overlay(const bContext *C, ARegion *region)
       rcti rect;
       BLI_rcti_init(
           &rect, 0, 15 * UI_SCALE_FAC, 15 * UI_SCALE_FAC, region->winy - UI_TIME_SCRUB_MARGIN_Y);
-      UI_view2d_draw_scale_y__values(region, v2d, &rect, TH_SCROLL_TEXT);
+      UI_view2d_draw_scale_y__values(region, v2d, &rect, TH_SCROLL_TEXT, 10);
     }
   }
   else {
@@ -388,9 +402,11 @@ static void graph_channel_region_init(wmWindowManager *wm, ARegion *region)
   UI_view2d_region_reinit(&region->v2d, V2D_COMMONVIEW_LIST, region->winx, region->winy);
 
   /* own keymap */
-  keymap = WM_keymap_ensure(wm->defaultconf, "Animation Channels", SPACE_EMPTY, RGN_TYPE_WINDOW);
+  keymap = WM_keymap_ensure(
+      wm->runtime->defaultconf, "Animation Channels", SPACE_EMPTY, RGN_TYPE_WINDOW);
   WM_event_add_keymap_handler_v2d_mask(&region->runtime->handlers, keymap);
-  keymap = WM_keymap_ensure(wm->defaultconf, "Graph Editor Generic", SPACE_GRAPH, RGN_TYPE_WINDOW);
+  keymap = WM_keymap_ensure(
+      wm->runtime->defaultconf, "Graph Editor Generic", SPACE_GRAPH, RGN_TYPE_WINDOW);
   WM_event_add_keymap_handler(&region->runtime->handlers, keymap);
 }
 
@@ -453,7 +469,8 @@ static void graph_buttons_region_init(wmWindowManager *wm, ARegion *region)
 
   ED_region_panels_init(wm, region);
 
-  keymap = WM_keymap_ensure(wm->defaultconf, "Graph Editor Generic", SPACE_GRAPH, RGN_TYPE_WINDOW);
+  keymap = WM_keymap_ensure(
+      wm->runtime->defaultconf, "Graph Editor Generic", SPACE_GRAPH, RGN_TYPE_WINDOW);
   WM_event_add_keymap_handler_v2d_mask(&region->runtime->handlers, keymap);
 }
 
@@ -751,23 +768,7 @@ static void graph_refresh_fcurve_colors(const bContext *C)
             break;
 
           case 0: {
-            /* Special Case: "W" channel should be yellowish, so blend X and Y channel colors... */
-            float c1[3], c2[3];
-            float h1[3], h2[3];
-            float hresult[3];
-
-            /* - get colors (rgb) */
-            UI_GetThemeColor3fv(TH_AXIS_X, c1);
-            UI_GetThemeColor3fv(TH_AXIS_Y, c2);
-
-            /* - perform blending in HSV space (to keep brightness similar) */
-            rgb_to_hsv_v(c1, h1);
-            rgb_to_hsv_v(c2, h2);
-
-            interp_v3_v3v3(hresult, h1, h2, 0.5f);
-
-            /* - convert back to RGB for display */
-            hsv_to_rgb_v(hresult, col);
+            UI_GetThemeColor3fv(TH_AXIS_W, col);
             break;
           }
 

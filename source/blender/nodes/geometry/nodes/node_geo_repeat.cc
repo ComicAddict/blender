@@ -24,6 +24,7 @@
 #include "UI_interface_layout.hh"
 
 #include "node_geometry_util.hh"
+#include "shader/node_shader_util.hh"
 
 namespace blender::nodes::node_geo_repeat_cc {
 
@@ -121,20 +122,20 @@ static void node_label(const bNodeTree * /*ntree*/,
   BLI_strncpy_utf8(label, CTX_IFACE_(BLT_I18NCONTEXT_ID_NODETREE, "Repeat"), label_maxncpy);
 }
 
-static bool node_insert_link(bNodeTree *ntree, bNode *node, bNodeLink *link)
+static bool node_insert_link(bke::NodeInsertLinkParams &params)
 {
-  bNode *output_node = ntree->node_by_id(node_storage(*node).output_node_id);
+  bNode *output_node = params.ntree.node_by_id(node_storage(params.node).output_node_id);
   if (!output_node) {
     return true;
   }
   return socket_items::try_add_item_via_any_extend_socket<RepeatItemsAccessor>(
-      *ntree, *node, *output_node, *link);
+      params.ntree, params.node, *output_node, params.link);
 }
 
 static void node_register()
 {
   static blender::bke::bNodeType ntype;
-  geo_node_type_base(&ntype, "GeometryNodeRepeatInput", GEO_NODE_REPEAT_INPUT);
+  common_node_type_base(&ntype, "GeometryNodeRepeatInput", GEO_NODE_REPEAT_INPUT);
   ntype.ui_name = "Repeat Input";
   ntype.enum_name_legacy = "REPEAT_INPUT";
   ntype.nclass = NODE_CLASS_INTERFACE;
@@ -188,17 +189,19 @@ static void node_declare(NodeDeclarationBuilder &b)
       .align_with_previous();
 }
 
-static void node_init(bNodeTree * /*tree*/, bNode *node)
+static void node_init(bNodeTree *tree, bNode *node)
 {
   NodeGeometryRepeatOutput *data = MEM_callocN<NodeGeometryRepeatOutput>(__func__);
 
   data->next_identifier = 0;
 
-  data->items = MEM_calloc_arrayN<NodeRepeatItem>(1, __func__);
-  data->items[0].name = BLI_strdup(DATA_("Geometry"));
-  data->items[0].socket_type = SOCK_GEOMETRY;
-  data->items[0].identifier = data->next_identifier++;
-  data->items_num = 1;
+  if (tree->type == NTREE_GEOMETRY) {
+    data->items = MEM_calloc_arrayN<NodeRepeatItem>(1, __func__);
+    data->items[0].name = BLI_strdup(DATA_("Geometry"));
+    data->items[0].socket_type = SOCK_GEOMETRY;
+    data->items[0].identifier = data->next_identifier++;
+    data->items_num = 1;
+  }
 
   node->storage = data;
 }
@@ -218,10 +221,10 @@ static void node_copy_storage(bNodeTree * /*dst_tree*/, bNode *dst_node, const b
   socket_items::copy_array<RepeatItemsAccessor>(*src_node, *dst_node);
 }
 
-static bool node_insert_link(bNodeTree *ntree, bNode *node, bNodeLink *link)
+static bool node_insert_link(bke::NodeInsertLinkParams &params)
 {
   return socket_items::try_add_item_via_any_extend_socket<RepeatItemsAccessor>(
-      *ntree, *node, *node, *link);
+      params.ntree, params.node, params.node, params.link);
 }
 
 static void node_operators()
@@ -232,7 +235,9 @@ static void node_operators()
 static void node_gather_link_searches(GatherLinkSearchOpParams &params)
 {
   const bNodeSocket &other_socket = params.other_socket();
-  if (!RepeatItemsAccessor::supports_socket_type(eNodeSocketDatatype(other_socket.type))) {
+  if (!RepeatItemsAccessor::supports_socket_type(eNodeSocketDatatype(other_socket.type),
+                                                 params.node_tree().type))
+  {
     return;
   }
   params.add_item_full_name(IFACE_("Repeat"), [](LinkSearchOpParams &params) {
@@ -245,7 +250,10 @@ static void node_gather_link_searches(GatherLinkSearchOpParams &params)
 
     socket_items::clear<RepeatItemsAccessor>(output_node);
     socket_items::add_item_with_socket_type_and_name<RepeatItemsAccessor>(
-        output_node, eNodeSocketDatatype(params.socket.type), params.socket.name);
+        params.node_tree,
+        output_node,
+        eNodeSocketDatatype(params.socket.type),
+        params.socket.name);
     update_node_declaration_and_sockets(params.node_tree, input_node);
     update_node_declaration_and_sockets(params.node_tree, output_node);
     if (params.socket.in_out == SOCK_IN) {
@@ -276,7 +284,7 @@ static void node_blend_read(bNodeTree & /*tree*/, bNode &node, BlendDataReader &
 static void node_register()
 {
   static blender::bke::bNodeType ntype;
-  geo_node_type_base(&ntype, "GeometryNodeRepeatOutput", GEO_NODE_REPEAT_OUTPUT);
+  common_node_type_base(&ntype, "GeometryNodeRepeatOutput", GEO_NODE_REPEAT_OUTPUT);
   ntype.ui_name = "Repeat Output";
   ntype.enum_name_legacy = "REPEAT_OUTPUT";
   ntype.nclass = NODE_CLASS_INTERFACE;

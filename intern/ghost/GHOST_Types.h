@@ -12,11 +12,8 @@
 #include <string>
 
 #ifdef WITH_VULKAN_BACKEND
-#  ifdef __APPLE__
-#    include <MoltenVK/vk_mvk_moltenvk.h>
-#  else
-#    include <vulkan/vulkan_core.h>
-#  endif
+#  include <vulkan/vulkan_core.h>
+VK_DEFINE_HANDLE(VmaAllocator)
 #endif
 
 /* This is used by `GHOST_C-api.h` too, cannot use C++ conventions. */
@@ -115,6 +112,8 @@ typedef struct GHOST_CursorGenerator {
 typedef enum {
   GHOST_gpuStereoVisual = (1 << 0),
   GHOST_gpuDebugContext = (1 << 1),
+  GHOST_gpuVSyncIsOverridden = (1 << 2),
+
 } GHOST_GPUFlags;
 
 typedef enum GHOST_DialogOptions {
@@ -180,6 +179,10 @@ typedef enum {
    * Setting cursors via #GHOST_SetCursorGenerator is supported.
    */
   GHOST_kCapabilityCursorGenerator = (1 << 11),
+  /**
+   * Support accurately placing windows on multiple monitors.
+   */
+  GHOST_kCapabilityMultiMonitorPlacement = (1 << 12),
 
 } GHOST_TCapabilityFlag;
 
@@ -193,7 +196,7 @@ typedef enum {
    GHOST_kCapabilityClipboardImage | GHOST_kCapabilityDesktopSample | GHOST_kCapabilityInputIME | \
    GHOST_kCapabilityTrackpadPhysicalDirection | GHOST_kCapabilityWindowDecorationStyles | \
    GHOST_kCapabilityKeyboardHyperKey | GHOST_kCapabilityCursorRGBA | \
-   GHOST_kCapabilityCursorGenerator)
+   GHOST_kCapabilityCursorGenerator | GHOST_kCapabilityMultiMonitorPlacement)
 
 /* Xtilt and Ytilt represent how much the pen is tilted away from
  * vertically upright in either the X or Y direction, with X and Y the
@@ -430,6 +433,7 @@ typedef enum {
   GHOST_kStandardCursorHandClosed,
   GHOST_kStandardCursorHandPoint,
   GHOST_kStandardCursorBlade,
+  GHOST_kStandardCursorSlip,
   GHOST_kStandardCursorCustom,
 
 #define GHOST_kStandardCursorNumCursors (int(GHOST_kStandardCursorCustom) + 1)
@@ -790,8 +794,62 @@ typedef struct {
   uint device_id;
 } GHOST_GPUDevice;
 
+/**
+ * Options for VSync.
+ *
+ * \note with the exception of #GHOST_kVSyncModeUnset,
+ * these map to the OpenGL "swap interval" argument.
+ */
+typedef enum {
+  /** Up to the GPU driver to choose. */
+  GHOST_kVSyncModeUnset = -2,
+  /** Adaptive sync (OpenGL only). */
+  GHOST_kVSyncModeAuto = -1,
+  /** Disable, useful for unclasped redraws for testing performance. */
+  GHOST_kVSyncModeOff = 0,
+  /** Force enable. */
+  GHOST_kVSyncModeOn = 1,
+} GHOST_TVSyncModes;
+
+/**
+ * Settings used to create a GPU context.
+ *
+ * \note Avoid adding values here unless they apply across multiple context implementations.
+ * Otherwise the settings would be better added as extra arguments, only passed to that class.
+ */
+typedef struct {
+  bool is_stereo_visual;
+  bool is_debug;
+  GHOST_TVSyncModes vsync;
+} GHOST_ContextParams;
+
+#define GHOST_CONTEXT_PARAMS_NONE \
+  { \
+    /*is_stereo_visual*/ false, /*is_debug*/ false, /*vsync*/ GHOST_kVSyncModeUnset, \
+  }
+
+#define GHOST_CONTEXT_PARAMS_FROM_GPU_SETTINGS_OFFSCREEN(gpu_settings) \
+  { \
+    /*is_stereo_visual*/ false, \
+        /*is_debug*/ (((gpu_settings).flags & GHOST_gpuDebugContext) != 0), \
+        /*vsync*/ GHOST_kVSyncModeUnset, \
+  }
+
+#define GHOST_CONTEXT_PARAMS_FROM_GPU_SETTINGS(gpu_settings) \
+  { \
+    /*is_stereo_visual*/ (((gpu_settings).flags & GHOST_gpuStereoVisual) != 0), \
+        /*is_debug*/ (((gpu_settings).flags & GHOST_gpuDebugContext) != 0), /*vsync*/ \
+        (((gpu_settings).flags & GHOST_gpuVSyncIsOverridden) ? (gpu_settings).vsync : \
+                                                               GHOST_kVSyncModeUnset), \
+  }
+
 typedef struct {
   int flags;
+  /**
+   * Use when `flags & GHOST_gpuVSyncIsOverridden` is set.
+   * See #GHOST_ContextParams::vsync.
+   */
+  GHOST_TVSyncModes vsync;
   GHOST_TDrawingContextType context_type;
   GHOST_GPUDevice preferred_device;
 } GHOST_GPUSettings;
@@ -800,11 +858,25 @@ typedef struct {
   float colored_titlebar_bg_color[3];
 } GHOST_WindowDecorationStyleSettings;
 
+typedef struct {
+  /* Is HDR enabled for this Window? */
+  bool hdr_enabled;
+  /* Is wide gamut enabled for this Window? */
+  bool wide_gamut_enabled;
+  /* Scale factor to display SDR content in HDR. */
+  float sdr_white_level;
+} GHOST_WindowHDRInfo;
+
+#define GHOST_WINDOW_HDR_INFO_NONE \
+  { \
+    /*hdr_enabled*/ false, /*wide_gamut_enabled*/ false, /*sdr_white_level*/ 1.0f, \
+  }
+
 #ifdef WITH_VULKAN_BACKEND
 typedef struct {
   /** Image handle to the image that will be presented to the user. */
   VkImage image;
-  /** Format of the swap chain. */
+  /** Format of the swap-chain. */
   VkSurfaceFormatKHR surface_format;
   /** Resolution of the image. */
   VkExtent2D extent;
@@ -814,6 +886,8 @@ typedef struct {
   VkSemaphore present_semaphore;
   /** Fence to signal after the image has been updated. */
   VkFence submission_fence;
+  /* Factor to scale SDR content to HDR. */
+  float sdr_scale;
 } GHOST_VulkanSwapChainData;
 
 typedef enum {
@@ -919,6 +993,8 @@ typedef struct {
   VkQueue queue;
   /** The #std::mutex mutex. */
   void *queue_mutex;
+  /** Vulkan memory allocator of the device. */
+  VmaAllocator vma_allocator;
 } GHOST_VulkanHandles;
 
 #endif

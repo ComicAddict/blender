@@ -85,7 +85,7 @@ static void meshcache_do(MeshCacheModifierData *mcmd,
                                    nullptr;
   float(*vertexCos)[3] = vertexCos_Store ? vertexCos_Store : vertexCos_Real;
 
-  const float fps = FPS;
+  const float fps = scene->frames_per_second();
 
   char filepath[FILE_MAX];
   const char *err_str = nullptr;
@@ -117,7 +117,7 @@ static void meshcache_do(MeshCacheModifierData *mcmd,
     /* apply offset and scale */
     time = (mcmd->frame_scale * time) - mcmd->frame_start;
   }
-  else { /*  if (mcmd->play_mode == MOD_MESHCACHE_PLAY_EVAL) { */
+  else { /* `if (mcmd->play_mode == MOD_MESHCACHE_PLAY_EVAL) {`. */
     switch (mcmd->time_mode) {
       case MOD_MESHCACHE_TIME_FRAME: {
         time = mcmd->eval_frame;
@@ -406,4 +406,5 @@ ModifierTypeInfo modifierType_MeshCache = {
     /*blend_write*/ nullptr,
     /*blend_read*/ nullptr,
     /*foreach_cache*/ nullptr,
+    /*foreach_working_space_color*/ nullptr,
 };

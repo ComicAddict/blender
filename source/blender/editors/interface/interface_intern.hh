@@ -18,7 +18,9 @@
 #include "BKE_fcurve.hh"
 
 #include "DNA_listBase.h"
+
 #include "RNA_types.hh"
+
 #include "UI_interface.hh"
 #include "UI_interface_layout.hh"
 #include "UI_resources.hh"
@@ -145,9 +147,6 @@ extern const short ui_radial_dir_to_angle[8];
 
 /** Split number-buttons by ':' and align left/right. */
 #define USE_NUMBUTS_LR_ALIGN
-
-/** Use new 'align' computation code. */
-#define USE_UIBUT_SPATIAL_ALIGN
 
 /** #PieMenuData.flags */
 enum {
@@ -411,11 +410,15 @@ struct uiButDecorator : public uiBut {
   PointerRNA decorated_rnapoin = {};
   PropertyRNA *decorated_rnaprop = nullptr;
   int decorated_rnaindex = -1;
+  /* The only action allowed to decorators currently is to set or clear animation keyframes.
+   * However, they should be able to do it only under some circumstances (typically, when they do
+   * display animation-related status). */
+  bool toggle_keyframe_on_click = false;
 };
 
 /** Derived struct for #ButType::Progress. */
 struct uiButProgress : public uiBut {
-  /** Progress in  0..1 range */
+  /** Progress in 0..1 range. */
   float progress_factor = 0.0f;
   /** The display style (bar, pie... etc). */
   blender::ui::ButProgressType progress_type = blender::ui::ButProgressType::Bar;
@@ -501,11 +504,19 @@ struct ColorPicker {
   bool is_init;
 
   /**
-   * HSV or HSL color in scene linear color space value used for number
-   * buttons. This is scene linear so that there is a clear correspondence
-   * to the scene linear RGB values.
+   * HSV or HSL in color picker space used for number sliders.
    */
-  float hsv_scene_linear[3];
+  float hsv_perceptual_slider[3];
+  float hsv_linear_slider[3];
+
+  /*
+   * RGB in color picker used for number sliders, when the space is not scene linear.
+   * When it is linear, the RNA property is used directly so that keyframing works.
+   */
+  float rgb_perceptual_slider[3];
+
+  /* Hex Color string */
+  char hexcol[128];
 
   /** Cubic saturation for the color wheel. */
   bool use_color_cubic;
@@ -572,6 +583,8 @@ struct uiBlockDynamicListener {
   void (*listener_func)(const wmRegionListenerParams *params);
 };
 
+enum class uiBlockAlertLevel : int8_t { None, Info, Success, Warning, Error };
+
 struct uiBlock {
   uiBlock *next, *prev;
 
@@ -602,6 +615,8 @@ struct uiBlock {
 
   rctf rect;
   float aspect;
+
+  uiBlockAlertLevel alert_level = uiBlockAlertLevel::None;
 
   /** Unique hash used to implement popup menu memory. */
   uint puphash;
@@ -741,6 +756,8 @@ void ui_window_to_region(const ARegion *region, int *x, int *y);
 void ui_window_to_region_rcti(const ARegion *region, rcti *rect_dst, const rcti *rct_src);
 void ui_window_to_region_rctf(const ARegion *region, rctf *rect_dst, const rctf *rct_src);
 void ui_region_to_window(const ARegion *region, int *x, int *y);
+void ui_region_to_window(
+    const ARegion *region, int region_x, int region_y, int *r_window_x, int *r_window_y);
 /**
  * Popups will add a margin to #ARegion.winrct for shadow,
  * for interactivity (point-inside tests for eg), we want the winrct without the margin added.
@@ -1133,7 +1150,11 @@ void ui_layout_panel_popup_scroll_apply(Panel *panel, const float dy);
 /**
  * Draws in resolution of 48x4 colors.
  */
-void ui_draw_gradient(const rcti *rect, const float hsv[3], eButGradientType type, float alpha);
+void ui_draw_gradient(const rcti *rect,
+                      const float hsv[3],
+                      eButGradientType type,
+                      float alpha,
+                      const ColorManagedDisplay *display);
 
 /**
  * Draws rounded corner segments but inverted. Imagine each corner like a filled right triangle,

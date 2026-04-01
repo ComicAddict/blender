@@ -34,8 +34,12 @@ static void geometry_node_tree_get_from_context(const bContext *C,
                                                 ID **r_from)
 {
   const SpaceNode *snode = CTX_wm_space_node(C);
-  if (snode->geometry_nodes_type == SNODE_GEOMETRY_TOOL) {
-    *r_ntree = snode->geometry_nodes_tool_tree;
+  if (snode->node_tree_sub_type == SNODE_GEOMETRY_TOOL) {
+    if (snode->selected_node_group && snode->selected_node_group->type == NTREE_GEOMETRY) {
+      *r_ntree = snode->selected_node_group;
+      return;
+    }
+    *r_ntree = nullptr;
     return;
   }
 
@@ -129,7 +133,6 @@ static bool geometry_node_tree_socket_type_valid(blender::bke::bNodeTreeType * /
                SOCK_OBJECT,
                SOCK_GEOMETRY,
                SOCK_COLLECTION,
-               SOCK_TEXTURE,
                SOCK_IMAGE,
                SOCK_MATERIAL,
                SOCK_MENU) ||
@@ -145,7 +148,7 @@ void register_node_tree_type_geo()
   tt->group_idname = "GeometryNodeGroup";
   tt->ui_name = N_("Geometry Node Editor");
   tt->ui_icon = ICON_GEOMETRY_NODES;
-  tt->ui_description = N_("Geometry nodes");
+  tt->ui_description = N_("Advanced geometry editing and tools creation using nodes");
   tt->rna_ext.srna = &RNA_GeometryNodeTree;
   tt->update = geometry_node_tree_update;
   tt->get_from_context = geometry_node_tree_get_from_context;

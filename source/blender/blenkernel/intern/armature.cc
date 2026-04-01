@@ -520,6 +520,7 @@ IDTypeInfo IDType_ID_AR = {
     /*foreach_id*/ armature_foreach_id,
     /*foreach_cache*/ nullptr,
     /*foreach_path*/ nullptr,
+    /*foreach_working_space_color*/ nullptr,
     /*owner_pointer_get*/ nullptr,
 
     /*blend_write*/ armature_blend_write,
@@ -3215,10 +3216,12 @@ std::optional<blender::Bounds<blender::float3>> BKE_pose_minmax(const Object *ob
     if (!pchan->bone) {
       continue;
     }
-    if (!blender::animrig::bone_is_visible_pchan(arm, pchan)) {
+    /* Despite `bone_is_selected` also checking for visibility we need to check visibility
+     * manually due to `use_select` potentially ignoring selection state. */
+    if (!blender::animrig::bone_is_visible(arm, pchan)) {
       continue;
     }
-    if (use_select && !(pchan->bone->flag & BONE_SELECTED)) {
+    if (use_select && !blender::animrig::bone_is_selected(arm, pchan)) {
       continue;
     }
 

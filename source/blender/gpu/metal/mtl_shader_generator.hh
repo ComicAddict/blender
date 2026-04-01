@@ -74,7 +74,7 @@
  *
  * \code{.cc}
  * -- Shader defines --
- * #define USE_ARGUMENT_BUFFER_FOR_SAMPLERS 0
+ * #define MTL_ARGUMENT_BUFFER_NUM_SAMPLERS 0
  * ... etc ...;
  *
  * class MetalShaderVertexImp {
@@ -199,8 +199,8 @@ struct MSLTextureResource {
   /* Atomic fallback buffer information. */
   int atomic_fallback_buffer_ssbo_id = -1;
 
-  eGPUTextureType get_texture_binding_type() const;
-  eGPUSamplerFormat get_sampler_format() const;
+  GPUTextureType get_texture_binding_type() const;
+  GPUSamplerFormat get_sampler_format() const;
 
   void resolve_binding_indices();
 
@@ -430,7 +430,7 @@ class MSLGeneratorInterface {
   std::string generate_msl_compute_inputs_string();
   std::string generate_msl_vertex_entry_stub();
   std::string generate_msl_fragment_entry_stub();
-  std::string generate_msl_compute_entry_stub();
+  std::string generate_msl_compute_entry_stub(const shader::ShaderCreateInfo &info);
   std::string generate_msl_fragment_tile_input_population();
   std::string generate_msl_global_uniform_population(ShaderStage stage);
   std::string generate_ubo_block_macro_chain(MSLBufferBlock block);
@@ -502,7 +502,7 @@ inline bool is_builtin_type(std::string type)
    * Though most efficient and maintainable approach to be determined.
    * NOTE: Some duplicate types exit for Metal and GLSL representations, as generated type-names
    * from #shader::ShaderCreateInfo may use GLSL signature. */
-  static std::map<std::string, eMTLDataType> glsl_builtin_types = {
+  static std::map<std::string, MTLInterfaceDataType> glsl_builtin_types = {
       {"float", MTL_DATATYPE_FLOAT},
       {"vec2", MTL_DATATYPE_FLOAT2},
       {"vec3", MTL_DATATYPE_FLOAT3},

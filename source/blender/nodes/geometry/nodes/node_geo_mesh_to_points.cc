@@ -16,6 +16,8 @@
 #include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
+#include "GEO_foreach_geometry.hh"
+
 #include "FN_multi_function_builder.hh"
 
 #include "node_geometry_util.hh"
@@ -60,12 +62,12 @@ static void geometry_set_mesh_to_points(GeometrySet &geometry_set,
 {
   const Mesh *mesh = geometry_set.get_mesh();
   if (mesh == nullptr) {
-    geometry_set.remove_geometry_during_modify();
+    geometry_set.keep_only({GeometryComponent::Type::Edit});
     return;
   }
   const int domain_size = mesh->attributes().domain_size(domain);
   if (domain_size == 0) {
-    geometry_set.remove_geometry_during_modify();
+    geometry_set.keep_only({GeometryComponent::Type::Edit});
     return;
   }
   const AttributeAccessor src_attributes = mesh->attributes();
@@ -106,18 +108,19 @@ static void geometry_set_mesh_to_points(GeometrySet &geometry_set,
   array_utils::gather(evaluator.get_evaluated(1), selection, radius.span);
   radius.finish();
 
-  Map<StringRef, AttributeDomainAndType> attributes;
+  bke::GeometrySet::GatheredAttributes attributes;
   geometry_set.gather_attributes_for_propagation({GeometryComponent::Type::Mesh},
                                                  GeometryComponent::Type::PointCloud,
                                                  false,
                                                  attribute_filter,
                                                  attributes);
-  attributes.remove("radius");
-  attributes.remove("position");
 
-  for (MapItem<StringRef, AttributeDomainAndType> entry : attributes.items()) {
-    const StringRef attribute_id = entry.key;
-    const bke::AttrType data_type = entry.value.data_type;
+  for (const int i : attributes.names.index_range()) {
+    if (ELEM(attributes.names[i], "position", "radius")) {
+      continue;
+    }
+    const StringRef attribute_id = attributes.names[i];
+    const bke::AttrType data_type = attributes.kinds[i].data_type;
     const bke::GAttributeReader src = src_attributes.lookup(attribute_id, domain, data_type);
     if (!src) {
       /* Domain interpolation can fail if the source domain is empty. */
@@ -138,7 +141,7 @@ static void geometry_set_mesh_to_points(GeometrySet &geometry_set,
   }
 
   geometry_set.replace_pointcloud(pointcloud);
-  geometry_set.keep_only_during_modify({GeometryComponent::Type::PointCloud});
+  geometry_set.keep_only({GeometryComponent::Type::PointCloud, GeometryComponent::Type::Edit});
 }
 
 static void node_geo_exec(GeoNodeExecParams params)
@@ -161,7 +164,7 @@ static void node_geo_exec(GeoNodeExecParams params)
 
   const NodeAttributeFilter &attribute_filter = params.get_attribute_filter("Points");
 
-  geometry_set.modify_geometry_sets([&](GeometrySet &geometry_set) {
+  geometry::foreach_real_geometry(geometry_set, [&](GeometrySet &geometry_set) {
     switch (mode) {
       case GEO_NODE_MESH_TO_POINTS_VERTICES:
         geometry_set_mesh_to_points(geometry_set,

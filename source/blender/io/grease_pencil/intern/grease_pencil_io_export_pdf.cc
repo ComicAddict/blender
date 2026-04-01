@@ -7,6 +7,8 @@
 #include "BKE_grease_pencil.hh"
 #include "BKE_scene.hh"
 
+#include "BLI_math_color.h"
+
 #include "DEG_depsgraph_query.hh"
 
 #include "DNA_grease_pencil_types.h"
@@ -144,7 +146,10 @@ void PDFExporter::export_grease_pencil_layer(const Object &object,
   const float4x4 layer_to_world = layer.to_world_space(object);
 
   auto write_stroke = [&](const Span<float3> positions,
+                          const Span<float3> /*positions_left*/,
+                          const Span<float3> /*positions_right*/,
                           const bool cyclic,
+                          const int8_t /*type*/,
                           const ColorGeometry4f &color,
                           const float opacity,
                           const std::optional<float> width,

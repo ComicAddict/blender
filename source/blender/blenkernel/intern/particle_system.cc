@@ -2442,7 +2442,7 @@ static float nr_distance_to_vert(float *p,
   return len_v3v3(p, pce->x0) - radius;
 }
 /**
- * \param t: is the current time for newton rhapson.
+ * \param t: is the current time for newton raphson.
  * \param fac: is the starting factor for current collision iteration.
  * \param col: The particle collision, `col->fac's` are factors for the
  * particle sub-frame step start and end during collision modifier step.
@@ -3730,7 +3730,7 @@ static void dynamics_step_sph_ddr_task_cb_ex(DynamicStepSolverTaskData *data,
   }
 
   /* SPH particles are not physical particles, just interpolation
-   * particles,  thus rotation has not a direct sense for them */
+   * particles, thus rotation has not a direct sense for them. */
   basic_rotate(part, pa, pa->state.time, data->timestep);
 
   if (part->time_flag & PART_TIME_AUTOSF) {
@@ -3797,7 +3797,7 @@ static void dynamics_step_sph_classical_integrate_task_cb_ex(void *__restrict us
   }
 
   /* SPH particles are not physical particles, just interpolation
-   * particles,  thus rotation has not a direct sense for them */
+   * particles, thus rotation has not a direct sense for them. */
   basic_rotate(part, pa, pa->state.time, data->timestep);
 
   if (part->time_flag & PART_TIME_AUTOSF) {

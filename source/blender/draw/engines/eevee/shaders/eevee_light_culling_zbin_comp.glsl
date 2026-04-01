@@ -8,17 +8,13 @@
  * For this reason, we only dispatch 1 thread group.
  */
 
-#include "infos/eevee_light_culling_info.hh"
+#include "infos/eevee_light_culling_infos.hh"
 
 COMPUTE_SHADER_CREATE_INFO(eevee_light_culling_zbin)
 
 #include "draw_view_lib.glsl"
 #include "eevee_light_iter_lib.glsl"
 #include "gpu_shader_math_base_lib.glsl"
-
-/* Fits the limit of 32KB. */
-shared uint zbin_max[CULLING_ZBIN_COUNT];
-shared uint zbin_min[CULLING_ZBIN_COUNT];
 
 void main()
 {

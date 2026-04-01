@@ -4,6 +4,7 @@
 
 #include "scene/shader_nodes.h"
 #include "kernel/svm/types.h"
+#include "kernel/types.h"
 #include "scene/colorspace.h"
 #include "scene/constant_fold.h"
 #include "scene/film.h"
@@ -16,7 +17,8 @@
 #include "scene/scene.h"
 #include "scene/svm.h"
 
-#include "sky_model.h"
+#include "sky_hosek.h"
+#include "sky_nishita.h"
 
 #include "util/color.h"
 
@@ -631,17 +633,135 @@ void EnvironmentTextureNode::compile(OSLCompiler &compiler)
 
 /* Sky Texture */
 
+static float2 sky_spherical_coordinates(const float3 dir)
+{
+  return make_float2(acosf(dir.z), atan2f(dir.x, dir.y));
+}
+
 struct SunSky {
   /* sun direction in spherical and cartesian */
   float theta, phi;
 
   /* Parameter */
   float radiance_x, radiance_y, radiance_z;
-  float config_x[9], config_y[9], config_z[9], nishita_data[10];
+  float config_x[9], config_y[9], config_z[9], nishita_data[11];
 };
+
+/* Preetham model */
+static float sky_perez_function(const float lam[6], float theta, const float gamma)
+{
+  return (1.0f + lam[0] * expf(lam[1] / cosf(theta))) *
+         (1.0f + lam[2] * expf(lam[3] * gamma) + lam[4] * cosf(gamma) * cosf(gamma));
+}
+
+static void sky_texture_precompute_preetham(SunSky *sunsky,
+                                            const float3 dir,
+                                            const float turbidity)
+{
+  /*
+   * We re-use the SunSky struct of the new model, to avoid extra variables
+   * zenith_Y/x/y is now radiance_x/y/z
+   * perez_Y/x/y is now config_x/y/z
+   */
+
+  const float2 spherical = sky_spherical_coordinates(dir);
+  const float theta = spherical.x;
+  const float phi = spherical.y;
+
+  sunsky->theta = theta;
+  sunsky->phi = phi;
+
+  const float theta2 = theta * theta;
+  const float theta3 = theta2 * theta;
+  const float T = turbidity;
+  const float T2 = T * T;
+
+  const float chi = (4.0f / 9.0f - T / 120.0f) * (M_PI_F - 2.0f * theta);
+  sunsky->radiance_x = (4.0453f * T - 4.9710f) * tanf(chi) - 0.2155f * T + 2.4192f;
+  sunsky->radiance_x *= 0.06f;
+
+  sunsky->radiance_y = (0.00166f * theta3 - 0.00375f * theta2 + 0.00209f * theta) * T2 +
+                       (-0.02903f * theta3 + 0.06377f * theta2 - 0.03202f * theta + 0.00394f) * T +
+                       (0.11693f * theta3 - 0.21196f * theta2 + 0.06052f * theta + 0.25886f);
+
+  sunsky->radiance_z = (0.00275f * theta3 - 0.00610f * theta2 + 0.00317f * theta) * T2 +
+                       (-0.04214f * theta3 + 0.08970f * theta2 - 0.04153f * theta + 0.00516f) * T +
+                       (0.15346f * theta3 - 0.26756f * theta2 + 0.06670f * theta + 0.26688f);
+
+  sunsky->config_x[0] = (0.1787f * T - 1.4630f);
+  sunsky->config_x[1] = (-0.3554f * T + 0.4275f);
+  sunsky->config_x[2] = (-0.0227f * T + 5.3251f);
+  sunsky->config_x[3] = (0.1206f * T - 2.5771f);
+  sunsky->config_x[4] = (-0.0670f * T + 0.3703f);
+
+  sunsky->config_y[0] = (-0.0193f * T - 0.2592f);
+  sunsky->config_y[1] = (-0.0665f * T + 0.0008f);
+  sunsky->config_y[2] = (-0.0004f * T + 0.2125f);
+  sunsky->config_y[3] = (-0.0641f * T - 0.8989f);
+  sunsky->config_y[4] = (-0.0033f * T + 0.0452f);
+
+  sunsky->config_z[0] = (-0.0167f * T - 0.2608f);
+  sunsky->config_z[1] = (-0.0950f * T + 0.0092f);
+  sunsky->config_z[2] = (-0.0079f * T + 0.2102f);
+  sunsky->config_z[3] = (-0.0441f * T - 1.6537f);
+  sunsky->config_z[4] = (-0.0109f * T + 0.0529f);
+
+  /* unused for old sky model */
+  for (int i = 5; i < 9; i++) {
+    sunsky->config_x[i] = 0.0f;
+    sunsky->config_y[i] = 0.0f;
+    sunsky->config_z[i] = 0.0f;
+  }
+
+  sunsky->radiance_x /= sky_perez_function(sunsky->config_x, 0, theta);
+  sunsky->radiance_y /= sky_perez_function(sunsky->config_y, 0, theta);
+  sunsky->radiance_z /= sky_perez_function(sunsky->config_z, 0, theta);
+}
+
+/* Hosek / Wilkie */
+static void sky_texture_precompute_hosek(SunSky *sunsky,
+                                         const float3 dir,
+                                         float turbidity,
+                                         const float ground_albedo)
+{
+  /* Calculate Sun Direction and save coordinates */
+  const float2 spherical = sky_spherical_coordinates(dir);
+  float theta = spherical.x;
+  const float phi = spherical.y;
+
+  /* Clamp Turbidity */
+  turbidity = clamp(turbidity, 0.0f, 10.0f);
+
+  /* Clamp to Horizon */
+  theta = clamp(theta, 0.0f, M_PI_2_F);
+
+  sunsky->theta = theta;
+  sunsky->phi = phi;
+
+  const float solarElevation = M_PI_2_F - theta;
+
+  /* Initialize Sky Model */
+  SKY_ArHosekSkyModelState *sky_state;
+  sky_state = SKY_arhosek_xyz_skymodelstate_alloc_init(
+      (double)turbidity, (double)ground_albedo, (double)solarElevation);
+
+  /* Copy values from sky_state to SunSky */
+  for (int i = 0; i < 9; ++i) {
+    sunsky->config_x[i] = (float)sky_state->configs[0][i];
+    sunsky->config_y[i] = (float)sky_state->configs[1][i];
+    sunsky->config_z[i] = (float)sky_state->configs[2][i];
+  }
+  sunsky->radiance_x = (float)sky_state->radiances[0];
+  sunsky->radiance_y = (float)sky_state->radiances[1];
+  sunsky->radiance_z = (float)sky_state->radiances[2];
+
+  /* Free sky_state */
+  SKY_arhosekskymodelstate_free(sky_state);
+}
 
 /* Nishita improved */
 static void sky_texture_precompute_nishita(SunSky *sunsky,
+                                           bool multiple_scattering,
                                            bool sun_disc,
                                            const float sun_size,
                                            const float sun_intensity,
@@ -649,15 +769,31 @@ static void sky_texture_precompute_nishita(SunSky *sunsky,
                                            const float sun_rotation,
                                            const float altitude,
                                            const float air_density,
-                                           const float dust_density)
+                                           const float aerosol_density,
+                                           const float ozone_density)
 {
-  /* sample 2 sun pixels */
+  /* Sample 2 Sun pixels */
   float pixel_bottom[3];
   float pixel_top[3];
-  SKY_nishita_skymodel_precompute_sun(
-      sun_elevation, sun_size, altitude, air_density, dust_density, pixel_bottom, pixel_top);
 
-  /* send data to svm_sky */
+  if (multiple_scattering) {
+    SKY_multiple_scattering_precompute_sun(sun_elevation,
+                                           sun_size,
+                                           altitude,
+                                           air_density,
+                                           aerosol_density,
+                                           ozone_density,
+                                           pixel_bottom,
+                                           pixel_top);
+  }
+  else {
+    SKY_single_scattering_precompute_sun(
+        sun_elevation, sun_size, altitude, air_density, aerosol_density, pixel_bottom, pixel_top);
+  }
+
+  float earth_intersection_angle = SKY_earth_intersection_angle(altitude);
+
+  /* Send data to sky.h */
   sunsky->nishita_data[0] = pixel_bottom[0];
   sunsky->nishita_data[1] = pixel_bottom[1];
   sunsky->nishita_data[2] = pixel_bottom[2];
@@ -668,46 +804,41 @@ static void sky_texture_precompute_nishita(SunSky *sunsky,
   sunsky->nishita_data[7] = sun_rotation;
   sunsky->nishita_data[8] = sun_disc ? sun_size : -1.0f;
   sunsky->nishita_data[9] = sun_intensity;
+  sunsky->nishita_data[10] = -earth_intersection_angle;
 }
 
 float SkyTextureNode::get_sun_average_radiance()
 {
-  const float clamped_altitude = clamp(altitude, 1.0f, 59999.0f);
   const float angular_diameter = get_sun_size();
-
   float pix_bottom[3];
   float pix_top[3];
-  SKY_nishita_skymodel_precompute_sun(sun_elevation,
-                                      angular_diameter,
-                                      clamped_altitude,
-                                      air_density,
-                                      dust_density,
-                                      pix_bottom,
-                                      pix_top);
 
-  /* Approximate the direction's elevation as the sun's elevation. */
-  const float dir_elevation = sun_elevation;
-  const float half_angular = angular_diameter / 2.0f;
-  const float3 pixel_bottom = make_float3(pix_bottom[0], pix_bottom[1], pix_bottom[2]);
-  const float3 pixel_top = make_float3(pix_top[0], pix_top[1], pix_top[2]);
-
-  /* Same code as in the sun evaluation shader. */
-  float3 xyz = make_float3(0.0f, 0.0f, 0.0f);
-  float y = 0.0f;
-  if (sun_elevation - half_angular > 0.0f) {
-    if (sun_elevation + half_angular > 0.0f) {
-      y = ((dir_elevation - sun_elevation) / angular_diameter) + 0.5f;
-      xyz = interp(pixel_bottom, pixel_top, y) * sun_intensity;
-    }
+  if (sky_type == NODE_SKY_SINGLE_SCATTERING) {
+    SKY_single_scattering_precompute_sun(sun_elevation,
+                                         angular_diameter,
+                                         altitude,
+                                         air_density,
+                                         aerosol_density,
+                                         pix_bottom,
+                                         pix_top);
   }
   else {
-    if (sun_elevation + half_angular > 0.0f) {
-      y = dir_elevation / (sun_elevation + half_angular);
-      xyz = interp(pixel_bottom, pixel_top, y) * sun_intensity;
-    }
+    SKY_multiple_scattering_precompute_sun(sun_elevation,
+                                           angular_diameter,
+                                           altitude,
+                                           air_density,
+                                           aerosol_density,
+                                           ozone_density,
+                                           pix_bottom,
+                                           pix_top);
   }
 
-  /* We first approximate the sun's contribution by
+  /* Sample center of Sun. */
+  const float3 pixel_bottom = make_float3(pix_bottom[0], pix_bottom[1], pix_bottom[2]);
+  const float3 pixel_top = make_float3(pix_top[0], pix_top[1], pix_top[2]);
+  float3 xyz = interp(pixel_bottom, pixel_top, 0.5f) * sun_intensity;
+
+  /* We first approximate the Sun's contribution by
    * multiplying the evaluated point by the square of the angular diameter.
    * Then we scale the approximation using a piecewise function (determined empirically). */
   float sun_contribution = average(xyz) * sqr(angular_diameter);
@@ -735,26 +866,31 @@ float SkyTextureNode::get_sun_average_radiance()
 NODE_DEFINE(SkyTextureNode)
 {
   NodeType *type = NodeType::add("sky_texture", create, NodeType::SHADER);
-
   TEXTURE_MAPPING_DEFINE(SkyTextureNode);
-
   static NodeEnum type_enum;
-  type_enum.insert("nishita_improved", NODE_SKY_NISHITA);
-  SOCKET_ENUM(sky_type, "Type", type_enum, NODE_SKY_NISHITA);
+  type_enum.insert("preetham", NODE_SKY_PREETHAM);
+  type_enum.insert("hosek_wilkie", NODE_SKY_HOSEK);
+  type_enum.insert("single_scattering", NODE_SKY_SINGLE_SCATTERING);
+  type_enum.insert("multiple_scattering", NODE_SKY_MULTIPLE_SCATTERING);
+  SOCKET_ENUM(sky_type, "Type", type_enum, NODE_SKY_MULTIPLE_SCATTERING);
 
+  /* Nishita parameters. */
   SOCKET_BOOLEAN(sun_disc, "Sun Disc", true);
   SOCKET_FLOAT(sun_size, "Sun Size", 0.009512f);
   SOCKET_FLOAT(sun_intensity, "Sun Intensity", 1.0f);
   SOCKET_FLOAT(sun_elevation, "Sun Elevation", 15.0f * M_PI_F / 180.0f);
   SOCKET_FLOAT(sun_rotation, "Sun Rotation", 0.0f);
-  SOCKET_FLOAT(altitude, "Altitude", 1.0f);
+  SOCKET_FLOAT(altitude, "Altitude", 100.0f);
   SOCKET_FLOAT(air_density, "Air", 1.0f);
-  SOCKET_FLOAT(dust_density, "Dust", 1.0f);
+  SOCKET_FLOAT(aerosol_density, "Aerosol", 1.0f);
   SOCKET_FLOAT(ozone_density, "Ozone", 1.0f);
-
   SOCKET_IN_POINT(vector, "Vector", zero_float3(), SocketType::LINK_TEXTURE_GENERATED);
-
   SOCKET_OUT_COLOR(color, "Color");
+
+  /* Legacy parameters. */
+  SOCKET_VECTOR(sun_direction, "Sun Direction", make_float3(0.0f, 0.0f, 1.0f));
+  SOCKET_FLOAT(turbidity, "Turbidity", 2.2f);
+  SOCKET_FLOAT(ground_albedo, "Ground Albedo", 0.3f);
 
   return type;
 }
@@ -763,7 +899,7 @@ SkyTextureNode::SkyTextureNode() : TextureNode(get_node_type()) {}
 
 void SkyTextureNode::simplify_settings(Scene * /* scene */)
 {
-  /* Patch sun position so users are able to animate the daylight cycle while keeping the shading
+  /* Patch Sun position so users are able to animate the daylight cycle while keeping the shading
    * code simple. */
   float new_sun_elevation = sun_elevation;
   float new_sun_rotation = sun_rotation;
@@ -796,50 +932,97 @@ void SkyTextureNode::compile(SVMCompiler &compiler)
 {
   ShaderInput *vector_in = input("Vector");
   ShaderOutput *color_out = output("Color");
+  SunSky sunsky = {};
 
-  SunSky sunsky;
-  /* Clamp altitude to reasonable values.
-   * Below 1m causes numerical issues and above 60km is space. */
-  const float clamped_altitude = clamp(altitude, 1.0f, 59999.0f);
+  if (sky_type == NODE_SKY_PREETHAM) {
+    sky_texture_precompute_preetham(&sunsky, sun_direction, turbidity);
+  }
+  else if (sky_type == NODE_SKY_HOSEK) {
+    sky_texture_precompute_hosek(&sunsky, sun_direction, turbidity, ground_albedo);
+  }
+  else {
+    sky_texture_precompute_nishita(&sunsky,
+                                   sky_type == NODE_SKY_MULTIPLE_SCATTERING,
+                                   sun_disc,
+                                   get_sun_size(),
+                                   sun_intensity,
+                                   sun_elevation,
+                                   sun_rotation,
+                                   altitude,
+                                   air_density,
+                                   aerosol_density,
+                                   ozone_density);
+    /* Sky texture image parameters */
+    ImageManager *image_manager = compiler.scene->image_manager.get();
+    ImageParams impar;
+    impar.interpolation = INTERPOLATION_LINEAR;
+    impar.extension = EXTENSION_EXTEND;
 
-  sky_texture_precompute_nishita(&sunsky,
-                                 sun_disc,
-                                 get_sun_size(),
-                                 sun_intensity,
-                                 sun_elevation,
-                                 sun_rotation,
-                                 clamped_altitude,
-                                 air_density,
-                                 dust_density);
-  /* precomputed texture image parameters */
-  ImageManager *image_manager = compiler.scene->image_manager.get();
-  ImageParams impar;
-  impar.interpolation = INTERPOLATION_LINEAR;
-  impar.extension = EXTENSION_EXTEND;
-
-  /* precompute sky texture */
-  if (handle.empty()) {
-    unique_ptr<SkyLoader> loader = make_unique<SkyLoader>(
-        sun_elevation, clamped_altitude, air_density, dust_density, ozone_density);
-    handle = image_manager->add_image(std::move(loader), impar);
+    /* Precompute sky texture */
+    if (handle.empty()) {
+      unique_ptr<SkyLoader> loader = make_unique<SkyLoader>(sky_type ==
+                                                                NODE_SKY_MULTIPLE_SCATTERING,
+                                                            sun_elevation,
+                                                            altitude,
+                                                            air_density,
+                                                            aerosol_density,
+                                                            ozone_density);
+      handle = image_manager->add_image(std::move(loader), impar);
+    }
   }
 
   const int vector_offset = tex_mapping.compile_begin(compiler, vector_in);
 
   compiler.stack_assign(color_out);
   compiler.add_node(NODE_TEX_SKY, vector_offset, compiler.stack_assign(color_out), sky_type);
-  compiler.add_node(__float_as_uint(sunsky.nishita_data[0]),
-                    __float_as_uint(sunsky.nishita_data[1]),
-                    __float_as_uint(sunsky.nishita_data[2]),
-                    __float_as_uint(sunsky.nishita_data[3]));
-  compiler.add_node(__float_as_uint(sunsky.nishita_data[4]),
-                    __float_as_uint(sunsky.nishita_data[5]),
-                    __float_as_uint(sunsky.nishita_data[6]),
-                    __float_as_uint(sunsky.nishita_data[7]));
-  compiler.add_node(__float_as_uint(sunsky.nishita_data[8]),
-                    __float_as_uint(sunsky.nishita_data[9]),
-                    handle.svm_slot(),
-                    0);
+  if (sky_type == NODE_SKY_PREETHAM || sky_type == NODE_SKY_HOSEK) {
+    compiler.add_node(__float_as_uint(sunsky.phi),
+                      __float_as_uint(sunsky.theta),
+                      __float_as_uint(sunsky.radiance_x),
+                      __float_as_uint(sunsky.radiance_y));
+    compiler.add_node(__float_as_uint(sunsky.radiance_z),
+                      __float_as_uint(sunsky.config_x[0]),
+                      __float_as_uint(sunsky.config_x[1]),
+                      __float_as_uint(sunsky.config_x[2]));
+    compiler.add_node(__float_as_uint(sunsky.config_x[3]),
+                      __float_as_uint(sunsky.config_x[4]),
+                      __float_as_uint(sunsky.config_x[5]),
+                      __float_as_uint(sunsky.config_x[6]));
+    compiler.add_node(__float_as_uint(sunsky.config_x[7]),
+                      __float_as_uint(sunsky.config_x[8]),
+                      __float_as_uint(sunsky.config_y[0]),
+                      __float_as_uint(sunsky.config_y[1]));
+    compiler.add_node(__float_as_uint(sunsky.config_y[2]),
+                      __float_as_uint(sunsky.config_y[3]),
+                      __float_as_uint(sunsky.config_y[4]),
+                      __float_as_uint(sunsky.config_y[5]));
+    compiler.add_node(__float_as_uint(sunsky.config_y[6]),
+                      __float_as_uint(sunsky.config_y[7]),
+                      __float_as_uint(sunsky.config_y[8]),
+                      __float_as_uint(sunsky.config_z[0]));
+    compiler.add_node(__float_as_uint(sunsky.config_z[1]),
+                      __float_as_uint(sunsky.config_z[2]),
+                      __float_as_uint(sunsky.config_z[3]),
+                      __float_as_uint(sunsky.config_z[4]));
+    compiler.add_node(__float_as_uint(sunsky.config_z[5]),
+                      __float_as_uint(sunsky.config_z[6]),
+                      __float_as_uint(sunsky.config_z[7]),
+                      __float_as_uint(sunsky.config_z[8]));
+  }
+  else {
+    compiler.add_node(__float_as_uint(sunsky.nishita_data[0]),
+                      __float_as_uint(sunsky.nishita_data[1]),
+                      __float_as_uint(sunsky.nishita_data[2]),
+                      __float_as_uint(sunsky.nishita_data[3]));
+    compiler.add_node(__float_as_uint(sunsky.nishita_data[4]),
+                      __float_as_uint(sunsky.nishita_data[5]),
+                      __float_as_uint(sunsky.nishita_data[6]),
+                      __float_as_uint(sunsky.nishita_data[7]));
+    compiler.add_node(__float_as_uint(sunsky.nishita_data[8]),
+                      __float_as_uint(sunsky.nishita_data[9]),
+                      __float_as_uint(sunsky.nishita_data[10]),
+                      handle.svm_slot());
+  }
 
   tex_mapping.compile_end(compiler, vector_in, vector_offset);
 }
@@ -847,32 +1030,45 @@ void SkyTextureNode::compile(SVMCompiler &compiler)
 void SkyTextureNode::compile(OSLCompiler &compiler)
 {
   tex_mapping.compile(compiler);
+  SunSky sunsky = {};
 
-  SunSky sunsky;
-  /* Clamp altitude to reasonable values.
-   * Below 1m causes numerical issues and above 60km is space. */
-  const float clamped_altitude = clamp(altitude, 1.0f, 59999.0f);
+  if (sky_type == NODE_SKY_PREETHAM) {
+    sky_texture_precompute_preetham(&sunsky, sun_direction, turbidity);
+  }
+  else if (sky_type == NODE_SKY_HOSEK) {
+    sky_texture_precompute_hosek(&sunsky, sun_direction, turbidity, ground_albedo);
+  }
+  else {
+    sky_texture_precompute_nishita(&sunsky,
+                                   sky_type == NODE_SKY_MULTIPLE_SCATTERING,
+                                   sun_disc,
+                                   get_sun_size(),
+                                   sun_intensity,
+                                   sun_elevation,
+                                   sun_rotation,
+                                   altitude,
+                                   air_density,
+                                   aerosol_density,
+                                   ozone_density);
+    /* Sky texture image parameters */
+    ImageManager *image_manager = compiler.scene->image_manager.get();
+    ImageParams impar;
+    impar.interpolation = INTERPOLATION_LINEAR;
+    impar.extension = EXTENSION_EXTEND;
 
-  sky_texture_precompute_nishita(&sunsky,
-                                 sun_disc,
-                                 get_sun_size(),
-                                 sun_intensity,
-                                 sun_elevation,
-                                 sun_rotation,
-                                 clamped_altitude,
-                                 air_density,
-                                 dust_density);
-  /* precomputed texture image parameters */
-  ImageManager *image_manager = compiler.scene->image_manager.get();
-  ImageParams impar;
-  impar.interpolation = INTERPOLATION_LINEAR;
-  impar.extension = EXTENSION_EXTEND;
+    /* Precompute sky texture */
+    {
+      unique_ptr<SkyLoader> loader = make_unique<SkyLoader>(sky_type ==
+                                                                NODE_SKY_MULTIPLE_SCATTERING,
+                                                            sun_elevation,
+                                                            altitude,
+                                                            air_density,
+                                                            aerosol_density,
+                                                            ozone_density);
+      handle = image_manager->add_image(std::move(loader), impar);
+    }
 
-  /* precompute sky texture */
-  if (handle.empty()) {
-    unique_ptr<SkyLoader> loader = make_unique<SkyLoader>(
-        sun_elevation, clamped_altitude, air_density, dust_density, ozone_density);
-    handle = image_manager->add_image(std::move(loader), impar);
+    compiler.parameter_texture("filename", handle);
   }
 
   compiler.parameter(this, "sky_type");
@@ -883,8 +1079,7 @@ void SkyTextureNode::compile(OSLCompiler &compiler)
   compiler.parameter_array("config_x", sunsky.config_x, 9);
   compiler.parameter_array("config_y", sunsky.config_y, 9);
   compiler.parameter_array("config_z", sunsky.config_z, 9);
-  compiler.parameter_array("nishita_data", sunsky.nishita_data, 10);
-  compiler.parameter_texture("filename", handle);
+  compiler.parameter_array("nishita_data", sunsky.nishita_data, 11);
   compiler.add(this, "node_sky_texture");
 }
 
@@ -2089,14 +2284,14 @@ void BsdfNode::compile(SVMCompiler &compiler,
   const int data_z_offset = (data_z) ? compiler.stack_assign(data_z) : SVM_STACK_INVALID;
   const int data_w_offset = (data_w) ? compiler.stack_assign(data_w) : SVM_STACK_INVALID;
 
-  compiler.add_node(
-      NODE_CLOSURE_BSDF,
-      compiler.encode_uchar4(closure,
-                             (bsdf_y) ? compiler.stack_assign(bsdf_y) : SVM_STACK_INVALID,
-                             (bsdf_z) ? compiler.stack_assign(bsdf_z) : SVM_STACK_INVALID,
-                             compiler.closure_mix_weight_offset()),
-      __float_as_int((bsdf_y) ? get_float(bsdf_y->socket_type) : 0.0f),
-      __float_as_int((bsdf_z) ? get_float(bsdf_z->socket_type) : 0.0f));
+  compiler.add_node(NODE_CLOSURE_BSDF,
+                    compiler.encode_uchar4(
+                        closure,
+                        (bsdf_y) ? compiler.stack_assign_if_linked(bsdf_y) : SVM_STACK_INVALID,
+                        (bsdf_z) ? compiler.stack_assign_if_linked(bsdf_z) : SVM_STACK_INVALID,
+                        compiler.closure_mix_weight_offset()),
+                    __float_as_int((bsdf_y) ? get_float(bsdf_y->socket_type) : 0.0f),
+                    __float_as_int((bsdf_z) ? get_float(bsdf_z->socket_type) : 0.0f));
 
   compiler.add_node(normal_offset, data_y_offset, data_z_offset, data_w_offset);
 }
@@ -2144,6 +2339,9 @@ NODE_DEFINE(MetallicBsdfNode)
   SOCKET_IN_FLOAT(anisotropy, "Anisotropy", 0.0f);
   SOCKET_IN_FLOAT(rotation, "Rotation", 0.0f);
 
+  SOCKET_IN_FLOAT(thin_film_thickness, "Thin Film Thickness", 0.0f);
+  SOCKET_IN_FLOAT(thin_film_ior, "Thin Film IOR", 1.33f);
+
   SOCKET_OUT_CLOSURE(BSDF, "BSDF");
 
   return type;
@@ -2177,46 +2375,42 @@ void MetallicBsdfNode::attributes(Shader *shader, AttributeRequestSet *attribute
 void MetallicBsdfNode::simplify_settings(Scene * /* scene */)
 {
   /* If the anisotropy is close enough to zero, fall back to the isotropic case. */
-  ShaderInput *tangent_input = input("Tangent");
-  if (tangent_input->link && is_isotropic()) {
-    tangent_input->disconnect();
+  if (is_isotropic()) {
+    disconnect_unused_input("Tangent");
   }
 }
 
 void MetallicBsdfNode::compile(SVMCompiler &compiler)
 {
-  compiler.add_node(NODE_CLOSURE_SET_WEIGHT, one_float3());
-
-  ShaderInput *base_color_in = input("Base Color");
-  ShaderInput *edge_tint_in = input("Edge Tint");
-  ShaderInput *ior_in = input("IOR");
-  ShaderInput *k_in = input("Extinction");
-
   const int base_color_ior_offset = fresnel_type == CLOSURE_BSDF_PHYSICAL_CONDUCTOR ?
-                                        compiler.stack_assign(ior_in) :
-                                        compiler.stack_assign(base_color_in);
+                                        compiler.stack_assign(input("IOR")) :
+                                        compiler.stack_assign(input("Base Color"));
   const int edge_tint_k_offset = fresnel_type == CLOSURE_BSDF_PHYSICAL_CONDUCTOR ?
-                                     compiler.stack_assign(k_in) :
-                                     compiler.stack_assign(edge_tint_in);
+                                     compiler.stack_assign(input("Extinction")) :
+                                     compiler.stack_assign(input("Edge Tint"));
 
-  ShaderInput *anisotropy_in = input("Anisotropy");
-  ShaderInput *rotation_in = input("Rotation");
+  const int thin_film_thickness_offset = compiler.stack_assign(input("Thin Film Thickness"));
+  const int thin_film_ior_offset = compiler.stack_assign(input("Thin Film IOR"));
+
   ShaderInput *roughness_in = input("Roughness");
-  ShaderInput *tangent_in = input("Tangent");
+  ShaderInput *anisotropy_in = input("Anisotropy");
 
   const int normal_offset = compiler.stack_assign_if_linked(input("Normal"));
+  const int tangent_offset = compiler.stack_assign_if_linked(input("Tangent"));
+  const int rotation_offset = compiler.stack_assign(input("Rotation"));
 
   compiler.add_node(NODE_CLOSURE_BSDF,
                     compiler.encode_uchar4(fresnel_type,
-                                           compiler.stack_assign(roughness_in),
-                                           compiler.stack_assign(anisotropy_in),
+                                           compiler.stack_assign_if_linked(roughness_in),
+                                           compiler.stack_assign_if_linked(anisotropy_in),
                                            compiler.closure_mix_weight_offset()),
-                    compiler.encode_uchar4(base_color_ior_offset,
-                                           edge_tint_k_offset,
-                                           compiler.stack_assign(rotation_in),
-                                           compiler.stack_assign(tangent_in)),
-                    distribution);
-  compiler.add_node(normal_offset);
+                    __float_as_int(get_float(roughness_in->socket_type)),
+                    __float_as_int(get_float(anisotropy_in->socket_type)));
+  compiler.add_node(
+      normal_offset,
+      compiler.encode_uchar4(
+          base_color_ior_offset, edge_tint_k_offset, rotation_offset, tangent_offset),
+      compiler.encode_uchar4(distribution, thin_film_thickness_offset, thin_film_ior_offset));
 }
 
 void MetallicBsdfNode::compile(OSLCompiler &compiler)
@@ -2262,7 +2456,8 @@ GlossyBsdfNode::GlossyBsdfNode() : BsdfNode(get_node_type())
 bool GlossyBsdfNode::is_isotropic()
 {
   ShaderInput *anisotropy_input = input("Anisotropy");
-  /* Keep in sync with the thresholds in OSL's node_glossy_bsdf and SVM's svm_node_closure_bsdf. */
+  /* Keep in sync with the thresholds in OSL's node_glossy_bsdf and SVM's svm_node_closure_bsdf.
+   */
   return (!anisotropy_input->link && fabsf(anisotropy) <= 1e-4f);
 }
 
@@ -2281,9 +2476,8 @@ void GlossyBsdfNode::attributes(Shader *shader, AttributeRequestSet *attributes)
 void GlossyBsdfNode::simplify_settings(Scene * /* scene */)
 {
   /* If the anisotropy is close enough to zero, fall back to the isotropic case. */
-  ShaderInput *tangent_input = input("Tangent");
-  if (tangent_input->link && is_isotropic()) {
-    tangent_input->disconnect();
+  if (is_isotropic()) {
+    disconnect_unused_input("Tangent");
   }
 }
 
@@ -2591,14 +2785,40 @@ void PrincipledBsdfNode::simplify_settings(Scene * /* scene */)
 {
   if (!has_surface_emission()) {
     /* Emission will be zero, so optimize away any connected emission input. */
-    ShaderInput *emission_in = input("Emission Color");
-    ShaderInput *strength_in = input("Emission Strength");
-    if (emission_in->link) {
-      emission_in->disconnect();
-    }
-    if (strength_in->link) {
-      strength_in->disconnect();
-    }
+    disconnect_unused_input("Emission Color");
+    disconnect_unused_input("Emission Strength");
+  }
+
+  if (!has_surface_bssrdf()) {
+    disconnect_unused_input("Subsurface Weight");
+    disconnect_unused_input("Subsurface Radius");
+    disconnect_unused_input("Subsurface Scale");
+    disconnect_unused_input("Subsurface IOR");
+    disconnect_unused_input("Subsurface Anisotropy");
+  }
+
+  if (!has_nonzero_weight("Coat Weight")) {
+    disconnect_unused_input("Coat Weight");
+    disconnect_unused_input("Coat IOR");
+    disconnect_unused_input("Coat Roughness");
+    disconnect_unused_input("Coat Tint");
+  }
+
+  if (!has_nonzero_weight("Sheen Weight")) {
+    disconnect_unused_input("Sheen Weight");
+    disconnect_unused_input("Sheen Roughness");
+    disconnect_unused_input("Sheen Tint");
+  }
+
+  if (!has_nonzero_weight("Anisotropic")) {
+    disconnect_unused_input("Anisotropic");
+    disconnect_unused_input("Anisotropic Rotation");
+    disconnect_unused_input("Tangent");
+  }
+
+  if (!has_nonzero_weight("Thin Film Thickness")) {
+    disconnect_unused_input("Thin Film Thickness");
+    disconnect_unused_input("Thin Film IOR");
   }
 }
 
@@ -2625,6 +2845,18 @@ bool PrincipledBsdfNode::has_surface_bssrdf()
          (subsurface_scale_in->link != nullptr || subsurface_scale != 0.0f);
 }
 
+bool PrincipledBsdfNode::has_nonzero_weight(const char *name)
+{
+  ShaderInput *weight_in = input(name);
+  if (weight_in == nullptr) {
+    return true;
+  }
+  if (weight_in->link != nullptr) {
+    return true;
+  }
+  return (get_float(weight_in->socket_type) >= CLOSURE_WEIGHT_CUTOFF);
+}
+
 void PrincipledBsdfNode::attributes(Shader *shader, AttributeRequestSet *attributes)
 {
   if (shader->has_surface_link()) {
@@ -2640,93 +2872,125 @@ void PrincipledBsdfNode::attributes(Shader *shader, AttributeRequestSet *attribu
 
 void PrincipledBsdfNode::compile(SVMCompiler &compiler)
 {
-  ShaderInput *base_color_in = input("Base Color");
+  /* Allocate basic material inputs. */
+  const int base_color_offset = compiler.stack_assign_if_linked(input("Base Color"));
+  const int ior_offset = compiler.stack_assign_if_linked(input("IOR"));
+  const int roughness_offset = compiler.stack_assign_if_linked(input("Roughness"));
+  const int metallic_offset = compiler.stack_assign_if_not_equal(input("Metallic"), 0.0f);
 
-  ShaderInput *p_metallic = input("Metallic");
-  ShaderInput *p_subsurface_weight = input("Subsurface Weight");
-
-  ShaderInput *emission_strength_in = input("Emission Strength");
-  ShaderInput *alpha_in = input("Alpha");
-
-  const float3 weight = one_float3();
-
-  compiler.add_node(NODE_CLOSURE_SET_WEIGHT, weight);
-
+  /* Allocate miscellaneous inputs. */
+  const int alpha_offset = compiler.stack_assign_if_not_equal(input("Alpha"), 1.0f);
   const int normal_offset = compiler.stack_assign_if_linked(input("Normal"));
   const int coat_normal_offset = compiler.stack_assign_if_linked(input("Coat Normal"));
-  const int tangent_offset = compiler.stack_assign_if_linked(input("Tangent"));
-  const int specular_ior_level_offset = compiler.stack_assign(input("Specular IOR Level"));
-  const int roughness_offset = compiler.stack_assign(input("Roughness"));
-  const int diffuse_roughness_offset = compiler.stack_assign(input("Diffuse Roughness"));
-  const int specular_tint_offset = compiler.stack_assign(input("Specular Tint"));
-  const int anisotropic_offset = compiler.stack_assign(input("Anisotropic"));
-  const int sheen_weight_offset = compiler.stack_assign(input("Sheen Weight"));
-  const int sheen_roughness_offset = compiler.stack_assign(input("Sheen Roughness"));
-  const int sheen_tint_offset = compiler.stack_assign(input("Sheen Tint"));
-  const int coat_weight_offset = compiler.stack_assign(input("Coat Weight"));
-  const int coat_roughness_offset = compiler.stack_assign(input("Coat Roughness"));
-  const int coat_ior_offset = compiler.stack_assign(input("Coat IOR"));
-  const int coat_tint_offset = compiler.stack_assign(input("Coat Tint"));
-  const int ior_offset = compiler.stack_assign(input("IOR"));
-  const int transmission_weight_offset = compiler.stack_assign(input("Transmission Weight"));
-  const int anisotropic_rotation_offset = compiler.stack_assign(input("Anisotropic Rotation"));
-  const int subsurface_radius_offset = compiler.stack_assign(input("Subsurface Radius"));
-  const int subsurface_scale_offset = compiler.stack_assign(input("Subsurface Scale"));
-  const int subsurface_ior_offset = compiler.stack_assign(input("Subsurface IOR"));
-  const int subsurface_anisotropy_offset = compiler.stack_assign(input("Subsurface Anisotropy"));
-  const int alpha_offset = compiler.stack_assign_if_linked(alpha_in);
-  const int emission_strength_offset = compiler.stack_assign_if_linked(emission_strength_in);
-  const int emission_color_offset = compiler.stack_assign(input("Emission Color"));
-  const int thin_film_thickness_offset = compiler.stack_assign(input("Thin Film Thickness"));
-  const int thin_film_ior_offset = compiler.stack_assign(input("Thin Film IOR"));
+  const int transmission_weight_offset = compiler.stack_assign_if_not_equal(
+      input("Transmission Weight"), 0.0f);
+  const int diffuse_roughness_offset = compiler.stack_assign_if_not_equal(
+      input("Diffuse Roughness"), 0.0f);
+  const int specular_ior_level_offset = compiler.stack_assign_if_not_equal(
+      input("Specular IOR Level"), 0.5f);
+  const int specular_tint_offset = compiler.stack_assign_if_not_equal(input("Specular Tint"),
+                                                                      one_float3());
+
+  /* Allocate emission inputs, if enabled. */
+  int emission_strength_offset = SVM_STACK_INVALID;
+  int emission_color_offset = SVM_STACK_INVALID;
+  if (has_surface_emission()) {
+    emission_strength_offset = compiler.stack_assign(input("Emission Strength"));
+    emission_color_offset = compiler.stack_assign(input("Emission Color"));
+  }
+
+  /* Allocate subsurface inputs, if enabled. */
+  int subsurface_weight_offset = SVM_STACK_INVALID;
+  int subsurface_radius_offset = SVM_STACK_INVALID;
+  int subsurface_scale_offset = SVM_STACK_INVALID;
+  int subsurface_ior_offset = SVM_STACK_INVALID;
+  int subsurface_anisotropy_offset = SVM_STACK_INVALID;
+  if (has_surface_bssrdf()) {
+    subsurface_weight_offset = compiler.stack_assign(input("Subsurface Weight"));
+    subsurface_radius_offset = compiler.stack_assign(input("Subsurface Radius"));
+    subsurface_scale_offset = compiler.stack_assign(input("Subsurface Scale"));
+    subsurface_ior_offset = compiler.stack_assign_if_not_equal(input("Subsurface IOR"), 1.4f);
+    subsurface_anisotropy_offset = compiler.stack_assign_if_not_equal(
+        input("Subsurface Anisotropy"), 0.0f);
+  }
+
+  /* Allocate coat inputs, if enabled. */
+  int coat_weight_offset = SVM_STACK_INVALID;
+  int coat_roughness_offset = SVM_STACK_INVALID;
+  int coat_ior_offset = SVM_STACK_INVALID;
+  int coat_tint_offset = SVM_STACK_INVALID;
+  if (has_nonzero_weight("Coat Weight")) {
+    coat_weight_offset = compiler.stack_assign(input("Coat Weight"));
+    coat_roughness_offset = compiler.stack_assign(input("Coat Roughness"));
+    coat_ior_offset = compiler.stack_assign(input("Coat IOR"));
+    coat_tint_offset = compiler.stack_assign_if_not_equal(input("Coat Tint"), one_float3());
+  }
+
+  /* Allocate sheen inputs, if enabled. */
+  int sheen_weight_offset = SVM_STACK_INVALID;
+  int sheen_roughness_offset = SVM_STACK_INVALID;
+  int sheen_tint_offset = SVM_STACK_INVALID;
+  if (has_nonzero_weight("Sheen Weight")) {
+    sheen_weight_offset = compiler.stack_assign(input("Sheen Weight"));
+    sheen_roughness_offset = compiler.stack_assign(input("Sheen Roughness"));
+    sheen_tint_offset = compiler.stack_assign_if_not_equal(input("Sheen Tint"), one_float3());
+  }
+
+  /* Allocate anisotropy inputs, if enabled. */
+  int anisotropic_offset = SVM_STACK_INVALID;
+  int anisotropic_rotation_offset = SVM_STACK_INVALID;
+  int tangent_offset = SVM_STACK_INVALID;
+  if (has_nonzero_weight("Anisotropic")) {
+    anisotropic_offset = compiler.stack_assign(input("Anisotropic"));
+    anisotropic_rotation_offset = compiler.stack_assign_if_not_equal(input("Anisotropic Rotation"),
+                                                                     0.0f);
+    tangent_offset = compiler.stack_assign_if_linked(input("Tangent"));
+  }
+
+  /* Allocate thin film inputs, if enabled. */
+  int thin_film_thickness_offset = SVM_STACK_INVALID;
+  int thin_film_ior_offset = SVM_STACK_INVALID;
+  if (has_nonzero_weight("Thin Film Thickness")) {
+    thin_film_thickness_offset = compiler.stack_assign(input("Thin Film Thickness"));
+    thin_film_ior_offset = compiler.stack_assign(input("Thin Film IOR"));
+  }
 
   compiler.add_node(
       NODE_CLOSURE_BSDF,
-      compiler.encode_uchar4(closure,
-                             compiler.stack_assign(p_metallic),
-                             compiler.stack_assign(p_subsurface_weight),
-                             compiler.closure_mix_weight_offset()),
-      __float_as_int((p_metallic) ? get_float(p_metallic->socket_type) : 0.0f),
-      __float_as_int((p_subsurface_weight) ? get_float(p_subsurface_weight->socket_type) : 0.0f));
+      compiler.encode_uchar4(
+          closure, ior_offset, roughness_offset, compiler.closure_mix_weight_offset()),
+      __float_as_int(get_float(input("IOR")->socket_type)),
+      __float_as_int(get_float(input("Roughness")->socket_type)));
 
   compiler.add_node(
       normal_offset,
-      tangent_offset,
+      compiler.encode_uchar4(base_color_offset, metallic_offset, alpha_offset, coat_normal_offset),
       compiler.encode_uchar4(
-          specular_ior_level_offset, roughness_offset, specular_tint_offset, anisotropic_offset),
-      compiler.encode_uchar4(sheen_weight_offset,
-                             sheen_tint_offset,
-                             sheen_roughness_offset,
-                             diffuse_roughness_offset));
+          distribution, diffuse_roughness_offset, specular_ior_level_offset, specular_tint_offset),
+      compiler.encode_uchar4(emission_strength_offset,
+                             emission_color_offset,
+                             anisotropic_offset,
+                             thin_film_thickness_offset));
 
   compiler.add_node(
+      compiler.encode_uchar4(subsurface_weight_offset,
+                             coat_weight_offset,
+                             sheen_weight_offset,
+                             transmission_weight_offset),
       compiler.encode_uchar4(
-          ior_offset, transmission_weight_offset, anisotropic_rotation_offset, coat_normal_offset),
-      distribution,
-      subsurface_method,
+          coat_roughness_offset, coat_ior_offset, coat_tint_offset, subsurface_method),
+      compiler.encode_uchar4(subsurface_radius_offset,
+                             subsurface_scale_offset,
+                             subsurface_ior_offset,
+                             subsurface_anisotropy_offset),
       compiler.encode_uchar4(
-          coat_weight_offset, coat_roughness_offset, coat_ior_offset, coat_tint_offset));
+          sheen_roughness_offset, sheen_tint_offset, anisotropic_rotation_offset, tangent_offset));
 
-  const float3 bc_default = get_float3(base_color_in->socket_type);
-
-  compiler.add_node(
-      ((base_color_in->link) ? compiler.stack_assign(base_color_in) : SVM_STACK_INVALID),
-      __float_as_int(bc_default.x),
-      __float_as_int(bc_default.y),
-      __float_as_int(bc_default.z));
-
-  compiler.add_node(subsurface_ior_offset,
-                    subsurface_radius_offset,
-                    subsurface_scale_offset,
-                    subsurface_anisotropy_offset);
-
-  compiler.add_node(compiler.encode_uchar4(alpha_offset,
-                                           emission_strength_offset,
-                                           emission_color_offset,
-                                           thin_film_thickness_offset),
-                    __float_as_int(get_float(alpha_in->socket_type)),
-                    __float_as_int(get_float(emission_strength_in->socket_type)),
-                    thin_film_ior_offset);
+  const float3 base_color = get_float3(input("Base Color")->socket_type);
+  compiler.add_node(thin_film_ior_offset,
+                    __float_as_int(base_color.x),
+                    __float_as_int(base_color.y),
+                    __float_as_int(base_color.z));
 }
 
 void PrincipledBsdfNode::compile(OSLCompiler &compiler)
@@ -2914,9 +3178,13 @@ void EmissionNode::compile(SVMCompiler &compiler)
   ShaderInput *color_in = input("Color");
   ShaderInput *strength_in = input("Strength");
 
+  const int strength_offset = compiler.stack_assign_if_linked(strength_in);
+
   if (color_in->link || strength_in->link) {
-    compiler.add_node(
-        NODE_EMISSION_WEIGHT, compiler.stack_assign(color_in), compiler.stack_assign(strength_in));
+    compiler.add_node(NODE_EMISSION_WEIGHT,
+                      compiler.stack_assign(color_in),
+                      strength_offset,
+                      __float_as_int(get_float(strength_in->socket_type)));
   }
   else {
     compiler.add_node(NODE_CLOSURE_SET_WEIGHT, color * strength);
@@ -2962,9 +3230,13 @@ void BackgroundNode::compile(SVMCompiler &compiler)
   ShaderInput *color_in = input("Color");
   ShaderInput *strength_in = input("Strength");
 
+  const int strength_offset = compiler.stack_assign_if_linked(strength_in);
+
   if (color_in->link || strength_in->link) {
-    compiler.add_node(
-        NODE_EMISSION_WEIGHT, compiler.stack_assign(color_in), compiler.stack_assign(strength_in));
+    compiler.add_node(NODE_EMISSION_WEIGHT,
+                      compiler.stack_assign(color_in),
+                      strength_offset,
+                      __float_as_int(get_float(strength_in->socket_type)));
   }
   else {
     compiler.add_node(NODE_CLOSURE_SET_WEIGHT, color * strength);
@@ -4128,7 +4400,10 @@ NODE_DEFINE(LightPathNode)
   return type;
 }
 
-LightPathNode::LightPathNode() : ShaderNode(get_node_type()) {}
+LightPathNode::LightPathNode() : ShaderNode(get_node_type())
+{
+  special_type = SHADER_SPECIAL_TYPE_LIGHT_PATH;
+}
 
 void LightPathNode::compile(SVMCompiler &compiler)
 {
@@ -7312,13 +7587,18 @@ void NormalMapNode::attributes(Shader *shader, AttributeRequestSet *attributes)
 {
   if (shader->has_surface_link() && space == NODE_NORMAL_MAP_TANGENT) {
     if (attribute.empty()) {
-      attributes->add(ATTR_STD_UV_TANGENT);
-      attributes->add(ATTR_STD_UV_TANGENT_SIGN);
+      /* We don't need the UV ourselves, but we need to compute the tangent from it. */
+      attributes->add(ATTR_STD_UV);
+      attributes->add(ATTR_STD_UV_TANGENT_UNDISPLACED);
+      attributes->add(ATTR_STD_UV_TANGENT_SIGN_UNDISPLACED);
     }
     else {
-      attributes->add(ustring((string(attribute.c_str()) + ".tangent").c_str()));
-      attributes->add(ustring((string(attribute.c_str()) + ".tangent_sign").c_str()));
+      attributes->add(attribute);
+      attributes->add(ustring((string(attribute.c_str()) + ".undisplaced_tangent").c_str()));
+      attributes->add(ustring((string(attribute.c_str()) + ".undisplaced_tangent_sign").c_str()));
     }
+
+    attributes->add(ATTR_STD_NORMAL_UNDISPLACED);
   }
 
   ShaderNode::attributes(shader, attributes);
@@ -7334,13 +7614,14 @@ void NormalMapNode::compile(SVMCompiler &compiler)
 
   if (space == NODE_NORMAL_MAP_TANGENT) {
     if (attribute.empty()) {
-      attr = compiler.attribute(ATTR_STD_UV_TANGENT);
-      attr_sign = compiler.attribute(ATTR_STD_UV_TANGENT_SIGN);
+      attr = compiler.attribute(ATTR_STD_UV_TANGENT_UNDISPLACED);
+      attr_sign = compiler.attribute(ATTR_STD_UV_TANGENT_SIGN_UNDISPLACED);
     }
     else {
-      attr = compiler.attribute(ustring((string(attribute.c_str()) + ".tangent").c_str()));
+      attr = compiler.attribute(
+          ustring((string(attribute.c_str()) + ".undisplaced_tangent").c_str()));
       attr_sign = compiler.attribute(
-          ustring((string(attribute.c_str()) + ".tangent_sign").c_str()));
+          ustring((string(attribute.c_str()) + ".undisplaced_tangent_sign").c_str()));
     }
   }
 
@@ -7357,18 +7638,69 @@ void NormalMapNode::compile(OSLCompiler &compiler)
 {
   if (space == NODE_NORMAL_MAP_TANGENT) {
     if (attribute.empty()) {
-      compiler.parameter("attr_name", ustring("geom:tangent"));
-      compiler.parameter("attr_sign_name", ustring("geom:tangent_sign"));
+      compiler.parameter("attr_name", ustring("geom:undisplaced_tangent"));
+      compiler.parameter("attr_sign_name", ustring("geom:undisplaced_tangent_sign"));
     }
     else {
-      compiler.parameter("attr_name", ustring((string(attribute.c_str()) + ".tangent").c_str()));
-      compiler.parameter("attr_sign_name",
-                         ustring((string(attribute.c_str()) + ".tangent_sign").c_str()));
+      compiler.parameter("attr_name",
+                         ustring((string(attribute.c_str()) + ".undisplaced_tangent").c_str()));
+      compiler.parameter(
+          "attr_sign_name",
+          ustring((string(attribute.c_str()) + ".undisplaced_tangent_sign").c_str()));
     }
   }
 
   compiler.parameter(this, "space");
   compiler.add(this, "node_normal_map");
+}
+
+/* Radial Tiling */
+
+NODE_DEFINE(RadialTilingNode)
+{
+  NodeType *type = NodeType::add("radial_tiling", create, NodeType::SHADER);
+
+  SOCKET_BOOLEAN(use_normalize, "Normalize", false);
+  SOCKET_IN_POINT(vector, "Vector", zero_float3());
+  SOCKET_IN_FLOAT(r_gon_sides, "Sides", 5.0f);
+  SOCKET_IN_FLOAT(r_gon_roundness, "Roundness", 0.0f);
+
+  SOCKET_OUT_POINT(segment_coordinates, "Segment Coordinates");
+  SOCKET_OUT_FLOAT(segment_id, "Segment ID");
+  SOCKET_OUT_FLOAT(max_unit_parameter, "Segment Width");
+  SOCKET_OUT_FLOAT(x_axis_A_angle_bisector, "Segment Rotation");
+
+  return type;
+}
+
+RadialTilingNode::RadialTilingNode() : ShaderNode(get_node_type()) {}
+
+void RadialTilingNode::compile(SVMCompiler &compiler)
+{
+  ShaderInput *vector_in = input("Vector");
+  ShaderInput *r_gon_sides_in = input("Sides");
+  ShaderInput *r_gon_roundness_in = input("Roundness");
+
+  ShaderOutput *segment_coordinates_out = output("Segment Coordinates");
+  ShaderOutput *segment_id_out = output("Segment ID");
+  ShaderOutput *max_unit_parameter_out = output("Segment Width");
+  ShaderOutput *x_axis_A_angle_bisector_out = output("Segment Rotation");
+
+  compiler.add_node(NODE_RADIAL_TILING,
+                    use_normalize,
+                    compiler.encode_uchar4(compiler.stack_assign(vector_in),
+                                           compiler.stack_assign(r_gon_sides_in),
+                                           compiler.stack_assign(r_gon_roundness_in),
+                                           compiler.stack_assign(segment_coordinates_out)),
+                    compiler.encode_uchar4(compiler.stack_assign(segment_id_out),
+                                           compiler.stack_assign(max_unit_parameter_out),
+                                           compiler.stack_assign(x_axis_A_angle_bisector_out)));
+}
+
+void RadialTilingNode::compile(OSLCompiler &compiler)
+{
+  compiler.parameter(this, "use_normalize");
+  compiler.add(this, "node_radial_tiling");
 }
 
 /* Tangent */
@@ -7402,9 +7734,12 @@ void TangentNode::attributes(Shader *shader, AttributeRequestSet *attributes)
   if (shader->has_surface_link()) {
     if (direction_type == NODE_TANGENT_UVMAP) {
       if (attribute.empty()) {
+        /* We don't need the UV ourselves, but we need to compute the tangent from it. */
+        attributes->add(ATTR_STD_UV);
         attributes->add(ATTR_STD_UV_TANGENT);
       }
       else {
+        attributes->add(attribute);
         attributes->add(ustring((string(attribute.c_str()) + ".tangent").c_str()));
       }
     }
@@ -7586,12 +7921,14 @@ void VectorDisplacementNode::attributes(Shader *shader, AttributeRequestSet *att
 {
   if (shader->has_surface_link() && space == NODE_NORMAL_MAP_TANGENT) {
     if (attribute.empty()) {
-      attributes->add(ATTR_STD_UV_TANGENT);
-      attributes->add(ATTR_STD_UV_TANGENT_SIGN);
+      attributes->add(ATTR_STD_UV);
+      attributes->add(ATTR_STD_UV_TANGENT_UNDISPLACED);
+      attributes->add(ATTR_STD_UV_TANGENT_SIGN_UNDISPLACED);
     }
     else {
-      attributes->add(ustring((string(attribute.c_str()) + ".tangent").c_str()));
-      attributes->add(ustring((string(attribute.c_str()) + ".tangent_sign").c_str()));
+      attributes->add(attribute);
+      attributes->add(ustring((string(attribute.c_str()) + ".undisplaced_tangent").c_str()));
+      attributes->add(ustring((string(attribute.c_str()) + ".undisplaced_tangent_sign").c_str()));
     }
   }
 
@@ -7609,13 +7946,14 @@ void VectorDisplacementNode::compile(SVMCompiler &compiler)
 
   if (space == NODE_NORMAL_MAP_TANGENT) {
     if (attribute.empty()) {
-      attr = compiler.attribute(ATTR_STD_UV_TANGENT);
-      attr_sign = compiler.attribute(ATTR_STD_UV_TANGENT_SIGN);
+      attr = compiler.attribute(ATTR_STD_UV_TANGENT_UNDISPLACED);
+      attr_sign = compiler.attribute(ATTR_STD_UV_TANGENT_SIGN_UNDISPLACED);
     }
     else {
-      attr = compiler.attribute(ustring((string(attribute.c_str()) + ".tangent").c_str()));
+      attr = compiler.attribute(
+          ustring((string(attribute.c_str()) + ".undisplaced_tangent").c_str()));
       attr_sign = compiler.attribute(
-          ustring((string(attribute.c_str()) + ".tangent_sign").c_str()));
+          ustring((string(attribute.c_str()) + ".undisplaced_tangent_sign").c_str()));
     }
   }
 
@@ -7634,13 +7972,15 @@ void VectorDisplacementNode::compile(OSLCompiler &compiler)
 {
   if (space == NODE_NORMAL_MAP_TANGENT) {
     if (attribute.empty()) {
-      compiler.parameter("attr_name", ustring("geom:tangent"));
-      compiler.parameter("attr_sign_name", ustring("geom:tangent_sign"));
+      compiler.parameter("attr_name", ustring("geom:undisplaced_tangent"));
+      compiler.parameter("attr_sign_name", ustring("geom:undisplaced_tangent_sign"));
     }
     else {
-      compiler.parameter("attr_name", ustring((string(attribute.c_str()) + ".tangent").c_str()));
-      compiler.parameter("attr_sign_name",
-                         ustring((string(attribute.c_str()) + ".tangent_sign").c_str()));
+      compiler.parameter("attr_name",
+                         ustring((string(attribute.c_str()) + ".undisplaced_tangent").c_str()));
+      compiler.parameter(
+          "attr_sign_name",
+          ustring((string(attribute.c_str()) + ".undisplaced_tangent_sign").c_str()));
     }
   }
 

@@ -37,7 +37,7 @@ static void test_shader_compute_2d()
   static constexpr uint SIZE = 512;
 
   /* Build compute shader. */
-  GPUShader *shader = GPU_shader_create_from_info_name("gpu_compute_2d_test");
+  gpu::Shader *shader = GPU_shader_create_from_info_name("gpu_compute_2d_test");
   EXPECT_NE(shader, nullptr);
 
   /* Create texture to store result and attach to shader. */
@@ -81,7 +81,7 @@ static void test_shader_compute_1d()
   static constexpr uint SIZE = 10;
 
   /* Build compute shader. */
-  GPUShader *shader = GPU_shader_create_from_info_name("gpu_compute_1d_test");
+  gpu::Shader *shader = GPU_shader_create_from_info_name("gpu_compute_1d_test");
   EXPECT_NE(shader, nullptr);
 
   /* Construct Texture. */
@@ -127,7 +127,7 @@ static void test_shader_compute_vbo()
   static constexpr uint SIZE = 128;
 
   /* Build compute shader. */
-  GPUShader *shader = GPU_shader_create_from_info_name("gpu_compute_vbo_test");
+  gpu::Shader *shader = GPU_shader_create_from_info_name("gpu_compute_vbo_test");
   EXPECT_NE(shader, nullptr);
   GPU_shader_bind(shader);
 
@@ -167,7 +167,7 @@ static void test_shader_compute_ibo()
   static constexpr uint SIZE = 128;
 
   /* Build compute shader. */
-  GPUShader *shader = GPU_shader_create_from_info_name("gpu_compute_ibo_test");
+  gpu::Shader *shader = GPU_shader_create_from_info_name("gpu_compute_ibo_test");
   EXPECT_NE(shader, nullptr);
   GPU_shader_bind(shader);
 
@@ -201,12 +201,12 @@ static void test_shader_compute_ssbo()
   static constexpr uint SIZE = 128;
 
   /* Build compute shader. */
-  GPUShader *shader = GPU_shader_create_from_info_name("gpu_compute_ssbo_test");
+  gpu::Shader *shader = GPU_shader_create_from_info_name("gpu_compute_ssbo_test");
   EXPECT_NE(shader, nullptr);
   GPU_shader_bind(shader);
 
   /* Construct SSBO. */
-  GPUStorageBuf *ssbo = GPU_storagebuf_create_ex(
+  StorageBuf *ssbo = GPU_storagebuf_create_ex(
       SIZE * sizeof(uint32_t), nullptr, GPU_USAGE_DEVICE_ONLY, __func__);
   GPU_storagebuf_bind(ssbo, GPU_shader_get_ssbo_binding(shader, "data_out"));
 
@@ -234,7 +234,7 @@ GPU_TEST(shader_compute_ssbo)
 static void test_shader_ssbo_binding()
 {
   /* Build compute shader. */
-  GPUShader *shader = GPU_shader_create_from_info_name("gpu_compute_ssbo_binding_test");
+  gpu::Shader *shader = GPU_shader_create_from_info_name("gpu_compute_ssbo_binding_test");
   EXPECT_NE(shader, nullptr);
 
   /* Perform tests. */
@@ -323,8 +323,9 @@ static std::string print_test_data(const TestOutputRawData &raw, TestType type)
 
 static StringRef print_test_line(StringRefNull test_src, int64_t test_line)
 {
-  /* Start at line one like the line report scheme. */
-  int64_t line = 1;
+  /* Start at line one like the line report scheme.
+   * However, our preprocessor adds a line directive at the top of the file. Skip it. */
+  int64_t line = 1 - 1;
   int64_t last_pos = 0;
   int64_t pos = 0;
   while ((pos = test_src.find('\n', pos)) != std::string::npos) {
@@ -353,7 +354,7 @@ static void gpu_shader_lib_test(const char *test_src_name, const char *additiona
 
   StringRefNull test_src = gpu_shader_dependency_get_source(test_src_name);
 
-  GPUShader *shader = GPU_shader_create_from_info(
+  gpu::Shader *shader = GPU_shader_create_from_info(
       reinterpret_cast<GPUShaderCreateInfo *>(&create_info));
 
   int test_count = 0;
@@ -370,7 +371,7 @@ static void gpu_shader_lib_test(const char *test_src_name, const char *additiona
   eGPUTextureUsage usage = GPU_TEXTURE_USAGE_ATTACHMENT | GPU_TEXTURE_USAGE_HOST_READ;
   blender::gpu::Texture *tex = GPU_texture_create_2d(
       "tx", test_output_px_len, test_count, 1, TextureFormat::UINT_32_32_32_32, usage, nullptr);
-  GPUFrameBuffer *fb = GPU_framebuffer_create("test_fb");
+  gpu::FrameBuffer *fb = GPU_framebuffer_create("test_fb");
   GPU_framebuffer_ensure_config(&fb, {GPU_ATTACHMENT_NONE, GPU_ATTACHMENT_TEXTURE(tex)});
   GPU_framebuffer_bind(fb);
 
@@ -421,13 +422,13 @@ GPU_TEST(math_lib)
 static void test_eevee_lib()
 {
   /* TODO(fclem): Not passing currently. Need to be updated. */
-  // gpu_shader_lib_test("eevee_shadow_test.glsl", "eevee_shared");
+  // gpu_shader_lib_test("eevee_shadow_test.glsl", "eevee_tests_data");
   gpu_shader_lib_test("eevee_occupancy_test.glsl");
   gpu_shader_lib_test("eevee_horizon_scan_test.glsl");
 #ifndef __APPLE__ /* PSOs fail to compile on Mac. Try to port them to compute shader to see if it \
                    * fixes the issue. */
-  gpu_shader_lib_test("eevee_gbuffer_normal_test.glsl", "eevee_shared");
-  gpu_shader_lib_test("eevee_gbuffer_closure_test.glsl", "eevee_shared");
+  gpu_shader_lib_test("eevee_gbuffer_normal_test.glsl", "eevee_tests_data");
+  gpu_shader_lib_test("eevee_gbuffer_closure_test.glsl", "eevee_tests_data");
 #endif
 }
 GPU_TEST(eevee_lib)

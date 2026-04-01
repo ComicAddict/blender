@@ -23,14 +23,20 @@ class GHOST_ContextD3D : public GHOST_Context {
   friend class GHOST_XrGraphicsBindingVulkanD3D;
 
  public:
-  GHOST_ContextD3D(bool stereoVisual, HWND hWnd);
+  GHOST_ContextD3D(const GHOST_ContextParams &context_params, HWND hWnd);
   ~GHOST_ContextD3D() override;
+
+  /** \copydoc #GHOST_IContext::swapBuffersAcquire */
+  GHOST_TSuccess swapBufferAcquire() override
+  {
+    return GHOST_kSuccess;
+  }
 
   /**
    * Swaps front and back buffers of a window.
    * \return A boolean success indicator.
    */
-  GHOST_TSuccess swapBuffers() override;
+  GHOST_TSuccess swapBufferRelease() override;
 
   /**
    * Activates the drawing context of this window.
@@ -78,7 +84,7 @@ class GHOST_ContextD3D : public GHOST_Context {
 
   /**
    * Gets the current swap interval for #swapBuffers.
-   * \param intervalOut: Variable to store the swap interval if it can be read.
+   * \param interval_out: Variable to store the swap interval if it can be read.
    * \return Whether the swap interval can be read.
    */
   GHOST_TSuccess getSwapInterval(int & /*unused*/) override
@@ -120,8 +126,8 @@ class GHOST_ContextD3D : public GHOST_Context {
   static HMODULE s_d3d_lib;
   static PFN_D3D11_CREATE_DEVICE s_D3D11CreateDeviceFn;
 
-  HWND m_hWnd;
+  HWND h_wnd_;
 
-  ID3D11Device *m_device;
-  ID3D11DeviceContext *m_device_ctx;
+  ID3D11Device *device_;
+  ID3D11DeviceContext *device_ctx_;
 };

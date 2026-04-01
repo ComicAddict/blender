@@ -33,6 +33,7 @@ int GPU_max_varying_floats();
 int GPU_max_shader_storage_buffer_bindings();
 int GPU_max_compute_shader_storage_blocks();
 int GPU_max_samplers();
+size_t GPU_max_uniform_buffer_size();
 size_t GPU_max_storage_buffer_size();
 /* Used when binding subrange of SSBOs. In bytes.
  * The start of the range must be aligned with this value. */
@@ -47,19 +48,13 @@ bool GPU_use_subprocess_compilation();
 int GPU_max_parallel_compilations();
 
 bool GPU_stencil_clasify_buffer_workaround();
-bool GPU_node_link_instancing_workaround();
 bool GPU_depth_blitting_workaround();
 bool GPU_use_main_context_workaround();
 bool GPU_use_hq_normals_workaround();
-bool GPU_crappy_amd_driver();
-
-bool GPU_vulkan_render_pass_workaround();
 
 bool GPU_geometry_shader_support();
-bool GPU_shader_draw_parameters_support();
 bool GPU_hdr_support();
 bool GPU_stencil_export_support();
-bool GPU_clip_control_support();
 
 bool GPU_mem_stats_supported();
 void GPU_mem_stats_get(int *r_totalmem, int *r_freemem);

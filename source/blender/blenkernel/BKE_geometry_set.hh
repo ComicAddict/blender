@@ -210,12 +210,6 @@ struct GeometrySet {
    * Remove all geometry components with types that are not in the provided list.
    */
   void keep_only(Span<GeometryComponent::Type> component_types);
-  /**
-   * Keeps the provided geometry types, but also instances and edit data.
-   * Instances must not be removed while using #modify_geometry_sets.
-   */
-  void keep_only_during_modify(Span<GeometryComponent::Type> component_types);
-  void remove_geometry_during_modify();
 
   void add(const GeometryComponent &component);
 
@@ -262,23 +256,20 @@ struct GeometrySet {
                          bool include_instances,
                          AttributeForeachCallback callback) const;
 
-  void gather_attributes_for_propagation(
-      Span<GeometryComponent::Type> component_types,
-      GeometryComponent::Type dst_component_type,
-      bool include_instances,
-      const AttributeFilter &attribute_filter,
-      Map<StringRef, AttributeDomainAndType> &r_attributes) const;
+  struct GatheredAttributes {
+    VectorSet<StringRef, 16> names;
+    Vector<AttributeDomainAndType, 16> kinds;
+    void add(const StringRef name, const AttributeDomainAndType &kind);
+  };
+
+  void gather_attributes_for_propagation(Span<GeometryComponent::Type> component_types,
+                                         GeometryComponent::Type dst_component_type,
+                                         bool include_instances,
+                                         const AttributeFilter &attribute_filter,
+                                         GatheredAttributes &r_attributes) const;
 
   Vector<GeometryComponent::Type> gather_component_types(bool include_instances,
                                                          bool ignore_empty) const;
-
-  using ForeachSubGeometryCallback = FunctionRef<void(GeometrySet &geometry_set)>;
-
-  /**
-   * Modify every (recursive) instance separately. This is often more efficient than realizing all
-   * instances just to change the same thing on all of them.
-   */
-  void modify_geometry_sets(ForeachSubGeometryCallback callback);
 
   /* Utility methods for creation. */
   /**

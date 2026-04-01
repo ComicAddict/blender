@@ -59,9 +59,9 @@ static float brush_radius_to_pixel_radius(const RegionView3D *rv3d,
 {
   if ((brush->flag & BRUSH_LOCK_SIZE) != 0) {
     const float pixel_size = ED_view3d_pixel_size(rv3d, pos);
-    return brush->unprojected_radius / pixel_size;
+    return (brush->unprojected_size / 2.0f) / pixel_size;
   }
-  return float(brush->size);
+  return float(brush->size / 2.0f);
 }
 
 template<typename T>
@@ -160,13 +160,13 @@ static Brush *create_fill_guide_brush()
   BKE_curvemapping_init(fill_guides_brush->curve_rand_value);
 
   fill_guides_brush->flag |= BRUSH_LOCK_SIZE;
-  fill_guides_brush->unprojected_radius = 0.005f;
+  fill_guides_brush->unprojected_size = 0.01f;
 
   settings->flag &= ~GP_BRUSH_USE_PRESSURE;
 
   settings->brush_draw_mode = GP_BRUSH_MODE_VERTEXCOLOR;
   /* TODO: Use theme setting. */
-  copy_v3_fl3(fill_guides_brush->rgb, 0.0f, 1.0f, 1.0f);
+  copy_v3_fl3(fill_guides_brush->color, 0.0f, 1.0f, 1.0f);
   settings->vertex_factor = 1.0f;
 
   settings->active_smooth = 0.35f;
@@ -292,7 +292,7 @@ struct PaintOperationExecutor {
     use_vertex_color_ = brush_using_vertex_color(scene_->toolsettings->gp_paint, brush_);
     if (use_vertex_color_) {
       ColorGeometry4f color_base;
-      srgb_to_linearrgb_v3_v3(color_base, brush_->rgb);
+      copy_v3_v3(color_base, brush_->color);
       color_base.a = settings_->vertex_factor;
       if (ELEM(settings_->vertex_mode, GPPAINT_MODE_STROKE, GPPAINT_MODE_BOTH)) {
         vertex_color_ = color_base;
@@ -420,14 +420,19 @@ struct PaintOperationExecutor {
       softness.finish();
     }
     if (bke::SpanAttributeWriter<float> u_scale = attributes.lookup_or_add_for_write_span<float>(
-            "u_scale", bke::AttrDomain::Curve))
+            "u_scale",
+            bke::AttrDomain::Curve,
+            bke::AttributeInitVArray(VArray<float>::from_single(1.0f, curves.curves_num()))))
     {
       u_scale.span[active_curve] = 1.0f;
       curve_attributes_to_skip.add("u_scale");
       u_scale.finish();
     }
     if (bke::SpanAttributeWriter<float> aspect_ratio =
-            attributes.lookup_or_add_for_write_span<float>("aspect_ratio", bke::AttrDomain::Curve))
+            attributes.lookup_or_add_for_write_span<float>(
+                "aspect_ratio",
+                bke::AttrDomain::Curve,
+                bke::AttributeInitVArray(VArray<float>::from_single(1.0f, curves.curves_num()))))
     {
       aspect_ratio.span[active_curve] = aspect_ratio_;
       curve_attributes_to_skip.add("aspect_ratio");
@@ -797,6 +802,8 @@ struct PaintOperationExecutor {
 
     /* Interpolate the screen space positions. */
     linear_interpolation<float2>(prev_coords, coords, new_screen_space_coords, is_first_sample);
+    linear_interpolation<float>(prev_radius, radius, new_radii, is_first_sample);
+    linear_interpolation<float>(prev_opacity, opacity, new_opacities, is_first_sample);
     point_attributes_to_skip.add_multiple({"position", "radius", "opacity"});
 
     /* Randomize radii. */
@@ -806,12 +813,9 @@ struct PaintOperationExecutor {
                                                           self.stroke_random_radius_factor_,
                                                           self.accum_distance_ +
                                                               max_spacing_px * i,
-                                                          radius,
+                                                          new_radii[i],
                                                           extension_sample.pressure);
       }
-    }
-    else {
-      linear_interpolation<float>(prev_radius, radius, new_radii, is_first_sample);
     }
 
     /* Randomize opacities. */
@@ -821,12 +825,9 @@ struct PaintOperationExecutor {
                                                                self.stroke_random_opacity_factor_,
                                                                self.accum_distance_ +
                                                                    max_spacing_px * i,
-                                                               opacity,
+                                                               new_opacities[i],
                                                                extension_sample.pressure);
       }
-    }
-    else {
-      linear_interpolation<float>(prev_opacity, opacity, new_opacities, is_first_sample);
     }
 
     /* Randomize rotations. */
@@ -851,6 +852,8 @@ struct PaintOperationExecutor {
     if (use_vertex_color_ || attributes.contains("vertex_color")) {
       MutableSpan<ColorGeometry4f> new_vertex_colors =
           self.drawing_->vertex_colors_for_write().slice(new_points);
+      linear_interpolation<ColorGeometry4f>(
+          prev_vertex_color, vertex_color_, new_vertex_colors, is_first_sample);
       if (use_settings_random_ || attributes.contains("vertex_color")) {
         for (const int i : IndexRange(new_points_num)) {
           new_vertex_colors[i] = ed::greasepencil::randomize_color(*settings_,
@@ -860,13 +863,9 @@ struct PaintOperationExecutor {
                                                                    self.stroke_random_val_factor_,
                                                                    self.accum_distance_ +
                                                                        max_spacing_px * i,
-                                                                   vertex_color_,
+                                                                   new_vertex_colors[i],
                                                                    extension_sample.pressure);
         }
-      }
-      else {
-        linear_interpolation<ColorGeometry4f>(
-            prev_vertex_color, vertex_color_, new_vertex_colors, is_first_sample);
       }
       point_attributes_to_skip.add("vertex_color");
     }
@@ -1597,11 +1596,7 @@ static void process_stroke_weights(const Scene &scene,
 
   /* Update the position of the stroke to undo the movement caused by the modifier. */
   MutableSpan<float3> positions = curves.positions_for_write().slice(points);
-  threading::parallel_for(positions.index_range(), 1024, [&](const IndexRange range) {
-    for (float3 &position : positions.slice(range)) {
-      position = math::transform_point(matrix, position);
-    }
-  });
+  math::transform_points(matrix, positions);
 }
 
 static bke::CurvesGeometry get_single_stroke(const bke::CurvesGeometry &src, const int curve)
@@ -1710,7 +1705,7 @@ void PaintOperation::on_stroke_done(const bContext &C)
       process_stroke_weights(*scene, *object, drawing, active_curve);
     }
     if ((settings->flag & GP_BRUSH_OUTLINE_STROKE) != 0) {
-      const float outline_radius = brush->unprojected_radius * settings->outline_fac * 0.5f;
+      const float outline_radius = brush->unprojected_size / 2.0f * settings->outline_fac * 0.5f;
       const int material_index = [&]() {
         Material *material = BKE_grease_pencil_object_material_alt_ensure_from_brush(
             CTX_data_main(&C), object, brush);

@@ -197,7 +197,7 @@ if(WITH_BULLET)
   add_definitions(-DWITH_BULLET)
 endif()
 
-# To disable adaptive subdivision test in subsurf UI without cycles
+# To disable adaptive subdivision test in subdivision-surface UI without cycles.
 if(WITH_CYCLES)
   add_definitions(-DWITH_CYCLES)
 endif()
@@ -220,20 +220,6 @@ if(WITH_TBB)
     # that will collide with the STL versions.
     add_definitions(-DNOMINMAX)
   endif()
-endif()
-
-if(WITH_OPENVDB)
-  list(APPEND INC
-    ../../../intern/openvdb
-  )
-  list(APPEND INC_SYS
-    ${OPENVDB_INCLUDE_DIRS}
-  )
-  list(APPEND LIB
-    bf_intern_openvdb
-    ${OPENVDB_LIBRARIES}
-  )
-  add_definitions(-DWITH_OPENVDB ${OPENVDB_DEFINITIONS})
 endif()
 
 if(WITH_EXPERIMENTAL_FEATURES)

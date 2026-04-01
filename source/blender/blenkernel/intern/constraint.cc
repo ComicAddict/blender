@@ -3581,7 +3581,7 @@ static void stretchto_evaluate(bConstraint *con, bConstraintOb *cob, ListBase *t
         damptrack_do_transform(cob->matrix, vec, TRACK_Y);
         break;
       case PLANE_X:
-        /* New Y aligns  object target connection. */
+        /* New Y aligns object target connection. */
         copy_v3_v3(cob->matrix[1], vec);
 
         /* Build new Z vector. */
@@ -3597,7 +3597,7 @@ static void stretchto_evaluate(bConstraint *con, bConstraintOb *cob, ListBase *t
         normalize_v3_v3(cob->matrix[0], xx);
         break;
       case PLANE_Z:
-        /* New Y aligns  object target connection. */
+        /* New Y aligns object target connection. */
         copy_v3_v3(cob->matrix[1], vec);
 
         /* Build new X vector. */
@@ -5366,13 +5366,9 @@ static void transformcache_evaluate(bConstraint *con, bConstraintOb *cob, ListBa
     return;
   }
 
-  /* Do not process data if using a render time procedural. */
-  if (BKE_cache_file_uses_render_procedural(cache_file, scene)) {
-    return;
-  }
-
   const float frame = DEG_get_ctime(cob->depsgraph);
-  const double time = BKE_cachefile_time_offset(cache_file, double(frame), FPS);
+  const double time = BKE_cachefile_time_offset(
+      cache_file, double(frame), scene->frames_per_second());
 
   if (!data->reader || !STREQ(data->reader_object_path, data->object_path)) {
     STRNCPY(data->reader_object_path, data->object_path);
@@ -5388,7 +5384,7 @@ static void transformcache_evaluate(bConstraint *con, bConstraintOb *cob, ListBa
     case CACHEFILE_TYPE_USD:
 #  ifdef WITH_USD
       blender::io::usd::USD_get_transform(
-          data->reader, cob->matrix, time * FPS, cache_file->scale);
+          data->reader, cob->matrix, time * scene->frames_per_second(), cache_file->scale);
 #  endif
       break;
     case CACHE_FILE_TYPE_INVALID:
@@ -5538,11 +5534,16 @@ static void con_unlink_refs_cb(bConstraint * /*con*/,
   }
 }
 
-/** Helper function to invoke the id_looper callback, including custom space. */
+/**
+ * Helper function to invoke the id_looper callback, including custom space.
+ *
+ * \param flag: is unused right now, but it's kept as a reminder that new code may need to check
+ * flags as well. See enum #LibraryForeachIDFlag in `BKE_lib_query.hh`.
+ */
 static void con_invoke_id_looper(const bConstraintTypeInfo *cti,
                                  bConstraint *con,
                                  ConstraintIDFunc func,
-                                 const int flag,
+                                 const int /*flag*/,
                                  void *userdata)
 {
   if (cti->id_looper) {
@@ -5550,10 +5551,6 @@ static void con_invoke_id_looper(const bConstraintTypeInfo *cti,
   }
 
   func(con, (ID **)&con->space_object, false, userdata);
-
-  if (flag & IDWALK_DO_DEPRECATED_POINTERS) {
-    func(con, reinterpret_cast<ID **>(&con->ipo), false, userdata);
-  }
 }
 
 void BKE_constraint_free_data_ex(bConstraint *con, bool do_id_user)

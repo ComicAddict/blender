@@ -20,9 +20,11 @@
 
 #pragma once
 
-struct GPUShader;
+namespace blender::gpu {
+class Shader;
+}  // namespace blender::gpu
 
-enum eGPUBuiltinShader {
+enum GPUBuiltinShader {
   /** Glyph drawing shader used by the BLF module. */
   GPU_SHADER_TEXT = 0,
   /** Draws keyframe markers. All markers shapes are supported through a single shader. */
@@ -64,7 +66,6 @@ enum eGPUBuiltinShader {
   GPU_SHADER_2D_NODE_SOCKET_INST,
   /** Draw a node link given an input quadratic Bezier curve. */
   GPU_SHADER_2D_NODELINK,
-  GPU_SHADER_2D_NODELINK_INST,
 
   /** Draw round points with per vertex size and color. */
   GPU_SHADER_3D_POINT_VARYING_SIZE_VARYING_COLOR,
@@ -83,6 +84,12 @@ enum eGPUBuiltinShader {
   GPU_SHADER_SEQUENCER_STRIPS,
   /** Draw strip thumbnails in sequencer timeline. */
   GPU_SHADER_SEQUENCER_THUMBS,
+  /** Rasterize sequencer scope points into buffers via compute. */
+  GPU_SHADER_SEQUENCER_SCOPE_RASTER,
+  /** Resolve rasterized scope point buffers to display. */
+  GPU_SHADER_SEQUENCER_SCOPE_RESOLVE,
+  /** Draw sequencer zebra pattern (overexposed regions). */
+  GPU_SHADER_SEQUENCER_ZEBRA,
 
   /** Compute shaders to generate 2d index buffers (mainly for curve drawing). */
   GPU_SHADER_INDEXBUF_POINTS,
@@ -146,15 +153,15 @@ enum eGPUBuiltinShader {
 #define GPU_SHADER_BUILTIN_LEN (GPU_SHADER_3D_IMAGE_COLOR + 1)
 
 /** Support multiple configurations. */
-enum eGPUShaderConfig {
+enum GPUShaderConfig {
   GPU_SHADER_CFG_DEFAULT = 0,
   GPU_SHADER_CFG_CLIPPED = 1,
 };
 #define GPU_SHADER_CFG_LEN (GPU_SHADER_CFG_CLIPPED + 1)
 
-GPUShader *GPU_shader_get_builtin_shader_with_config(eGPUBuiltinShader shader,
-                                                     eGPUShaderConfig sh_cfg);
-GPUShader *GPU_shader_get_builtin_shader(eGPUBuiltinShader shader);
+blender::gpu::Shader *GPU_shader_get_builtin_shader_with_config(GPUBuiltinShader shader,
+                                                                GPUShaderConfig sh_cfg);
+blender::gpu::Shader *GPU_shader_get_builtin_shader(GPUBuiltinShader shader);
 
 void GPU_shader_builtin_warm_up();
 

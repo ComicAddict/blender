@@ -80,7 +80,7 @@ static bool rna_AssetMetaData_editable_from_owner_id(const ID *owner_id,
 
   if (r_info) {
     *r_info = N_(
-        "Asset metadata from external asset libraries can't be edited, only assets stored in the "
+        "Asset metadata from external asset libraries cannot be edited, only assets stored in the "
         "current file can");
   }
   return false;
@@ -677,12 +677,6 @@ static void rna_def_asset_representation(BlenderRNA *brna)
       "of the asset inside the file");
 }
 
-static void rna_def_asset_catalog_path(BlenderRNA *brna)
-{
-  StructRNA *srna = RNA_def_struct(brna, "AssetCatalogPath", nullptr);
-  RNA_def_struct_ui_text(srna, "Catalog Path", "");
-}
-
 static void rna_def_asset_library_reference(BlenderRNA *brna)
 {
   StructRNA *srna = RNA_def_struct(brna, "AssetLibraryReference", nullptr);
@@ -728,7 +722,6 @@ void RNA_def_asset(BlenderRNA *brna)
   rna_def_asset_data(brna);
   rna_def_asset_library_reference(brna);
   rna_def_asset_representation(brna);
-  rna_def_asset_catalog_path(brna);
   rna_def_asset_weak_reference(brna);
 
   RNA_define_animate_sdna(true);

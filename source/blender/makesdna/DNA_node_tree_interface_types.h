@@ -11,7 +11,7 @@
 #include "BLI_utildefines.h"
 
 #ifdef __cplusplus
-#  include "BLI_color.hh"
+#  include "BLI_color_types.hh"
 #  include "BLI_function_ref.hh"
 #  include "BLI_span.hh"
 #  include "BLI_string_ref.hh"
@@ -70,8 +70,13 @@ typedef enum NodeTreeInterfaceSocketFlag {
   NODE_INTERFACE_SOCKET_PANEL_TOGGLE = 1 << 8,
   /* Menu socket should be drawn expanded instead of as drop-down menu. */
   NODE_INTERFACE_SOCKET_MENU_EXPANDED = 1 << 9,
+  /**
+   * Indicates that drawing code may decide not to draw the label if that would result in a
+   * cleaner UI.
+   */
+  NODE_INTERFACE_SOCKET_OPTIONAL_LABEL = 1 << 10,
 } NodeTreeInterfaceSocketFlag;
-ENUM_OPERATORS(NodeTreeInterfaceSocketFlag, NODE_INTERFACE_SOCKET_MENU_EXPANDED);
+ENUM_OPERATORS(NodeTreeInterfaceSocketFlag, NODE_INTERFACE_SOCKET_OPTIONAL_LABEL);
 
 typedef enum NodeSocketInterfaceStructureType {
   NODE_INTERFACE_SOCKET_STRUCTURE_TYPE_AUTO = 0,
@@ -149,8 +154,10 @@ typedef enum NodeTreeInterfacePanelFlag {
   NODE_INTERFACE_PANEL_ALLOW_CHILD_PANELS_LEGACY = 1 << 1,
   /* Allow adding sockets after panels. */
   NODE_INTERFACE_PANEL_ALLOW_SOCKETS_AFTER_PANELS = 1 << 2,
+  /* Whether the panel is collapsed in the node group interface tree view. */
+  NODE_INTERFACE_PANEL_IS_COLLAPSED = 1 << 3,
 } NodeTreeInterfacePanelFlag;
-ENUM_OPERATORS(NodeTreeInterfacePanelFlag, NODE_INTERFACE_PANEL_DEFAULT_CLOSED);
+ENUM_OPERATORS(NodeTreeInterfacePanelFlag, NODE_INTERFACE_PANEL_IS_COLLAPSED);
 
 typedef enum NodeDefaultInputType {
   NODE_DEFAULT_INPUT_VALUE = 0,
@@ -467,19 +474,26 @@ typedef struct bNodeTreeInterface {
   /** Ensure the items cache can be accessed. */
   void ensure_items_cache() const;
 
-  /** True if any runtime change flag is set. */
-  bool is_changed() const;
+  /** True if any trees and nodes depending on the interface require updates. */
+  bool requires_dependent_tree_updates() const;
+
+  /** Call after changing the items list. */
+  void tag_items_changed();
+  /** Call after generic user changes through the API. */
+  void tag_items_changed_generic();
+  /** Call after changing an item property. */
+  void tag_item_property_changed();
 
   /**
-   * Tag runtime data and invalidate the cache.
-   * Must be called after any direct change to interface DNA data.
+   * Reset flag to indicate that dependent trees have been updated.
+   * Should only be called by #NodeTreeMainUpdater.
    */
-  void tag_items_changed();
-
-  /** Reset runtime flags after updates have been processed. */
-  void reset_changed_flags();
+  void reset_interface_changed();
 
  private:
+  /** Tag after interface changes that require updates to dependent trees. */
+  void tag_interface_changed();
+  /** Invalidate caches and force full tree update after loading DNA. */
   void tag_missing_runtime_data();
 
 #endif

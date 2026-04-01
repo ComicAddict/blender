@@ -49,6 +49,9 @@ enum class EmbossType : uint8_t;
 enum class LayoutAlign : int8_t;
 enum class ButProgressType : int8_t;
 enum class LayoutDirection : int8_t;
+
+struct ItemInternal;
+struct LayoutInternal;
 }  // namespace blender::ui
 
 namespace blender::wm {
@@ -60,18 +63,22 @@ struct PanelLayout {
   uiLayout *body;
 };
 
-/**
- * NOTE: `uiItem` properties should be considered private outside `interface_layout.cc`,
- * incoming refactors would remove public access and add public read/write function methods.
- * Meanwhile keep using `uiLayout*` functions to read/write this properties.
- */
 struct uiItem {
-  blender::ui::ItemType type_;
-  blender::ui::ItemInternalFlag flag_;
 
-  uiItem() = default;
+  uiItem(blender::ui::ItemType type);
   uiItem(const uiItem &) = default;
   virtual ~uiItem() = default;
+
+  [[nodiscard]] bool fixed_size() const;
+  void fixed_size_set(bool fixed_size);
+
+  [[nodiscard]] blender::ui::ItemType type() const;
+
+ protected:
+  blender::ui::ItemInternalFlag flag_ = {};
+  blender::ui::ItemType type_ = {};
+
+  friend struct blender::ui::ItemInternal;
 };
 
 enum eUI_Item_Flag : uint16_t;
@@ -82,42 +89,52 @@ enum class LayoutSeparatorType : int8_t {
   Line,
 };
 
+enum class NodeAssetMenuOperatorType : int8_t {
+  Add,
+  Swap,
+};
+
 /**
  * NOTE: `uiLayout` properties should be considered private outside `interface_layout.cc`,
  * incoming refactors would remove public access and add public read/write function methods.
  * Meanwhile keep using `uiLayout*` functions to read/write this properties.
  */
-struct uiLayout : uiItem, blender::NonCopyable, blender::NonMovable {
+struct uiLayout : public uiItem, blender::NonCopyable, blender::NonMovable {
   // protected:
-  uiLayoutRoot *root_;
-  bContextStore *context_;
-  uiLayout *parent_;
-  blender::Vector<uiItem *> items_;
 
+  int x_ = 0, y_ = 0, w_ = 0, h_ = 0;
+  short space_ = 0;
+
+ protected:
+  uiLayoutRoot *root_ = nullptr;
+  bContextStore *context_ = nullptr;
+  uiLayout *parent_ = nullptr;
   std::string heading_;
 
-  /** Sub layout to add child items, if not the layout itself. */
-  uiLayout *child_items_layout_;
+  blender::Vector<uiItem *> items_;
 
-  int x_, y_, w_, h_;
-  float scale_[2];
-  short space_;
-  bool align_;
-  bool active_;
-  bool active_default_;
-  bool activate_init_;
-  bool enabled_;
-  bool redalert_;
+  /** Sub layout to add child items, if not the layout itself. */
+  uiLayout *child_items_layout_ = nullptr;
+
+  float scale_[2] = {0.0f, 0.0f};
+  bool align_ = false;
+  bool active_ = false;
+  bool active_default_ = false;
+  bool activate_init_ = false;
+  bool enabled_ = false;
+  bool redalert_ = false;
   /** For layouts inside grid-flow, they and their items shall never have a fixed maximal size. */
-  bool variable_size_;
-  blender::ui::LayoutAlign alignment_;
-  blender::ui::EmbossType emboss_;
+  bool variable_size_ = false;
+  blender::ui::LayoutAlign alignment_ = {};
+  blender::ui::EmbossType emboss_ = {};
   /** for fixed width or height to avoid UI size changes */
-  float units_[2];
+  float units_[2] = {0.0f, 0.0f};
   /** Is copied to uiButs created in this layout. */
-  float search_weight_;
+  float search_weight_ = 0.0f;
 
  public:
+  uiLayout(blender::ui::ItemType type, uiLayoutRoot *root);
+
   [[nodiscard]] bool active() const;
   /**
    * Sets the active state of the layout and its items.
@@ -174,9 +191,6 @@ struct uiLayout : uiItem, blender::NonCopyable, blender::NonMovable {
 
   [[nodiscard]] blender::ui::EmbossType emboss() const;
   void emboss_set(blender::ui::EmbossType emboss);
-
-  [[nodiscard]] bool fixed_size() const;
-  void fixed_size_set(bool fixed_size);
 
   [[nodiscard]] blender::ui::LayoutDirection local_direction() const;
 
@@ -669,6 +683,24 @@ struct uiLayout : uiItem, blender::NonCopyable, blender::NonMovable {
 
   /** Adds a spacer item that inserts empty horizontal space between other items in the layout. */
   void separator_spacer();
+
+  friend struct blender::ui::LayoutInternal;
+
+  [[nodiscard]] uiLayoutRoot *root() const;
+  [[nodiscard]] const bContextStore *context() const;
+  [[nodiscard]] uiLayout *parent() const;
+  [[nodiscard]] blender::StringRef heading() const;
+  void heading_reset();
+  [[nodiscard]] blender::Span<uiItem *> items() const;
+  [[nodiscard]] bool align() const;
+  [[nodiscard]] bool variable_size() const;
+  [[nodiscard]] blender::ui::EmbossType emboss_or_undefined() const;
+
+ protected:
+  void estimate();
+  virtual void estimate_impl();
+  void resolve();
+  virtual void resolve_impl();
 };
 
 inline bool uiLayout::active() const

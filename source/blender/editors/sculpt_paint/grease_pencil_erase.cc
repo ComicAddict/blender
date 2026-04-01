@@ -117,7 +117,7 @@ struct EraseOperationExecutor {
    * \param radius_2: squared radius of the circle.
    *
    * \param r_mu0: (output) signed distance from \a s0 to the first intersection, if it exists.
-   * \param r_mu1: (output) signed distance from \a s0 to the second  intersection, if it exists.
+   * \param r_mu1: (output) signed distance from \a s0 to the second intersection, if it exists.
    *
    * All intersections with the infinite line of the segment are considered.
    *
@@ -1046,14 +1046,14 @@ void EraseOperation::on_stroke_begin(const bContext &C, const InputSample & /*st
     Object *object = CTX_data_active_object(&C);
     GreasePencil *grease_pencil = static_cast<GreasePencil *>(object->data);
 
-    radius_ = paint->eraser_brush->size;
+    radius_ = paint->eraser_brush->size / 2.0f;
     grease_pencil->runtime->temp_eraser_size = radius_;
     grease_pencil->runtime->temp_use_eraser = true;
 
     brush = BKE_paint_eraser_brush(paint);
   }
   else {
-    radius_ = brush->size;
+    radius_ = brush->size / 2.0f;
   }
 
   if (brush->gpencil_settings == nullptr) {
@@ -1061,7 +1061,7 @@ void EraseOperation::on_stroke_begin(const bContext &C, const InputSample & /*st
   }
   BLI_assert(brush->gpencil_settings != nullptr);
 
-  BKE_curvemapping_init(brush->curve);
+  BKE_curvemapping_init(brush->curve_distance_falloff);
   BKE_curvemapping_init(brush->gpencil_settings->curve_strength);
 
   eraser_mode_ = eGP_BrushEraserMode(brush->gpencil_settings->eraser_mode);

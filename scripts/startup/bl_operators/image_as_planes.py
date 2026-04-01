@@ -21,7 +21,6 @@ from bpy.props import (
 )
 
 from bpy.app.translations import (
-    pgettext_tip as tip_,
     pgettext_rpt as rpt_,
     contexts as i18n_contexts,
 )
@@ -337,7 +336,7 @@ class MaterialProperties_MixIn:
 
             engine = context.scene.render.engine
             if engine not in COMPATIBLE_ENGINES:
-                body.label(text=tip_("{:s} is not supported").format(engine), icon='ERROR')
+                body.label(text=rpt_("{:s} is not supported").format(engine), icon='ERROR')
 
             body.prop(self, "overwrite_material")
 
@@ -367,14 +366,6 @@ class TextureProperties_MixIn:
         description="How the image is extrapolated past its original bounds",
     )
 
-    _Image_alpha_mode = bpy.types.Image.bl_rna.properties["alpha_mode"]
-    alpha_mode: EnumProperty(
-        name=_Image_alpha_mode.name,
-        items=tuple((e.identifier, e.name, e.description) for e in _Image_alpha_mode.enum_items),
-        default=_Image_alpha_mode.default,
-        description=_Image_alpha_mode.description,
-    )
-
     _ImageUser_use_auto_refresh = bpy.types.ImageUser.bl_rna.properties["use_auto_refresh"]
     use_auto_refresh: BoolProperty(
         name=_ImageUser_use_auto_refresh.name,
@@ -400,9 +391,6 @@ class TextureProperties_MixIn:
 
             row = body.row(align=False, heading="Alpha")
             row.prop(self, "use_transparency", text="")
-            sub = row.row(align=True)
-            sub.active = self.use_transparency
-            sub.prop(self, "alpha_mode", text="")
 
             body.prop(self, "use_auto_refresh")
 
@@ -437,14 +425,12 @@ def create_cycles_material(self, context, img_spec, name):
     if material is None:
         material = bpy.data.materials.new(name=name)
 
-    material.use_nodes = True
-
     material.surface_render_method = self.render_method
     material.use_backface_culling = self.use_backface_culling
     material.use_transparency_overlap = self.show_transparent_back
 
     node_tree = material.node_tree
-    out_node = clean_node_tree(node_tree)
+    out_node = node_tree.nodes.new("ShaderNodeOutputMaterial")
 
     tex_image = create_cycles_texnode(self, node_tree, img_spec)
 
@@ -944,8 +930,6 @@ class IMAGE_OT_import_as_mesh_planes(
     def apply_image_options(self, image):
         if not self.use_transparency:
             image.alpha_mode = 'NONE'
-        else:
-            image.alpha_mode = self.alpha_mode
 
         if self.relative:
             try:  # Can't always find the relative path (between drive letters on windows).

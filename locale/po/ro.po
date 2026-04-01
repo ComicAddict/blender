@@ -1,10 +1,10 @@
 
 msgid ""
 msgstr ""
-"Project-Id-Version: Blender 5.0.0 Alpha (b'a775d58b2e0e')\n"
+"Project-Id-Version: Blender 5.0.0 Alpha (b'7089def6cbcb')\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-07-21 08:48+0000\n"
-"PO-Revision-Date: 2025-07-21 00:59+0000\n"
+"POT-Creation-Date: 2025-09-29 09:33+0000\n"
+"PO-Revision-Date: 2025-09-04 22:59+0000\n"
 "Last-Translator: Dominic Iastrebschi <domjotebit@gmail.com>\n"
 "Language-Team: Romanian <https://translate.blender.org/projects/blender-ui/ui/ro/>\n"
 "Language: ro\n"
@@ -68,15 +68,15 @@ msgstr "Colecție de canale de animație, de obicei asociate cu un slot de acți
 
 
 msgid "F-Curves"
-msgstr "Curbe-F"
+msgstr "Curbe F"
 
 
 msgid "The individual F-Curves that animate the slot"
-msgstr "Curbele-F individuale care animează slotul"
+msgstr "Curbele F individuale care animează slotul"
 
 
 msgid "F-Curve Groups"
-msgstr "Grupuri de curbe-F"
+msgstr "Grupuri de curbele F"
 
 
 msgid "Slot"
@@ -88,7 +88,7 @@ msgstr "Pentru fiecare slot de acțiune, o listă a canalelor de animație care 
 
 
 msgid "Action F-Curves"
-msgstr "Curbe-F de acțiune"
+msgstr "Curbe F de acțiune"
 
 
 msgid "Action Group"
@@ -96,7 +96,7 @@ msgstr "Grup de acțiune"
 
 
 msgid "Groups of F-Curves"
-msgstr "Grup de curbe-F"
+msgstr "Grup de curbe F"
 
 
 msgid "Channels"
@@ -104,7 +104,7 @@ msgstr "Canale"
 
 
 msgid "F-Curves in this group"
-msgstr "Curbe-F în acest grup"
+msgstr "Curbe F în acest grup"
 
 
 msgid "Color Set"
@@ -1098,16 +1098,16 @@ msgid "Vector"
 msgstr "Vector"
 
 
-msgid "Byte Color"
-msgstr "Culoare Byte"
-
-
 msgid "String"
 msgstr "Șir"
 
 
 msgid "Text string"
 msgstr "Șir de text"
+
+
+msgid "Byte Color"
+msgstr "Culoare Byte"
 
 
 msgid "Domain"
@@ -1136,10 +1136,6 @@ msgstr "Atributul pe marginea mesh-ului"
 
 msgid "Name of the Attribute"
 msgstr "Numele Atributului"
-
-
-msgid "Array"
-msgstr "Matrice"
 
 
 msgid "Byte Color Attribute"
@@ -1196,6 +1192,14 @@ msgstr "Obiectul Colivie"
 
 msgid "Object to use as cage instead of calculating the cage from the active object with cage extrusion"
 msgstr "Obiectul care va fi folosit ca o colivie în loc de calcularea cuștii din obiectul activ cu extrudarea coliviei"
+
+
+msgid "Object"
+msgstr "Obiect"
+
+
+msgid "Tangent"
+msgstr "Tangenta"
 
 
 msgid "File Path"
@@ -1270,16 +1274,8 @@ msgid "Choose normal space for baking"
 msgstr "Alegeți spațiul normal pentru copt"
 
 
-msgid "Object"
-msgstr "Obiect"
-
-
 msgid "Bake the normals in object space"
 msgstr "Coaceți normalele în spațiul obiectelor"
-
-
-msgid "Tangent"
-msgstr "Tangenta"
 
 
 msgid "Bake the normals in tangent space"
@@ -1864,6 +1860,10 @@ msgid "Gamma"
 msgstr "Gamma"
 
 
+msgid "View"
+msgstr "Vedere"
+
+
 msgid "Contrast"
 msgstr "Contrast"
 
@@ -1902,10 +1902,6 @@ msgstr "Manipulator Vector"
 
 msgid "Depth"
 msgstr "Adâncime"
-
-
-msgid "View"
-msgstr "Vedere"
 
 
 msgid "Radius"
@@ -2070,6 +2066,10 @@ msgid "Edit"
 msgstr "Editare"
 
 
+msgid "Sculpt"
+msgstr "Sculptare"
+
+
 msgid "Tool"
 msgstr "Instrument"
 
@@ -2122,6 +2122,10 @@ msgid "Animation"
 msgstr "Animație"
 
 
+msgid "Simulation"
+msgstr "Simulare"
+
+
 msgid "Color Management"
 msgstr "Gestionarea Culorii"
 
@@ -2144,8 +2148,16 @@ msgid "Sampling"
 msgstr "Eșantionare"
 
 
+msgid "Layout"
+msgstr "Aspect"
+
+
 msgid "Light"
 msgstr "Lumină"
+
+
+msgid "Tracking"
+msgstr "Urmărire"
 
 
 msgid "Add Image"
@@ -2160,20 +2172,16 @@ msgid "Convert"
 msgstr "Convertire"
 
 
-msgid "Marker"
-msgstr "Marcator"
-
-
 msgid "UV"
 msgstr "UV"
 
 
+msgid "Marker"
+msgstr "Marcator"
+
+
 msgid "Unwrap"
 msgstr "Desfacere"
-
-
-msgid "Layout"
-msgstr "Aspect"
 
 
 msgid "Add Modifier"
@@ -2186,11 +2194,6 @@ msgstr "Generare"
 
 msgid "Physics"
 msgstr "Fizică"
-
-
-msgctxt "Operator"
-msgid "Scene"
-msgstr "Scenă"
 
 
 msgid "Blender"
@@ -2207,6 +2210,10 @@ msgstr "Ajutor"
 
 msgid "Polygon"
 msgstr "Poligon"
+
+
+msgid "Array"
+msgstr "Matrice"
 
 
 msgid "New"
@@ -2231,14 +2238,6 @@ msgstr "Lume"
 
 msgid "Starting"
 msgstr "Pornire"
-
-
-msgid "Composite"
-msgstr "Compozit"
-
-
-msgid "Combined"
-msgstr "Combinat"
 
 
 msgid "Rotate"
@@ -2280,16 +2279,6 @@ msgstr "Șterge Keyframe-urile"
 msgctxt "Operator"
 msgid "Insert Keyframes"
 msgstr "Inserează Keyframe-uri"
-
-
-msgctxt "Operator"
-msgid "Next Layer"
-msgstr "Stratul Următor"
-
-
-msgctxt "Operator"
-msgid "Previous Layer"
-msgstr "Startul Anterior"
 
 
 msgctxt "Operator"
@@ -2430,6 +2419,10 @@ msgstr "Adăugare Obiect"
 
 msgid "The maximum ray distance for matching points between the active and selected objects. If zero, there is no limit"
 msgstr "Distanța razei maxime pentru punctele potrivite între obiectele active și selectate. Dacă este zero, nu există limită"
+
+
+msgid "Combined"
+msgstr "Combinat"
 
 
 msgid "Object Data"
@@ -2820,10 +2813,6 @@ msgstr "Fișier:"
 msgctxt "Operator"
 msgid "Apply"
 msgstr "Aplicare"
-
-
-msgid "Tracking"
-msgstr "Urmărire"
 
 
 msgctxt "WindowManager"
@@ -3233,6 +3222,10 @@ msgid "%d items"
 msgstr "%d obiecte"
 
 
+msgid "Value:"
+msgstr "Valoare:"
+
+
 msgid "Hex"
 msgstr "Hex"
 
@@ -3615,10 +3608,6 @@ msgid "Driver Value:"
 msgstr "Valoare Driver:"
 
 
-msgid "Value:"
-msgstr "Valoare:"
-
-
 msgid "Delete target variable"
 msgstr "Șterge variabila țintă"
 
@@ -3631,6 +3620,10 @@ msgid "No F-Modifiers to paste"
 msgstr "Niciun F-Modificator de lipit"
 
 
+msgid "Composite"
+msgstr "Compozit"
+
+
 msgid "Select Slot"
 msgstr "Selectare Slot"
 
@@ -3641,10 +3634,6 @@ msgstr "Selectare Strat"
 
 msgid "Select Pass"
 msgstr "Selectare Pass"
-
-
-msgid "Can't Load Image"
-msgstr "Nu s-a putut încărca imaginea"
 
 
 msgid " RGBA float"
@@ -3800,10 +3789,6 @@ msgid "Modify"
 msgstr "Modificare"
 
 
-msgid "Color Space:"
-msgstr "Spațiu Culoare:"
-
-
 msgid "Master"
 msgstr "Maestru"
 
@@ -3818,26 +3803,6 @@ msgstr "Tonuri Mijlocii"
 
 msgid "Bokeh Type:"
 msgstr "Tip Bokeh:"
-
-
-msgid "Path:"
-msgstr "Cale:"
-
-
-msgid "Base Path:"
-msgstr "Cale de Bază:"
-
-
-msgid "Add Input"
-msgstr "Adăugare Intrare"
-
-
-msgid "Layer:"
-msgstr "Strat:"
-
-
-msgid "Format:"
-msgstr "Format:"
 
 
 msgid "Blender File View"

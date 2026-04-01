@@ -17,28 +17,32 @@
 
 #include "BKE_attribute.hh"
 
+#include "BLT_translation.hh"
+
 #include "WM_types.hh"
+
+#include "UI_resources.hh"
 
 using blender::bke::AttrDomain;
 
 const EnumPropertyItem rna_enum_attribute_type_items[] = {
     {CD_PROP_FLOAT, "FLOAT", 0, "Float", "Floating-point value"},
     {CD_PROP_INT32, "INT", 0, "Integer", "32-bit integer"},
+    {CD_PROP_BOOL, "BOOLEAN", 0, "Boolean", "True or false"},
     {CD_PROP_FLOAT3, "FLOAT_VECTOR", 0, "Vector", "3D vector with floating-point values"},
     {CD_PROP_COLOR, "FLOAT_COLOR", 0, "Color", "RGBA color with 32-bit floating-point values"},
+    {CD_PROP_QUATERNION, "QUATERNION", 0, "Quaternion", "Floating point quaternion rotation"},
+    {CD_PROP_FLOAT4X4, "FLOAT4X4", 0, "4x4 Matrix", "Floating point matrix"},
+    {CD_PROP_STRING, "STRING", 0, "String", "Text string"},
+    {CD_PROP_INT8, "INT8", 0, "8-Bit Integer", "Smaller integer with a range from -128 to 127"},
+    {CD_PROP_INT16_2D, "INT16_2D", 0, "2D 16-Bit Integer Vector", "16-bit signed integer vector"},
+    {CD_PROP_INT32_2D, "INT32_2D", 0, "2D Integer Vector", "32-bit signed integer vector"},
+    {CD_PROP_FLOAT2, "FLOAT2", 0, "2D Vector", "2D vector with floating-point values"},
     {CD_PROP_BYTE_COLOR,
      "BYTE_COLOR",
      0,
      "Byte Color",
      "RGBA color with 8-bit positive integer values"},
-    {CD_PROP_STRING, "STRING", 0, "String", "Text string"},
-    {CD_PROP_BOOL, "BOOLEAN", 0, "Boolean", "True or false"},
-    {CD_PROP_FLOAT2, "FLOAT2", 0, "2D Vector", "2D vector with floating-point values"},
-    {CD_PROP_INT8, "INT8", 0, "8-Bit Integer", "Smaller integer with a range from -128 to 127"},
-    {CD_PROP_INT16_2D, "INT16_2D", 0, "2D 16-Bit Integer Vector", "16-bit signed integer vector"},
-    {CD_PROP_INT32_2D, "INT32_2D", 0, "2D Integer Vector", "32-bit signed integer vector"},
-    {CD_PROP_QUATERNION, "QUATERNION", 0, "Quaternion", "Floating point quaternion rotation"},
-    {CD_PROP_FLOAT4X4, "FLOAT4X4", 0, "4x4 Matrix", "Floating point matrix"},
     {0, nullptr, 0, nullptr, nullptr},
 };
 
@@ -55,21 +59,21 @@ const EnumPropertyItem rna_enum_attribute_type_with_auto_items[] = {
     {CD_AUTO_FROM_NAME, "AUTO", 0, "Auto", ""},
     {CD_PROP_FLOAT, "FLOAT", 0, "Float", "Floating-point value"},
     {CD_PROP_INT32, "INT", 0, "Integer", "32-bit integer"},
+    {CD_PROP_BOOL, "BOOLEAN", 0, "Boolean", "True or false"},
     {CD_PROP_FLOAT3, "FLOAT_VECTOR", 0, "Vector", "3D vector with floating-point values"},
     {CD_PROP_COLOR, "FLOAT_COLOR", 0, "Color", "RGBA color with 32-bit floating-point values"},
+    {CD_PROP_QUATERNION, "QUATERNION", 0, "Quaternion", "Floating point quaternion rotation"},
+    {CD_PROP_FLOAT4X4, "FLOAT4X4", 0, "4x4 Matrix", "Floating point matrix"},
+    {CD_PROP_STRING, "STRING", 0, "String", "Text string"},
+    {CD_PROP_INT8, "INT8", 0, "8-Bit Integer", "Smaller integer with a range from -128 to 127"},
+    {CD_PROP_INT16_2D, "INT16_2D", 0, "2D 16-Bit Integer Vector", "16-bit signed integer vector"},
+    {CD_PROP_INT32_2D, "INT32_2D", 0, "2D Integer Vector", "32-bit signed integer vector"},
+    {CD_PROP_FLOAT2, "FLOAT2", 0, "2D Vector", "2D vector with floating-point values"},
     {CD_PROP_BYTE_COLOR,
      "BYTE_COLOR",
      0,
      "Byte Color",
      "RGBA color with 8-bit positive integer values"},
-    {CD_PROP_STRING, "STRING", 0, "String", "Text string"},
-    {CD_PROP_BOOL, "BOOLEAN", 0, "Boolean", "True or false"},
-    {CD_PROP_FLOAT2, "FLOAT2", 0, "2D Vector", "2D vector with floating-point values"},
-    {CD_PROP_FLOAT2, "FLOAT2", 0, "2D Vector", "2D vector with floating-point values"},
-    {CD_PROP_INT16_2D, "INT16_2D", 0, "2D 16-Bit Integer Vector", "16-bit signed integer vector"},
-    {CD_PROP_INT32_2D, "INT32_2D", 0, "2D Integer Vector", "32-bit signed integer vector"},
-    {CD_PROP_QUATERNION, "QUATERNION", 0, "Quaternion", "Floating point quaternion rotation"},
-    {CD_PROP_FLOAT4X4, "FLOAT4X4", 0, "4x4 Matrix", "Floating point matrix"},
     {0, nullptr, 0, nullptr, nullptr},
 };
 
@@ -200,6 +204,8 @@ const EnumPropertyItem rna_enum_attribute_curves_domain_items[] = {
 #  include "DEG_depsgraph.hh"
 
 #  include "BLT_translation.hh"
+
+#  include "IMB_colormanagement.hh"
 
 #  include "WM_api.hh"
 
@@ -575,11 +581,15 @@ static void rna_ByteColorAttributeValue_color_get(PointerRNA *ptr, float *values
 {
   MLoopCol *mlcol = (MLoopCol *)ptr->data;
   srgb_to_linearrgb_uchar4(values, &mlcol->r);
+  IMB_colormanagement_rec709_to_scene_linear(values, values);
 }
 
 static void rna_ByteColorAttributeValue_color_set(PointerRNA *ptr, const float *values)
 {
   MLoopCol *mlcol = (MLoopCol *)ptr->data;
+  float rec709[4];
+  IMB_colormanagement_scene_linear_to_rec709(rec709, values);
+  rec709[3] = values[3];
   linearrgb_to_srgb_uchar4(&mlcol->r, values);
 }
 
@@ -604,13 +614,15 @@ static void rna_ByteColorAttributeValue_color_srgb_set(PointerRNA *ptr, const fl
 static void rna_FloatColorAttributeValue_color_srgb_get(PointerRNA *ptr, float *values)
 {
   MPropCol *col = (MPropCol *)ptr->data;
-  linearrgb_to_srgb_v4(values, col->color);
+  IMB_colormanagement_scene_linear_to_srgb_v3(values, col->color);
+  values[3] = col->color[3];
 }
 
 static void rna_FloatColorAttributeValue_color_srgb_set(PointerRNA *ptr, const float *values)
 {
   MPropCol *col = (MPropCol *)ptr->data;
-  srgb_to_linearrgb_v4(col->color, values);
+  IMB_colormanagement_srgb_to_scene_linear_v3(col->color, values);
+  col->color[3] = values[3];
 }
 
 /* String Attribute */
@@ -701,7 +713,7 @@ static void rna_AttributeGroupID_remove(ID *id, ReportList *reports, PointerRNA 
   if (owner.type() != AttributeOwnerType::Mesh) {
     const bke::Attribute *attr = static_cast<const bke::Attribute *>(attribute_ptr->data);
     if (BKE_attribute_required(owner, attr->name())) {
-      BKE_report(reports, RPT_ERROR, "Attribute is required and can't be removed");
+      BKE_report(reports, RPT_ERROR, "Attribute is required and cannot be removed");
       return;
     }
 
@@ -1222,7 +1234,7 @@ static void rna_AttributeGroupGreasePencilDrawing_remove(ID *grease_pencil_id,
   AttributeOwner owner = AttributeOwner(AttributeOwnerType::GreasePencilDrawing, drawing);
   const bke::Attribute *attr = static_cast<const bke::Attribute *>(attribute_ptr->data);
   if (BKE_attribute_required(owner, attr->name())) {
-    BKE_report(reports, RPT_ERROR, "Attribute is required and can't be removed");
+    BKE_report(reports, RPT_ERROR, "Attribute is required and cannot be removed");
     return;
   }
 
@@ -1815,6 +1827,7 @@ static void rna_def_attribute(BlenderRNA *brna)
   RNA_def_property_enum_items(prop, rna_enum_attr_storage_type);
   RNA_def_property_enum_funcs(prop, "rna_Attribute_storage_type_get", nullptr, nullptr);
   RNA_def_property_ui_text(prop, "Storage Type", "Method used to store the data");
+  RNA_def_property_translation_context(prop, BLT_I18NCONTEXT_AMOUNT);
   RNA_def_property_clear_flag(prop, PROP_EDITABLE);
 
   prop = RNA_def_property(srna, "domain", PROP_ENUM, PROP_NONE);

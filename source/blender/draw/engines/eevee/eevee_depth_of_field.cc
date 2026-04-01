@@ -31,7 +31,7 @@
 #include "eevee_instance.hh"
 #include "eevee_sampling.hh"
 #include "eevee_shader.hh"
-#include "eevee_shader_shared.hh"
+#include "eevee_velocity_shared.hh"
 
 #include "eevee_depth_of_field.hh"
 
@@ -457,7 +457,8 @@ void DepthOfField::resolve_pass_sync()
 {
   GPUSamplerState with_filter = {GPU_SAMPLER_FILTERING_LINEAR};
   RenderBuffers &render_buffers = inst_.render_buffers;
-  GPUShader *sh = inst_.shaders.static_shader_get(use_bokeh_lut_ ? DOF_RESOLVE_LUT : DOF_RESOLVE);
+  gpu::Shader *sh = inst_.shaders.static_shader_get(use_bokeh_lut_ ? DOF_RESOLVE_LUT :
+                                                                     DOF_RESOLVE);
 
   resolve_ps_.init();
   resolve_ps_.specialize_constant(sh, "do_debug_color", inst_.debug_mode == DEBUG_DOF_PLANES);

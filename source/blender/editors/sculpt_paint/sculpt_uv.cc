@@ -501,7 +501,7 @@ static void uv_sculpt_stroke_apply(bContext *C,
   float zoomx, zoomy;
   ED_space_image_get_zoom(sima, region, &zoomx, &zoomy);
 
-  const float radius = sculptdata->uvsculpt->size / (width * zoomx);
+  const float radius = (sculptdata->uvsculpt->size / 2.0f) / (width * zoomx);
   float aspectRatio = width / float(height);
 
   /* We will compare squares to save some computation */
@@ -859,7 +859,7 @@ static UvSculptData *uv_sculpt_stroke_init(bContext *C, wmOperator *op, const wm
   /* Allocate initial selection for grab tool */
   if (data->tool == UV_SCULPT_BRUSH_TYPE_GRAB) {
     float alpha = data->uvsculpt->strength;
-    float radius = data->uvsculpt->size;
+    float radius = data->uvsculpt->size / 2.0f;
     int width, height;
     ED_space_image_get_size(sima, &width, &height);
     float zoomx, zoomy;
@@ -1023,7 +1023,7 @@ void SCULPT_OT_uv_sculpt_relax(wmOperatorType *ot)
   RNA_def_enum(ot->srna,
                "relax_method",
                relax_method_items,
-               CURVE_PRESET_SMOOTH,
+               UV_SCULPT_BRUSH_TYPE_RELAX_LAPLACIAN,
                "Relax Method",
                "Algorithm used for UV relaxation");
 }

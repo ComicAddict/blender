@@ -7,9 +7,6 @@
 
 #include "BKE_node_runtime.hh"
 
-#include "UI_interface_layout.hh"
-#include "UI_resources.hh"
-
 #include "node_function_util.hh"
 
 #include "NOD_socket_search_link.hh"
@@ -39,17 +36,19 @@ const EnumPropertyItem rna_enum_node_match_string_items[] = {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Menu>("Operation").static_items(rna_enum_node_match_string_items);
-  b.add_input<decl::String>("String").hide_label().is_default_link_socket();
-  b.add_input<decl::String>("Key").hide_label().description(
+  b.add_input<decl::String>("String").optional_label().is_default_link_socket();
+  b.add_input<decl::Menu>("Operation")
+      .static_items(rna_enum_node_match_string_items)
+      .optional_label();
+  b.add_input<decl::String>("Key").optional_label().description(
       "The string to find in the input string");
   b.add_output<decl::Bool>("Result");
 }
 
 static void node_build_multi_function(NodeMultiFunctionBuilder &builder)
 {
-  static auto fn = mf::build::SI3_SO<int, std::string, std::string, bool>(
-      "Starts With", [](const int mode, const std::string &a, const std::string &b) {
+  static auto fn = mf::build::SI3_SO<std::string, int, std::string, bool>(
+      "Starts With", [](const std::string &a, const int mode, const std::string &b) {
         const StringRef strref_a(a);
         const StringRef strref_b(b);
         switch (MatchStringOperation(mode)) {
@@ -119,6 +118,7 @@ static void node_register()
 
   fn_node_type_base(&ntype, "FunctionNodeMatchString");
   ntype.ui_name = "Match String";
+  ntype.ui_description = "Check if a given string exists within another string";
   ntype.nclass = NODE_CLASS_CONVERTER;
   ntype.declare = node_declare;
   ntype.labelfunc = node_label;

@@ -1,10 +1,10 @@
 
 msgid ""
 msgstr ""
-"Project-Id-Version: Blender 5.0.0 Alpha (b'a775d58b2e0e')\n"
+"Project-Id-Version: Blender 5.0.0 Alpha (b'7089def6cbcb')\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-07-21 08:48+0000\n"
-"PO-Revision-Date: 2025-04-14 08:42+0000\n"
+"POT-Creation-Date: 2025-09-29 09:33+0000\n"
+"PO-Revision-Date: 2025-07-23 15:06+0000\n"
 "Last-Translator: Anonymous <noreply@weblate.org>\n"
 "Language-Team: Thai <https://translate.blender.org/projects/blender-ui/ui/th/>\n"
 "Language: th\n"
@@ -12,7 +12,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
-"X-Generator: Weblate 5.10.1"
+"X-Generator: Weblate 5.12.1"
 
 
 msgid "Name"
@@ -506,6 +506,10 @@ msgid "Face"
 msgstr "ด้าน"
 
 
+msgid "Object"
+msgstr "วัตถุ"
+
+
 msgid "File Path"
 msgstr "ตำแหน่งไฟล์"
 
@@ -534,10 +538,6 @@ msgid "-Z"
 msgstr "-Z"
 
 
-msgid "Object"
-msgstr "วัตถุ"
-
-
 msgid "None"
 msgstr "ไม่มี"
 
@@ -552,6 +552,10 @@ msgstr "ภายนอก"
 
 msgid "Target"
 msgstr "เป้าหมาย"
+
+
+msgid "Normals"
+msgstr "แนวฉาก"
 
 
 msgid "Clear"
@@ -739,8 +743,16 @@ msgid "Status"
 msgstr "สถิติ"
 
 
+msgid "Display"
+msgstr "แสดง"
+
+
 msgid "Curve"
 msgstr "เส้นโค้ง"
+
+
+msgid "View"
+msgstr "มุมมอง"
 
 
 msgid "Mix"
@@ -878,10 +890,6 @@ msgstr "พื้นผิว"
 
 msgid "Plane"
 msgstr "ระนาบ"
-
-
-msgid "View"
-msgstr "มุมมอง"
 
 
 msgid "Radius"
@@ -1163,6 +1171,10 @@ msgid "Normal"
 msgstr "แนวฉาก"
 
 
+msgid "Shader"
+msgstr "เชดเดอร์"
+
+
 msgid "Border"
 msgstr "เส้นขอบ"
 
@@ -1338,10 +1350,6 @@ msgid "Font Size"
 msgstr "ขนาดฟอนต์"
 
 
-msgid "Normals"
-msgstr "แนวฉาก"
-
-
 msgid "Square"
 msgstr "สี่เหลี่ยม"
 
@@ -1484,10 +1492,6 @@ msgid "Movie File"
 msgstr "ไฟล์ภาพยนตร์"
 
 
-msgid "Shader"
-msgstr "เชดเดอร์"
-
-
 msgid "Pattern"
 msgstr "ลวดลาย"
 
@@ -1614,10 +1618,6 @@ msgid "Display Color"
 msgstr "สีที่แสดง"
 
 
-msgid "Display"
-msgstr "แสดง"
-
-
 msgid "Particle"
 msgstr "อนุภาค"
 
@@ -1724,6 +1724,10 @@ msgstr "พื้นที่ใช้งาน"
 
 msgid "Animation"
 msgstr "แอนิเมชัน"
+
+
+msgid "Video"
+msgstr "วิดีโอ"
 
 
 msgid "YCC"
@@ -1861,24 +1865,16 @@ msgid "Mask"
 msgstr "หน้ากาก"
 
 
-msgid "Pivot Point"
-msgstr "จุดหมุน"
-
-
-msgid "Snap"
-msgstr "ยึดติด"
-
-
-msgid "Proportional Editing Falloff"
-msgstr "แก้ไข"
-
-
 msgid "Mask Edit"
 msgstr "การแก้ไขหน้ากาก"
 
 
 msgid "Mirror"
 msgstr "กระจกสะท้อน"
+
+
+msgid "Snap"
+msgstr "ยึดติด"
 
 
 msgid "Local View"
@@ -1905,12 +1901,24 @@ msgid "View Regions"
 msgstr "ขอบเขตมุมมอง"
 
 
+msgid "Proportional Editing Falloff"
+msgstr "แก้ไข"
+
+
+msgid "Layout"
+msgstr "เค้าโครง"
+
+
 msgid "Metaball"
 msgstr "เมตาบอล"
 
 
 msgid "Light"
 msgstr "แสง"
+
+
+msgid "Keying"
+msgstr "คีย์"
 
 
 msgid "Add Image"
@@ -1945,6 +1953,22 @@ msgid "Text"
 msgstr "ช้อความ"
 
 
+msgid "Import"
+msgstr "นำเข้า"
+
+
+msgid "Math"
+msgstr "คณิตศาสตร์"
+
+
+msgid "UV"
+msgstr "UV"
+
+
+msgid "Pivot Point"
+msgstr "จุดหมุน"
+
+
 msgid "Zoom"
 msgstr "ซูม"
 
@@ -1957,29 +1981,9 @@ msgid "Files"
 msgstr "ไฟล์"
 
 
-msgid "UV"
-msgstr "UV"
-
-
 msgctxt "Operator"
 msgid "Mirror"
 msgstr "กระจกสะท้อน"
-
-
-msgid "Math"
-msgstr "คณิตศาสตร์"
-
-
-msgid "Keying"
-msgstr "คีย์"
-
-
-msgid "Import"
-msgstr "นำเข้า"
-
-
-msgid "Layout"
-msgstr "เค้าโครง"
 
 
 msgid "Node"
@@ -1988,11 +1992,6 @@ msgstr "โนด"
 
 msgid "Add Modifier"
 msgstr "เพิ่มการปรับแต่ง"
-
-
-msgctxt "Operator"
-msgid "Scene"
-msgstr "ฉาก"
 
 
 msgid "Blender"
@@ -2197,6 +2196,10 @@ msgid "World"
 msgstr "โลก"
 
 
+msgid "Edge Length"
+msgstr "ความยาวของเส้นขอบ"
+
+
 msgid "UV Center"
 msgstr "ศูนย์กลาง UV"
 
@@ -2260,22 +2263,6 @@ msgstr "ไปยัง"
 
 msgid "RGB Curves"
 msgstr "เส้นโค้ง RGB"
-
-
-msgid "High"
-msgstr "สูง"
-
-
-msgid "High quality"
-msgstr "คุณภาพสูง"
-
-
-msgid "Low"
-msgstr "ต่ำ"
-
-
-msgid "Red Channel"
-msgstr "ช่องสีแดง"
 
 
 msgid "RGB to BW"
@@ -2618,10 +2605,6 @@ msgid "Flat"
 msgstr "ราบแบน"
 
 
-msgid "Join"
-msgstr "เชื่อมโยง"
-
-
 msgctxt "Operator"
 msgid "Add New Layer"
 msgstr "เพิ่มชั้นใหม่"
@@ -2898,8 +2881,12 @@ msgid "Vertex (Triangle)"
 msgstr "จุดยอด (สามเหลี่ยม)"
 
 
-msgid "Edge Length"
-msgstr "ความยาวของเส้นขอบ"
+msgid "Low"
+msgstr "ต่ำ"
+
+
+msgid "High"
+msgstr "สูง"
 
 
 msgctxt "ID"
@@ -3034,6 +3021,10 @@ msgid "Mask Filter"
 msgstr "กรองหน้ากาก"
 
 
+msgid "Join"
+msgstr "เชื่อมโยง"
+
+
 msgid "Grab UVs"
 msgstr "จับ UV"
 
@@ -3044,6 +3035,10 @@ msgstr "บีบ UV"
 
 msgid "Relax UVs"
 msgstr "ผ่อนคลาย UV"
+
+
+msgid "Replace Selection"
+msgstr "แทนที่ที่เลือกไว้"
 
 
 msgctxt "Sequence"
@@ -3059,10 +3054,6 @@ msgstr "การปรับเปลี่ยน"
 msgctxt "Operator"
 msgid "Copy"
 msgstr "คัดลอก"
-
-
-msgid "Replace Selection"
-msgstr "แทนที่ที่เลือกไว้"
 
 
 msgctxt "Operator"
@@ -3285,10 +3276,6 @@ msgid "Audio"
 msgstr "เสียง"
 
 
-msgid "Video"
-msgstr "วิดีโอ"
-
-
 msgid "Views"
 msgstr "มุมมอง"
 
@@ -3457,6 +3444,10 @@ msgstr "หนา"
 
 msgid "Translate Interface"
 msgstr "แปลอินเตอร์เฟส"
+
+
+msgid "High quality"
+msgstr "คุณภาพสูง"
 
 
 msgid "View layer name"
@@ -3913,11 +3904,6 @@ msgstr "คู่มือ"
 
 
 msgctxt "Operator"
-msgid "Tutorials"
-msgstr "สอนวิธีใช้งาน"
-
-
-msgctxt "Operator"
 msgid "Support"
 msgstr "สนับสนุน"
 
@@ -3960,6 +3946,11 @@ msgstr "เรนเดอร์ U"
 
 msgid "Offset X"
 msgstr "ออฟเซต X"
+
+
+msgctxt "Operator"
+msgid "Flip"
+msgstr "กลับด้าน"
 
 
 msgid "Detail"
@@ -4182,6 +4173,16 @@ msgid "Fade"
 msgstr "จาง"
 
 
+msgctxt "Operator"
+msgid "Delete Keyframes..."
+msgstr "ลบคีย์เฟรม..."
+
+
+msgctxt "Operator"
+msgid "Clear Keyframes..."
+msgstr "ล้างคีย์เฟรม..."
+
+
 msgid "Storage"
 msgstr "พื้นที่จัดเก็บ"
 
@@ -4219,11 +4220,6 @@ msgstr "สี"
 msgctxt "Operator"
 msgid "Text"
 msgstr "ข้อความ"
-
-
-msgctxt "Operator"
-msgid "Scene..."
-msgstr "ฉาก..."
 
 
 msgctxt "Operator"
@@ -4365,6 +4361,10 @@ msgid "General"
 msgstr "ทั่วไป"
 
 
+msgid "More..."
+msgstr "เพิ่มเติม..."
+
+
 msgctxt "Operator"
 msgid "Alembic (.abc)"
 msgstr "Alembic (.abc)"
@@ -4378,6 +4378,11 @@ msgstr "เรนเดอร์ภาพ"
 msgctxt "Operator"
 msgid "Operator Search..."
 msgstr "ค้นหาตัวดำเนินการ..."
+
+
+msgctxt "Operator"
+msgid "Tutorials"
+msgstr "สอนวิธีใช้งาน"
 
 
 msgctxt "Operator"
@@ -4556,16 +4561,6 @@ msgstr "ลำโพง"
 
 
 msgctxt "Operator"
-msgid "Delete Keyframes..."
-msgstr "ลบคีย์เฟรม..."
-
-
-msgctxt "Operator"
-msgid "Clear Keyframes..."
-msgstr "ล้างคีย์เฟรม..."
-
-
-msgctxt "Operator"
 msgid "Bake Action..."
 msgstr "สร้างกระทำ..."
 
@@ -4658,11 +4653,6 @@ msgstr "ปานกลาง"
 msgctxt "Operator"
 msgid "Strong"
 msgstr "แข็งแรง"
-
-
-msgctxt "Operator"
-msgid "Flip"
-msgstr "กลับด้าน"
 
 
 msgctxt "Operator"
@@ -4770,11 +4760,6 @@ msgstr "คอลเลกชันฉาก"
 msgctxt "Brush"
 msgid "Surface"
 msgstr "พื้นผิว"
-
-
-msgctxt "Action"
-msgid "var"
-msgstr "ตัวแปร"
 
 
 msgid "Key %d"
@@ -4957,10 +4942,6 @@ msgstr "ใหม่"
 msgctxt "World"
 msgid "New"
 msgstr "ใหม่"
-
-
-msgid "More..."
-msgstr "เพิ่มเติม..."
 
 
 msgid "Yesterday"

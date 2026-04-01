@@ -17,6 +17,7 @@
 #include "DNA_userdef_types.h"
 
 #include "BLI_listbase.h"
+#include "BLI_math_base.h"
 #include "BLI_rect.h"
 #include "BLI_string.h"
 #include "BLI_string_utf8.h"
@@ -449,6 +450,14 @@ bool ui_searchbox_event(
       }
       break;
     case MOUSEMOVE: {
+      /* Ignore the mouse event, in case the search popup is created underneath the cursor.
+       * We always want the first result to be selected by default. See: #144168 */
+      if (event->xy[0] == event->prev_xy[0] && event->xy[1] == event->prev_xy[1]) {
+        ui_searchbox_select(C, region, but, 0);
+        handled = true;
+        break;
+      }
+
       bool is_inside = false;
 
       if (BLI_rcti_isect_pt(&region->winrct, event->xy[0], event->xy[1])) {

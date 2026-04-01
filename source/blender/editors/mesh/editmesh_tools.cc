@@ -1832,7 +1832,7 @@ static bool edbm_edge_split_selected_edges(wmOperator *op, Object *obedit, BMEdi
 
   BM_custom_loop_normals_from_vector_layer(em->bm, false);
 
-  EDBM_select_flush(em);
+  EDBM_select_flush_from_verts(em, true);
   EDBMUpdate_Params params{};
   params.calc_looptris = true;
   params.calc_normals = false;
@@ -1907,7 +1907,7 @@ static bool edbm_edge_split_selected_verts(wmOperator *op, Object *obedit, BMEdi
 
   BM_custom_loop_normals_from_vector_layer(em->bm, false);
 
-  EDBM_select_flush(em);
+  EDBM_select_flush_from_verts(em, true);
   EDBMUpdate_Params params{};
   params.calc_looptris = true;
   params.calc_normals = false;
@@ -2059,15 +2059,16 @@ void MESH_OT_duplicate(wmOperatorType *ot)
   ot->poll = ED_operator_editmesh;
 
   /* to give to transform */
-  RNA_def_int(ot->srna,
-              "mode",
-              blender::ed::transform::TFM_TRANSLATION,
-              0,
-              INT_MAX,
-              "Mode",
-              "",
-              0,
-              INT_MAX);
+  PropertyRNA *prop = RNA_def_int(ot->srna,
+                                  "mode",
+                                  blender::ed::transform::TFM_TRANSLATION,
+                                  0,
+                                  INT_MAX,
+                                  "Mode",
+                                  "",
+                                  0,
+                                  INT_MAX);
+  RNA_def_property_flag(prop, PROP_HIDDEN);
 }
 
 static BMLoopNorEditDataArray *flip_custom_normals_init_data(BMesh *bm)
@@ -2468,6 +2469,9 @@ static wmOperatorStatus edbm_hide_exec(bContext *C, wmOperator *op)
         continue;
       }
     }
+
+    /* Only if symmetry is enabled. */
+    EDBM_select_mirrored_extend_all(obedit, em);
 
     if (EDBM_mesh_hide(em, unselected)) {
       EDBMUpdate_Params params{};
@@ -3577,7 +3581,13 @@ static wmOperatorStatus edbm_remove_doubles_exec(bContext *C, wmOperator *op)
 
       BMO_op_exec(em->bm, &bmop);
 
-      if (!EDBM_op_callf(em, op, "weld_verts targetmap=%S", &bmop, "targetmap.out")) {
+      if (!EDBM_op_callf(em,
+                         op,
+                         "weld_verts targetmap=%S use_centroid=%b",
+                         &bmop,
+                         "targetmap.out",
+                         RNA_boolean_get(op->ptr, "use_centroid")))
+      {
         BMO_op_finish(em->bm, &bmop);
         continue;
       }
@@ -3636,6 +3646,13 @@ void MESH_OT_remove_doubles(wmOperatorType *ot)
                          "Maximum distance between elements to merge",
                          1e-5f,
                          10.0f);
+  RNA_def_boolean(ot->srna,
+                  "use_centroid",
+                  true,
+                  "Centroid Merge",
+                  "Move vertices to the centroid of the duplicate cluster, "
+                  "otherwise the vertex closest to the centroid is used.");
+
   RNA_def_boolean(ot->srna,
                   "use_unselected",
                   false,
@@ -4781,7 +4798,7 @@ struct FillGridSplitJoin {
  *
  * This is done only when there are faces selected. Once split this way, fill_grid will
  * interpolate using only the data from the selected faces, not the data from the surrounding
- * faces. This matters for  UV edges and face corner colors - the data from the faces being
+ * faces. This matters for UV edges and face corner colors - the data from the faces being
  * replaced is the right data to use for the interpolation. This relies on the fact that the
  * "exterior" edge of an island is topologically the same as the "interior" edge around a hole.
  *
@@ -6272,7 +6289,7 @@ static wmOperatorStatus edbm_dissolve_degenerate_exec(bContext *C, wmOperator *o
     }
 
     /* tricky to maintain correct selection here, so just flush up from verts */
-    EDBM_select_flush(em);
+    EDBM_select_flush_from_verts(em, true);
 
     EDBMUpdate_Params params{};
     params.calc_looptris = true;
@@ -7761,9 +7778,16 @@ static wmOperatorStatus mesh_symmetrize_exec(bContext *C, wmOperator *op)
     if (!EDBM_op_finish(em, &bmop, op, true)) {
       continue;
     }
+
+    bool calc_normals = false;
+    if (scene->toolsettings->automerge & AUTO_MERGE) {
+      calc_normals = EDBM_automerge_connected(
+          obedit, false, BM_ELEM_SELECT, scene->toolsettings->doublimit);
+    }
+
     EDBMUpdate_Params params{};
     params.calc_looptris = true;
-    params.calc_normals = false;
+    params.calc_normals = calc_normals;
     params.is_destructive = true;
     EDBM_update(static_cast<Mesh *>(obedit->data), &params);
     EDBM_selectmode_flush(em);
@@ -8089,8 +8113,8 @@ static wmOperatorStatus edbm_mark_freestyle_face_exec(bContext *C, wmOperator *o
       continue;
     }
 
-    BM_data_layer_ensure_named(em->bm, &em->bm->edata, CD_PROP_BOOL, "freestyle_edge");
-    const int offset = CustomData_get_offset_named(&em->bm->edata, CD_PROP_BOOL, "freestyle_edge");
+    BM_data_layer_ensure_named(em->bm, &em->bm->pdata, CD_PROP_BOOL, "freestyle_face");
+    const int offset = CustomData_get_offset_named(&em->bm->pdata, CD_PROP_BOOL, "freestyle_face");
     if (offset == -1) {
       continue;
     }

@@ -118,7 +118,9 @@ set_property(GLOBAL PROPERTY ICON_GEOM_NAMES
   ops.mesh.rip_edge
   ops.mesh.spin
   ops.mesh.vertices_smooth
+  ops.node.add_reroute
   ops.node.links_cut
+  ops.node.links_mute
   ops.paint.eyedropper_add
   ops.paint.vertex_color_fill
   ops.paint.weight_fill
@@ -152,6 +154,7 @@ set_property(GLOBAL PROPERTY ICON_GEOM_NAMES
   ops.sculpt.polyline_trim
   ops.sequencer.blade
   ops.sequencer.retime
+  ops.sequencer.slip
   ops.transform.bone_envelope
   ops.transform.bone_size
   ops.transform.edge_slide
@@ -317,6 +320,10 @@ if(WITH_BLENDER)
       driver_transform
       duplicate
       edgesel
+      edge_bevel
+      edge_crease
+      edge_seam
+      edge_sharp
       editmode_hlt
       empty_arrows
       empty_axis
@@ -559,10 +566,13 @@ if(WITH_BLENDER)
       mod_array
       mod_bevel
       mod_boolean
+      mod_brightness_contrast
       mod_build
       mod_cast
       mod_cloth
+      mod_color_balance
       mod_curve
+      mod_curves
       mod_dash
       mod_data_transfer
       mod_decim
@@ -573,6 +583,7 @@ if(WITH_BLENDER)
       mod_explode
       mod_fluid
       mod_fluidsim
+      mod_hue_correct
       mod_hue_saturation
       mod_instance
       mod_lattice
@@ -604,11 +615,13 @@ if(WITH_BLENDER)
       mod_thickness
       mod_time
       mod_tint
+      mod_tonemap
       mod_triangulate
       mod_uvproject
       mod_vertex_weight
       mod_warp
       mod_wave
+      mod_white_balance
       mod_wireframe
       monkey
       mouse_lmb
@@ -723,6 +736,8 @@ if(WITH_BLENDER)
       play
       play_reverse
       play_sound
+      playhead_snap_off
+      playhead_snap_on
       plugin
       plus
       pmarker
@@ -772,7 +787,6 @@ if(WITH_BLENDER)
       rigid_body
       rigid_body_constraint
       rna
-      rna_add
       rndcurve
       rootcurve
       scene
@@ -899,6 +913,7 @@ if(WITH_BLENDER)
       uv_sync_select
       uv_vertexsel
       vertexsel
+      vertex_crease
       view3d
       viewzoom
       view_camera
@@ -958,6 +973,7 @@ if(WITH_BLENDER)
       cursor_pointer
       cursor_right_handle
       cursor_s_arrow
+      cursor_slip
       cursor_stop
       cursor_swap_area
       cursor_text_edit

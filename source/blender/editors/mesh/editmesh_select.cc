@@ -241,6 +241,101 @@ void EDBM_select_mirrored(BMEditMesh *em,
   *r_totfail = totfail;
 }
 
+bool EDBM_select_mirrored_extend_all(Object *obedit, BMEditMesh *em)
+{
+  BMesh *bm = em->bm;
+  int selectmode = em->selectmode;
+  bool changed = false;
+
+  if (bm->totfacesel == 0) {
+    selectmode &= ~SCE_SELECT_FACE;
+  }
+  if (bm->totedgesel == 0) {
+    selectmode &= ~SCE_SELECT_EDGE;
+  }
+  if (bm->totvertsel == 0) {
+    selectmode &= ~SCE_SELECT_VERTEX;
+  }
+
+  if (selectmode == 0) {
+    return changed;
+  }
+
+  char symmetry_htype = 0;
+  if (selectmode & SCE_SELECT_FACE) {
+    symmetry_htype |= BM_FACE;
+  }
+  if (selectmode & SCE_SELECT_EDGE) {
+    symmetry_htype |= BM_EDGE;
+  }
+  if (selectmode & SCE_SELECT_VERTEX) {
+    symmetry_htype |= BM_VERT;
+  }
+  if (std::optional<EditMeshSymmetryHelper> symmetry_helper =
+          EditMeshSymmetryHelper::create_if_needed(obedit, symmetry_htype))
+  {
+    const char hflag = BM_ELEM_SELECT;
+    BMIter iter;
+
+    if (selectmode & SCE_SELECT_FACE) {
+      blender::Vector<BMFace *> source_faces;
+      source_faces.reserve(bm->totfacesel);
+      BMFace *f;
+      BM_ITER_MESH (f, &iter, bm, BM_FACES_OF_MESH) {
+        if (BM_elem_flag_test(f, hflag)) {
+          source_faces.append(f);
+        }
+      }
+      const int totfacesel_prev = bm->totfacesel;
+      for (BMFace *f_orig : source_faces) {
+        symmetry_helper->set_hflag_on_mirror_faces(f_orig, hflag, true);
+      }
+      if (bm->totfacesel != totfacesel_prev) {
+        changed = true;
+      }
+    }
+    if (selectmode & SCE_SELECT_EDGE) {
+      blender::Vector<BMEdge *> source_edges;
+      source_edges.reserve(bm->totedgesel);
+      BMEdge *e;
+      BM_ITER_MESH (e, &iter, bm, BM_EDGES_OF_MESH) {
+        if (BM_elem_flag_test(e, hflag)) {
+          source_edges.append(e);
+        }
+      }
+      const int totedgesel_prev = bm->totedgesel;
+      for (BMEdge *e_orig : source_edges) {
+        symmetry_helper->set_hflag_on_mirror_edges(e_orig, hflag, true);
+      }
+      if (bm->totedgesel != totedgesel_prev) {
+        changed = true;
+      }
+    }
+    if (selectmode & SCE_SELECT_VERTEX) {
+      blender::Vector<BMVert *> source_verts;
+      source_verts.reserve(bm->totvertsel);
+      BMVert *v;
+      BM_ITER_MESH (v, &iter, bm, BM_VERTS_OF_MESH) {
+        if (BM_elem_flag_test(v, hflag)) {
+          source_verts.append(v);
+        }
+      }
+      const int totvertsel_prev = bm->totvertsel;
+      for (BMVert *v_orig : source_verts) {
+        symmetry_helper->set_hflag_on_mirror_verts(v_orig, hflag, true);
+      }
+      if (bm->totvertsel != totvertsel_prev) {
+        changed = true;
+      }
+    }
+    if (changed) {
+      EDBM_selectmode_flush(em);
+    }
+  }
+
+  return changed;
+}
+
 /** \} */
 
 /* -------------------------------------------------------------------- */
@@ -1461,7 +1556,7 @@ static wmOperatorStatus edbm_select_mode_invoke(bContext *C, wmOperator *op, con
   /* Bypass when in UV non sync-select mode, fall through to keymap that edits. */
   if (CTX_wm_space_image(C)) {
     ToolSettings *ts = CTX_data_tool_settings(C);
-    if ((ts->uv_flag & UV_FLAG_SYNC_SELECT) == 0) {
+    if ((ts->uv_flag & UV_FLAG_SELECT_SYNC) == 0) {
       return OPERATOR_PASS_THROUGH;
     }
     /* Bypass when no action is needed. */
@@ -2375,7 +2470,7 @@ void EDBM_selectmode_set(BMEditMesh *em, const short selectmode)
 
   if (em->selectmode & SCE_SELECT_VERTEX) {
     if (em->bm->totvertsel) {
-      EDBM_select_flush(em);
+      EDBM_select_flush_from_verts(em, true);
     }
   }
   else if (em->selectmode & SCE_SELECT_EDGE) {
@@ -2490,7 +2585,7 @@ void EDBM_selectmode_convert(BMEditMesh *em,
         }
       }
       /* Deselect edges without both verts selected. */
-      BM_mesh_deselect_flush(bm);
+      BM_mesh_select_flush_from_verts(bm, false);
     }
   }
   else if (selectmode_old == SCE_SELECT_FACE) {
@@ -2506,7 +2601,7 @@ void EDBM_selectmode_convert(BMEditMesh *em,
         }
       }
       /* Deselect faces without edges selected. */
-      BM_mesh_deselect_flush(bm);
+      BM_mesh_select_flush_from_verts(bm, false);
     }
     else if (selectmode_new == SCE_SELECT_VERTEX) {
       /* Flush down (face -> vert). */
@@ -2517,7 +2612,7 @@ void EDBM_selectmode_convert(BMEditMesh *em,
         }
       }
       /* Deselect faces without verts selected. */
-      BM_mesh_deselect_flush(bm);
+      BM_mesh_select_flush_from_verts(bm, false);
     }
   }
 }
@@ -2706,7 +2801,7 @@ bool EDBM_selectmode_set_multi(bContext *C, const short selectmode)
  * it's not guaranteed because objects can be shared across scenes and each
  * scene has its own select-mode which is applied to the object when entering edit-mode.
  *
- * This function should only be used when the an operation would cause errors
+ * This function should only be used when an operation would cause errors
  * when applied in the wrong selection mode.
  *
  * \return True when a change was made.
@@ -4209,7 +4304,7 @@ static wmOperatorStatus edbm_select_mirror_exec(bContext *C, wmOperator *op)
   }
 
   if (tot_mirr || tot_fail) {
-    ED_mesh_report_mirror_ex(op, tot_mirr, tot_fail, select_mode);
+    ED_mesh_report_mirror_ex(*op->reports, tot_mirr, tot_fail, select_mode);
   }
   return OPERATOR_FINISHED;
 }
@@ -4357,6 +4452,262 @@ static bool bm_edge_is_select_isolated(BMEdge *e)
   return true;
 }
 
+static BMEdge *bm_step_over_vert_to_next_selected_edge_in_chain(const BMEdge *e_curr, BMVert *v)
+{
+  BMIter eiter;
+  BMEdge *e_other, *e_next = nullptr;
+  int count = 0;
+  const int count_expected = 1;
+
+  BM_ITER_ELEM (e_other, &eiter, v, BM_EDGES_OF_VERT) {
+    if (e_other == e_curr || !BM_elem_flag_test(e_other, BM_ELEM_SELECT)) {
+      continue;
+    }
+    if (++count > count_expected) {
+      return nullptr;
+    }
+    e_next = e_other;
+  }
+  return (count == count_expected) ? e_next : nullptr;
+}
+
+static BMVert *bm_step_to_next_selected_vert_in_chain(BMVert *v_curr, BMVert *v_prev)
+{
+  BMIter eiter;
+  BMEdge *e;
+  BMVert *v_next = nullptr;
+  int count = 0;
+  const int count_expected = v_prev ? 1 : 2;
+
+  BM_ITER_ELEM (e, &eiter, v_curr, BM_EDGES_OF_VERT) {
+    BMVert *v_other = BM_edge_other_vert(e, v_curr);
+    if (v_other == v_prev || !BM_elem_flag_test(v_other, BM_ELEM_SELECT)) {
+      continue;
+    }
+    if (++count > count_expected) {
+      return nullptr;
+    }
+    v_next = v_other;
+  }
+  return (count == count_expected) ? v_next : nullptr;
+}
+
+static BMFace *bm_step_over_shared_edge_to_next_selected_face_in_chain(BMFace *f_curr,
+                                                                       BMFace *f_prev)
+{
+  BMIter liter;
+  BMLoop *l;
+  BMFace *f_next = nullptr;
+  int count = 0;
+  const int count_expected = f_prev ? 1 : 2;
+
+  BM_ITER_ELEM (l, &liter, f_curr, BM_LOOPS_OF_FACE) {
+    BMIter fiter;
+    BMFace *f_other;
+    BM_ITER_ELEM (f_other, &fiter, l->e, BM_FACES_OF_EDGE) {
+      if (ELEM(f_other, f_curr, f_prev) || !BM_elem_flag_test(f_other, BM_ELEM_SELECT)) {
+        continue;
+      }
+      if (++count > count_expected) {
+        return nullptr;
+      }
+      f_next = f_other;
+    }
+  }
+  return (count == count_expected) ? f_next : nullptr;
+}
+
+/**
+ * Check if the selected vertices form a loop cyclic chain.
+ */
+static bool bm_verts_form_cyclic_chain(BMVert *v_start)
+{
+  BMVert *v_prev = nullptr, *v_curr = v_start;
+
+  do {
+    int selected_neighbor_count = 0;
+    BMIter eiter;
+    BMEdge *e;
+    BM_ITER_ELEM (e, &eiter, v_curr, BM_EDGES_OF_VERT) {
+      BMVert *v_other = BM_edge_other_vert(e, v_curr);
+      if (BM_elem_flag_test(v_other, BM_ELEM_SELECT)) {
+        if (++selected_neighbor_count > 2) {
+          return false;
+        }
+      }
+    }
+    if (selected_neighbor_count != 2) {
+      return false;
+    }
+
+    BMVert *v_next = bm_step_to_next_selected_vert_in_chain(v_curr, v_prev);
+    if (v_next == nullptr) {
+      return false;
+    }
+    v_prev = v_curr;
+    v_curr = v_next;
+  } while (v_curr != v_start);
+
+  return true;
+}
+
+/**
+ * Check if the selected edges form a loop cyclic chain.
+ */
+static bool bm_edges_form_cyclic_chain(BMEdge *e_start)
+{
+  BMEdge *e_curr = e_start;
+  BMVert *v_through = e_start->v1;
+
+  do {
+    BMEdge *e_next = bm_step_over_vert_to_next_selected_edge_in_chain(e_curr, v_through);
+    if (e_next == nullptr) {
+      return false;
+    }
+    v_through = BM_edge_other_vert(e_next, v_through);
+    e_curr = e_next;
+
+  } while (e_curr != e_start);
+
+  return true;
+}
+
+/**
+ * Check if the selected faces form a loop cyclic chain.
+ */
+static bool bm_faces_form_cyclic_chain(BMFace *f_start)
+{
+  BMFace *f_prev = nullptr;
+  BMFace *f_curr = f_start;
+
+  do {
+    int selected_neighbor_count = 0;
+    BMIter liter;
+    BMLoop *l;
+
+    BM_ITER_ELEM (l, &liter, f_curr, BM_LOOPS_OF_FACE) {
+      BMIter fiter;
+      BMFace *f_other;
+      BM_ITER_ELEM (f_other, &fiter, l->e, BM_FACES_OF_EDGE) {
+        if (f_other != f_curr && BM_elem_flag_test(f_other, BM_ELEM_SELECT)) {
+          selected_neighbor_count++;
+        }
+      }
+    }
+    if (selected_neighbor_count != 2) {
+      return false;
+    }
+
+    BMFace *f_next = bm_step_over_shared_edge_to_next_selected_face_in_chain(f_curr, f_prev);
+    if (f_next == nullptr) {
+      return false;
+    }
+
+    f_prev = f_curr;
+    f_curr = f_next;
+  } while (f_curr != f_start);
+
+  return true;
+}
+
+static void walker_deselect_nth_vertex_chain(BMEditMesh *em,
+                                             const CheckerIntervalParams *op_params,
+                                             BMVert *v_start)
+{
+  BMesh *bm = em->bm;
+  BMVert *v_prev = nullptr;
+  BMVert *v_curr = v_start;
+  int index = 0;
+
+  /* Mark all vertices as unvisited. */
+  BM_mesh_elem_hflag_disable_all(bm, BM_VERT, BM_ELEM_TAG, false);
+
+  while (v_curr && !BM_elem_flag_test(v_curr, BM_ELEM_TAG)) {
+    /* Mark as visited. */
+    BM_elem_flag_enable(v_curr, BM_ELEM_TAG);
+
+    /* Apply checker pattern based on position in loop. */
+    if (!WM_operator_properties_checker_interval_test(op_params, index)) {
+      BM_elem_select_set(bm, (BMElem *)v_curr, false);
+    }
+
+    /* Find next vertex in the loop. */
+    BMVert *v_next = bm_step_to_next_selected_vert_in_chain(v_curr, v_prev);
+    if (ELEM(v_next, nullptr, v_start)) {
+      break;
+    }
+
+    v_prev = v_curr;
+    v_curr = v_next;
+    index++;
+  }
+}
+
+static void walker_deselect_nth_edge_chain(BMEditMesh *em,
+                                           const CheckerIntervalParams *op_params,
+                                           BMEdge *e_start)
+{
+  BMesh *bm = em->bm;
+  BMEdge *e_curr = e_start;
+  BMVert *v_through = e_start->v1;
+  int index = 0;
+
+  /* Mark all edges as unvisited. */
+  BM_mesh_elem_hflag_disable_all(bm, BM_EDGE, BM_ELEM_TAG, false);
+
+  while (e_curr && !BM_elem_flag_test(e_curr, BM_ELEM_TAG)) {
+    /* Mark as visited. */
+    BM_elem_flag_enable(e_curr, BM_ELEM_TAG);
+
+    /* Apply checker pattern based on position in loop. */
+    if (!WM_operator_properties_checker_interval_test(op_params, index)) {
+      BM_elem_select_set(bm, (BMElem *)e_curr, false);
+    }
+
+    /* Find next edge in the loop. */
+    BMEdge *e_next = bm_step_over_vert_to_next_selected_edge_in_chain(e_curr, v_through);
+    if (ELEM(e_next, nullptr, e_start)) {
+      break;
+    }
+
+    v_through = BM_edge_other_vert(e_next, v_through);
+    e_curr = e_next;
+    index++;
+  }
+}
+
+static void walker_deselect_nth_face_chain(BMEditMesh *em,
+                                           const CheckerIntervalParams *op_params,
+                                           BMFace *f_start)
+{
+  BMesh *bm = em->bm;
+  BMFace *f_prev = nullptr;
+  BMFace *f_curr = f_start;
+  int index = 0;
+
+  /* Mark all faces as unvisited. */
+  BM_mesh_elem_hflag_disable_all(bm, BM_FACE, BM_ELEM_TAG, false);
+
+  while (f_curr && !BM_elem_flag_test(f_curr, BM_ELEM_TAG)) {
+    BM_elem_flag_enable(f_curr, BM_ELEM_TAG);
+
+    BMFace *f_next = bm_step_over_shared_edge_to_next_selected_face_in_chain(f_curr, f_prev);
+
+    /* Apply checker pattern to current face. */
+    if (!WM_operator_properties_checker_interval_test(op_params, index)) {
+      BM_elem_select_set(bm, (BMElem *)f_curr, false);
+    }
+
+    if (ELEM(f_next, nullptr, f_start)) {
+      break;
+    }
+
+    f_prev = f_curr;
+    f_curr = f_next;
+    index++;
+  }
+}
+
 /* Walk all reachable elements of the same type as h_act in breadth-first
  * order, starting from h_act. Deselects elements if the depth when they
  * are reached is not a multiple of "nth". */
@@ -4374,6 +4725,40 @@ static void walker_deselect_nth(BMEditMesh *em,
   /* No active element from which to start - nothing to do. */
   if (h_act == nullptr) {
     return;
+  }
+
+  /* Note on cyclic-chain handling here:
+   *
+   * The use of a breadth first search to determine element order
+   * causes problems with cyclic topology.
+   *
+   * The walker ordered vertices by their graph depth from the active element.
+   * This approach was failing on loops like a circle because the breadth first
+   * search expanded in two directions simultaneously, creating a symmetrical
+   * but non sequential depth map, see: #126909. */
+  if (h_act->htype == BM_VERT) {
+    BMVert *v_start = (BMVert *)h_act;
+    if (bm_verts_form_cyclic_chain(v_start)) {
+      walker_deselect_nth_vertex_chain(em, op_params, v_start);
+      EDBM_selectmode_flush_ex(em, SCE_SELECT_VERTEX);
+      return;
+    }
+  }
+  else if (h_act->htype == BM_EDGE) {
+    BMEdge *e_start = (BMEdge *)h_act;
+    if (bm_edges_form_cyclic_chain(e_start)) {
+      walker_deselect_nth_edge_chain(em, op_params, e_start);
+      EDBM_selectmode_flush_ex(em, SCE_SELECT_EDGE);
+      return;
+    }
+  }
+  else if (h_act->htype == BM_FACE) {
+    BMFace *f_start = (BMFace *)h_act;
+    if (bm_faces_form_cyclic_chain(f_start)) {
+      walker_deselect_nth_face_chain(em, op_params, f_start);
+      EDBM_selectmode_flush_ex(em, SCE_SELECT_FACE);
+      return;
+    }
   }
 
   /* Determine which type of iterator, walker, and select flush to use
@@ -4423,7 +4808,7 @@ static void walker_deselect_nth(BMEditMesh *em,
            BMW_FLAG_NOP, /* Don't use #BMW_FLAG_TEST_HIDDEN here since we want to deselect all. */
            BMW_NIL_LAY);
 
-  /* Use tag to avoid touching the same verts twice. */
+  /* Use tag to avoid touching the same elems twice. */
   BM_ITER_MESH (ele, &iter, bm, itertype) {
     BM_elem_flag_disable(ele, BM_ELEM_TAG);
   }
@@ -4964,11 +5349,11 @@ static wmOperatorStatus edbm_select_random_exec(bContext *C, wmOperator *op)
     }
 
     if (select) {
-      /* Was #EDBM_select_flush, but it over selects in edge/face mode. */
+      /* Was #EDBM_select_flush_from_verts, but it over selects in edge/face mode. */
       EDBM_selectmode_flush(em);
     }
     else {
-      EDBM_deselect_flush(em);
+      EDBM_select_flush_from_verts(em, false);
     }
 
     DEG_id_tag_update(static_cast<ID *>(obedit->data), ID_RECALC_SELECT);

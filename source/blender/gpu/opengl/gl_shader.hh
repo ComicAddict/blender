@@ -133,7 +133,6 @@ class GLShader : public Shader {
   ~GLShader();
 
   void init(const shader::ShaderCreateInfo &info, bool is_batch_compilation) override;
-  void init() override;
 
   /** Return true on success. */
   void vertex_shader_from_glsl(MutableSpan<StringRefNull> sources) override;
@@ -215,7 +214,7 @@ class GLCompilerWorker {
   std::unique_ptr<SharedSemaphore> start_semaphore_;
   std::unique_ptr<SharedSemaphore> end_semaphore_;
   std::unique_ptr<SharedSemaphore> close_semaphore_;
-  enum eState {
+  enum State {
     /* The worker has been acquired and the compilation has been requested. */
     COMPILATION_REQUESTED,
     /* The shader binary result is ready to be read. */
@@ -225,7 +224,7 @@ class GLCompilerWorker {
     /* The worker is not currently in use and can be acquired. */
     AVAILABLE
   };
-  std::atomic<eState> state_ = AVAILABLE;
+  std::atomic<State> state_ = AVAILABLE;
   double compilation_start = 0;
 
   GLCompilerWorker();

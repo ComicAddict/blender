@@ -39,7 +39,7 @@ void HiZBuffer::sync()
 
   {
     PassSimple &pass = hiz_update_ps_;
-    GPUShader *sh = inst_.shaders.static_shader_get(HIZ_UPDATE);
+    gpu::Shader *sh = inst_.shaders.static_shader_get(HIZ_UPDATE);
     pass.init();
     pass.specialize_constant(sh, "update_mip_0", update_mip_0);
     pass.shader_set(sh);
@@ -58,7 +58,7 @@ void HiZBuffer::sync()
   }
   {
     PassSimple &pass = hiz_update_layer_ps_;
-    GPUShader *sh = inst_.shaders.static_shader_get(HIZ_UPDATE_LAYER);
+    gpu::Shader *sh = inst_.shaders.static_shader_get(HIZ_UPDATE_LAYER);
     pass.init();
     pass.specialize_constant(sh, "update_mip_0", update_mip_0);
     pass.shader_set(sh);
@@ -107,7 +107,7 @@ void HiZBuffer::update()
   is_dirty_ = false;
 }
 
-void HiZBuffer::debug_draw(View &view, GPUFrameBuffer *view_fb)
+void HiZBuffer::debug_draw(View &view, gpu::FrameBuffer *view_fb)
 {
   if (inst_.debug_mode == eDebugMode::DEBUG_HIZ_VALIDATION) {
     inst_.info_append(

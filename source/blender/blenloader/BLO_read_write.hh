@@ -173,7 +173,7 @@ struct BLO_Write_IDBuffer {
   blender::DynamicStackBuffer<static_size> buffer_;
 
  public:
-  BLO_Write_IDBuffer(ID &id, bool is_undo);
+  BLO_Write_IDBuffer(ID &id, bool is_undo, bool is_placeholder);
   BLO_Write_IDBuffer(ID &id, BlendWriter *writer);
 
   ID *get()
@@ -376,11 +376,6 @@ void BLO_read_data_globmap_add(BlendDataReader *reader, void *oldaddr, void *new
 void BLO_read_glob_list(BlendDataReader *reader, ListBase *list);
 BlendFileReadReport *BLO_read_data_reports(BlendDataReader *reader);
 struct Library *BLO_read_data_current_library(BlendDataReader *reader);
-
-int BLO_read_struct_member_offset(const BlendDataReader *reader,
-                                  const char *stype,
-                                  const char *vartype,
-                                  const char *name);
 
 /** \} */
 

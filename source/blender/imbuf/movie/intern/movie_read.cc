@@ -16,11 +16,9 @@
 #include <sys/types.h>
 
 #include "BLI_path_utils.hh"
-#include "BLI_span.hh"
 #include "BLI_string.h"
 #include "BLI_string_utf8.h"
 #include "BLI_task.hh"
-#include "BLI_threads.h"
 #include "BLI_utildefines.h"
 
 #include "DNA_scene_types.h"
@@ -30,6 +28,8 @@
 #include "IMB_colormanagement.hh"
 #include "IMB_imbuf.hh"
 #include "IMB_imbuf_types.hh"
+
+#include "CLG_log.h"
 
 #include "MOV_read.hh"
 
@@ -52,6 +52,10 @@ extern "C" {
 }
 
 #endif /* WITH_FFMPEG */
+
+#ifdef WITH_FFMPEG
+static CLG_LogRef LOG = {"video.read"};
+#endif
 
 #ifdef WITH_FFMPEG
 static void free_anim_ffmpeg(MovieReader *anim);
@@ -117,29 +121,20 @@ static void probe_video_colorspace(MovieReader *anim, char r_colorspace_name[IM_
   }
 
 #ifdef WITH_FFMPEG
-  const AVColorTransferCharacteristic color_trc = anim->pCodecCtx->color_trc;
-  const AVColorSpace colorspace = anim->pCodecCtx->colorspace;
-  const AVColorPrimaries color_primaries = anim->pCodecCtx->color_primaries;
+  /* Note that the ffmpeg enums are documented to match CICP codes. */
+  const int cicp[4] = {anim->pCodecCtx->color_primaries,
+                       anim->pCodecCtx->color_trc,
+                       anim->pCodecCtx->colorspace,
+                       anim->pCodecCtx->color_range};
+  const ColorSpace *colorspace = IMB_colormanagement_space_from_cicp(
+      cicp, ColorManagedFileOutput::Video);
 
-  if (color_trc == AVCOL_TRC_ARIB_STD_B67 && color_primaries == AVCOL_PRI_BT2020 &&
-      colorspace == AVCOL_SPC_BT2020_NCL)
-  {
-    const char *hlg_name = IMB_colormanagement_get_rec2100_hlg_display_colorspace();
-    if (hlg_name) {
-      BLI_strncpy_utf8(r_colorspace_name, hlg_name, IM_MAX_SPACE);
-    }
+  if (colorspace == nullptr) {
     return;
   }
 
-  if (color_trc == AVCOL_TRC_SMPTEST2084 && color_primaries == AVCOL_PRI_BT2020 &&
-      colorspace == AVCOL_SPC_BT2020_NCL)
-  {
-    const char *pq_name = IMB_colormanagement_get_rec2100_pq_display_colorspace();
-    if (pq_name) {
-      BLI_strncpy_utf8(r_colorspace_name, pq_name, IM_MAX_SPACE);
-    }
-    return;
-  }
+  BLI_strncpy_utf8(
+      r_colorspace_name, IMB_colormanagement_colorspace_get_name(colorspace), IM_MAX_SPACE);
 #endif /* WITH_FFMPEG */
 }
 
@@ -400,7 +395,7 @@ static int startffmpeg(MovieReader *anim)
     pCodecCtx->thread_count = 0;
   }
   else {
-    pCodecCtx->thread_count = BLI_system_thread_count();
+    pCodecCtx->thread_count = MOV_thread_count();
   }
 
   if (pCodec->capabilities & AV_CODEC_CAP_FRAME_THREADS) {
@@ -483,7 +478,7 @@ static int startffmpeg(MovieReader *anim)
 
   const size_t align = ffmpeg_get_buffer_alignment();
   if (av_frame_get_buffer(anim->pFrameRGB, align) < 0) {
-    fprintf(stderr, "Could not allocate frame data.\n");
+    CLOG_ERROR(&LOG, "Could not allocate frame data.");
     avcodec_free_context(&anim->pCodecCtx);
     avformat_close_input(&anim->pFormatCtx);
     av_packet_free(&anim->cur_packet);
@@ -530,11 +525,11 @@ static int startffmpeg(MovieReader *anim)
                                                      SWS_ACCURATE_RND);
 
   if (!anim->img_convert_ctx) {
-    fprintf(stderr,
-            "ffmpeg: swscale can't transform from pixel format %s to %s (%s)\n",
-            av_get_pix_fmt_name(anim->pCodecCtx->pix_fmt),
-            av_get_pix_fmt_name((AVPixelFormat)anim->pFrameRGB->format),
-            anim->filepath);
+    CLOG_ERROR(&LOG,
+               "ffmpeg: swscale can't transform from pixel format %s to %s (%s)",
+               av_get_pix_fmt_name(anim->pCodecCtx->pix_fmt),
+               av_get_pix_fmt_name((AVPixelFormat)anim->pFrameRGB->format),
+               anim->filepath);
     avcodec_free_context(&anim->pCodecCtx);
     avformat_close_input(&anim->pFormatCtx);
     av_packet_free(&anim->cur_packet);
@@ -706,9 +701,9 @@ static void ffmpeg_postprocess(MovieReader *anim, AVFrame *input, ImBuf *ibuf)
   if (input->data[0] == nullptr && input->data[1] == nullptr && input->data[2] == nullptr &&
       input->data[3] == nullptr)
   {
-    fprintf(stderr,
-            "ffmpeg_fetchibuf: "
-            "data not read properly...\n");
+    CLOG_ERROR(&LOG,
+               "ffmpeg_fetchibuf: "
+               "data not read properly...");
     return;
   }
 
@@ -1334,7 +1329,8 @@ static ImBuf *ffmpeg_fetchibuf(MovieReader *anim, int position, IMB_Timecode_Typ
        * It might not be the most optimal thing to do from the playback performance in the
        * sequencer perspective, but it ensures that other areas in Blender do not run into obscure
        * color space mismatches. */
-      colormanage_imbuf_make_linear(cur_frame_final, anim->colorspace);
+      colormanage_imbuf_make_linear(
+          cur_frame_final, anim->colorspace, ColorManagedFileOutput::Video);
     }
   }
   else {

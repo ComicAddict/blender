@@ -16,8 +16,9 @@
 
 int main(int argc, char **argv)
 {
-  if (argc != 4) {
-    std::cerr << "Usage: glsl_preprocess <data_file_from> <data_file_to> <metadata_file_to>"
+  if (argc != 5) {
+    std::cerr << "Usage: glsl_preprocess <data_file_from> <data_file_to> <metadata_file_to> "
+                 "<infos_file_to>"
               << std::endl;
     exit(1);
   }
@@ -25,6 +26,7 @@ int main(int argc, char **argv)
   const char *input_file_name = argv[1];
   const char *output_file_name = argv[2];
   const char *metadata_file_name = argv[3];
+  const char *infos_file_name = argv[4];
 
   /* Open the input file for reading */
   std::ifstream input_file(input_file_name);
@@ -62,60 +64,37 @@ int main(int argc, char **argv)
     exit(1);
   }
 
+  /* Open the output file for writing */
+  std::ofstream infos_file(infos_file_name, std::ofstream::out | std::ofstream::binary);
+  if (!output_file) {
+    std::cerr << "Error: Could not open output file " << infos_file_name << std::endl;
+    input_file.close();
+    exit(1);
+  }
+
   std::stringstream buffer;
   buffer << input_file.rdbuf();
 
   int error = 0;
 
-  auto count_lines = [](const std::string &str) {
-    size_t lines = 0;
-    for (char c : str) {
-      if (c == '\n') {
-        lines++;
-      }
-    }
-    return lines;
-  };
+  auto report_error =
+      [&](int err_line, int err_char, const std::string &line, const char *err_msg) {
+        std::cerr << input_file_name;
+        std::cerr << ':' << std::to_string(err_line) << ':' << std::to_string(err_char + 1);
+        std::cerr << ": error: " << err_msg << std::endl;
+        std::cerr << line << std::endl;
+        std::cerr << std::string(err_char, ' ') << '^' << std::endl;
 
-  auto get_line = [&](size_t line) {
-    std::string src = buffer.str();
-    size_t start = 0, end;
-    for (; line > 1; line--) {
-      start = src.find('\n', start + 1);
-    }
-    end = src.find('\n', start + 1);
-    return src.substr(start + 1, end - (start + 1));
-  };
-
-  auto report_error = [&](const std::smatch &match, const char *err_msg) {
-    size_t remaining_lines = count_lines(match.suffix());
-    size_t total_lines = count_lines(buffer.str());
-
-    size_t err_line = 1 + total_lines - remaining_lines;
-    size_t err_char = (match.prefix().str().size() - 1) - match.prefix().str().rfind('\n');
-
-    std::cerr << input_file_name;
-    std::cerr << ':' << std::to_string(err_line) << ':' << std::to_string(err_char);
-    std::cerr << ": error: " << err_msg << std::endl;
-    std::cerr << get_line(err_line) << std::endl;
-    std::cerr << std::string(err_char, ' ') << '^' << std::endl;
-
-    error++;
-  };
+        error++;
+      };
   std::string filename(output_file_name);
-  const bool is_info = filename.find("info.hh") != std::string::npos;
+  const bool is_info = filename.find("infos.hh") != std::string::npos;
   const bool is_glsl = filename.find(".glsl") != std::string::npos;
   const bool is_shared = filename.find("shared.h") != std::string::npos;
   const bool is_library = is_glsl &&
                           (filename.find("gpu_shader_material_") != std::string::npos ||
                            filename.find("gpu_shader_common_") != std::string::npos ||
                            filename.find("gpu_shader_compositor_") != std::string::npos);
-
-  if (is_info) {
-    std::cerr << "File " << output_file_name
-              << " is a create info file and should not be processed as glsl" << std::endl;
-    return 1;
-  }
 
   using Preprocessor = blender::gpu::shader::Preprocessor;
   Preprocessor processor;
@@ -128,8 +107,14 @@ int main(int argc, char **argv)
   }
 
   blender::gpu::shader::metadata::Source metadata;
-  output_file << processor.process(
-      language, buffer.str(), input_file_name, is_library, is_shared, report_error, metadata);
+  if (is_info) {
+    /* Until they are parsed properly. Nullify them. */
+    output_file << "";
+  }
+  else {
+    output_file << processor.process(
+        language, buffer.str(), input_file_name, is_library, is_shared, report_error, metadata);
+  }
 
   /* TODO(fclem): Don't use regex for that. */
   std::string metadata_function_name = "metadata_" +
@@ -138,10 +123,17 @@ int main(int argc, char **argv)
   std::replace(metadata_function_name.begin(), metadata_function_name.end(), '.', '_');
 
   metadata_file << metadata.serialize(metadata_function_name);
+  if (is_info) {
+    /* Simple copy for now. But we need to rename all includes. */
+    std::string str = std::regex_replace(
+        buffer.str(), std::regex(R"(_infos.hh")"), "_infos.hh.info\"");
+    infos_file << str;
+  }
 
   input_file.close();
   output_file.close();
   metadata_file.close();
+  infos_file.close();
 
   return error;
 }

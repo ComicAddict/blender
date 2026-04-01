@@ -242,6 +242,7 @@ static TreeTraversalAction collection_find_selected_to_add(TreeElement *te, void
 
 static wmOperatorStatus collection_new_exec(bContext *C, wmOperator *op)
 {
+  WorkSpace *workspace = CTX_wm_workspace(C);
   SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
   ARegion *region = CTX_wm_region(C);
   Main *bmain = CTX_data_main(C);
@@ -251,7 +252,7 @@ static wmOperatorStatus collection_new_exec(bContext *C, wmOperator *op)
   CollectionNewData data{};
 
   if (RNA_boolean_get(op->ptr, "nested")) {
-    outliner_build_tree(bmain, scene, view_layer, space_outliner, region);
+    outliner_build_tree(bmain, workspace, scene, view_layer, space_outliner, region);
 
     outliner_tree_traverse(space_outliner,
                            &space_outliner->tree,
@@ -273,7 +274,7 @@ static wmOperatorStatus collection_new_exec(bContext *C, wmOperator *op)
   }
 
   if (!ID_IS_EDITABLE(scene) || ID_IS_OVERRIDE_LIBRARY(scene)) {
-    BKE_report(op->reports, RPT_ERROR, "Can't add a new collection to linked/override scene");
+    BKE_report(op->reports, RPT_ERROR, "Cannot add a new collection to linked/override scene");
     return OPERATOR_CANCELLED;
   }
 
@@ -1628,7 +1629,7 @@ static wmOperatorStatus outliner_color_tag_set_exec(bContext *C, wmOperator *op)
       continue;
     }
     if (!BKE_id_is_editable(CTX_data_main(C), &collection->id)) {
-      BKE_report(op->reports, RPT_WARNING, "Can't add a color tag to a linked collection");
+      BKE_report(op->reports, RPT_WARNING, "Cannot add a color tag to a linked collection");
       continue;
     }
 

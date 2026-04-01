@@ -18,8 +18,10 @@
 
 struct DRWData;
 struct GPUViewport;
-struct GPUFrameBuffer;
 struct GPUOffScreen;
+namespace blender::gpu {
+class FrameBuffer;
+}  // namespace blender::gpu
 
 GPUViewport *GPU_viewport_create();
 GPUViewport *GPU_viewport_stereo_create();
@@ -51,11 +53,6 @@ void GPU_viewport_colorspace_set(GPUViewport *viewport,
                                  const ColorManagedViewSettings *view_settings,
                                  const ColorManagedDisplaySettings *display_settings,
                                  float dither);
-
-/**
- * Force this viewport to not clamp the result regardless of the display HDR support.
- */
-void GPU_viewport_force_hdr(GPUViewport *viewport);
 
 /**
  * Should be called from DRW after DRW_gpu_context_enable.
@@ -91,5 +88,5 @@ blender::gpu::Texture *GPU_viewport_depth_texture(GPUViewport *viewport);
 /**
  * Color render and overlay frame-buffers for drawing outside of DRW module.
  */
-GPUFrameBuffer *GPU_viewport_framebuffer_render_get(GPUViewport *viewport);
-GPUFrameBuffer *GPU_viewport_framebuffer_overlay_get(GPUViewport *viewport);
+blender::gpu::FrameBuffer *GPU_viewport_framebuffer_render_get(GPUViewport *viewport);
+blender::gpu::FrameBuffer *GPU_viewport_framebuffer_overlay_get(GPUViewport *viewport);

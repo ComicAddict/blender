@@ -199,8 +199,8 @@ std::optional<blender::Bounds<blender::float3>> BKE_pose_minmax(const Object *ob
  * (For renaming, check for unique names afterwards)
  * \param strip_number: removes number extensions (TODO: not used).
  * \param axis: The axis to name on.
- * \param head: The head co-ordinate of the bone on the specified axis.
- * \param tail: The tail co-ordinate of the bone on the specified axis.
+ * \param head: The head coordinate of the bone on the specified axis.
+ * \param tail: The tail coordinate of the bone on the specified axis.
  */
 bool bone_autoside_name(char name[64], int strip_number, short axis, float head, float tail);
 
@@ -302,7 +302,7 @@ void mat3_to_vec_roll(const float mat[3][3], float r_vec[3], float *r_roll);
  */
 void mat3_vec_to_roll(const float mat[3][3], const float vec[3], float *r_roll);
 
-/* Common Conversions Between Co-ordinate Spaces */
+/* Common Conversions Between Coordinate Spaces */
 
 /**
  * Convert World-Space Matrix to Pose-Space Matrix.
@@ -568,18 +568,12 @@ void BKE_pchan_bbone_deform_segment_index(const bPoseChannel *pchan,
                                           int *r_index,
                                           float *r_blend_next);
 
-#define PBONE_SELECTABLE(arm, bone) \
-  (blender::animrig::bone_is_visible(arm, bone) && !((bone)->flag & BONE_UNSELECTABLE))
-
-#define PBONE_SELECTED(arm, bone) \
-  (((bone)->flag & BONE_SELECTED) & blender::animrig::bone_is_visible(arm, bone))
-
 /* context.selected_pose_bones */
 #define FOREACH_PCHAN_SELECTED_IN_OBJECT_BEGIN(_ob, _pchan) \
   for (bPoseChannel *_pchan = (bPoseChannel *)(_ob)->pose->chanbase.first; _pchan; \
        _pchan = _pchan->next) \
   { \
-    if (blender::animrig::bone_is_visible(((bArmature *)(_ob)->data), (_pchan)->bone) && \
+    if (blender::animrig::bone_is_visible(((bArmature *)(_ob)->data), _pchan) && \
         ((_pchan)->bone->flag & BONE_SELECTED)) \
     {
 #define FOREACH_PCHAN_SELECTED_IN_OBJECT_END \
@@ -591,7 +585,7 @@ void BKE_pchan_bbone_deform_segment_index(const bPoseChannel *pchan,
   for (bPoseChannel *_pchan = (bPoseChannel *)(_ob)->pose->chanbase.first; _pchan; \
        _pchan = _pchan->next) \
   { \
-    if (blender::animrig::bone_is_visible(((bArmature *)(_ob)->data), (_pchan)->bone)) {
+    if (blender::animrig::bone_is_visible(((bArmature *)(_ob)->data), _pchan)) {
 #define FOREACH_PCHAN_VISIBLE_IN_OBJECT_END \
   } \
   } \

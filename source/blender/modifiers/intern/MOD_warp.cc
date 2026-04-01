@@ -393,7 +393,7 @@ static void falloff_panel_draw(const bContext * /*C*/, Panel *panel)
   }
 
   if (use_falloff && RNA_enum_get(ptr, "falloff_type") == eWarp_Falloff_Curve) {
-    uiTemplateCurveMapping(layout, ptr, "falloff_curve", 0, false, false, false, false);
+    uiTemplateCurveMapping(layout, ptr, "falloff_curve", 0, false, false, false, false, false);
   }
 }
 
@@ -497,4 +497,5 @@ ModifierTypeInfo modifierType_Warp = {
     /*blend_write*/ blend_write,
     /*blend_read*/ blend_read,
     /*foreach_cache*/ nullptr,
+    /*foreach_working_space_color*/ nullptr,
 };

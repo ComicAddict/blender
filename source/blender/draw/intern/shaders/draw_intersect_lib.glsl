@@ -9,10 +9,12 @@
  * Results are meant to be conservative.
  */
 
-#include "draw_view_info.hh"
+#include "draw_view_infos.hh"
 
-#include "draw_math_geom_lib.glsl"
 #include "draw_shape_lib.glsl"
+#include "gpu_shader_math_base_lib.glsl"
+#include "gpu_shader_math_safe_lib.glsl"
+#include "gpu_shader_math_vector_lib.glsl"
 #include "gpu_shader_utildefines_lib.glsl"
 
 /* ---------------------------------------------------------------------- */
@@ -137,21 +139,24 @@ IsectFrustum isect_frustum_setup(Frustum shape)
 #ifdef DRW_VIEW_CULLING_INFO
 SHADER_LIBRARY_CREATE_INFO(draw_view_culling)
 
-ViewCullingData drw_view_culling()
+ViewCullingData drw_view_culling(uint view_id = drw_view_id)
 {
-  return drw_view_culling_buf[drw_view_id];
+  return drw_view_culling_buf[view_id];
 }
 
-bool intersect_view(Pyramid pyramid)
+bool intersect_view(Pyramid pyramid, uint view_id = drw_view_id)
 {
   bool intersects = true;
+
+  /* WORKAROUND: There is a GLSL compiler bug on legacy AMD GPU drivers that returns an incorrect
+   * computation if `drw_view_culling()` is called in both of the loops below (see #143336). */
+  ViewCullingData culling = drw_view_culling(view_id);
 
   /* Do Pyramid vertices vs Frustum planes. */
   for (int p = 0; p < 6; ++p) {
     bool is_any_vertex_on_positive_side = false;
     for (int v = 0; v < 5; ++v) {
-      float test = dot(drw_view_culling().frustum_planes.planes[p],
-                       float4(pyramid.corners[v], 1.0f));
+      float test = dot(culling.frustum_planes.planes[p], float4(pyramid.corners[v], 1.0f));
       if (test > 0.0f) {
         is_any_vertex_on_positive_side = true;
         break;
@@ -173,8 +178,7 @@ bool intersect_view(Pyramid pyramid)
   for (int p = 0; p < 5; ++p) {
     bool is_any_vertex_on_positive_side = false;
     for (int v = 0; v < 8; ++v) {
-      float test = dot(i_pyramid.planes[p],
-                       float4(drw_view_culling().frustum_corners.corners[v].xyz, 1.0f));
+      float test = dot(i_pyramid.planes[p], float4(culling.frustum_corners.corners[v].xyz, 1.0f));
       if (test > 0.0f) {
         is_any_vertex_on_positive_side = true;
         break;
@@ -189,15 +193,19 @@ bool intersect_view(Pyramid pyramid)
   return intersects;
 }
 
-bool intersect_view(Box box)
+bool intersect_view(Box box, uint view_id = drw_view_id)
 {
   bool intersects = true;
+
+  /* WORKAROUND: There is a GLSL compiler bug on legacy AMD GPU drivers that returns an incorrect
+   * computation if `drw_view_culling()` is called in both of the loops below (see #143336). */
+  ViewCullingData culling = drw_view_culling(view_id);
 
   /* Do Box vertices vs Frustum planes. */
   for (int p = 0; p < 6; ++p) {
     bool is_any_vertex_on_positive_side = false;
     for (int v = 0; v < 8; ++v) {
-      float test = dot(drw_view_culling().frustum_planes.planes[p], float4(box.corners[v], 1.0f));
+      float test = dot(culling.frustum_planes.planes[p], float4(box.corners[v], 1.0f));
       if (test > 0.0f) {
         is_any_vertex_on_positive_side = true;
         break;
@@ -219,8 +227,7 @@ bool intersect_view(Box box)
   for (int p = 0; p < 6; ++p) {
     bool is_any_vertex_on_positive_side = false;
     for (int v = 0; v < 8; ++v) {
-      float test = dot(i_box.planes[p],
-                       float4(drw_view_culling().frustum_corners.corners[v].xyz, 1.0f));
+      float test = dot(i_box.planes[p], float4(culling.frustum_corners.corners[v].xyz, 1.0f));
       if (test > 0.0f) {
         is_any_vertex_on_positive_side = true;
         break;
@@ -236,16 +243,19 @@ bool intersect_view(Box box)
   return intersects;
 }
 
-bool intersect_view(IsectBox i_box)
+bool intersect_view(IsectBox i_box, uint view_id = drw_view_id)
 {
   bool intersects = true;
+
+  /* WORKAROUND: There is a GLSL compiler bug on legacy AMD GPU drivers that returns an incorrect
+   * computation if `drw_view_culling()` is called in both of the loops below (see #143336). */
+  ViewCullingData culling = drw_view_culling(view_id);
 
   /* Do Box vertices vs Frustum planes. */
   for (int p = 0; p < 6; ++p) {
     bool is_any_vertex_on_positive_side = false;
     for (int v = 0; v < 8; ++v) {
-      float test = dot(drw_view_culling().frustum_planes.planes[p],
-                       float4(i_box.corners[v], 1.0f));
+      float test = dot(culling.frustum_planes.planes[p], float4(i_box.corners[v], 1.0f));
       if (test > 0.0f) {
         is_any_vertex_on_positive_side = true;
         break;
@@ -265,8 +275,7 @@ bool intersect_view(IsectBox i_box)
   for (int p = 0; p < 6; ++p) {
     bool is_any_vertex_on_positive_side = false;
     for (int v = 0; v < 8; ++v) {
-      float test = dot(i_box.planes[p],
-                       float4(drw_view_culling().frustum_corners.corners[v].xyz, 1.0f));
+      float test = dot(i_box.planes[p], float4(culling.frustum_corners.corners[v].xyz, 1.0f));
       if (test > 0.0f) {
         is_any_vertex_on_positive_side = true;
         break;
@@ -282,13 +291,16 @@ bool intersect_view(IsectBox i_box)
   return intersects;
 }
 
-bool intersect_view(Sphere sphere)
+bool intersect_view(Sphere sphere, uint view_id = drw_view_id)
 {
   bool intersects = true;
 
+  /* WORKAROUND: There is a GLSL compiler bug on legacy AMD GPU drivers that returns an incorrect
+   * computation if `drw_view_culling()` is called in both of the loops below (see #143336). */
+  ViewCullingData culling = drw_view_culling(view_id);
+
   for (int p = 0; p < 6 && intersects; ++p) {
-    float dist_to_plane = dot(drw_view_culling().frustum_planes.planes[p],
-                              float4(sphere.center, 1.0f));
+    float dist_to_plane = dot(culling.frustum_planes.planes[p], float4(sphere.center, 1.0f));
     if (dist_to_plane < -sphere.radius) {
       intersects = false;
     }

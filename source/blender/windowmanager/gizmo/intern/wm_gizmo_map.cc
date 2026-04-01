@@ -712,7 +712,7 @@ static wmGizmo *gizmo_find_intersected_3d(bContext *C,
       return nullptr;
     }
     blender::gpu::Texture *depth_tx = GPU_viewport_depth_texture(viewport);
-    GPUFrameBuffer *depth_read_fb = nullptr;
+    blender::gpu::FrameBuffer *depth_read_fb = nullptr;
     GPU_framebuffer_ensure_config(&depth_read_fb,
                                   {
                                       GPU_ATTACHMENT_TEXTURE(depth_tx),
@@ -780,7 +780,7 @@ wmGizmo *wm_gizmomap_highlight_find(wmGizmoMap *gzmap,
   bool do_step[WM_GIZMOMAP_DRAWSTEP_MAX];
 
   int mval[2];
-  if (event->val == KM_CLICK_DRAG) {
+  if (event->val == KM_PRESS_DRAG) {
     WM_event_drag_start_mval(event, CTX_wm_region(C), mval);
   }
   else {

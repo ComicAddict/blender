@@ -5,7 +5,7 @@
 /* Sum all spherical harmonic coefficients extracting during remapping to octahedral map.
  * Dispatch only one thread-group that sums. */
 
-#include "infos/eevee_lightprobe_sphere_info.hh"
+#include "infos/eevee_lightprobe_sphere_infos.hh"
 
 COMPUTE_SHADER_CREATE_INFO(eevee_lightprobe_sphere_irradiance)
 
@@ -48,7 +48,7 @@ void main()
   local_sh_coefs[local_index][3] = sh.L1.Mp1;
 
   /* Parallel sum. */
-  constexpr uint group_size = gl_WorkGroupSize.x * gl_WorkGroupSize.y;
+  constexpr uint group_size = gl_WorkGroupSize.x;
   uint stride = group_size / 2;
   for (int i = 0; i < 10; i++) {
     barrier();

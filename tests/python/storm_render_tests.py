@@ -15,6 +15,8 @@ BLOCKLIST_HYDRA = [
     "image.*_float.*.blend",
     # Differences between devices/drivers causing this to fail
     "image.blend",
+    # VDB rendering is incorrect on Metal
+    "overlapping_octrees.blend",
 ]
 
 BLOCKLIST_USD = [
@@ -23,6 +25,8 @@ BLOCKLIST_USD = [
     "image.*_float.*.blend",
     # Nondeterministic exporting of lights in the scene
     "light_tree_node_subtended_angle.blend",
+    # VDB rendering is incorrect on Metal
+    "overlapping_octrees.blend",
 ]
 
 # Metal support in Storm is no as good as OpenGL, though this needs to be
@@ -30,6 +34,7 @@ BLOCKLIST_USD = [
 BLOCKLIST_METAL = [
     # Thinfilm
     "principled.*thinfilm.*.blend",
+    "metallic.*thinfilm.*.blend",
     # Transparency
     "transparent.blend",
     "transparent_shadow.blend",

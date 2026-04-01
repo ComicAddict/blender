@@ -31,7 +31,7 @@ static const RTCFeatureFlags CYCLES_ONEAPI_EMBREE_BASIC_FEATURES = (const RTCFea
     RTC_FEATURE_FLAG_MOTION_BLUR);
 static const RTCFeatureFlags CYCLES_ONEAPI_EMBREE_ALL_FEATURES = (const RTCFeatureFlags)(
     CYCLES_ONEAPI_EMBREE_BASIC_FEATURES | RTC_FEATURE_FLAG_ROUND_CATMULL_ROM_CURVE |
-    RTC_FEATURE_FLAG_FLAT_CATMULL_ROM_CURVE);
+    RTC_FEATURE_FLAG_FLAT_CATMULL_ROM_CURVE | RTC_FEATURE_FLAG_ROUND_LINEAR_CURVE);
 #  endif
 
 void oneapi_set_error_cb(OneAPIErrorCallback cb, void *user_ptr)
@@ -460,6 +460,15 @@ bool oneapi_enqueue_kernel(KernelContext *kernel_context,
               kg, cgh, global_size, local_size, args, oneapi_kernel_integrator_shade_volume);
           break;
         }
+        case DEVICE_KERNEL_INTEGRATOR_SHADE_VOLUME_RAY_MARCHING: {
+          oneapi_call(kg,
+                      cgh,
+                      global_size,
+                      local_size,
+                      args,
+                      oneapi_kernel_integrator_shade_volume_ray_marching);
+          break;
+        }
         case DEVICE_KERNEL_INTEGRATOR_SHADE_DEDICATED_LIGHT: {
           oneapi_call(kg,
                       cgh,
@@ -594,8 +603,23 @@ bool oneapi_enqueue_kernel(KernelContext *kernel_context,
                       oneapi_kernel_shader_eval_curve_shadow_transparency);
           break;
         }
+        case DEVICE_KERNEL_SHADER_EVAL_VOLUME_DENSITY: {
+          oneapi_call(
+              kg, cgh, global_size, local_size, args, oneapi_kernel_shader_eval_volume_density);
+          break;
+        }
         case DEVICE_KERNEL_PREFIX_SUM: {
           oneapi_call(kg, cgh, global_size, local_size, args, oneapi_kernel_prefix_sum);
+          break;
+        }
+        case DEVICE_KERNEL_VOLUME_GUIDING_FILTER_X: {
+          oneapi_call(
+              kg, cgh, global_size, local_size, args, oneapi_kernel_volume_guiding_filter_x);
+          break;
+        }
+        case DEVICE_KERNEL_VOLUME_GUIDING_FILTER_Y: {
+          oneapi_call(
+              kg, cgh, global_size, local_size, args, oneapi_kernel_volume_guiding_filter_y);
           break;
         }
 
@@ -616,9 +640,11 @@ bool oneapi_enqueue_kernel(KernelContext *kernel_context,
 
       DEVICE_KERNEL_FILM_CONVERT(depth, DEPTH);
       DEVICE_KERNEL_FILM_CONVERT(mist, MIST);
+      DEVICE_KERNEL_FILM_CONVERT(volume_majorant, VOLUME_MAJORANT);
       DEVICE_KERNEL_FILM_CONVERT(sample_count, SAMPLE_COUNT);
       DEVICE_KERNEL_FILM_CONVERT(float, FLOAT);
       DEVICE_KERNEL_FILM_CONVERT(light_path, LIGHT_PATH);
+      DEVICE_KERNEL_FILM_CONVERT(rgbe, RGBE);
       DEVICE_KERNEL_FILM_CONVERT(float3, FLOAT3);
       DEVICE_KERNEL_FILM_CONVERT(motion, MOTION);
       DEVICE_KERNEL_FILM_CONVERT(cryptomatte, CRYPTOMATTE);
@@ -654,6 +680,10 @@ bool oneapi_enqueue_kernel(KernelContext *kernel_context,
         case DEVICE_KERNEL_FILTER_COLOR_POSTPROCESS: {
           oneapi_call(
               kg, cgh, global_size, local_size, args, oneapi_kernel_filter_color_postprocess);
+          break;
+        }
+        case DEVICE_KERNEL_FILTER_COLOR_FLIP_Y: {
+          oneapi_call(kg, cgh, global_size, local_size, args, oneapi_kernel_filter_color_flip_y);
           break;
         }
         case DEVICE_KERNEL_CRYPTOMATTE_POSTPROCESS: {

@@ -17,6 +17,7 @@
 
 #include "BKE_image.hh"
 
+#include "IMB_colormanagement.hh"
 #include "IMB_imbuf.hh"
 #include "IMB_imbuf_types.hh"
 
@@ -132,7 +133,7 @@ static void image_buf_fill_checker_slice(
         }
 
         if (rect_float) {
-          srgb_to_linearrgb_v3_v3(rect_float, rgb);
+          IMB_colormanagement_srgb_to_scene_linear_v3(rect_float, rgb);
           rect_float[3] = 1.0f;
         }
       }
@@ -193,9 +194,7 @@ static void checker_board_color_fill(
       }
 
       if (rect_float) {
-        rect_float[0] = rgb[0];
-        rect_float[1] = rgb[1];
-        rect_float[2] = rgb[2];
+        IMB_colormanagement_rec709_to_scene_linear(rect_float, rgb);
         rect_float[3] = 1.0f;
 
         rect_float += 4;
@@ -302,10 +301,8 @@ static void checker_board_text(
 
   BLF_size(mono, 54.0f); /* hard coded size! */
 
-  /* OCIO_TODO: using nullptr as display will assume using sRGB display
-   *            this is correct since currently generated images are assumed to be in sRGB space,
-   *            but this would probably needed to be fixed in some way
-   */
+  /* Using nullptr will assume the byte buffer has sRGB colorspace, which currently
+   * matches the default colorspace of new images. */
   BLF_buffer(mono, rect_float, rect, width, height, nullptr);
 
   const float text_color[4] = {0.0, 0.0, 0.0, 1.0};

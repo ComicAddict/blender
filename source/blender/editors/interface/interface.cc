@@ -71,11 +71,15 @@
 
 #include "IMB_colormanagement.hh"
 
+#include "CLG_log.h"
+
 #include "interface_intern.hh"
 
 using blender::StringRef;
 using blender::StringRefNull;
 using blender::Vector;
+
+static CLG_LogRef LOG = {"ui"};
 
 /* prototypes. */
 static void ui_def_but_rna__menu(bContext *C, uiLayout *layout, void *but_p);
@@ -260,6 +264,13 @@ void ui_region_to_window(const ARegion *region, int *x, int *y)
   *y += region->winrct.ymin;
 }
 
+void ui_region_to_window(
+    const ARegion *region, int region_x, int region_y, int *r_window_x, int *r_window_y)
+{
+  *r_window_x = region_x + region->winrct.xmin;
+  *r_window_y = region_y + region->winrct.ymin;
+}
+
 int uiBlock::but_index(const uiBut *but) const
 {
   BLI_assert(!buttons.is_empty() && but);
@@ -315,7 +326,7 @@ static void ui_update_flexible_spacing(const ARegion *region, uiBlock *block)
 
   rcti rect;
   ui_but_to_pixelrect(&rect, region, block, block->buttons.last().get());
-  const float buttons_width = std::ceil(float(rect.xmax) + UI_HEADER_OFFSET);
+  const float buttons_width = std::ceil(float(rect.xmax) + 8.0f * UI_SCALE_FAC);
   const float region_width = float(region->winx);
 
   if (region_width <= buttons_width) {
@@ -2289,12 +2300,6 @@ void UI_block_draw(const bContext *C, uiBlock *block)
       continue;
     }
 
-    /* Don't draw buttons that are wider than available space. */
-    const int width = BLI_rcti_size_x(&rect);
-    if ((width > U.widget_unit * 2.5f / block->aspect) && width > region->winx) {
-      continue;
-    }
-
     /* XXX: figure out why invalid coordinates happen when closing render window */
     /* and material preview is redrawn in main window (temp fix for bug #23848) */
     if (rect.xmin < rect.xmax && rect.ymin < rect.ymax) {
@@ -2508,7 +2513,7 @@ void ui_but_v3_get(uiBut *but, float vec[3])
   }
   else {
     if (but->editvec == nullptr) {
-      fprintf(stderr, "%s: can't get color, should never happen\n", __func__);
+      CLOG_WARN(&LOG, "%s: cannot get color, should never happen", __func__);
       zero_v3(vec);
     }
   }
@@ -2573,7 +2578,7 @@ void ui_but_v4_get(uiBut *but, float vec[4])
   }
   else {
     if (but->editvec == nullptr) {
-      fprintf(stderr, "%s: can't get color, should never happen\n", __func__);
+      CLOG_WARN(&LOG, "%s: can't get color, should never happen", __func__);
       zero_v4(vec);
     }
   }
@@ -3955,7 +3960,7 @@ static void ui_but_build_drawstr_float(uiBut *but, double value)
     const int prec = ui_but_calc_float_precision(but, value);
     but->drawstr = fmt::format("{}{:.{}f}%", but->str, value, prec);
   }
-  else if (subtype == PROP_PIXEL) {
+  else if (ELEM(subtype, PROP_PIXEL, PROP_PIXEL_DIAMETER)) {
     const int prec = ui_but_calc_float_precision(but, value);
     but->drawstr = fmt::format("{}{:.{}f} px", but->str, value, prec);
   }
@@ -3992,7 +3997,7 @@ static void ui_but_build_drawstr_int(uiBut *but, int value)
   if (subtype == PROP_PERCENTAGE) {
     but->drawstr += "%";
   }
-  else if (subtype == PROP_PIXEL) {
+  else if (ELEM(subtype, PROP_PIXEL, PROP_PIXEL_DIAMETER)) {
     but->drawstr += " px";
   }
 }
@@ -5101,6 +5106,11 @@ uiBut *uiDefButAlert(uiBlock *block, int icon, int x, int y, short width, short 
 {
   ImBuf *ibuf = UI_icon_alert_imbuf_get((eAlertIcon)icon, float(width));
   if (ibuf) {
+    if (icon == ALERT_ICON_ERROR) {
+      uchar color[4];
+      UI_GetThemeColor4ubv(TH_ERROR, color);
+      return uiDefButImage(block, ibuf, x, y, ibuf->x, ibuf->y, color);
+    }
     bTheme *btheme = UI_GetTheme();
     return uiDefButImage(block, ibuf, x, y, ibuf->x, ibuf->y, btheme->tui.wcol_menu_back.text);
   }
@@ -5188,7 +5198,7 @@ void UI_autocomplete_update_name(AutoComplete *autocpl, const StringRef name)
     }
     else {
       /* remove from truncate what is not in bone->name */
-      for (int a = 0; a < autocpl->maxncpy - 1; a++) {
+      for (int a = 0; a < std::min<size_t>(name.size(), autocpl->maxncpy) - 1; a++) {
         if (name[a] == 0) {
           truncate[a] = 0;
           break;

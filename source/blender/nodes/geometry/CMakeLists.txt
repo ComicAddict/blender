@@ -80,6 +80,7 @@ set(SRC
   nodes/node_geo_edge_paths_to_selection.cc
   nodes/node_geo_edge_split.cc
   nodes/node_geo_edges_to_face_groups.cc
+  nodes/node_geo_enable_output.cc
   nodes/node_geo_evaluate_at_index.cc
   nodes/node_geo_evaluate_closure.cc
   nodes/node_geo_evaluate_on_domain.cc
@@ -242,6 +243,7 @@ set(SRC
   nodes/node_geo_translate_instances.cc
   nodes/node_geo_triangulate.cc
   nodes/node_geo_uv_pack_islands.cc
+  nodes/node_geo_uv_tangent.cc
   nodes/node_geo_uv_unwrap.cc
   nodes/node_geo_viewer.cc
   nodes/node_geo_viewport_transform.cc
@@ -250,12 +252,15 @@ set(SRC
   nodes/node_geo_warning.cc
 
   include/NOD_geo_bake.hh
+  include/NOD_geo_bundle.hh
   include/NOD_geo_capture_attribute.hh
+  include/NOD_geo_closure.hh
   include/NOD_geo_foreach_geometry_element.hh
   include/NOD_geo_index_switch.hh
   include/NOD_geo_menu_switch.hh
   include/NOD_geo_repeat.hh
   include/NOD_geo_simulation.hh
+  include/NOD_geo_viewer.hh
 
   node_geometry_tree.cc
   node_geometry_util.cc
@@ -350,16 +355,6 @@ if(WITH_GMP)
   list(APPEND LIB
     ${GMP_LIBRARIES}
   )
-endif()
-
-if(WITH_OPENVDB)
-  list(APPEND INC
-    ../../../../intern/openvdb
-  )
-  list(APPEND INC_SYS
-    ${OPENVDB_INCLUDE_DIRS}
-  )
-  add_definitions(-DWITH_OPENVDB ${OPENVDB_DEFINITIONS})
 endif()
 
 add_node_discovery(

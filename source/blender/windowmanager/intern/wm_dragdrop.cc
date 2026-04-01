@@ -310,7 +310,7 @@ void WM_event_start_prepared_drag(bContext *C, wmDrag *drag)
 {
   wmWindowManager *wm = CTX_wm_manager(C);
 
-  BLI_addtail(&wm->drags, drag);
+  BLI_addtail(&wm->runtime->drags, drag);
   wm_dropbox_invoke(C, drag);
 }
 
@@ -599,7 +599,7 @@ void wm_drags_check_ops(bContext *C, const wmEvent *event)
   wmWindowManager *wm = CTX_wm_manager(C);
 
   bool any_active = false;
-  LISTBASE_FOREACH (wmDrag *, drag, &wm->drags) {
+  LISTBASE_FOREACH (wmDrag *, drag, &wm->runtime->drags) {
     wm_drop_update_active(C, drag, event);
 
     if (drag->drop_state.active_dropbox) {
@@ -609,7 +609,7 @@ void wm_drags_check_ops(bContext *C, const wmEvent *event)
 
   /* Change the cursor to display that dropping isn't possible here. But only if there is something
    * being dragged actually. Cursor will be restored in #wm_drags_exit(). */
-  if (!BLI_listbase_is_empty(&wm->drags)) {
+  if (!BLI_listbase_is_empty(&wm->runtime->drags)) {
     WM_cursor_modal_set(CTX_wm_window(C), any_active ? WM_CURSOR_DEFAULT : WM_CURSOR_STOP);
   }
 }
@@ -753,6 +753,16 @@ ID *WM_drag_asset_id_import(const bContext *C, wmDragAsset *asset_drag, const in
                                     idtype,
                                     name,
                                     flag | (use_relative_path ? FILE_RELPATH : 0));
+    case ASSET_IMPORT_PACK:
+      return WM_file_link_datablock(bmain,
+                                    scene,
+                                    view_layer,
+                                    view3d,
+                                    blend_path.c_str(),
+                                    idtype,
+                                    name,
+                                    flag | (use_relative_path ? FILE_RELPATH : 0) |
+                                        BLO_LIBLINK_PACK);
     case ASSET_IMPORT_APPEND:
       return WM_file_append_datablock(bmain,
                                       scene,
@@ -787,7 +797,7 @@ bool WM_drag_asset_will_import_linked(const wmDrag *drag)
   }
 
   const wmDragAsset *asset_drag = WM_drag_get_asset_data(drag, 0);
-  return asset_drag->import_settings.method == ASSET_IMPORT_LINK;
+  return ELEM(asset_drag->import_settings.method, ASSET_IMPORT_LINK, ASSET_IMPORT_PACK);
 }
 
 ID *WM_drag_get_local_ID_or_import_from_asset(const bContext *C, const wmDrag *drag, int idcode)
@@ -1264,7 +1274,7 @@ void wm_drags_draw(bContext *C, wmWindow *win)
 
   /* Should we support multi-line drag draws? Maybe not, more types mixed won't work well. */
   GPU_blend(GPU_BLEND_ALPHA);
-  LISTBASE_FOREACH (wmDrag *, drag, &wm->drags) {
+  LISTBASE_FOREACH (wmDrag *, drag, &wm->runtime->drags) {
     if (drag->drop_state.active_dropbox) {
       CTX_wm_area_set(C, drag->drop_state.area_from);
       CTX_wm_region_set(C, drag->drop_state.region_from);

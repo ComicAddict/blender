@@ -221,27 +221,24 @@ float4 OCIO_ProcessColor(float4 col, float4 col_overlay)
    * w.r.t. display chromaticity and radiometry. We separate the color-management process into two
    * steps to be able to merge UI using alpha blending in the correct color space. */
   if (parameters.do_overlay_merge) {
-    col.rgb = pow(col.rgb, float3(parameters.exponent * 2.2));
+    /* This sign/abs is used to preserve negative values for extended sRGB. */
+    col.rgb = sign(col.rgb) * pow(abs(col.rgb), float3(parameters.exponent * 2.2));
 
-    if (!parameters.use_hdr) {
-      /* If we're not using an extended color space, clamp the color 0..1. */
-      col = clamp(col, 0.0, 1.0);
-    }
-    else {
+    if (parameters.use_hdr_display) {
       /* When using extended color-space, interpolate towards clamped color to improve display of
        * alpha-blended overlays. */
-      col = mix(max(col, 0.0), clamp(col, 0.0, 1.0), col_overlay.a);
+      col = mix(col, clamp(col, 0.0, 1.0), col_overlay.a);
     }
     col *= 1.0 - col_overlay.a;
     col += col_overlay; /* Assumed unassociated alpha. */
-    col.rgb = pow(col.rgb, float3(1.0 / 2.2));
+    col.rgb = sign(col.rgb) * pow(abs(col.rgb), float3(1.0 / 2.2));
   }
   else {
-    col.rgb = pow(col.rgb, float3(parameters.exponent));
+    col.rgb = sign(col.rgb) * pow(abs(col.rgb), float3(parameters.exponent));
   }
 
   if (parameters.dither > 0.0) {
-    uint2 texel = get_pixel_coord(image_texture, texCoord_interp.st);
+    uint2 texel = get_pixel_coord(image_texture, texCoord_interp.xy);
     col = apply_dither(col, texel);
   }
 #endif
@@ -253,8 +250,8 @@ float4 OCIO_ProcessColor(float4 col, float4 col_overlay)
 
 void main()
 {
-  float4 col = texture(image_texture, texCoord_interp.st);
-  float4 col_overlay = texture(overlay_texture, texCoord_interp.st);
+  float4 col = texture(image_texture, texCoord_interp.xy);
+  float4 col_overlay = texture(overlay_texture, texCoord_interp.xy);
 
   fragColor = OCIO_ProcessColor(col, col_overlay);
 }

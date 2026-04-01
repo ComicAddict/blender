@@ -4,35 +4,75 @@
 
 import bpy
 from bpy.types import Menu, Panel
-from bpy.app.translations import contexts as i18n_contexts
+from bpy.app.translations import (
+    pgettext_n as n_,
+    contexts as i18n_contexts,
+)
+
+
+class TIME_PT_playhead_snapping(Panel):
+    bl_space_type = 'DOPESHEET_EDITOR'
+    bl_region_type = 'HEADER'
+    bl_label = "Playhead"
+
+    @classmethod
+    def poll(cls, context):
+        del context
+        return True
+
+    def draw(self, context):
+        tool_settings = context.tool_settings
+        layout = self.layout
+        col = layout.column()
+
+        col.prop(tool_settings, "playhead_snap_distance")
+        col.separator()
+        col.label(text="Snap Target")
+        col.prop(tool_settings, "snap_playhead_element", expand=True)
+        col.separator()
+
+        if 'FRAME' in tool_settings.snap_playhead_element:
+            col.prop(tool_settings, "snap_playhead_frame_step")
+        if 'SECOND' in tool_settings.snap_playhead_element:
+            col.prop(tool_settings, "snap_playhead_second_step")
 
 
 def playback_controls(layout, context):
-    scene = context.scene
-    tool_settings = context.tool_settings
+    st = context.space_data
+    is_sequencer = st.type == 'SEQUENCE_EDITOR' and st.view_type == 'SEQUENCER'
+
+    scene = context.scene if not is_sequencer else context.sequencer_scene
+    tool_settings = scene.tool_settings if scene else None
     screen = context.screen
 
-    row = layout.row(align=True)
-    row.popover(
-        panel="TIME_PT_playback",
-        text="Playback",
-    )
-    row.popover(
-        panel="TIME_PT_keyframing_settings",
-        text="Keying",
-        text_ctxt=i18n_contexts.id_windowmanager,
-    )
+    if scene:
+        layout.popover(
+            panel="TIME_PT_playback",
+            text="Playback",
+        )
+
+    if tool_settings:
+        icon_keytype = 'KEYTYPE_{:s}_VEC'.format(tool_settings.keyframe_type)
+        layout.popover(
+            panel="TIME_PT_keyframing_settings",
+            text_ctxt=i18n_contexts.id_windowmanager,
+            icon=icon_keytype,
+        )
+
+    if is_sequencer:
+        layout.prop(context.workspace, "use_scene_time_sync", text="Sync Scene Time")
 
     layout.separator_spacer()
 
-    row = layout.row(align=True)
-    row.prop(tool_settings, "use_keyframe_insert_auto", text="", toggle=True)
-    sub = row.row(align=True)
-    sub.active = tool_settings.use_keyframe_insert_auto
-    sub.popover(
-        panel="TIME_PT_auto_keyframing",
-        text="",
-    )
+    if tool_settings:
+        row = layout.row(align=True)
+        row.prop(tool_settings, "use_keyframe_insert_auto", text="", toggle=True)
+        sub = row.row(align=True)
+        sub.active = tool_settings.use_keyframe_insert_auto
+        sub.popover(
+            panel="TIME_PT_auto_keyframing",
+            text="",
+        )
 
     row = layout.row(align=True)
     row.operator("screen.frame_jump", text="", icon='REW').end = False
@@ -42,7 +82,7 @@ def playback_controls(layout, context):
         # if using JACK and A/V sync:
         #   hide the play-reversed button
         #   since JACK transport doesn't support reversed playback
-        if scene.sync_mode == 'AUDIO_SYNC' and context.preferences.system.audio_device == 'JACK':
+        if scene and scene.sync_mode == 'AUDIO_SYNC' and context.preferences.system.audio_device == 'JACK':
             row.scale_x = 2
             row.operator("screen.animation_play", text="", icon='PLAY')
             row.scale_x = 1
@@ -57,26 +97,33 @@ def playback_controls(layout, context):
     row.operator("screen.keyframe_jump", text="", icon='NEXT_KEYFRAME').next = True
     row.operator("screen.frame_jump", text="", icon='FF').end = True
 
+    if tool_settings:
+        row = layout.row(align=True)
+        row.prop(tool_settings, "use_snap_playhead", text="")
+        sub = row.row(align=True)
+        sub.popover(panel="TIME_PT_playhead_snapping", text="")
+
     layout.separator_spacer()
 
-    row = layout.row()
-    if scene.show_subframe:
-        row.scale_x = 1.15
-        row.prop(scene, "frame_float", text="")
-    else:
-        row.scale_x = 0.95
-        row.prop(scene, "frame_current", text="")
+    if scene:
+        row = layout.row()
+        if scene.show_subframe:
+            row.scale_x = 1.15
+            row.prop(scene, "frame_float", text="")
+        else:
+            row.scale_x = 0.95
+            row.prop(scene, "frame_current", text="")
 
-    row = layout.row(align=True)
-    row.prop(scene, "use_preview_range", text="", toggle=True)
-    sub = row.row(align=True)
-    sub.scale_x = 0.8
-    if not scene.use_preview_range:
-        sub.prop(scene, "frame_start", text="Start")
-        sub.prop(scene, "frame_end", text="End")
-    else:
-        sub.prop(scene, "frame_preview_start", text="Start")
-        sub.prop(scene, "frame_preview_end", text="End")
+        row = layout.row(align=True)
+        row.prop(scene, "use_preview_range", text="", toggle=True)
+        sub = row.row(align=True)
+        sub.scale_x = 0.8
+        if not scene.use_preview_range:
+            sub.prop(scene, "frame_start", text="Start")
+            sub.prop(scene, "frame_end", text="End")
+        else:
+            sub.prop(scene, "frame_preview_start", text="Start")
+            sub.prop(scene, "frame_preview_end", text="End")
 
 
 class TIME_MT_editor_menus(Menu):
@@ -206,7 +253,9 @@ class TIME_PT_playback(TimelinePanelButtons, Panel):
         layout.use_property_decorate = False
 
         screen = context.screen
-        scene = context.scene
+        st = context.space_data
+        is_sequencer = st.type == 'SEQUENCE_EDITOR' and st.view_type == 'SEQUENCER'
+        scene = context.scene if not is_sequencer else context.sequencer_scene
 
         layout.prop(scene, "sync_mode", text="Sync")
         col = layout.column(heading="Audio")
@@ -242,11 +291,31 @@ class TIME_PT_keyframing_settings(TimelinePanelButtons, Panel):
     bl_label = "Keyframing Settings"
     bl_options = {'HIDE_HEADER'}
     bl_region_type = 'HEADER'
+    bl_description = "Active keying set and keyframing settings"
+
+    def draw_header(self, context):
+        st = context.space_data
+        is_sequencer = st.type == 'SEQUENCE_EDITOR' and st.view_type == 'SEQUENCER'
+        scene = context.scene if not is_sequencer else context.sequencer_scene
+        if scene.keying_sets_all.active:
+            self.bl_label = scene.keying_sets_all.active.bl_label
+            if scene.keying_sets_all.active.bl_label in scene.keying_sets:
+                # Do not translate, this keying set is user-defined.
+                self.bl_translation_context = i18n_contexts.no_translation
+            else:
+                # Use the keying set's translation context (default).
+                self.bl_translation_context = scene.keying_sets_all.active.bl_rna.translation_context
+        else:
+            # Use a custom translation context to differentiate from compositing keying.
+            self.bl_label = n_("Keying", i18n_contexts.id_windowmanager)
+            self.bl_translation_context = i18n_contexts.id_windowmanager
 
     def draw(self, context):
         layout = self.layout
 
-        scene = context.scene
+        st = context.space_data
+        is_sequencer = st.type == 'SEQUENCE_EDITOR' and st.view_type == 'SEQUENCER'
+        scene = context.scene if not is_sequencer else context.sequencer_scene
         tool_settings = context.tool_settings
 
         col = layout.column(align=True)
@@ -294,6 +363,7 @@ classes = (
     TIME_PT_playback,
     TIME_PT_keyframing_settings,
     TIME_PT_auto_keyframing,
+    TIME_PT_playhead_snapping,
 )
 
 if __name__ == "__main__":  # only for live edit.

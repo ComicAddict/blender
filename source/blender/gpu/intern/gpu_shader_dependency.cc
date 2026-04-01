@@ -10,14 +10,16 @@
  */
 
 #include <algorithm>
+#include <fmt/format.h>
 #include <iomanip>
 #include <iostream>
 #include <regex>
 #include <string>
 
-#include "BLI_ghash.h"
 #include "BLI_map.hh"
 #include "BLI_string_ref.hh"
+
+#include "CLG_log.h"
 
 #include "gpu_capabilities_private.hh"
 #include "gpu_material_library.hh"
@@ -44,11 +46,13 @@ extern "C" {
 #undef SHADER_SOURCE
 }
 
+static CLG_LogRef LOG = {"shader.dependencies"};
+
 namespace blender::gpu {
 
 using GPUPrintFormatMap = Map<uint32_t, shader::PrintfFormat>;
-using GPUSourceDictionnary = Map<StringRef, GPUSource *>;
-using GPUFunctionDictionnary = Map<StringRef, GPUFunction *>;
+using GPUSourceDictionary = Map<StringRef, GPUSource *>;
+using GPUFunctionDictionary = Map<StringRef, GPUFunction *>;
 
 struct GPUSource {
   StringRefNull fullpath;
@@ -61,7 +65,6 @@ struct GPUSource {
   shader::BuiltinBits builtins = shader::BuiltinBits::NONE;
   /* True if this file content is supposed to be generated at runtime. */
   bool generated = false;
-  int d[sizeof(shader::ShaderCreateInfo::dependencies_generated)];
 
   /* NOTE: The next few functions are needed to keep isolation of the preprocessor.
    * Eventually, this should be revisited and the preprocessor should output
@@ -133,7 +136,7 @@ struct GPUSource {
     return FUNCTION_QUAL_IN;
   }
 
-  eGPUType convert_type(shader::metadata::Type type)
+  GPUType convert_type(shader::metadata::Type type)
   {
     using namespace blender::gpu::shader;
     switch (type) {
@@ -168,9 +171,9 @@ struct GPUSource {
       const char *path,
       const char *file,
       const char *datatoc,
-      GPUFunctionDictionnary *g_functions,
+      GPUFunctionDictionary *g_functions,
       GPUPrintFormatMap *g_formats,
-      std::function<void(GPUSource &, GPUFunctionDictionnary *, GPUPrintFormatMap *)> metadata_fn)
+      std::function<void(GPUSource &, GPUFunctionDictionary *, GPUPrintFormatMap *)> metadata_fn)
       : fullpath(path), filename(file), source(datatoc)
   {
     metadata_fn(*this, g_functions, g_formats);
@@ -244,7 +247,7 @@ struct GPUSource {
 
   void add_function(StringRefNull name,
                     Span<shader::metadata::ArgumentFormat> arguments,
-                    GPUFunctionDictionnary *g_functions)
+                    GPUFunctionDictionary *g_functions)
   {
     GPUFunction *func = MEM_new<GPUFunction>(__func__);
     name.copy_utf8_truncated(func->name, sizeof(func->name));
@@ -302,7 +305,7 @@ struct GPUSource {
   }
 
   /* Return 1 one error. */
-  int init_dependencies(const GPUSourceDictionnary &dict)
+  int init_dependencies(const GPUSourceDictionary &dict)
   {
     if (this->dependencies_init) {
       return 0;
@@ -331,10 +334,6 @@ struct GPUSource {
       if (result != 0) {
         return 1;
       }
-
-      for (auto *dep : dependency_source->dependencies) {
-        dependencies.append_non_duplicates(dep);
-      }
       dependencies.append_non_duplicates(dependency_source);
     }
     dependencies_names.clear();
@@ -343,19 +342,44 @@ struct GPUSource {
 
   void source_get(Vector<StringRefNull> &result,
                   const shader::GeneratedSourceList &generated_sources,
-                  const GPUSourceDictionnary &dict) const
+                  const GPUSourceDictionary &dict,
+                  const GPUSource &from) const
   {
+#define CLOG_FILE_INCLUDE(_from, _include) \
+  if (CLOG_CHECK(&LOG, CLG_LEVEL_INFO) && (from).filename.c_str() != (_include).filename.c_str()) \
+  { \
+    const char *from_filename = (_from).filename.c_str(); \
+    const char *include_filename = (_include).filename.c_str(); \
+    const int from_size = int((_from).source.size()); \
+    const int include_size = int((_include).source.size()); \
+    std::string link = fmt::format( \
+        "{}_{} --> {}_{}\n", from_filename, from_size, include_filename, include_size); \
+    std::string style = fmt::format("style {}_{} fill:#{:x}{:x}0\n", \
+                                    include_filename, \
+                                    include_size, \
+                                    min_uu(15, include_size / 1000), \
+                                    15 - min_uu(15, include_size / 1000)); \
+    CLG_log_raw(LOG.type, link.c_str()); \
+    CLG_log_raw(LOG.type, style.c_str()); \
+  }
+
     /* Check if this file was already included. */
     for (const StringRefNull &source_content : result) {
       /* Yes, compare pointer instead of string for speed.
        * Each source is guaranteed to be unique and non-moving during the building process. */
       if (source_content.c_str() == this->source.c_str()) {
         /* Already included. */
+        CLOG_FILE_INCLUDE(from, *this);
         return;
       }
     }
 
     if (!bool(this->builtins & shader::BuiltinBits::RUNTIME_GENERATED)) {
+      for (const auto &dependency : this->dependencies) {
+        /* WATCH: Recursive. */
+        dependency->source_get(result, generated_sources, dict, *this);
+      }
+      CLOG_FILE_INCLUDE(from, *this);
       result.append(this->source);
       return;
     }
@@ -365,7 +389,7 @@ struct GPUSource {
     for (const shader::GeneratedSource &generated_src : generated_sources) {
       if (generated_src.filename == this->filename) {
         /* Include dependencies before the generated file. */
-        for (auto dependency_name : generated_src.dependencies) {
+        for (const auto &dependency_name : generated_src.dependencies) {
           BLI_assert_msg(dependency_name != this->filename, "Recursive include");
 
           GPUSource *dependency_source = dict.lookup_default(dependency_name, nullptr);
@@ -374,9 +398,10 @@ struct GPUSource {
             std::cerr << "Generated dependency not found : " + dependency_name << std::endl;
             return;
           }
-          dependency_source->build(result, generated_sources, dict);
+          /* WATCH: Recursive. */
+          dependency_source->source_get(result, generated_sources, dict, *this);
         }
-
+        CLOG_FILE_INCLUDE(from, *this);
         result.append(generated_src.content);
         return;
       }
@@ -384,25 +409,29 @@ struct GPUSource {
 
     std::cerr << "warn: Generated source not provided. Using fallback for : " << this->filename
               << std::endl;
+    /* Dependencies for generated sources are not folded on startup.
+     * This allows for different set of dependencies at runtime. */
+    for (const auto &dependency : this->dependencies) {
+      /* WATCH: Recursive. */
+      dependency->source_get(result, generated_sources, dict, *this);
+    }
+    CLOG_FILE_INCLUDE(from, *this);
     result.append(this->source);
   }
 
   /* Returns the final string with all includes done. */
   void build(Vector<StringRefNull> &result,
              const shader::GeneratedSourceList &generated_sources,
-             const GPUSourceDictionnary &dict) const
+             const GPUSourceDictionary &dict) const
   {
-    for (auto *dep : dependencies) {
-      dep->source_get(result, generated_sources, dict);
-    }
-    source_get(result, generated_sources, dict);
+    source_get(result, generated_sources, dict, *this);
   }
 
   shader::BuiltinBits builtins_get() const
   {
     shader::BuiltinBits out_builtins = builtins;
     for (auto *dep : dependencies) {
-      out_builtins |= dep->builtins;
+      out_builtins |= dep->builtins_get();
     }
     return out_builtins;
   }
@@ -433,15 +462,15 @@ namespace shader {
 using namespace blender::gpu;
 
 static GPUPrintFormatMap *g_formats = nullptr;
-static GPUSourceDictionnary *g_sources = nullptr;
-static GPUFunctionDictionnary *g_functions = nullptr;
+static GPUSourceDictionary *g_sources = nullptr;
+static GPUFunctionDictionary *g_functions = nullptr;
 static bool force_printf_injection = false;
 
 void gpu_shader_dependency_init()
 {
   g_formats = new GPUPrintFormatMap();
-  g_sources = new GPUSourceDictionnary();
-  g_functions = new GPUFunctionDictionnary();
+  g_sources = new GPUSourceDictionary();
+  g_functions = new GPUFunctionDictionary();
 
 #define SHADER_SOURCE(filename_underscore, filename, filepath) \
   g_sources->add_new(filename, \
@@ -469,7 +498,7 @@ void gpu_shader_dependency_init()
                     patch_basis_source.c_str(),
                     g_functions,
                     g_formats,
-                    [](GPUSource &, GPUFunctionDictionnary *, GPUPrintFormatMap *) {}));
+                    [](GPUSource &, GPUFunctionDictionary *, GPUPrintFormatMap *) {}));
 #endif
 
   int errors = 0;
@@ -493,18 +522,6 @@ void gpu_shader_dependency_init()
     }
   }
 #endif
-
-  if (GCaps.line_directive_workaround) {
-    for (auto *value : g_sources->values()) {
-      value->patched_source = value->source;
-      value->source = value->patched_source.c_str();
-      size_t start_pos = 0;
-      while ((start_pos = value->patched_source.find("#line ", start_pos)) != std::string::npos) {
-        value->patched_source[start_pos] = '/';
-        value->patched_source[start_pos + 1] = '/';
-      }
-    }
-  }
 }
 
 void gpu_shader_dependency_exit()
@@ -523,13 +540,19 @@ void gpu_shader_dependency_exit()
   g_functions = nullptr;
 }
 
-GPUFunction *gpu_material_library_use_function(GSet *used_libraries, const char *name)
+GPUFunction *gpu_material_library_get_function(const char *name)
 {
   GPUFunction *function = g_functions->lookup_default(name, nullptr);
   BLI_assert_msg(function != nullptr, "Requested function not in the function library");
-  GPUSource *source = reinterpret_cast<GPUSource *>(function->source);
-  BLI_gset_add(used_libraries, const_cast<char *>(source->filename.c_str()));
   return function;
+}
+
+void gpu_material_library_use_function(blender::Set<blender::StringRefNull> &used_libraries,
+                                       const char *name)
+{
+  GPUFunction *function = g_functions->lookup_default(name, nullptr);
+  GPUSource *source = reinterpret_cast<GPUSource *>(function->source);
+  used_libraries.add(source->filename.c_str());
 }
 
 namespace blender::gpu::shader {
@@ -567,14 +590,23 @@ BuiltinBits gpu_shader_dependency_get_builtins(const StringRefNull shader_source
 }
 
 Vector<StringRefNull> gpu_shader_dependency_get_resolved_source(
-    const StringRefNull shader_source_name, const shader::GeneratedSourceList &generated_sources)
+    const StringRefNull shader_source_name,
+    const shader::GeneratedSourceList &generated_sources,
+    const StringRefNull shader_name)
 {
   Vector<StringRefNull> result;
   GPUSource *src = g_sources->lookup_default(shader_source_name, nullptr);
   if (src == nullptr) {
     std::cerr << "Error source not found : " << shader_source_name << std::endl;
   }
+  CLOG_INFO(&LOG, "Resolved Source Tree (Mermaid flowchart) %s", shader_name.c_str());
+  if (CLOG_CHECK(&LOG, CLG_LEVEL_INFO)) {
+    CLG_log_raw(LOG.type, "flowchart LR\n");
+  }
   src->build(result, generated_sources, *g_sources);
+  if (CLOG_CHECK(&LOG, CLG_LEVEL_INFO)) {
+    CLG_log_raw(LOG.type, "\n");
+  }
   return result;
 }
 

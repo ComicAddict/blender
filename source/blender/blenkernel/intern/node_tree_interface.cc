@@ -24,17 +24,9 @@
 #include "DNA_node_types.h"
 
 #include "NOD_node_declaration.hh"
+#include "NOD_socket_declarations.hh"
 
 using blender::StringRef;
-
-/**
- * These flags are used by the `changed_flag` field in #bNodeTreeInterfaceRuntime.
- */
-enum NodeTreeInterfaceChangedFlag {
-  NODE_INTERFACE_CHANGED_NOTHING = 0,
-  NODE_INTERFACE_CHANGED_ITEMS = (1 << 1),
-  NODE_INTERFACE_CHANGED_ALL = -1,
-};
 
 namespace blender::bke::node_interface {
 
@@ -1165,6 +1157,12 @@ bNodeTreeInterfaceSocket *add_interface_socket_from_node(bNodeTree &ntree,
       if (!decl->description.empty()) {
         description = decl->description;
       }
+      SET_FLAG_FROM_TEST(flag, decl->optional_label, NODE_INTERFACE_SOCKET_OPTIONAL_LABEL);
+      if (socket_type == "NodeSocketMenu" && from_sock.type == SOCK_MENU) {
+        if (const auto *menu_decl = dynamic_cast<const nodes::decl::Menu *>(decl)) {
+          SET_FLAG_FROM_TEST(flag, menu_decl->is_expanded, NODE_INTERFACE_SOCKET_MENU_EXPANDED);
+        }
+      }
     }
 
     iosock = ntree.tree_interface.add_socket(name, description, socket_type, flag, nullptr);
@@ -1526,24 +1524,39 @@ void bNodeTreeInterface::ensure_items_cache() const
   });
 }
 
-void bNodeTreeInterface::tag_missing_runtime_data()
+void bNodeTreeInterface::tag_interface_changed()
 {
-  this->runtime->changed_flag_ |= NODE_INTERFACE_CHANGED_ALL;
-  this->runtime->items_cache_mutex_.tag_dirty();
+  this->runtime->interface_changed_.store(true);
 }
 
-bool bNodeTreeInterface::is_changed() const
+bool bNodeTreeInterface::requires_dependent_tree_updates() const
 {
-  return this->runtime->changed_flag_ != NODE_INTERFACE_CHANGED_NOTHING;
+  return this->runtime->interface_changed_.load(std::memory_order_relaxed);
 }
 
 void bNodeTreeInterface::tag_items_changed()
 {
-  this->runtime->changed_flag_ |= NODE_INTERFACE_CHANGED_ITEMS;
+  this->tag_interface_changed();
   this->runtime->items_cache_mutex_.tag_dirty();
 }
 
-void bNodeTreeInterface::reset_changed_flags()
+void bNodeTreeInterface::tag_items_changed_generic()
 {
-  this->runtime->changed_flag_ = NODE_INTERFACE_CHANGED_NOTHING;
+  /* Perform a full update since we don't know what changed exactly. */
+  this->tag_items_changed();
+}
+
+void bNodeTreeInterface::tag_item_property_changed()
+{
+  this->tag_interface_changed();
+}
+
+void bNodeTreeInterface::tag_missing_runtime_data()
+{
+  this->tag_items_changed();
+}
+
+void bNodeTreeInterface::reset_interface_changed()
+{
+  this->runtime->interface_changed_.store(false);
 }

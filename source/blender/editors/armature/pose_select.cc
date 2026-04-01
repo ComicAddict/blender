@@ -109,7 +109,7 @@ void ED_pose_bone_select(Object *ob, bPoseChannel *pchan, bool select, bool chan
   arm = static_cast<bArmature *>(ob->data);
 
   /* can only change selection state if bone can be modified */
-  if (PBONE_SELECTABLE(arm, pchan->bone)) {
+  if (blender::animrig::bone_is_selectable(arm, pchan)) {
     /* change selection state - activate too if selected */
     if (select) {
       pchan->bone->flag |= BONE_SELECTED;
@@ -320,7 +320,7 @@ bool ED_pose_deselect_all(Object *ob, int select_mode, const bool ignore_visibil
   if (select_mode == SEL_TOGGLE) {
     select_mode = SEL_SELECT;
     LISTBASE_FOREACH (bPoseChannel *, pchan, &ob->pose->chanbase) {
-      if (ignore_visibility || blender::animrig::bone_is_visible_pchan(arm, pchan)) {
+      if (ignore_visibility || blender::animrig::bone_is_visible(arm, pchan)) {
         if (pchan->bone->flag & BONE_SELECTED) {
           select_mode = SEL_DESELECT;
           break;
@@ -333,7 +333,7 @@ bool ED_pose_deselect_all(Object *ob, int select_mode, const bool ignore_visibil
   bool changed = false;
   LISTBASE_FOREACH (bPoseChannel *, pchan, &ob->pose->chanbase) {
     /* ignore the pchan if it isn't visible or if its selection cannot be changed */
-    if (ignore_visibility || blender::animrig::bone_is_visible_pchan(arm, pchan)) {
+    if (ignore_visibility || blender::animrig::bone_is_visible(arm, pchan)) {
       int flag_prev = pchan->bone->flag;
       pose_do_bone_select(pchan, select_mode);
       changed = (changed || flag_prev != pchan->bone->flag);
@@ -346,7 +346,7 @@ static bool ed_pose_is_any_selected(Object *ob, bool ignore_visibility)
 {
   bArmature *arm = static_cast<bArmature *>(ob->data);
   LISTBASE_FOREACH (bPoseChannel *, pchan, &ob->pose->chanbase) {
-    if (ignore_visibility || blender::animrig::bone_is_visible_pchan(arm, pchan)) {
+    if (ignore_visibility || blender::animrig::bone_is_visible(arm, pchan)) {
       if (pchan->bone->flag & BONE_SELECTED) {
         return true;
       }
@@ -513,7 +513,7 @@ static wmOperatorStatus pose_select_linked_exec(bContext *C, wmOperator * /*op*/
 
     /* Select parents */
     for (curBone = pchan->bone; curBone; curBone = next) {
-      if (PBONE_SELECTABLE(arm, curBone)) {
+      if (blender::animrig::bone_is_selectable(arm, curBone)) {
         curBone->flag |= BONE_SELECTED;
 
         if (curBone->flag & BONE_CONNECTED) {
@@ -624,7 +624,9 @@ static wmOperatorStatus pose_select_parent_exec(bContext *C, wmOperator * /*op*/
   pchan = CTX_data_active_pose_bone(C);
   if (pchan) {
     parent = pchan->parent;
-    if ((parent) && !(parent->bone->flag & (BONE_HIDDEN_P | BONE_UNSELECTABLE))) {
+    if ((parent) && !(parent->drawflag & PCHAN_DRAW_HIDDEN) &&
+        !(parent->bone->flag & BONE_UNSELECTABLE))
+    {
       parent->bone->flag |= BONE_SELECTED;
       arm->act_bone = parent->bone;
     }
@@ -738,7 +740,7 @@ static wmOperatorStatus pose_select_hierarchy_exec(bContext *C, wmOperator *op)
       Bone *bone_parent;
       bone_parent = pchan_act->parent->bone;
 
-      if (PBONE_SELECTABLE(arm, bone_parent)) {
+      if (blender::animrig::bone_is_selectable(arm, bone_parent)) {
         if (!add_to_sel) {
           pchan_act->bone->flag &= ~BONE_SELECTED;
         }
@@ -757,7 +759,7 @@ static wmOperatorStatus pose_select_hierarchy_exec(bContext *C, wmOperator *op)
     for (pass = 0; pass < 2 && (bone_child == nullptr); pass++) {
       LISTBASE_FOREACH (bPoseChannel *, pchan_iter, &ob->pose->chanbase) {
         /* possible we have multiple children, some invisible */
-        if (PBONE_SELECTABLE(arm, pchan_iter->bone)) {
+        if (blender::animrig::bone_is_selectable(arm, pchan_iter)) {
           if (pchan_iter->parent == pchan_act) {
             if ((pass == 1) || (pchan_iter->bone->flag & BONE_CONNECTED)) {
               bone_child = pchan_iter->bone;
@@ -950,7 +952,7 @@ static blender::Set<bPoseChannel *> get_selected_pose_bones(Object *pose_object)
   blender::Set<bPoseChannel *> selected_pose_bones;
   bArmature *arm = static_cast<bArmature *>((pose_object) ? pose_object->data : nullptr);
   LISTBASE_FOREACH (bPoseChannel *, pchan, &pose_object->pose->chanbase) {
-    if (PBONE_SELECTED(arm, pchan->bone)) {
+    if (blender::animrig::bone_is_selected(arm, pchan)) {
       selected_pose_bones.add(pchan);
     }
   }
@@ -999,7 +1001,7 @@ static bool pose_select_children(bContext *C, const bool all, const bool extend)
       deselect_pose_bones(selected_pose_bones);
     }
     LISTBASE_FOREACH (bPoseChannel *, pchan, &pose_object->pose->chanbase) {
-      if (!PBONE_SELECTABLE(arm, pchan->bone)) {
+      if (!blender::animrig::bone_is_selectable(arm, pchan)) {
         continue;
       }
       if (all) {
@@ -1038,7 +1040,7 @@ static bool pose_select_parents(bContext *C, const bool extend)
       if (!pchan->parent) {
         continue;
       }
-      if (!PBONE_SELECTABLE(arm, pchan->parent->bone)) {
+      if (!blender::animrig::bone_is_selectable(arm, pchan->parent->bone)) {
         continue;
       }
       pose_do_bone_select(pchan->parent, SEL_SELECT);
@@ -1060,7 +1062,7 @@ static bool pose_select_siblings(bContext *C, const bool extend)
     BLI_assert(arm);
     blender::Set<bPoseChannel *> parents_of_selected;
     LISTBASE_FOREACH (bPoseChannel *, pchan, &pose_object->pose->chanbase) {
-      if (PBONE_SELECTED(arm, pchan->bone)) {
+      if (blender::animrig::bone_is_selected(arm, pchan)) {
         parents_of_selected.add(pchan->parent);
       }
     }
@@ -1068,12 +1070,14 @@ static bool pose_select_siblings(bContext *C, const bool extend)
       deselect_pose_bones(parents_of_selected);
     }
     LISTBASE_FOREACH (bPoseChannel *, pchan, &pose_object->pose->chanbase) {
-      if (!PBONE_SELECTABLE(arm, pchan->bone)) {
+      if (!blender::animrig::bone_is_selectable(arm, pchan)) {
         continue;
       }
       /* Checking if the bone is already selected so `changed_any_selection` stays true to its
        * word. */
-      if (parents_of_selected.contains(pchan->parent) && !PBONE_SELECTED(arm, pchan->bone)) {
+      if (parents_of_selected.contains(pchan->parent) &&
+          !blender::animrig::bone_is_selected(arm, pchan))
+      {
         pose_do_bone_select(pchan, SEL_SELECT);
         changed_any_selection = true;
       }
@@ -1149,7 +1153,7 @@ static bool pose_select_same_keyingset(bContext *C, ReportList *reports, bool ex
 
         if (pchan) {
           /* select if bone is visible and can be affected */
-          if (PBONE_SELECTABLE(arm, pchan->bone)) {
+          if (blender::animrig::bone_is_selectable(arm, pchan)) {
             pchan->bone->flag |= BONE_SELECTED;
             changed = true;
           }
@@ -1321,14 +1325,13 @@ static wmOperatorStatus pose_select_mirror_exec(bContext *C, wmOperator *op)
     blender::Map<bPoseChannel *, eBone_Flag> old_selection_flags;
     LISTBASE_FOREACH (bPoseChannel *, pchan, &ob->pose->chanbase) {
       /* Treat invisible bones as deselected. */
-      const int flags = blender::animrig::bone_is_visible_pchan(arm, pchan) ? pchan->bone->flag :
-                                                                              0;
+      const int flags = blender::animrig::bone_is_visible(arm, pchan) ? pchan->bone->flag : 0;
 
       old_selection_flags.add_new(pchan, eBone_Flag(flags));
     }
 
     LISTBASE_FOREACH (bPoseChannel *, pchan, &ob->pose->chanbase) {
-      if (!PBONE_SELECTABLE(arm, pchan->bone)) {
+      if (!blender::animrig::bone_is_selectable(arm, pchan)) {
         continue;
       }
 

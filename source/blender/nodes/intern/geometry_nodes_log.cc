@@ -2,6 +2,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
+#include "BKE_lib_id.hh"
 #include "NOD_geometry_nodes_bundle.hh"
 #include "NOD_geometry_nodes_closure.hh"
 #include "NOD_geometry_nodes_log.hh"
@@ -307,13 +308,13 @@ void GeoTreeLogger::log_value(const bNode &node, const bNodeSocket &socket, cons
     store_logged_value(this->allocator->construct<GenericValueLog>(GMutablePointer{type, buffer}));
   };
 
-  if (type.is<bke::GeometrySet>()) {
-    const bke::GeometrySet &geometry = *value.get<bke::GeometrySet>();
-    store_logged_value(this->allocator->construct<GeometryInfoLog>(geometry));
-  }
-  else if (type.is<bke::SocketValueVariant>()) {
+  if (type.is<bke::SocketValueVariant>()) {
     bke::SocketValueVariant value_variant = *value.get<bke::SocketValueVariant>();
-    if (value_variant.is_context_dependent_field()) {
+    if (value_variant.valid_for_socket(SOCK_GEOMETRY)) {
+      const bke::GeometrySet &geometry = value_variant.get<bke::GeometrySet>();
+      store_logged_value(this->allocator->construct<GeometryInfoLog>(geometry));
+    }
+    else if (value_variant.is_context_dependent_field()) {
       const GField field = value_variant.extract<GField>();
       store_logged_value(this->allocator->construct<FieldInfoLog>(field));
     }
@@ -381,12 +382,27 @@ void GeoTreeLogger::log_value(const bNode &node, const bNodeSocket &socket, cons
   }
 }
 
-void GeoTreeLogger::log_viewer_node(const bNode &viewer_node, bke::GeometrySet geometry)
+const bke::GeometrySet *ViewerNodeLog::main_geometry() const
 {
-  destruct_ptr<ViewerNodeLog> log = this->allocator->construct<ViewerNodeLog>();
-  log->geometry = std::move(geometry);
-  log->geometry.ensure_owns_direct_data();
-  this->viewer_node_logs.append(*this->allocator, {viewer_node.identifier, std::move(log)});
+  main_geometry_cache_mutex_.ensure([&]() {
+    for (const Item &item : this->items) {
+#ifdef WITH_OPENVDB
+      if (item.value.is_volume_grid()) {
+        const bke::GVolumeGrid grid = item.value.get<bke::GVolumeGrid>();
+        Volume *volume = BKE_id_new_nomain<Volume>(nullptr);
+        grid->add_user();
+        BKE_volume_grid_add(volume, grid.get());
+        main_geometry_cache_ = bke::GeometrySet::from_volume(volume);
+        return;
+      }
+#endif
+      if (item.value.is_single() && item.value.get_single_ptr().is_type<bke::GeometrySet>()) {
+        main_geometry_cache_ = *item.value.get_single_ptr().get<bke::GeometrySet>();
+        return;
+      }
+    }
+  });
+  return main_geometry_cache_ ? &*main_geometry_cache_ : nullptr;
 }
 
 static bool warning_is_propagated(const NodeWarningPropagation propagation,
@@ -674,7 +690,7 @@ ValueLog *GeoTreeLog::find_socket_value_log(const bNodeSocket &query_socket)
 {
   /**
    * Geometry nodes does not log values for every socket. That would produce a lot of redundant
-   * data,because often many linked sockets have the same value. To find the logged value for a
+   * data, because often many linked sockets have the same value. To find the logged value for a
    * socket one might have to look at linked sockets as well.
    */
 
@@ -688,6 +704,7 @@ ValueLog *GeoTreeLog::find_socket_value_log(const bNodeSocket &query_socket)
   Stack<const bNodeSocket *> sockets_to_check;
   sockets_to_check.push(&query_socket);
   added_sockets.add(&query_socket);
+  const bNodeTree &tree = query_socket.owner_tree();
 
   while (!sockets_to_check.is_empty()) {
     const bNodeSocket &socket = *sockets_to_check.pop();
@@ -735,6 +752,16 @@ ValueLog *GeoTreeLog::find_socket_value_log(const bNodeSocket &query_socket)
             if (added_sockets.add(&from_socket)) {
               sockets_to_check.push(&from_socket);
             }
+          }
+        }
+      }
+      else if (node.is_group_input()) {
+        const int index = socket.index();
+        /* Check if the value is stored for any other group input node. */
+        for (const bNode *other_group_input : tree.group_input_nodes()) {
+          const bNodeSocket &other_socket = other_group_input->output_socket(index);
+          if (added_sockets.add(&other_socket)) {
+            sockets_to_check.push(&other_socket);
           }
         }
       }
@@ -907,7 +934,11 @@ Map<const bNodeTreeZone *, ComputeContextHash> GeoNodesLog::
 
 static GeoNodesLog *get_root_log(const SpaceNode &snode)
 {
-  switch (SpaceNodeGeometryNodesType(snode.geometry_nodes_type)) {
+  if (!ED_node_is_geometry(&snode)) {
+    return nullptr;
+  }
+
+  switch (SpaceNodeGeometryNodesType(snode.node_tree_sub_type)) {
     case SNODE_GEOMETRY_MODIFIER: {
       std::optional<ed::space_node::ObjectAndModifier> object_and_modifier =
           ed::space_node::get_modifier_for_node_editor(snode);
@@ -919,7 +950,7 @@ static GeoNodesLog *get_root_log(const SpaceNode &snode)
     case SNODE_GEOMETRY_TOOL: {
       const ed::geometry::GeoOperatorLog &log =
           ed::geometry::node_group_operator_static_eval_log();
-      if (snode.geometry_nodes_tool_tree->id.name + 2 != log.node_group_name) {
+      if (snode.selected_node_group->id.name + 2 != log.node_group_name) {
         return {};
       }
       return log.log.get();

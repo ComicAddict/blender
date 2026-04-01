@@ -599,7 +599,6 @@ void DepsgraphRelationBuilder::build_id(ID *id)
       break;
 
     case ID_LI:
-    case ID_IP:
     case ID_SCR:
     case ID_VF:
     case ID_BR:
@@ -3029,6 +3028,14 @@ void DepsgraphRelationBuilder::build_nodetree(bNodeTree *ntree)
       build_nodetree_socket(socket);
     }
 
+    if (ntree->type == NTREE_SHADER && bnode->is_type("ShaderNodeAttribute")) {
+      NodeShaderAttribute *attr = static_cast<NodeShaderAttribute *>(bnode->storage);
+      if (attr->type == SHD_ATTRIBUTE_VIEW_LAYER && STREQ(attr->name, "frame_current")) {
+        TimeSourceKey time_src_key;
+        add_relation(time_src_key, ntree_output_key, "TimeSrc -> Node");
+      }
+    }
+
     ID *id = bnode->id;
     if (id == nullptr) {
       continue;
@@ -3434,6 +3441,21 @@ static bool strip_build_prop_cb(Strip *strip, void *user_data)
     ViewLayer *sequence_view_layer = BKE_view_layer_default_render(strip->scene);
     cd->builder->build_scene_speakers(strip->scene, sequence_view_layer);
   }
+  LISTBASE_FOREACH (StripModifierData *, modifier, &strip->modifiers) {
+    if (modifier->type != eSeqModifierType_Compositor) {
+      continue;
+    }
+
+    const SequencerCompositorModifierData *modifier_data =
+        reinterpret_cast<SequencerCompositorModifierData *>(modifier);
+    if (!modifier_data->node_group) {
+      continue;
+    }
+    cd->builder->build_nodetree(modifier_data->node_group);
+    OperationKey node_tree_key(
+        &modifier_data->node_group->id, NodeType::NTREE_OUTPUT, OperationCode::NTREE_OUTPUT);
+    cd->builder->add_relation(node_tree_key, cd->sequencer_key, "Modifier's Node Group");
+  }
   /* TODO(sergey): Movie clip, camera, mask. */
   return true;
 }
@@ -3665,8 +3687,8 @@ void DepsgraphRelationBuilder::build_copy_on_write_relations(IDNode *id_node)
   }
 
 #if 0
-  /* NOTE: Relation is disabled since AnimationBackup() is disabled.
-   * See comment in  AnimationBackup:init_from_id(). */
+  /* NOTE: Relation is disabled since #AnimationBackup() is disabled.
+   * See comment in #AnimationBackup:init_from_id(). */
 
   /* Copy-on-eval of write will iterate over f-curves to store current values corresponding
    * to their RNA path. This means that action must be copied prior to the ID's copy-on-evaluation,

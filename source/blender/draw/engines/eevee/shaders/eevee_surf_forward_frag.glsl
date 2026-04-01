@@ -8,16 +8,16 @@
  * This is used by alpha blended materials and materials using Shader to RGB nodes.
  */
 
-#include "infos/eevee_material_info.hh"
+#include "infos/eevee_material_infos.hh"
 
 FRAGMENT_SHADER_CREATE_INFO(eevee_geom_mesh)
 FRAGMENT_SHADER_CREATE_INFO(eevee_surf_forward)
 
 #include "draw_curves_lib.glsl"
 #include "draw_view_lib.glsl"
-#include "eevee_ambient_occlusion_lib.glsl"
 #include "eevee_forward_lib.glsl"
 #include "eevee_nodetree_frag_lib.glsl"
+#include "eevee_reverse_z_lib.glsl"
 #include "eevee_sampling_lib.glsl"
 #include "eevee_surf_lib.glsl"
 #include "eevee_volume_lib.glsl"
@@ -40,9 +40,6 @@ float4 closure_to_rgba(Closure cl_unused)
 
 void main()
 {
-  /* Clear AOVs first. In case the material renders to them. */
-  clear_aovs();
-
   init_globals();
 
   float noise = utility_tx_fetch(utility_tx, gl_FragCoord.xy, UTIL_BLUE_NOISE_LAYER).r;
@@ -60,7 +57,7 @@ void main()
   /* Volumetric resolve and compositing. */
   float2 uvs = gl_FragCoord.xy * uniform_buf.volumes.main_view_extent_inv;
   VolumeResolveSample vol = volume_resolve(
-      float3(uvs, gl_FragCoord.z), volume_transmittance_tx, volume_scattering_tx);
+      float3(uvs, reverse_z::read(gl_FragCoord.z)), volume_transmittance_tx, volume_scattering_tx);
   /* Removes the part of the volume scattering that has
    * already been added to the destination pixels by the opaque resolve.
    * Since we do that using the blending pipeline we need to account for material transmittance. */

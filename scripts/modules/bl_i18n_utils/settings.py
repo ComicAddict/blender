@@ -89,6 +89,7 @@ LANGUAGES = (
     (55, "Urdu - وُدرُا", "ur"),
     (56, "Lithuanian - Lietuviškai", "lt"),
     (57, "English (UK)", "en_GB"),
+    (58, "Malayalam - മലയാളം", "ml"),
 )
 
 # Default context, in py (keep in sync with `BLT_translation.hh`)!
@@ -281,12 +282,12 @@ PYGETTEXT_KEYWORDS = (() +
           for it in ("modifier_subpanel_register", "gpencil_modifier_subpanel_register")) +
 
     # Node socket declarations: context-less names.
-    tuple((r"\.{}<decl::.*?>\(\s*" + _msg_re + r"(?:,[^),]+)*\s*\)"
+    tuple((r"\.{}(?:<decl::.*?>\(|[^,]+,)\s*" + _msg_re + r"(?:,[^),]+)*\s*\)"
            r"(?![^;]*\.translation_context\()").format(it)
           for it in ("add_input", "add_output")) +
 
     # Node socket declarations: names with contexts
-    tuple((r"\.{}<decl::.*?>\(\s*" + _msg_re + r"[^;]*\.translation_context\(\s*" + _ctxt_re + r"\s*\)").format(it)
+    tuple((r"\.{}(?:<decl::.*?>\(|[^,]+,)\s*" + _msg_re + r"[^;]*\.translation_context\(\s*" + _ctxt_re + r"\s*\)").format(it)
           for it in ("add_input", "add_output")) +
 
     # Node socket declarations: description and error messages
@@ -428,7 +429,6 @@ WARN_MSGID_NOT_CAPITALIZED_ALLOWED = {
     "curves",
     "fonts",
     "grease_pencils",
-    "grease_pencils_v3",
     "hair_curves",
     "ipos",
     "lattices",
@@ -648,7 +648,7 @@ CUSTOM_PY_UI_FILES = [
     os.path.join("scripts", "startup", "bl_operators"),
     os.path.join("scripts", "modules", "rna_prop_ui.py"),
     os.path.join("scripts", "modules", "rna_keymap_ui.py"),
-    os.path.join("scripts", "modules", "bpy_types.py"),
+    os.path.join("scripts", "modules", "_bpy_types.py"),
     os.path.join("scripts", "presets", "keyconfig"),
 ]
 

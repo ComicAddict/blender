@@ -11,8 +11,8 @@
 
 #include "GPU_debug.hh"
 
+#include "eevee_debug_shared.hh"
 #include "eevee_instance.hh"
-
 #include "eevee_lightprobe_volume.hh"
 
 #include <cstdio>
@@ -85,6 +85,7 @@ void VolumeProbeModule::init()
   }
 
   if (do_full_update_) {
+    do_full_update_ = false;
     do_update_world_ = true;
 
     /* Delete all references to existing bricks. */
@@ -476,11 +477,10 @@ void VolumeProbeModule::set_view(View & /*view*/)
     irradiance_d_tx.free();
   }
 
-  do_full_update_ = false;
   do_update_world_ = false;
 }
 
-void VolumeProbeModule::viewport_draw(View &view, GPUFrameBuffer *view_fb)
+void VolumeProbeModule::viewport_draw(View &view, gpu::FrameBuffer *view_fb)
 {
   if (!inst_.is_baking()) {
     debug_pass_draw(view, view_fb);
@@ -488,7 +488,7 @@ void VolumeProbeModule::viewport_draw(View &view, GPUFrameBuffer *view_fb)
   }
 }
 
-void VolumeProbeModule::debug_pass_draw(View &view, GPUFrameBuffer *view_fb)
+void VolumeProbeModule::debug_pass_draw(View &view, gpu::FrameBuffer *view_fb)
 {
   switch (inst_.debug_mode) {
     case eDebugMode::DEBUG_IRRADIANCE_CACHE_SURFELS_NORMAL:
@@ -618,7 +618,7 @@ void VolumeProbeModule::debug_pass_draw(View &view, GPUFrameBuffer *view_fb)
   }
 }
 
-void VolumeProbeModule::display_pass_draw(View &view, GPUFrameBuffer *view_fb)
+void VolumeProbeModule::display_pass_draw(View &view, gpu::FrameBuffer *view_fb)
 {
   if (!display_grids_enabled_) {
     return;

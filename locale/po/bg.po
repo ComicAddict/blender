@@ -1,18 +1,18 @@
 
 msgid ""
 msgstr ""
-"Project-Id-Version: Blender 5.0.0 Alpha (b'a775d58b2e0e')\n"
+"Project-Id-Version: Blender 5.0.0 Alpha (b'7089def6cbcb')\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-07-21 08:48+0000\n"
-"PO-Revision-Date: 2025-04-14 08:10+0000\n"
-"Last-Translator: Gilberto Rodrigues <gilbertorodrigues@outlook.com>\n"
+"POT-Creation-Date: 2025-09-29 09:33+0000\n"
+"PO-Revision-Date: 2025-07-23 15:34+0000\n"
+"Last-Translator: Just Adam <adam.abbas2009@gmail.com>\n"
 "Language-Team: Bulgarian <https://translate.blender.org/projects/blender-ui/ui/bg/>\n"
 "Language: bg\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
-"X-Generator: Weblate 5.10.1\n"
+"X-Generator: Weblate 5.12.1\n"
 "X-Poedit-Bookmarks: 4082,-1,-1,-1,-1,-1,-1,-1,-1,-1"
 
 
@@ -172,12 +172,12 @@ msgid "Layer"
 msgstr "Слой"
 
 
-msgid "Extend"
-msgstr "Разширяване"
-
-
 msgid "Object"
 msgstr "Обект"
+
+
+msgid "Extend"
+msgstr "Разширяване"
 
 
 msgid "Emit"
@@ -648,6 +648,10 @@ msgid "Gamma"
 msgstr "Гама"
 
 
+msgid "View"
+msgstr "Изглед"
+
+
 msgid "Mix"
 msgstr "Смесване"
 
@@ -714,10 +718,6 @@ msgstr "Разделяне"
 
 msgid "Plane"
 msgstr "Равнина"
-
-
-msgid "View"
-msgstr "Изглед"
 
 
 msgid "Render"
@@ -830,6 +830,10 @@ msgstr "Връзка"
 
 msgid "Append"
 msgstr "Добави"
+
+
+msgid "Pack"
+msgstr "Пакетирай"
 
 
 msgid "End"
@@ -1172,6 +1176,10 @@ msgid "Text"
 msgstr "Текст"
 
 
+msgid "Import"
+msgstr "Внеси"
+
+
 msgid "Languages..."
 msgstr "Езици..."
 
@@ -1182,10 +1190,6 @@ msgstr "Кеш"
 
 msgid "Key"
 msgstr "Клавиш"
-
-
-msgid "Import"
-msgstr "Внеси"
 
 
 msgid "System"
@@ -1256,20 +1260,12 @@ msgid "Even"
 msgstr "Равн"
 
 
+msgid "Edge Length"
+msgstr "Дължина на ръба"
+
+
 msgid "Lines"
 msgstr "Линии"
-
-
-msgid "Soften"
-msgstr "Мекост"
-
-
-msgid "Shadow"
-msgstr "Сянка"
-
-
-msgid "Combined"
-msgstr "Комбиниран"
 
 
 msgid "Rotate"
@@ -1298,6 +1294,10 @@ msgstr "Подповърхностно Разпръскване"
 
 msgid "Triangle"
 msgstr "Триъгълник"
+
+
+msgid "Shadow"
+msgstr "Сянка"
 
 
 msgctxt "Operator"
@@ -1559,10 +1559,6 @@ msgid "Flat"
 msgstr "Дъска"
 
 
-msgid "Join"
-msgstr "Събери"
-
-
 msgctxt "Operator"
 msgid "Merge"
 msgstr "Слей"
@@ -1670,6 +1666,10 @@ msgid "Bake"
 msgstr "Изпечи"
 
 
+msgid "Combined"
+msgstr "Комбиниран"
+
+
 msgctxt "Operator"
 msgid "Add Constraint"
 msgstr "Добавяне на ограничител"
@@ -1687,10 +1687,6 @@ msgstr "Събери като Форми"
 
 msgid "Origin to Geometry"
 msgstr "Начало към Геометрия"
-
-
-msgid "Edge Length"
-msgstr "Дължина на ръба"
 
 
 msgid "Maximum scale randomization over each axis"
@@ -1835,6 +1831,10 @@ msgstr "Име на Menu ID"
 
 msgid "ID name of the menu this was called from"
 msgstr "ID име на менюто, от което се повиква"
+
+
+msgid "Join"
+msgstr "Събери"
 
 
 msgctxt "Operator"
@@ -2199,16 +2199,16 @@ msgid "Strand"
 msgstr "Нишка"
 
 
-msgid "Bias"
-msgstr "Отклонение"
-
-
 msgid "FPS"
 msgstr "FPS"
 
 
 msgid "Viscosity"
 msgstr "Вискозитет"
+
+
+msgid "Bias"
+msgstr "Отклонение"
 
 
 msgid "Edge spring friction"
@@ -2300,10 +2300,6 @@ msgid "Unpack"
 msgstr "Разпакетирай"
 
 
-msgid "Pack"
-msgstr "Пакетирай"
-
-
 msgid "Minimum Grid Spacing"
 msgstr "Минимален Интервал на Мрежата"
 
@@ -2348,8 +2344,8 @@ msgid "Fields"
 msgstr "Полета"
 
 
-msgid "Layer:"
-msgstr "Слой:"
+msgid "Soften"
+msgstr "Мекост"
 
 
 msgctxt "WorkSpace"

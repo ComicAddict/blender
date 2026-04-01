@@ -11,6 +11,10 @@
 #include "vk_context.hh"
 #include <vulkan/vulkan_core.h>
 
+#include "CLG_log.h"
+
+static CLG_LogRef LOG = {"gpu.vulkan"};
+
 namespace blender::gpu {
 
 VKBuffer::~VKBuffer()
@@ -25,6 +29,7 @@ bool VKBuffer::create(size_t size_in_bytes,
                       VkMemoryPropertyFlags required_flags,
                       VkMemoryPropertyFlags preferred_flags,
                       VmaAllocationCreateFlags allocation_flags,
+                      float priority,
                       bool export_memory)
 {
   BLI_assert(!is_allocated());
@@ -41,6 +46,19 @@ bool VKBuffer::create(size_t size_in_bytes,
    */
   alloc_size_in_bytes_ = ceil_to_multiple_ul(max_ulul(size_in_bytes_, 16), 16);
   VKDevice &device = VKBackend::get().device;
+
+  /* Precheck max buffer size. */
+  if (device.extensions_get().maintenance4 &&
+      alloc_size_in_bytes_ > device.physical_device_maintenance4_properties_get().maxBufferSize)
+  {
+    CLOG_WARN(
+        &LOG,
+        "Couldn't allocate buffer, requested allocation exceeds the maxBufferSize of the device.");
+    allocation_failed_ = true;
+    size_in_bytes_ = 0;
+    alloc_size_in_bytes_ = 0;
+    return false;
+  }
 
   VmaAllocator allocator = device.mem_allocator_get();
   VkBufferCreateInfo create_info = {};
@@ -60,21 +78,18 @@ bool VKBuffer::create(size_t size_in_bytes,
 
   VmaAllocationCreateInfo vma_create_info = {};
   vma_create_info.flags = allocation_flags;
-  vma_create_info.priority = 1.0f;
+  vma_create_info.priority = priority;
   vma_create_info.requiredFlags = required_flags;
   vma_create_info.preferredFlags = preferred_flags;
   vma_create_info.usage = VMA_MEMORY_USAGE_AUTO;
 
   if (export_memory) {
     create_info.pNext = &external_memory_create_info;
-#ifdef _WIN32
-    external_memory_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-#else
-    external_memory_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-#endif
+    external_memory_create_info.handleTypes = vk_external_memory_handle_type();
+
     /* Dedicated allocation for zero offset. */
     vma_create_info.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
-    vma_create_info.pool = device.vma_pools.external_memory;
+    vma_create_info.pool = device.vma_pools.external_memory_pixel_buffer.pool;
   }
 
   const bool use_descriptor_buffer = device.extensions_get().descriptor_buffer;

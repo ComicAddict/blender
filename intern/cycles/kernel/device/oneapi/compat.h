@@ -72,7 +72,7 @@ void oneapi_kernel_##name(KernelGlobalsGPU *ccl_restrict kg, \
                           size_t kernel_local_size, \
                           sycl::handler &cgh, \
                           __VA_ARGS__) { \
-      (kg); \
+      (void)(kg); \
       cgh.parallel_for( \
           sycl::nd_range<1>(kernel_global_size, kernel_local_size), \
           [=](sycl::nd_item<1> item) {
@@ -90,7 +90,7 @@ void oneapi_kernel_##name(KernelGlobalsGPU *ccl_restrict kg, \
                           size_t kernel_local_size, \
                           sycl::handler &cgh, \
                           __VA_ARGS__) { \
-      (kg); \
+      (void)(kg); \
       (kernel_local_size); \
       cgh.host_task( \
           [=]() {\
@@ -214,6 +214,7 @@ ccl_device_forceinline int __float_as_int(const float x)
 #define atanf(x) sycl::atan((x))
 #define floorf(x) sycl::floor((x))
 #define ceilf(x) sycl::ceil((x))
+#define roundf(x) sycl::round((x))
 #define sinhf(x) sycl::sinh((x))
 #define coshf(x) sycl::cosh((x))
 #define tanhf(x) sycl::tanh((x))
@@ -223,6 +224,7 @@ ccl_device_forceinline int __float_as_int(const float x)
 #define fminf(x, y) sycl::fmin((x), (y))
 #define fmodf(x, y) sycl::fmod((x), (y))
 #define lgammaf(x) sycl::lgamma((x))
+#define ldexpf(x, y) sycl::ldexp((x), (y))
 
 #define cosf(x) sycl::native::cos(((float)(x)))
 #define sinf(x) sycl::native::sin(((float)(x)))

@@ -9,7 +9,7 @@
  * views per shadow map).
  */
 
-#include "infos/eevee_shadow_info.hh"
+#include "infos/eevee_shadow_infos.hh"
 
 COMPUTE_SHADER_CREATE_INFO(eevee_shadow_page_mask)
 
@@ -20,10 +20,6 @@ COMPUTE_SHADER_CREATE_INFO(eevee_shadow_page_mask)
 #define SHADOW_TILE_AMENDED SHADOW_IS_RENDERED
 /* Visibility value to write back. */
 #define SHADOW_TILE_MASKED SHADOW_IS_ALLOCATED
-
-shared uint tiles_local[SHADOW_TILEDATA_PER_TILEMAP];
-shared uint levels_rendered;
-shared uint force_base_page;
 
 int shadow_tile_offset_lds(int2 tile, int lod)
 {

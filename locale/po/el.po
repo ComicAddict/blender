@@ -1,10 +1,10 @@
 
 msgid ""
 msgstr ""
-"Project-Id-Version: Blender 5.0.0 Alpha (b'a775d58b2e0e')\n"
+"Project-Id-Version: Blender 5.0.0 Alpha (b'7089def6cbcb')\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-07-21 08:48+0000\n"
-"PO-Revision-Date: 2025-04-14 08:15+0000\n"
+"POT-Creation-Date: 2025-09-29 09:33+0000\n"
+"PO-Revision-Date: 2025-07-23 15:19+0000\n"
 "Last-Translator: Anonymous <noreply@weblate.org>\n"
 "Language-Team: Greek <https://translate.blender.org/projects/blender-ui/ui/el/>\n"
 "Language: el\n"
@@ -12,7 +12,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
-"X-Generator: Weblate 5.10.1"
+"X-Generator: Weblate 5.12.1"
 
 
 msgid "Name"
@@ -99,12 +99,12 @@ msgid "Layer"
 msgstr "Στρώμα"
 
 
-msgid "Extend"
-msgstr "Επέκταση"
-
-
 msgid "Object"
 msgstr "Αντικείμενο"
+
+
+msgid "Extend"
+msgstr "Επέκταση"
 
 
 msgid "None"
@@ -183,6 +183,10 @@ msgid "Gamma"
 msgstr "Γάμμα"
 
 
+msgid "View"
+msgstr "View"
+
+
 msgid "Mix"
 msgstr "Μείξη"
 
@@ -257,10 +261,6 @@ msgstr "Χωρισμός"
 
 msgid "Plane"
 msgstr "Επίπεδο"
-
-
-msgid "View"
-msgstr "View"
 
 
 msgid "Segments"
@@ -515,12 +515,12 @@ msgid "Keyboard"
 msgstr "Πληκτρολόγιο"
 
 
-msgid "Snap"
-msgstr "Προσκόλληση"
-
-
 msgid "Mirror"
 msgstr "Καθρέφτισμα"
+
+
+msgid "Snap"
+msgstr "Προσκόλληση"
 
 
 msgid "Select Linked"
@@ -559,6 +559,10 @@ msgid "Text"
 msgstr "Κείμενο"
 
 
+msgid "Import"
+msgstr "Εισαγωγή"
+
+
 msgid "Cache"
 msgstr "Προσωρινή μνήμη"
 
@@ -570,10 +574,6 @@ msgstr "Κλειδί"
 msgctxt "Operator"
 msgid "Mirror"
 msgstr "Καθρέφτισμα"
-
-
-msgid "Import"
-msgstr "Εισαγωγή"
 
 
 msgid "System"
@@ -636,16 +636,8 @@ msgid "Sensor"
 msgstr "Ανιχνευτής"
 
 
-msgid "Meta"
-msgstr "Μετα"
-
-
 msgid "Alpha Over"
 msgstr "Επικάλυψη βάσει διαφάνειας"
-
-
-msgid "Shadow"
-msgstr "Σκιές"
 
 
 msgid "Rotate"
@@ -662,6 +654,10 @@ msgstr "Φτιάξε"
 
 msgid "Linked"
 msgstr "Συνδεδεμένο/α"
+
+
+msgid "Shadow"
+msgstr "Σκιές"
 
 
 msgid "Deselect"
@@ -747,10 +743,6 @@ msgstr "Επόμενο Καρέ με Κλειδί"
 
 msgid "Flat"
 msgstr "Επίπεδο"
-
-
-msgid "Join"
-msgstr "Ένωσε"
 
 
 msgctxt "Operator"
@@ -861,6 +853,10 @@ msgstr "Render"
 
 msgid "Sync"
 msgstr "Συγχρον"
+
+
+msgid "Join"
+msgstr "Ένωσε"
 
 
 msgctxt "Operator"
@@ -975,6 +971,10 @@ msgstr "Ουρανός"
 
 msgid "Lens"
 msgstr "Φακός"
+
+
+msgid "Meta"
+msgstr "Μετα"
 
 
 msgid "Alpha Under"

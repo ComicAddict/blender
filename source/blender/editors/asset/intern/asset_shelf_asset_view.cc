@@ -78,8 +78,9 @@ class AssetDragController : public ui::AbstractViewItemDragController {
  public:
   AssetDragController(ui::AbstractGridView &view, asset_system::AssetRepresentation &asset);
 
-  eWM_DragDataType get_drag_type() const override;
+  std::optional<eWM_DragDataType> get_drag_type() const override;
   void *create_drag_data() const override;
+  void on_drag_start(bContext &C) override;
 };
 
 AssetView::AssetView(const AssetLibraryReference &library_ref, const AssetShelf &shelf)
@@ -122,6 +123,20 @@ void AssetView::build_items()
     }
     if (shelf_.type->flag & ASSET_SHELF_TYPE_FLAG_NO_ASSET_DRAG) {
       item.disable_asset_drag();
+    }
+    if (!shelf_.type->drag_operator.empty()) {
+      /* For now always select/activate items on click instead of press when there's a drag
+       * operator set. Important for pose library blending. Maybe we want to make this an explicit
+       * option of the asset shelf instead. */
+      item.select_on_click_set();
+    }
+    /* Make sure every click calls the #bl_activate_operator. We might want to add a flag to
+     * enable/disable this. Or we only call #bl_activate_operator when an item becomes active, and
+     * add a #bl_click_operator for repeated execution on every click. So far it seems like every
+     * asset shelf use case works with activating on every click though. */
+    item.always_reactivate_on_click();
+    if (shelf_.type->flag & ASSET_SHELF_TYPE_FLAG_ACTIVATE_FOR_CONTEXT_MENU) {
+      item.activate_for_context_menu_set();
     }
 
     return true;
@@ -185,7 +200,7 @@ void AssetViewItem::disable_asset_drag()
  * Needs freeing with #WM_operator_properties_free() (will be done by button if passed to that) and
  * #MEM_freeN().
  */
-static std::optional<wmOperatorCallParams> create_activate_operator_params(
+static std::optional<wmOperatorCallParams> create_asset_operator_params(
     const StringRefNull op_name, const asset_system::AssetRepresentation &asset)
 {
   if (op_name.is_empty()) {
@@ -212,7 +227,7 @@ void AssetViewItem::build_grid_tile(const bContext & /*C*/, uiLayout &layout) co
       layout.block(), reinterpret_cast<uiBut *>(view_item_but_), "asset", &asset_ptr);
 
   uiBut *item_but = reinterpret_cast<uiBut *>(this->view_item_button());
-  if (std::optional<wmOperatorCallParams> activate_op = create_activate_operator_params(
+  if (std::optional<wmOperatorCallParams> activate_op = create_asset_operator_params(
           shelf_type.activate_operator, asset_))
   {
     /* Attach the operator, but don't call it through the button. We call it using
@@ -287,7 +302,7 @@ void AssetViewItem::on_activate(bContext &C)
   const AssetView &asset_view = dynamic_cast<const AssetView &>(this->get_view());
   const AssetShelfType &shelf_type = *asset_view.shelf_.type;
 
-  if (std::optional<wmOperatorCallParams> activate_op = create_activate_operator_params(
+  if (std::optional<wmOperatorCallParams> activate_op = create_asset_operator_params(
           shelf_type.activate_operator, asset_))
   {
     WM_operator_name_call_ptr(
@@ -305,7 +320,10 @@ bool AssetViewItem::should_be_filtered_visible(const StringRefNull filter_string
 
 std::unique_ptr<ui::AbstractViewItemDragController> AssetViewItem::create_drag_controller() const
 {
-  if (!allow_asset_drag_) {
+  const AssetView &asset_view = dynamic_cast<const AssetView &>(this->get_view());
+  const AssetShelfType &shelf_type = *asset_view.shelf_.type;
+
+  if (!allow_asset_drag_ && shelf_type.drag_operator.empty()) {
     return nullptr;
   }
   return std::make_unique<AssetDragController>(this->get_view(), asset_);
@@ -361,9 +379,30 @@ AssetDragController::AssetDragController(ui::AbstractGridView &view,
 {
 }
 
-eWM_DragDataType AssetDragController::get_drag_type() const
+std::optional<eWM_DragDataType> AssetDragController::get_drag_type() const
 {
+  const AssetView &asset_view = this->get_view<AssetView>();
+  const AssetShelfType &shelf_type = *asset_view.shelf_.type;
+
+  /* Disable asset dragging, only call #AssetShelfType::drag_operator in #on_drag_start(). */
+  if (!shelf_type.drag_operator.empty()) {
+    return std::nullopt;
+  }
   return asset_.is_local_id() ? WM_DRAG_ID : WM_DRAG_ASSET;
+}
+
+void AssetDragController::on_drag_start(bContext &C)
+{
+  const AssetView &asset_view = this->get_view<AssetView>();
+  const AssetShelfType &shelf_type = *asset_view.shelf_.type;
+
+  if (std::optional<wmOperatorCallParams> drag_op = create_asset_operator_params(
+          shelf_type.drag_operator, asset_))
+  {
+    WM_operator_name_call_ptr(&C, drag_op->optype, drag_op->opcontext, drag_op->opptr, nullptr);
+    WM_operator_properties_free(drag_op->opptr);
+    MEM_delete(drag_op->opptr);
+  }
 }
 
 void *AssetDragController::create_drag_data() const
@@ -373,8 +412,11 @@ void *AssetDragController::create_drag_data() const
     return static_cast<void *>(local_id);
   }
 
-  const eAssetImportMethod import_method = asset_.get_import_method().value_or(
-      ASSET_IMPORT_APPEND_REUSE);
+  eAssetImportMethod import_method = asset_.get_import_method().value_or(ASSET_IMPORT_PACK);
+  if (U.experimental.no_data_block_packing && import_method == ASSET_IMPORT_PACK) {
+    import_method = ASSET_IMPORT_APPEND_REUSE;
+  }
+
   AssetImportSettings import_settings{};
   import_settings.method = import_method;
   import_settings.use_instance_collections = false;

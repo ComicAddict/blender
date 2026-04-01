@@ -281,11 +281,8 @@ bNodeSocket &SocketDeclaration::update_or_build(bNodeTree &ntree,
 
 void SocketDeclaration::set_common_flags(bNodeSocket &socket) const
 {
-  SET_FLAG_FROM_TEST(socket.flag, compact, SOCK_COMPACT);
   SET_FLAG_FROM_TEST(socket.flag, hide_value, SOCK_HIDE_VALUE);
-  SET_FLAG_FROM_TEST(socket.flag, hide_label, SOCK_HIDE_LABEL);
   SET_FLAG_FROM_TEST(socket.flag, is_multi_input, SOCK_MULTI_INPUT);
-  SET_FLAG_FROM_TEST(socket.flag, no_mute_links, SOCK_NO_INTERNAL_LINK);
   SET_FLAG_FROM_TEST(socket.flag, !is_available, SOCK_UNAVAIL);
 }
 
@@ -297,19 +294,10 @@ bool SocketDeclaration::matches_common_data(const bNodeSocket &socket) const
   if (socket.identifier != this->identifier) {
     return false;
   }
-  if (((socket.flag & SOCK_COMPACT) != 0) != this->compact) {
-    return false;
-  }
   if (((socket.flag & SOCK_HIDE_VALUE) != 0) != this->hide_value) {
     return false;
   }
-  if (((socket.flag & SOCK_HIDE_LABEL) != 0) != this->hide_label) {
-    return false;
-  }
   if (((socket.flag & SOCK_MULTI_INPUT) != 0) != this->is_multi_input) {
-    return false;
-  }
-  if (((socket.flag & SOCK_NO_INTERNAL_LINK) != 0) != this->no_mute_links) {
     return false;
   }
   if (((socket.flag & SOCK_UNAVAIL) != 0) != !this->is_available) {
@@ -330,6 +318,9 @@ static bool socket_type_to_static_decl_type(const eNodeSocketDatatype socket_typ
       return true;
     case SOCK_RGBA:
       fn(TypeTag<decl::Color>());
+      return true;
+    case SOCK_SHADER:
+      fn(TypeTag<decl::Shader>());
       return true;
     case SOCK_BOOLEAN:
       fn(TypeTag<decl::Bool>());
@@ -547,9 +538,9 @@ BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::dependent_field(
   return *this;
 }
 
-BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::hide_label(bool value)
+BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::optional_label(bool value)
 {
-  decl_base_->hide_label = value;
+  decl_base_->optional_label = value;
   return *this;
 }
 
@@ -820,8 +811,83 @@ BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::usage_by_single_menu
   this->usage_inference([menu_value](const socket_usage_inference::InputSocketUsageParams &params)
                             -> std::optional<bool> {
     const bNodeSocket &socket = find_single_menu_input(params.node);
+    if (const std::optional<bool> any_output_used = params.any_output_is_used()) {
+      if (!*any_output_used) {
+        /* If no output is used, none of the inputs is used either. */
+        return false;
+      }
+    }
+    else {
+      /* It's not known if any output is used yet. This function will be called again once new
+       * information about output usages is available. */
+      return std::nullopt;
+    }
     return params.menu_input_may_be(socket.identifier, menu_value);
   });
+  return *this;
+}
+
+BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::usage_by_menu(
+    const StringRef menu_input_identifier, const int menu_value)
+{
+  Array<int> menu_values = {menu_value};
+  this->usage_by_menu(menu_input_identifier, menu_values);
+  return *this;
+}
+
+BaseSocketDeclarationBuilder &BaseSocketDeclarationBuilder::usage_by_menu(
+    const StringRef menu_input_identifier, const Array<int> menu_values)
+{
+  this->make_available([menu_input_identifier, menu_values](bNode &node) {
+    bNodeSocket &menu_socket = *blender::bke::node_find_socket(
+        node, SOCK_IN, menu_input_identifier);
+    const SocketDeclaration &socket_declaration = *menu_socket.runtime->declaration;
+    socket_declaration.make_available(node);
+    bNodeSocketValueMenu *value = menu_socket.default_value_typed<bNodeSocketValueMenu>();
+    value->value = menu_values[0];
+  });
+  this->usage_inference(
+      [menu_input_identifier, menu_values](
+          const socket_usage_inference::InputSocketUsageParams &params) -> std::optional<bool> {
+        if (const std::optional<bool> any_output_used = params.any_output_is_used()) {
+          if (!*any_output_used) {
+            /* If no output is used, none of the inputs is used either. */
+            return false;
+          }
+        }
+        else {
+          /* It's not known if any output is used yet. This function will be called again once new
+           * information about output usages is available. */
+          return std::nullopt;
+        }
+
+        /* Check if the menu might be any of the given values. */
+        bool menu_might_be_any_value = false;
+        for (const int menu_value : menu_values) {
+          menu_might_be_any_value = params.menu_input_may_be(menu_input_identifier, menu_value);
+          if (menu_might_be_any_value) {
+            break;
+          }
+        }
+
+        const bNodeSocket &menu_socket = *blender::bke::node_find_socket(
+            params.node, SOCK_IN, menu_input_identifier);
+        const SocketDeclaration &menu_socket_declaration = *menu_socket.runtime->declaration;
+        if (!menu_socket_declaration.usage_inference_fn) {
+          return menu_might_be_any_value;
+        }
+
+        /* If the menu socket has a usage inference function, check if it might be used. */
+        const std::optional<bool> menu_might_be_used =
+            (*menu_socket_declaration.usage_inference_fn)(params);
+        if (!menu_might_be_used.has_value()) {
+          return menu_might_be_any_value;
+        }
+
+        /* The input is only used if the menu might be any of the values and the menu itself is
+         * used. */
+        return *menu_might_be_used && menu_might_be_any_value;
+      });
   return *this;
 }
 
@@ -1040,6 +1106,16 @@ bool socket_type_supports_default_input_type(const bke::bNodeSocketType &socket_
       return stype == SOCK_MATRIX;
   }
   return false;
+}
+
+void CustomSocketDrawParams::draw_standard(uiLayout &layout,
+                                           const std::optional<StringRefNull> label_override)
+{
+  this->socket.typeinfo->draw(const_cast<bContext *>(&this->C),
+                              &layout,
+                              &this->socket_ptr,
+                              &this->node_ptr,
+                              (label_override.has_value()) ? *label_override : this->label);
 }
 
 }  // namespace blender::nodes

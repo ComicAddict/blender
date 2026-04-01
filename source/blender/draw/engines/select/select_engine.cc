@@ -58,17 +58,19 @@ struct Instance : public DrawEngine {
   View view_edges = {"view_edges"};
   View view_verts = {"view_verts"};
 
+  UniformArrayBuffer<float4, 6> clip_planes_buf;
+
   const DRWContext *draw_ctx = nullptr;
 
  public:
   struct StaticData {
-    GPUFrameBuffer *framebuffer_select_id;
+    gpu::FrameBuffer *framebuffer_select_id;
     blender::gpu::Texture *texture_u32;
 
     struct Shaders {
       /* Depth Pre Pass */
-      GPUShader *select_id_flat;
-      GPUShader *select_id_uniform;
+      gpu::Shader *select_id_flat;
+      gpu::Shader *select_id_uniform;
     } sh_data[GPU_SHADER_CFG_LEN];
 
     SELECTID_Context context;
@@ -89,9 +91,9 @@ struct Instance : public DrawEngine {
   {
     this->draw_ctx = DRW_context_get();
     StaticData &e_data = StaticData::get();
-    eGPUShaderConfig sh_cfg = (RV3D_CLIPPING_ENABLED(draw_ctx->v3d, draw_ctx->rv3d)) ?
-                                  GPU_SHADER_CFG_CLIPPED :
-                                  GPU_SHADER_CFG_DEFAULT;
+    GPUShaderConfig sh_cfg = (RV3D_CLIPPING_ENABLED(draw_ctx->v3d, draw_ctx->rv3d)) ?
+                                 GPU_SHADER_CFG_CLIPPED :
+                                 GPU_SHADER_CFG_DEFAULT;
 
     StaticData::Shaders *sh_data = &e_data.sh_data[sh_cfg];
 
@@ -109,9 +111,9 @@ struct Instance : public DrawEngine {
   void begin_sync() final
   {
     StaticData &e_data = StaticData::get();
-    eGPUShaderConfig sh_cfg = (RV3D_CLIPPING_ENABLED(draw_ctx->v3d, draw_ctx->rv3d)) ?
-                                  GPU_SHADER_CFG_CLIPPED :
-                                  GPU_SHADER_CFG_DEFAULT;
+    GPUShaderConfig sh_cfg = (RV3D_CLIPPING_ENABLED(draw_ctx->v3d, draw_ctx->rv3d)) ?
+                                 GPU_SHADER_CFG_CLIPPED :
+                                 GPU_SHADER_CFG_DEFAULT;
 
     StaticData::Shaders *sh = &e_data.sh_data[sh_cfg];
 
@@ -128,13 +130,26 @@ struct Instance : public DrawEngine {
     bool retopology_occlusion = RETOPOLOGY_ENABLED(draw_ctx->v3d) && !XRAY_ENABLED(draw_ctx->v3d);
     float retopology_offset = RETOPOLOGY_OFFSET(draw_ctx->v3d);
 
+    for (int i : IndexRange(6)) {
+      clip_planes_buf[i] = float4(0);
+    }
+
     /* Note there might be less than 6 planes, but we always compute the 6 of them for simplicity.
      */
     int clipping_plane_count = RV3D_CLIPPING_ENABLED(draw_ctx->v3d, draw_ctx->rv3d) ? 6 : 0;
+    int plane_len = min((RV3D_LOCK_FLAGS(draw_ctx->rv3d) & RV3D_BOXCLIP) ? 4 : 6,
+                        clipping_plane_count);
+
+    for (auto i : IndexRange(plane_len)) {
+      clip_planes_buf[i] = draw_ctx->rv3d->clip[i];
+    }
+
+    clip_planes_buf.push_update();
 
     {
       depth_only_ps.init();
       depth_only_ps.state_set(state, clipping_plane_count);
+      depth_only_ps.bind_ubo(DRW_CLIPPING_UBO_SLOT, clip_planes_buf);
       depth_only = nullptr;
       depth_occlude = nullptr;
       {
@@ -154,6 +169,7 @@ struct Instance : public DrawEngine {
 
       select_face_ps.init();
       select_face_ps.state_set(state, clipping_plane_count);
+      select_face_ps.bind_ubo(DRW_CLIPPING_UBO_SLOT, clip_planes_buf);
       select_face_uniform = nullptr;
       select_face_flat = nullptr;
       if (e_data.context.select_mode & SCE_SELECT_FACE) {
@@ -171,6 +187,7 @@ struct Instance : public DrawEngine {
       }
 
       select_edge_ps.init();
+      select_edge_ps.bind_ubo(DRW_CLIPPING_UBO_SLOT, clip_planes_buf);
       select_edge = nullptr;
       if (e_data.context.select_mode & SCE_SELECT_EDGE) {
         auto &sub = select_edge_ps.sub("Sub");
@@ -181,6 +198,7 @@ struct Instance : public DrawEngine {
       }
 
       select_id_vert_ps.init();
+      select_id_vert_ps.bind_ubo(DRW_CLIPPING_UBO_SLOT, clip_planes_buf);
       select_vert = nullptr;
       if (e_data.context.select_mode & SCE_SELECT_VERTEX) {
         const float vertex_size = U.pixelsize *
@@ -340,13 +358,15 @@ struct Instance : public DrawEngine {
     StaticData &e_data = StaticData::get();
     SELECTID_Context &sel_ctx = e_data.context;
 
-    if (!sel_ctx.objects.contains(ob) && ob->dt >= OB_SOLID) {
-      /* This object is not selectable. It is here to participate in occlusion.
-       * This is the case in retopology mode. */
-      blender::gpu::Batch *geom_faces = DRW_mesh_batch_cache_get_surface(
-          DRW_object_get_data_for_drawing<Mesh>(*ob));
+    if (!sel_ctx.objects.contains(ob)) {
+      if (ob->dt >= OB_SOLID) {
+        /* This object is not selectable. It is here to participate in occlusion.
+         * This is the case in retopology mode. */
+        blender::gpu::Batch *geom_faces = DRW_mesh_batch_cache_get_surface(
+            DRW_object_get_data_for_drawing<Mesh>(*ob));
 
-      depth_occlude->draw(geom_faces, manager.unique_handle(ob_ref));
+        depth_occlude->draw(geom_faces, manager.unique_handle(ob_ref));
+      }
       return;
     }
 
@@ -435,7 +455,7 @@ struct Instance : public DrawEngine {
 
   short get_object_select_mode(Scene *scene, Object *ob)
   {
-    short r_select_mode = 0;
+    short select_mode = 0;
     if (ob->mode & (OB_MODE_WEIGHT_PAINT | OB_MODE_VERTEX_PAINT | OB_MODE_TEXTURE_PAINT)) {
       /* In order to sample flat colors for vertex weights / texture-paint / vertex-paint
        * we need to be in SCE_SELECT_FACE mode so select_cache_init() correctly sets up
@@ -445,17 +465,17 @@ struct Instance : public DrawEngine {
        * So OB_MODE_VERTEX_PAINT is already included here [required for P1032 I guess]. */
       Mesh *me_orig = static_cast<Mesh *>(DEG_get_original(ob)->data);
       if (me_orig->editflag & ME_EDIT_PAINT_VERT_SEL) {
-        r_select_mode = SCE_SELECT_VERTEX;
+        select_mode = SCE_SELECT_VERTEX;
       }
       else {
-        r_select_mode = SCE_SELECT_FACE;
+        select_mode = SCE_SELECT_FACE;
       }
     }
     else {
-      r_select_mode = scene->toolsettings->selectmode;
+      select_mode = scene->toolsettings->selectmode;
     }
 
-    return r_select_mode;
+    return select_mode;
   }
 
   bool check_ob_drawface_dot(short select_mode, const View3D *v3d, eDrawType dt)
@@ -515,7 +535,7 @@ SELECTID_Context *DRW_select_engine_context_get()
   return &e_data.context;
 }
 
-GPUFrameBuffer *DRW_engine_select_framebuffer_get()
+blender::gpu::FrameBuffer *DRW_engine_select_framebuffer_get()
 {
   Instance::StaticData &e_data = Instance::StaticData::get();
   return e_data.framebuffer_select_id;

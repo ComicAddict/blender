@@ -52,10 +52,16 @@ class GHOST_IContext {
    */
   virtual unsigned int getDefaultFramebuffer() = 0;
   /**
+   * Acquire next buffer for drawing.
+   * \return A boolean success indicator.
+   */
+  virtual GHOST_TSuccess swapBufferAcquire() = 0;
+
+  /**
    * Swaps front and back buffers of a window.
    * \return A boolean success indicator.
    */
-  virtual GHOST_TSuccess swapBuffers() = 0;
+  virtual GHOST_TSuccess swapBufferRelease() = 0;
 
 #ifdef WITH_VULKAN_BACKEND
   /**
@@ -72,7 +78,7 @@ class GHOST_IContext {
   virtual GHOST_TSuccess getVulkanHandles(GHOST_VulkanHandles &r_handles) = 0;
 
   /**
-   * Acquire the current swap chain format.
+   * Acquire the current swap-chain format.
    *
    * \param windowhandle:  GHOST window handle to a window to get the resource from.
    * \param r_surface_format: After calling this function the VkSurfaceFormatKHR
@@ -87,24 +93,23 @@ class GHOST_IContext {
       GHOST_VulkanSwapChainData *r_swap_chain_data) = 0;
 
   /**
-   * Set the pre and post callbacks for vulkan swap chain in the given context.
+   * Set the pre and post callbacks for vulkan swap-chain in the given context.
    *
    * \param context: GHOST context handle of a vulkan context to
    *     get the Vulkan handles from.
-   * \param swap_buffers_pre_callback: Function pointer to be called at the beginning of
-   *     swapBuffers. Inside this callback the next swap chain image needs to be acquired and
-   *     filled.
-   * \param swap_buffers_post_callback: Function to be called at th end of swapBuffers.
-   *     swapBuffers can recreate the swap chain. When this is done the application should be
-   *     informed by those changes.
-   * \param openxr_acquire_image_callback: Function to be called when an
-   *     image needs to be acquired to be drawn to an OpenXR swap chain.
+   * \param swap_buffer_draw_callback: Function pointer to be called when acquired swap buffer is
+   *     released, allowing Vulkan backend to update the swap chain.
+   * \param swap_buffer_acquired_callback: Function to be called at when swap buffer is acquired.
+   *     Allowing Vulkan backend to update the framebuffer. It is also called when no swap chain
+   *     exists indicating that the window was minimuzed.
+   * \param openxr_acquire_image_callback: Function to be called when an image needs to be acquired
+   *     to be drawn to an OpenXR swap-chain.
    * \param openxr_release_image_callback: Function to be called after an image has been drawn to
-   *     the OpenXR swap chain.
+   *     the OpenXR swap-chain.
    */
   virtual GHOST_TSuccess setVulkanSwapBuffersCallbacks(
-      std::function<void(const GHOST_VulkanSwapChainData *)> swap_buffers_pre_callback,
-      std::function<void(void)> swap_buffers_post_callback,
+      std::function<void(const GHOST_VulkanSwapChainData *)> swap_buffer_draw_callback,
+      std::function<void(void)> swap_buffer_acquired_callback,
       std::function<void(GHOST_VulkanOpenXRData *)> openxr_acquire_framebuffer_image_callback,
       std::function<void(GHOST_VulkanOpenXRData *)> openxr_release_framebuffer_image_callback) = 0;
 #endif

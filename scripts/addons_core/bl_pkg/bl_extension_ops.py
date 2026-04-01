@@ -468,7 +468,7 @@ def lock_result_any_failed_with_report(op, lock_result, report_type='ERROR'):
         print("Error locking repository \"{:s}\": {:s}".format(repo_name, lock_result_for_repo))
         op.report(
             {report_type},
-            "Repository \"{:s}\": {:s}{:s}".format(
+            rpt_("Repository \"{:s}\": {:s}{:s}").format(
                 repo_name,
                 lock_result_for_repo,
                 "" if any_errors else unlock_hint_text,
@@ -2739,7 +2739,7 @@ class EXTENSIONS_OT_package_install_files(Operator, _ExtCmdMixIn):
         # - If it's a "local" repository, use it.
         # - If it's a "remote" repository, reset.
         # This is done because installing a file into a remote repository is a corner-case supported so
-        # it's possible to download large extensions before installing or to down-grade to older versions.
+        # it's possible to download large extensions before installing as well as down-grading to older versions.
         # Installing into a remote repository should be intentional, not the default.
         # This could be annoying to users if they want to install many files into a remote repository,
         # in this case they would be better off using the file selector "Install from disk"
@@ -3215,12 +3215,12 @@ class EXTENSIONS_OT_package_install(Operator, _ExtCmdMixIn):
 
         _repo_index, repo_name, _pkg_id, item_remote = self._drop_variables
 
-        layout.label(text="Do you want to install the following {:s}?".format(item_remote.type))
+        layout.label(text=iface_("Do you want to install the following {:s}?").format(item_remote.type), translate=False)
 
         col = layout.column(align=True)
-        col.label(text="Name: {:s}".format(item_remote.name))
-        col.label(text="Repository: {:s}".format(repo_name))
-        col.label(text="Size: {:s}".format(size_as_fmt_string(item_remote.archive_size, precision=0)))
+        col.label(text=iface_("Name: {:s}").format(item_remote.name), translate=False)
+        col.label(text=iface_("Repository: {:s}").format(repo_name), translate=False)
+        col.label(text=iface_("Size: {:s}").format(size_as_fmt_string(item_remote.archive_size, precision=0)), translate=False)
         del col
 
         layout.separator()
@@ -3419,7 +3419,7 @@ class EXTENSIONS_OT_package_install(Operator, _ExtCmdMixIn):
             *,
             remote_url,
     ):
-        # Skip the URL prefix scheme, e.g. `https://` for less "noisy" outpout.
+        # Skip the URL prefix scheme, e.g. `https://` for less "noisy" output.
         url_split = remote_url.partition("://")
         url_for_display = url_split[2] if url_split[2] else remote_url
 
@@ -4036,7 +4036,7 @@ class EXTENSIONS_OT_userpref_allow_online_popup(Operator):
             )
         else:
             lines = (
-                rpt_("Please turn Online Access on in the System settings."),
+                rpt_("Please enable Online Access from the System settings."),
                 "",
                 rpt_("Internet access is required to install extensions from the internet."),
             )

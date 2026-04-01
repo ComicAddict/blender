@@ -4,15 +4,6 @@
 
 #pragma once
 
-#ifdef WITH_OSL
-#  include <cstdint> /* Needed before `sdlexec.h` for `int32_t` with GCC 15.1. */
-/* So no context pollution happens from indirectly included windows.h */
-#  ifdef _WIN32
-#    include "util/windows.h"
-#  endif
-#  include <OSL/oslexec.h>
-#endif
-
 #include "kernel/types.h"
 #include "scene/attribute.h"
 
@@ -81,7 +72,6 @@ class Shader : public Node {
   NODE_SOCKET_API(EmissionSampling, emission_sampling_method)
   NODE_SOCKET_API(bool, use_transparent_shadow)
   NODE_SOCKET_API(bool, use_bump_map_correction)
-  NODE_SOCKET_API(bool, heterogeneous_volume)
   NODE_SOCKET_API(VolumeSampling, volume_sampling_method)
   NODE_SOCKET_API(int, volume_interpolation_method)
   NODE_SOCKET_API(float, volume_step_rate)
@@ -117,6 +107,7 @@ class Shader : public Node {
   bool has_surface_spatial_varying;
   bool has_volume_spatial_varying;
   bool has_volume_attribute_dependency;
+  bool has_light_path_node;
 
   float3 emission_estimate;
   EmissionSampling emission_sampling;
@@ -127,14 +118,6 @@ class Shader : public Node {
 
   /* determined before compiling */
   uint id;
-
-#ifdef WITH_OSL
-  /* osl shading state references */
-  OSL::ShaderGroupRef osl_surface_ref;
-  OSL::ShaderGroupRef osl_surface_bump_ref;
-  OSL::ShaderGroupRef osl_volume_ref;
-  OSL::ShaderGroupRef osl_displacement_ref;
-#endif
 
   Shader();
 
@@ -215,6 +198,13 @@ class ShaderManager {
 
   void init_xyz_transforms();
 
+  enum class SceneLinearSpace { Rec709, Rec2020, ACEScg, Unknown };
+
+  SceneLinearSpace get_scene_linear_space()
+  {
+    return scene_linear_space;
+  }
+
  protected:
   ShaderManager();
 
@@ -238,7 +228,7 @@ class ShaderManager {
   float3 rec709_to_r;
   float3 rec709_to_g;
   float3 rec709_to_b;
-  bool is_rec709;
+  SceneLinearSpace scene_linear_space;
   vector<float> thin_film_table;
 
   template<std::size_t n>

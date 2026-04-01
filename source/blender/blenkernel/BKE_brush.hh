@@ -185,11 +185,16 @@ std::optional<BrushColorJitterSettings> BKE_brush_color_jitter_get_settings(cons
 const float *BKE_brush_secondary_color_get(const Paint *paint, const Brush *brush);
 void BKE_brush_color_set(Paint *paint, Brush *brush, const float color[3]);
 
+void BKE_brush_color_sync_legacy(Brush *brush);
+void BKE_brush_color_sync_legacy(UnifiedPaintSettings *ups);
+
 int BKE_brush_size_get(const Paint *paint, const Brush *brush);
 void BKE_brush_size_set(Paint *paint, Brush *brush, int size);
+float BKE_brush_radius_get(const Paint *paint, const Brush *brush);
 
+float BKE_brush_unprojected_size_get(const Paint *paint, const Brush *brush);
+void BKE_brush_unprojected_size_set(Paint *paint, Brush *brush, float unprojected_size);
 float BKE_brush_unprojected_radius_get(const Paint *paint, const Brush *brush);
-void BKE_brush_unprojected_radius_set(Paint *paint, Brush *brush, float unprojected_radius);
 
 float BKE_brush_alpha_get(const Paint *paint, const Brush *brush);
 void BKE_brush_alpha_set(Paint *paint, Brush *brush, float alpha);
@@ -206,16 +211,16 @@ bool BKE_brush_use_size_pressure(const Brush *brush);
 /**
  * Scale unprojected radius to reflect a change in the brush's 2D size.
  */
-void BKE_brush_scale_unprojected_radius(float *unprojected_radius,
-                                        int new_brush_size,
-                                        int old_brush_size);
+void BKE_brush_scale_unprojected_size(float *unprojected_size,
+                                      int new_brush_size,
+                                      int old_brush_size);
 
 /**
  * Scale brush size to reflect a change in the brush's unprojected radius.
  */
 void BKE_brush_scale_size(int *r_brush_size,
-                          float new_unprojected_radius,
-                          float old_unprojected_radius);
+                          float new_unprojected_size,
+                          float old_unprojected_size);
 
 /* Returns true if a brush requires a cube
  * (often presented to the user as a square) tip inside a specific paint mode.
@@ -252,6 +257,9 @@ bool supports_secondary_cursor_color(const Brush &brush);
 bool supports_smooth_stroke(const Brush &brush);
 bool supports_space_attenuation(const Brush &brush);
 bool supports_strength_pressure(const Brush &brush);
+bool supports_size_pressure(const Brush &brush);
+bool supports_auto_smooth_pressure(const Brush &brush);
+bool supports_hardness_pressure(const Brush &brush);
 bool supports_inverted_direction(const Brush &brush);
 bool supports_gravity(const Brush &brush);
 bool supports_tilt(const Brush &brush);

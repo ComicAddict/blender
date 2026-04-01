@@ -17,6 +17,7 @@
 #include "MEM_guardedalloc.h"
 
 #include "BLI_listbase.h"
+#include "BLI_math_base.h"
 #include "BLI_utildefines.h"
 
 #include "BLT_translation.hh"
@@ -2390,7 +2391,7 @@ static wmOperatorStatus nlaedit_snap_exec(bContext *C, wmOperator *op)
 
   /* get some necessary vars */
   scene = ac.scene;
-  secf = float(FPS);
+  secf = float(scene->frames_per_second());
 
   bool any_added = false;
 

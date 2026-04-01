@@ -37,16 +37,8 @@ static void CMP_NODE_CONVERT_COLOR_SPACE_declare(NodeDeclarationBuilder &b)
 static void node_composit_init_convert_colorspace(bNodeTree * /*ntree*/, bNode *node)
 {
   NodeConvertColorSpace *ncs = MEM_callocN<NodeConvertColorSpace>("node colorspace");
-  const char *first_colorspace = IMB_colormanagement_role_colorspace_name_get(
-      COLOR_ROLE_SCENE_LINEAR);
-  if (first_colorspace && first_colorspace[0]) {
-    STRNCPY_UTF8(ncs->from_color_space, first_colorspace);
-    STRNCPY_UTF8(ncs->to_color_space, first_colorspace);
-  }
-  else {
-    ncs->from_color_space[0] = 0;
-    ncs->to_color_space[0] = 0;
-  }
+  STRNCPY_UTF8(ncs->from_color_space, "scene_linear");
+  STRNCPY_UTF8(ncs->to_color_space, "scene_linear");
   node->storage = ncs;
 }
 
@@ -98,7 +90,7 @@ class ConvertColorSpaceOperation : public NodeOperation {
         context().cache_manager().ocio_color_space_conversion_shaders.get(
             context(), source, target);
 
-    GPUShader *shader = ocio_shader.bind_shader_and_resources();
+    gpu::Shader *shader = ocio_shader.bind_shader_and_resources();
 
     /* A null shader indicates that the conversion shader is just a stub implementation since OCIO
      * is disabled at compile time, so pass the input through in that case. */

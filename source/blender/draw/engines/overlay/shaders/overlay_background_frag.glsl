@@ -2,11 +2,11 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#include "infos/overlay_background_info.hh"
+#include "infos/overlay_background_infos.hh"
 
 FRAGMENT_SHADER_CREATE_INFO(overlay_background)
 
-#include "gpu_shader_math_base_lib.glsl"
+#include "gpu_shader_math_constants_lib.glsl"
 
 float dither()
 {
@@ -55,7 +55,7 @@ void main()
       bg_col = mix(col_low, col_high, screen_uv.y);
       /* Convert back to linear. */
       bg_col = pow(bg_col, float3(2.2f));
-      /*  Dither to hide low precision buffer. (Could be improved) */
+      /* Dither to hide low precision buffer. (Could be improved) */
       bg_col += dither();
       break;
     case BG_RADIAL: {
@@ -68,7 +68,7 @@ void main()
 
       /* Convert back to linear. */
       bg_col = pow(bg_col, float3(2.2f));
-      /*  Dither to hide low precision buffer. (Could be improved) */
+      /* Dither to hide low precision buffer. (Could be improved). */
       bg_col += dither();
       break;
     }
@@ -84,7 +84,7 @@ void main()
       return;
     case BG_SOLID_CHECKER:
       /* Unreachable. */
-      assert(0);
+      assert(false);
       return;
   }
 

@@ -30,6 +30,7 @@ ENUM_OPERATORS(VKImageViewFlags, VKImageViewFlags::NO_SWIZZLING)
 
 class VKTexture : public Texture {
   friend class VKDescriptorSetUpdator;
+  friend class VKContext;
 
   /**
    * Texture format how the texture is stored on the device.
@@ -81,9 +82,10 @@ class VKTexture : public Texture {
   void copy_to(Texture *tex) override;
   void copy_to(VKTexture &dst_texture, VkImageAspectFlags vk_image_aspect);
   void clear(eGPUDataFormat format, const void *data) override;
-  void clear_depth_stencil(const eGPUFrameBufferBits buffer,
+  void clear_depth_stencil(const GPUFrameBufferBits buffer,
                            float clear_depth,
-                           uint clear_stencil);
+                           uint clear_stencil,
+                           std::optional<int> layer);
   void swizzle_set(const char swizzle_mask[4]) override;
   void mip_range_set(int min, int max) override;
   void *read(int mip, eGPUDataFormat format) override;
@@ -103,8 +105,6 @@ class VKTexture : public Texture {
                   eGPUDataFormat format,
                   GPUPixelBuffer *pixbuf) override;
 
-  /* TODO(fclem): Legacy. Should be removed at some point. */
-  uint gl_bindcode_get() const override;
   /**
    * Export the memory associated with this texture to be imported by a different
    * API/Process/Instance.
@@ -148,6 +148,8 @@ class VKTexture : public Texture {
                      int mip_offset,
                      int layer_offset,
                      bool use_stencil) override;
+  /* Initialize VKTexture with a swapchain image. */
+  void init_swapchain(VkImage vk_image, TextureFormat gpu_format);
 
  private:
   /** Is this texture a view of another texture. */

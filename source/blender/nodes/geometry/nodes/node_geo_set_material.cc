@@ -13,6 +13,8 @@
 #include "BKE_grease_pencil.hh"
 #include "BKE_material.hh"
 
+#include "GEO_foreach_geometry.hh"
+
 namespace blender::nodes::node_geo_set_material_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
@@ -30,7 +32,7 @@ static void node_declare(NodeDeclarationBuilder &b)
       .align_with_previous()
       .description("Geometry to assign a material to");
   b.add_input<decl::Bool>("Selection").default_value(true).hide_value().field_on_all();
-  b.add_input<decl::Material>("Material").hide_label();
+  b.add_input<decl::Material>("Material").optional_label();
 }
 
 static void assign_material_to_id_geometry(ID *id,
@@ -83,7 +85,7 @@ static void node_geo_exec(GeoNodeExecParams params)
   bool volume_selection_warning = false;
   bool curves_selection_warning = false;
 
-  geometry_set.modify_geometry_sets([&](GeometrySet &geometry_set) {
+  geometry::foreach_real_geometry(geometry_set, [&](GeometrySet &geometry_set) {
     if (Mesh *mesh = geometry_set.get_mesh_for_write()) {
       if (mesh->faces_num == 0) {
         if (mesh->verts_num > 0) {

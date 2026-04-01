@@ -19,7 +19,7 @@
 
 namespace blender::gpu {
 
-GPUCapabilities GCaps;
+GPUCapabilities GCaps = {};
 
 }
 
@@ -151,12 +151,6 @@ bool GPU_use_main_context_workaround()
   return GCaps.use_main_context_workaround;
 }
 
-bool GPU_crappy_amd_driver()
-{
-  /* Currently are the same drivers with the `unused_fb_slot` problem. */
-  return GCaps.broken_amd_driver;
-}
-
 bool GPU_use_hq_normals_workaround()
 {
   return GCaps.use_hq_normals_workaround;
@@ -167,24 +161,9 @@ bool GPU_stencil_clasify_buffer_workaround()
   return GCaps.stencil_clasify_buffer_workaround;
 }
 
-bool GPU_node_link_instancing_workaround()
-{
-  return GCaps.node_link_instancing_workaround;
-}
-
-bool GPU_vulkan_render_pass_workaround()
-{
-  return GCaps.render_pass_workaround;
-}
-
 bool GPU_geometry_shader_support()
 {
   return GCaps.geometry_shader_support;
-}
-
-bool GPU_shader_draw_parameters_support()
-{
-  return GCaps.shader_draw_parameters_support;
 }
 
 bool GPU_hdr_support()
@@ -195,11 +174,6 @@ bool GPU_hdr_support()
 bool GPU_stencil_export_support()
 {
   return GCaps.stencil_export_support;
-}
-
-bool GPU_clip_control_support()
-{
-  return GCaps.clip_control_support;
 }
 
 int GPU_max_shader_storage_buffer_bindings()
@@ -215,6 +189,11 @@ int GPU_max_compute_shader_storage_blocks()
 int GPU_minimum_per_vertex_stride()
 {
   return GCaps.minimum_per_vertex_stride;
+}
+
+size_t GPU_max_uniform_buffer_size()
+{
+  return GCaps.max_uniform_buffer_size;
 }
 
 size_t GPU_max_storage_buffer_size()

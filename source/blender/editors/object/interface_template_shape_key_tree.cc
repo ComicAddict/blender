@@ -6,8 +6,11 @@
  * \ingroup edinterface
  */
 
+#include <fmt/format.h>
+
 #include "BKE_context.hh"
 #include "BKE_key.hh"
+#include "BKE_object.hh"
 
 #include "BLI_listbase.h"
 #include "BLT_translation.hh"
@@ -19,12 +22,13 @@
 #include "RNA_prototypes.hh"
 
 #include "DEG_depsgraph.hh"
+
 #include "DNA_key_types.h"
+
 #include "WM_api.hh"
+#include "WM_types.hh"
 
 #include "ED_undo.hh"
-#include "WM_types.hh"
-#include <fmt/format.h>
 
 namespace blender::ed::object::shapekey {
 
@@ -58,20 +62,38 @@ class ShapeKeyDragController : public ui::AbstractViewItemDragController {
   {
   }
 
-  eWM_DragDataType get_drag_type() const override
+  std::optional<eWM_DragDataType> get_drag_type() const override
   {
     return WM_DRAG_SHAPE_KEY;
   }
 
   void *create_drag_data() const override
   {
-    ShapeKey *drag_data = MEM_callocN<ShapeKey>(__func__);
-    *drag_data = drag_key_;
-    return drag_data;
-  }
-  void on_drag_start() override
-  {
-    drag_key_.object->shapenr = drag_key_.index + 1;
+    int selected_count = [&]() -> int {
+      int count = 0;
+      LISTBASE_FOREACH (KeyBlock *, kb, &drag_key_.key->block) {
+        count += (kb->flag & KEYBLOCK_SEL) != 0;
+      }
+      return count;
+    }();
+
+    KeyBlock **selected_keys_ = MEM_calloc_arrayN<KeyBlock *>(selected_count,
+                                                              "Selected Key Blocks");
+
+    selected_count = 0;
+    int index = 0;
+    LISTBASE_FOREACH_INDEX (KeyBlock *, kb, &drag_key_.key->block, index) {
+      if (index == 0) {
+        /* Prevent basis shape key from dragging. */
+        continue;
+      }
+
+      if (kb->flag & KEYBLOCK_SEL) {
+        selected_keys_[selected_count] = kb;
+        selected_count++;
+      }
+    }
+    return selected_keys_;
   }
 };
 
@@ -94,17 +116,18 @@ class ShapeKeyDropTarget : public ui::TreeViewItemDropTarget {
     if (drag.type != WM_DRAG_SHAPE_KEY) {
       return false;
     }
-    const ShapeKey *drag_shapekey = static_cast<const ShapeKey *>(drag.poin);
-    if (drag_shapekey->index == drop_index_) {
+
+    const KeyBlock **drag_shapekey = static_cast<const KeyBlock **>(drag.poin);
+    if (!drag_shapekey || !drag_shapekey[0]) {
       return false;
     }
+
     return true;
   }
 
   std::string drop_tooltip(const ui::DragInfo &drag_info) const override
   {
-    const ShapeKey *drag_shapekey = static_cast<const ShapeKey *>(drag_info.drag_data.poin);
-    const StringRef drag_name = drag_shapekey->kb->name;
+    const StringRef drag_name = TIP_("Selected Keys");
     const StringRef drop_name = drop_kb_.name;
 
     switch (drag_info.drop_location) {
@@ -112,6 +135,9 @@ class ShapeKeyDropTarget : public ui::TreeViewItemDropTarget {
         BLI_assert_unreachable();
         break;
       case ui::DropLocation::Before:
+        if (drop_index_ == 0) {
+          return TIP_("Cannot move above basis shape key");
+        }
         return fmt::format(fmt::runtime(TIP_("Move {} above {}")), drag_name, drop_name);
       case ui::DropLocation::After:
         return fmt::format(fmt::runtime(TIP_("Move {} below {}")), drag_name, drop_name);
@@ -125,26 +151,38 @@ class ShapeKeyDropTarget : public ui::TreeViewItemDropTarget {
 
   bool on_drop(bContext *C, const ui::DragInfo &drag_info) const override
   {
-    const ShapeKey *drag_shapekey = static_cast<const ShapeKey *>(drag_info.drag_data.poin);
-    int drop_index = drop_index_;
-    const int drag_index = drag_shapekey->index;
+    Object *ob = CTX_data_active_object(C);
+    Key *key = BKE_key_from_object(ob);
+    const KeyBlock **drag_shapekey = static_cast<const KeyBlock **>(drag_info.drag_data.poin);
 
-    switch (drag_info.drop_location) {
-      case ui::DropLocation::Into:
-        BLI_assert_unreachable();
-        break;
-      case ui::DropLocation::Before:
-        drop_index -= int(drag_index < drop_index);
-        break;
-      case ui::DropLocation::After:
-        drop_index += int(drag_index > drop_index);
-        break;
+    for (int8_t i = 0; drag_shapekey[i] != nullptr; i++) {
+      const int drag_index = BLI_findindex(&key->block, drag_shapekey[i]);
+      int drop_index = BLI_findindex(&key->block, &drop_kb_);
+
+      if (drag_index == -1) {
+        continue;
+      }
+
+      switch (drag_info.drop_location) {
+        case ui::DropLocation::Into:
+          BLI_assert_unreachable();
+          break;
+        case ui::DropLocation::Before:
+          if (drop_index == 0) {
+            return false;
+          }
+          drop_index -= int(drag_index < drop_index);
+          break;
+        case ui::DropLocation::After:
+          drop_index += int(drag_index > drop_index) + i;
+          break;
+      }
+
+      BKE_keyblock_move(ob, drag_index, drop_index);
     }
-    Object *object = drag_shapekey->object;
-    BKE_keyblock_move(object, drag_shapekey->index, drop_index);
 
-    DEG_id_tag_update(static_cast<ID *>(object->data), ID_RECALC_GEOMETRY);
-    WM_event_add_notifier(C, NC_OBJECT | ND_DRAW, object);
+    DEG_id_tag_update(static_cast<ID *>(ob->data), ID_RECALC_GEOMETRY);
+    WM_event_add_notifier(C, NC_OBJECT | ND_DRAW, ob);
     ED_undo_push(C, "Drop Active Shape Key");
 
     return true;
@@ -225,6 +263,24 @@ class ShapeKeyItem : public ui::AbstractTreeViewItem {
   StringRef get_rename_string() const override
   {
     return label_;
+  }
+
+  void delete_item(bContext *C) override
+  {
+    Main *bmain = CTX_data_main(C);
+    BKE_object_shapekey_remove(bmain, shape_key_.object, shape_key_.kb);
+    DEG_id_tag_update(&shape_key_.object->id, ID_RECALC_GEOMETRY);
+    WM_event_add_notifier(C, NC_OBJECT | ND_DRAW, nullptr);
+    ED_undo_grouped_push(C, "Delete Shape Key");
+  }
+
+  void build_context_menu(bContext &C, uiLayout &layout) const override
+  {
+    MenuType *mt = WM_menutype_find("MESH_MT_shape_key_tree_context_menu", true);
+    if (!mt) {
+      return;
+    }
+    UI_menutype_draw(&C, mt, &layout);
   }
 
   std::unique_ptr<ui::AbstractViewItemDragController> create_drag_controller() const override

@@ -258,7 +258,7 @@ id<MTLComputePipelineState> gpu::MTLTexture::mtl_texture_update_impl(
     TextureUpdateRoutineSpecialisation specialization_params,
     blender::Map<TextureUpdateRoutineSpecialisation, id<MTLComputePipelineState>>
         &specialization_cache,
-    eGPUTextureType texture_type)
+    GPUTextureType texture_type)
 {
   /* Check whether the Kernel exists. */
   id<MTLComputePipelineState> *result = specialization_cache.lookup_ptr(specialization_params);
@@ -389,7 +389,7 @@ id<MTLComputePipelineState> gpu::MTLTexture::texture_update_3d_get_kernel(
 /* TODO(Metal): Data upload routine kernel for texture cube and texture cube array.
  * Currently does not appear to be hit. */
 
-GPUShader *gpu::MTLTexture::depth_2d_update_sh_get(
+gpu::Shader *gpu::MTLTexture::depth_2d_update_sh_get(
     DepthTextureUpdateRoutineSpecialisation specialization)
 {
 
@@ -397,7 +397,7 @@ GPUShader *gpu::MTLTexture::depth_2d_update_sh_get(
   MTLContext *mtl_context = MTLContext::get();
   BLI_assert(mtl_context != nullptr);
 
-  GPUShader **result = mtl_context->get_texture_utils().depth_2d_update_shaders.lookup_ptr(
+  gpu::Shader **result = mtl_context->get_texture_utils().depth_2d_update_shaders.lookup_ptr(
       specialization);
   if (result != nullptr) {
     return *result;
@@ -419,17 +419,17 @@ GPUShader *gpu::MTLTexture::depth_2d_update_sh_get(
       return nullptr;
   }
 
-  GPUShader *shader = GPU_shader_create_from_info_name(depth_2d_info_variant);
+  gpu::Shader *shader = GPU_shader_create_from_info_name(depth_2d_info_variant);
   mtl_context->get_texture_utils().depth_2d_update_shaders.add_new(specialization, shader);
   return shader;
 }
 
-GPUShader *gpu::MTLTexture::fullscreen_blit_sh_get()
+gpu::Shader *gpu::MTLTexture::fullscreen_blit_sh_get()
 {
   MTLContext *mtl_context = MTLContext::get();
   BLI_assert(mtl_context != nullptr);
   if (mtl_context->get_texture_utils().fullscreen_blit_shader == nullptr) {
-    GPUShader *shader = GPU_shader_create_from_info_name("fullscreen_blit");
+    gpu::Shader *shader = GPU_shader_create_from_info_name("fullscreen_blit");
 
     mtl_context->get_texture_utils().fullscreen_blit_shader = shader;
   }
@@ -486,8 +486,8 @@ void gpu::MTLTexture::update_sub_depth_2d(
   gpu::MTLTexture *mtl_tex = static_cast<gpu::MTLTexture *>(r32_tex_tmp);
   mtl_tex->update_sub(mip, offset, extent, type, data);
 
-  GPUFrameBuffer *restore_fb = GPU_framebuffer_active_get();
-  GPUFrameBuffer *depth_fb_temp = GPU_framebuffer_create("depth_intermediate_copy_fb");
+  gpu::FrameBuffer *restore_fb = GPU_framebuffer_active_get();
+  gpu::FrameBuffer *depth_fb_temp = GPU_framebuffer_create("depth_intermediate_copy_fb");
   GPU_framebuffer_texture_attach(depth_fb_temp, this, 0, mip);
   GPU_framebuffer_bind(depth_fb_temp);
   if (extent[0] == w_ && extent[1] == h_) {
@@ -496,7 +496,7 @@ void gpu::MTLTexture::update_sub_depth_2d(
     GPU_framebuffer_clear_stencil(depth_fb_temp, 0);
   }
 
-  GPUShader *depth_2d_update_sh = depth_2d_update_sh_get(specialization);
+  gpu::Shader *depth_2d_update_sh = depth_2d_update_sh_get(specialization);
   BLI_assert(depth_2d_update_sh != nullptr);
   Batch *quad = GPU_batch_preset_quad();
   GPU_batch_set_shader(quad, depth_2d_update_sh);
@@ -509,8 +509,8 @@ void gpu::MTLTexture::update_sub_depth_2d(
 
   bool depth_write_prev = GPU_depth_mask_get();
   uint stencil_mask_prev = GPU_stencil_mask_get();
-  eGPUDepthTest depth_test_prev = GPU_depth_test_get();
-  eGPUStencilTest stencil_test_prev = GPU_stencil_test_get();
+  GPUDepthTest depth_test_prev = GPU_depth_test_get();
+  GPUStencilTest stencil_test_prev = GPU_stencil_test_get();
   GPU_scissor_test(true);
   GPU_scissor(offset[0], offset[1], extent[0], extent[1]);
 
@@ -546,7 +546,7 @@ id<MTLComputePipelineState> gpu::MTLTexture::mtl_texture_read_impl(
     TextureReadRoutineSpecialisation specialization_params,
     blender::Map<TextureReadRoutineSpecialisation, id<MTLComputePipelineState>>
         &specialization_cache,
-    eGPUTextureType texture_type)
+    GPUTextureType texture_type)
 {
   /* Check whether the Kernel exists. */
   id<MTLComputePipelineState> *result = specialization_cache.lookup_ptr(specialization_params);

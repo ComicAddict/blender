@@ -395,10 +395,15 @@ static void add_pose_transdata(
   Bone *bone = pchan->bone;
   float pmat[3][3], omat[3][3];
   float cmat[3][3], tmat[3][3];
-  float vec[3];
 
-  copy_v3_v3(vec, pchan->pose_mat[3]);
-  copy_v3_v3(td->center, vec);
+  const bArmature *arm = static_cast<bArmature *>(ob->data);
+  BKE_pose_channel_transform_location(arm, pchan, td->center);
+  if (pchan->flag & POSE_TRANSFORM_AROUND_CUSTOM_TX) {
+    copy_v3_v3(td_ext->center_no_override, pchan->pose_mat[3]);
+  }
+  else {
+    copy_v3_v3(td_ext->center_no_override, td->center);
+  }
 
   td->flag = TD_SELECTED;
   if (bone->flag & BONE_HINGE_CHILD_TRANSFORM) {
@@ -449,11 +454,12 @@ static void add_pose_transdata(
   /* Proper way to get parent transform + our own transform + constraints transform. */
   copy_m3_m4(omat, ob->object_to_world().ptr());
 
-  /* New code, using "generic" BKE_bone_parent_transform_calc_from_pchan(). */
   {
     BoneParentTransform bpt;
     float rpmat[3][3];
 
+    /* Not using the pchan->custom_tx here because we need the transformation to be
+     * relative to the actual bone being modified, not it's visual representation.  */
     BKE_bone_parent_transform_calc_from_pchan(pchan, &bpt);
     if (t->mode == TFM_TRANSLATION) {
       copy_m3_m4(pmat, bpt.loc_mat);
@@ -498,7 +504,7 @@ static void add_pose_transdata(
   }
 
   /* For `axismtx` we use the bone's own transform. */
-  copy_m3_m4(pmat, pchan->pose_mat);
+  BKE_pose_channel_transform_orientation(arm, pchan, pmat);
   mul_m3_m3m3(td->axismtx, omat, pmat);
   normalize_m3(td->axismtx);
 
@@ -703,6 +709,9 @@ static void createTransPose(bContext * /*C*/, TransInfo *t)
     /* Use pose channels to fill trans data. */
     td = tc->data;
     tdx = tc->data_ext;
+    tdx->center_no_override[0] = 0;
+    tdx->center_no_override[1] = 0;
+    tdx->center_no_override[2] = 0;
     LISTBASE_FOREACH (bPoseChannel *, pchan, &ob->pose->chanbase) {
       if (pchan->bone->flag & BONE_TRANSFORM) {
         add_pose_transdata(t, pchan, ob, td++, tdx++);
@@ -744,9 +753,7 @@ static void createTransArmatureVerts(bContext * /*C*/, TransInfo *t)
     LISTBASE_FOREACH (EditBone *, ebo, edbo) {
       const int data_len_prev = tc->data_len;
 
-      if (blender::animrig::bone_is_visible_editbone(arm, ebo) &&
-          !(ebo->flag & BONE_EDITMODE_LOCKED))
-      {
+      if (blender::animrig::bone_is_visible(arm, ebo) && !(ebo->flag & BONE_EDITMODE_LOCKED)) {
         if (ELEM(t->mode, TFM_BONESIZE, TFM_BONE_ENVELOPE_DIST)) {
           if (ebo->flag & BONE_SELECTED) {
             tc->data_len++;
@@ -817,9 +824,7 @@ static void createTransArmatureVerts(bContext * /*C*/, TransInfo *t)
       /* (length == 0.0) on extrude, used for scaling radius of bone points. */
       ebo->oldlength = ebo->length;
 
-      if (blender::animrig::bone_is_visible_editbone(arm, ebo) &&
-          !(ebo->flag & BONE_EDITMODE_LOCKED))
-      {
+      if (blender::animrig::bone_is_visible(arm, ebo) && !(ebo->flag & BONE_EDITMODE_LOCKED)) {
         if (t->mode == TFM_BONE_ENVELOPE) {
           if (ebo->flag & BONE_ROOTSEL) {
             td->val = &ebo->rad_head;
@@ -1046,8 +1051,7 @@ static void recalcData_edit_armature(TransInfo *t)
 
       if (ebo_parent) {
         /* If this bone has a parent tip that has been moved. */
-        if (blender::animrig::bone_is_visible_editbone(arm, ebo_parent) &&
-            (ebo_parent->flag & BONE_TIPSEL))
+        if (blender::animrig::bone_is_visible(arm, ebo_parent) && (ebo_parent->flag & BONE_TIPSEL))
         {
           copy_v3_v3(ebo->head, ebo_parent->tail);
           if (t->mode == TFM_BONE_ENVELOPE) {
@@ -1480,7 +1484,7 @@ void transform_convert_pose_transflags_update(Object *ob, const int mode, const 
 
   LISTBASE_FOREACH (bPoseChannel *, pchan, &ob->pose->chanbase) {
     bone = pchan->bone;
-    if (blender::animrig::bone_is_visible_pchan(arm, pchan)) {
+    if (blender::animrig::bone_is_visible(arm, pchan)) {
       if (bone->flag & BONE_SELECTED) {
         bone->flag |= BONE_TRANSFORM;
       }

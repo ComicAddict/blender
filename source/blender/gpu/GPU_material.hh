@@ -10,6 +10,9 @@
 
 #include <string>
 
+#include "BLI_math_base.h"
+#include "BLI_set.hh"
+
 #include "DNA_customdata_types.h" /* for eCustomDataType */
 #include "DNA_image_types.h"
 #include "DNA_listBase.h"
@@ -24,8 +27,8 @@ struct GPUNodeStack;
 struct GPUPass;
 namespace blender::gpu {
 class Texture;
-}
-struct GPUUniformBuf;
+class UniformBuf;
+}  // namespace blender::gpu
 struct Image;
 struct ImageUser;
 struct ListBase;
@@ -45,7 +48,7 @@ enum eGPUMaterialEngine {
   GPU_MAT_ENGINE_MAX,
 };
 
-enum eGPUMaterialStatus {
+enum GPUMaterialStatus {
   GPU_MAT_FAILED = 0,
   GPU_MAT_QUEUED,
   GPU_MAT_SUCCESS,
@@ -80,6 +83,10 @@ enum eGPUMaterialFlag {
   GPU_MATFLAG_AOV = (1 << 19),
 
   GPU_MATFLAG_BARYCENTRIC = (1 << 20),
+  /* Signals that these specific closures might *not* be colorless.
+   * If this flag is not set, all closures are ensured to not be tinted. */
+  GPU_MATFLAG_REFLECTION_MAYBE_COLORED = (1 << 21),
+  GPU_MATFLAG_REFRACTION_MAYBE_COLORED = (1 << 22),
 
   /* Tells the render engine the material was just compiled or updated. */
   GPU_MATFLAG_UPDATED = (1 << 29),
@@ -95,8 +102,18 @@ using GPUCodegenCallbackFn = void (*)(void *thunk,
  */
 using GPUMaterialPassReplacementCallbackFn = GPUPass *(*)(void *thunk, GPUMaterial *mat);
 
+struct GPUMaterialFromNodeTreeResult {
+  GPUMaterial *material = nullptr;
+
+  struct Error {
+    const bNode *node;
+    std::string message;
+  };
+  blender::Vector<Error> errors;
+};
+
 /** WARNING: gpumaterials thread safety must be ensured by the caller. */
-GPUMaterial *GPU_material_from_nodetree(
+GPUMaterialFromNodeTreeResult GPU_material_from_nodetree(
     Material *ma,
     bNodeTree *ntree,
     ListBase *gpumaterials,
@@ -126,7 +143,7 @@ void GPU_materials_free(Main *bmain);
 
 GPUPass *GPU_material_get_pass(GPUMaterial *material);
 /** Return the most optimal shader configuration for the given material. */
-GPUShader *GPU_material_get_shader(GPUMaterial *material);
+blender::gpu::Shader *GPU_material_get_shader(GPUMaterial *material);
 
 const char *GPU_material_get_name(GPUMaterial *material);
 
@@ -137,7 +154,7 @@ Material *GPU_material_get_material(GPUMaterial *material);
 /**
  * Return true if the material compilation has not yet begin or begin.
  */
-eGPUMaterialStatus GPU_material_status(GPUMaterial *mat);
+GPUMaterialStatus GPU_material_status(GPUMaterial *mat);
 
 /**
  * Return status for asynchronous optimization jobs.
@@ -146,7 +163,7 @@ eGPUMaterialOptimizationStatus GPU_material_optimization_status(GPUMaterial *mat
 
 uint64_t GPU_material_compilation_timestamp(GPUMaterial *mat);
 
-GPUUniformBuf *GPU_material_uniform_buffer_get(GPUMaterial *material);
+blender::gpu::UniformBuf *GPU_material_uniform_buffer_get(GPUMaterial *material);
 /**
  * Create dynamic UBO from parameters
  *
@@ -178,7 +195,7 @@ const ListBase *GPU_material_layer_attributes(const GPUMaterial *material);
 
 /* Requested Material Attributes and Textures */
 
-enum eGPUType {
+enum GPUType {
   /* Keep in sync with GPU_DATATYPE_STR */
   /* The value indicates the number of elements in each type */
   GPU_NONE = 0,
@@ -203,7 +220,7 @@ enum eGPUType {
   GPU_ATTR = 3001,
 };
 
-enum eGPUDefaultValue {
+enum GPUDefaultValue {
   GPU_DEFAULT_0 = 0,
   GPU_DEFAULT_1,
 };
@@ -213,8 +230,8 @@ struct GPUMaterialAttribute {
   int type; /* eCustomDataType */
   char name[/*MAX_CUSTOMDATA_LAYER_NAME*/ 68];
   char input_name[/*GPU_MAX_SAFE_ATTR_NAME + 1*/ 12 + 1];
-  eGPUType gputype;
-  eGPUDefaultValue default_value; /* Only for volumes attributes. */
+  GPUType gputype;
+  GPUDefaultValue default_value; /* Only for volumes attributes. */
   int id;
   int users;
   /**
@@ -227,6 +244,10 @@ struct GPUMaterialAttribute {
    * If true, the attribute is the length of hair particles and curves.
    */
   bool is_hair_length;
+  /**
+   * If true, the attribute is the intercept of hair particles and curves.
+   */
+  bool is_hair_intercept;
 };
 
 struct GPUMaterialTexture {
@@ -272,24 +293,61 @@ const GPUUniformAttrList *GPU_material_uniform_attributes(const GPUMaterial *mat
 /* TODO: Move to its own header. */
 
 struct GPUNodeStack {
-  eGPUType type;
+  GPUType type;
   float vec[4];
   GPUNodeLink *link;
   bool hasinput;
   bool hasoutput;
   short sockettype;
   bool end;
+
+  /* Return true if the socket might contain a polychromatic value.
+   * This is a conservative heuristic that allows for optimization. */
+  bool might_be_tinted() const
+  {
+    return this->link || (this->vec[0] != this->vec[1]) || (this->vec[1] != this->vec[2]);
+  }
+
+  bool socket_not_zero() const
+  {
+    return this->link || (clamp_f(this->vec[0], 0.0f, 1.0f) > 1e-5f);
+  }
+
+  bool socket_not_one() const
+  {
+    return this->link || (clamp_f(this->vec[0], 0.0f, 1.0f) < 1.0f - 1e-5f);
+  }
+
+  bool socket_is_one() const
+  {
+    return !this->link && (clamp_f(this->vec[0], 0.0f, 1.0f) > 0.9999f);
+  }
+};
+
+struct GPUGraphOutput {
+  std::string serialized;
+  blender::Vector<blender::StringRefNull> dependencies;
+
+  bool empty() const
+  {
+    return serialized.empty();
+  }
+
+  std::string serialized_or_default(std::string value) const
+  {
+    return serialized.empty() ? value : serialized;
+  }
 };
 
 struct GPUCodegenOutput {
   std::string attr_load;
   /* Node-tree functions calls. */
-  std::string displacement;
-  std::string surface;
-  std::string volume;
-  std::string thickness;
-  std::string composite;
-  std::string material_functions;
+  GPUGraphOutput displacement;
+  GPUGraphOutput surface;
+  GPUGraphOutput volume;
+  GPUGraphOutput thickness;
+  GPUGraphOutput composite;
+  blender::Vector<GPUGraphOutput> material_functions;
 
   GPUShaderCreateInfo *create_info;
 };
@@ -306,10 +364,11 @@ GPUNodeLink *GPU_attribute_default_color(GPUMaterial *mat);
  * Add a GPU attribute that refers to the approximate length of curves/hairs.
  */
 GPUNodeLink *GPU_attribute_hair_length(GPUMaterial *mat);
+GPUNodeLink *GPU_attribute_hair_intercept(GPUMaterial *mat);
 GPUNodeLink *GPU_attribute_with_default(GPUMaterial *mat,
                                         eCustomDataType type,
                                         const char *name,
-                                        eGPUDefaultValue default_value);
+                                        GPUDefaultValue default_value);
 GPUNodeLink *GPU_uniform_attribute(GPUMaterial *mat,
                                    const char *name,
                                    bool use_dupli,
@@ -366,7 +425,7 @@ void GPU_material_add_output_link_composite(GPUMaterial *material, GPUNodeLink *
  * \return the name of the generated function.
  */
 char *GPU_material_split_sub_function(GPUMaterial *material,
-                                      eGPUType return_type,
+                                      GPUType return_type,
                                       GPUNodeLink **link);
 
 void GPU_material_flag_set(GPUMaterial *mat, eGPUMaterialFlag flag);

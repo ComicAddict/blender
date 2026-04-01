@@ -11,6 +11,7 @@
 #include "BKE_library.hh"
 
 #include "BLI_bounds.hh"
+#include "BLI_math_base.h"
 #include "BLI_rect.h"
 #include "BLI_string_ref.hh"
 
@@ -189,7 +190,7 @@ static uiBlock *curvemap_clipping_func(bContext *C, ARegion *region, void *cumap
 }
 
 static uiBlock *curvemap_tools_func(
-    bContext *C, ARegion *region, RNAUpdateCb &cb, bool show_extend, int reset_mode)
+    bContext *C, ARegion *region, RNAUpdateCb &cb, bool show_extend, CurveMapSlopeType reset_mode)
 {
   PointerRNA cumap_ptr = RNA_property_pointer_get(&cb.ptr, cb.prop);
   CurveMapping *cumap = static_cast<CurveMapping *>(cumap_ptr.data);
@@ -291,30 +292,51 @@ static uiBlock *curvemap_tools_func(
 static uiBlock *curvemap_tools_posslope_func(bContext *C, ARegion *region, void *cb_v)
 {
   return curvemap_tools_func(
-      C, region, *static_cast<RNAUpdateCb *>(cb_v), true, CURVEMAP_SLOPE_POSITIVE);
+      C, region, *static_cast<RNAUpdateCb *>(cb_v), true, CurveMapSlopeType::Positive);
 }
 
 static uiBlock *curvemap_tools_negslope_func(bContext *C, ARegion *region, void *cb_v)
 {
   return curvemap_tools_func(
-      C, region, *static_cast<RNAUpdateCb *>(cb_v), true, CURVEMAP_SLOPE_NEGATIVE);
+      C, region, *static_cast<RNAUpdateCb *>(cb_v), true, CurveMapSlopeType::Negative);
 }
 
 static uiBlock *curvemap_brush_tools_func(bContext *C, ARegion *region, void *cb_v)
 {
   return curvemap_tools_func(
-      C, region, *static_cast<RNAUpdateCb *>(cb_v), false, CURVEMAP_SLOPE_POSITIVE);
+      C, region, *static_cast<RNAUpdateCb *>(cb_v), false, CurveMapSlopeType::Positive);
 }
 
 static uiBlock *curvemap_brush_tools_negslope_func(bContext *C, ARegion *region, void *cb_v)
 {
   return curvemap_tools_func(
-      C, region, *static_cast<RNAUpdateCb *>(cb_v), false, CURVEMAP_SLOPE_POSITIVE);
+      C, region, *static_cast<RNAUpdateCb *>(cb_v), false, CurveMapSlopeType::Negative);
 }
 
 static void curvemap_buttons_redraw(bContext &C)
 {
   ED_region_tag_redraw(CTX_wm_region(&C));
+}
+
+static void add_preset_button(uiBlock *block,
+                              const float dx,
+                              const int icon,
+                              std::optional<blender::StringRef> tip,
+                              CurveMapping *cumap,
+                              const bool neg_slope,
+                              const int preset,
+                              const RNAUpdateCb &cb)
+{
+  uiBut *bt = uiDefIconBut(block, ButType::Row, 0, icon, 0, 0, dx, dx, &cumap->cur, 0.0, 3.0, tip);
+  UI_but_func_set(bt, [&, cumap, neg_slope, preset, cb](bContext &C) {
+    const CurveMapSlopeType slope = neg_slope ? CurveMapSlopeType::Negative :
+                                                CurveMapSlopeType::Positive;
+    cumap->flag &= ~CUMA_EXTEND_EXTRAPOLATE;
+    cumap->preset = preset;
+    BKE_curvemap_reset(cumap->cm, &cumap->clipr, cumap->preset, slope);
+    BKE_curvemapping_changed(cumap, false);
+    rna_update_cb(C, cb);
+  });
 }
 
 /**
@@ -329,6 +351,7 @@ static void curvemap_buttons_layout(uiLayout *layout,
                                     bool brush,
                                     bool neg_slope,
                                     bool tone,
+                                    bool presets,
                                     const RNAUpdateCb &cb)
 {
   CurveMapping *cumap = static_cast<CurveMapping *>(ptr->data);
@@ -566,9 +589,22 @@ static void curvemap_buttons_layout(uiLayout *layout,
   /* Curve itself. */
   const int size = max_ii(layout->width(), UI_UNIT_X);
   row = &layout->row(false);
-  uiButCurveMapping *curve_but = (uiButCurveMapping *)uiDefBut(
-      block, ButType::Curve, 0, "", 0, 0, size, 8.0f * UI_UNIT_X, cumap, 0.0f, 1.0f, "");
+  uiButCurveMapping *curve_but = (uiButCurveMapping *)uiDefBut(block,
+                                                               ButType::Curve,
+                                                               0,
+                                                               IFACE_("Edit Curve Map"),
+                                                               0,
+                                                               0,
+                                                               size,
+                                                               8.0f * UI_UNIT_X,
+                                                               cumap,
+                                                               0.0f,
+                                                               1.0f,
+                                                               "");
   curve_but->gradient_type = bg;
+  if (!layout->active()) {
+    UI_but_flag_enable(curve_but, UI_BUT_INACTIVE);
+  }
 
   /* Sliders for selected curve point. */
   int i;
@@ -741,7 +777,8 @@ static void curvemap_buttons_layout(uiLayout *layout,
     UI_but_func_set(bt, [cumap, cb](bContext &C) {
       cumap->preset = CURVE_PRESET_LINE;
       for (int a = 0; a < CM_TOT; a++) {
-        BKE_curvemap_reset(cumap->cm + a, &cumap->clipr, cumap->preset, CURVEMAP_SLOPE_POSITIVE);
+        BKE_curvemap_reset(
+            cumap->cm + a, &cumap->clipr, cumap->preset, CurveMapSlopeType::Positive);
       }
 
       cumap->black[0] = cumap->black[1] = cumap->black[2] = 0.0f;
@@ -751,6 +788,41 @@ static void curvemap_buttons_layout(uiLayout *layout,
       BKE_curvemapping_changed(cumap, false);
       rna_update_cb(C, cb);
     });
+  }
+
+  if (presets) {
+    row = &layout->row(true);
+    sub->alignment_set(blender::ui::LayoutAlign::Left);
+    add_preset_button(block,
+                      dx,
+                      ICON_SMOOTHCURVE,
+                      TIP_("Smooth preset"),
+                      cumap,
+                      neg_slope,
+                      CURVE_PRESET_SMOOTH,
+                      cb);
+    add_preset_button(block,
+                      dx,
+                      ICON_SPHERECURVE,
+                      TIP_("Round preset"),
+                      cumap,
+                      neg_slope,
+                      CURVE_PRESET_ROUND,
+                      cb);
+    add_preset_button(
+        block, dx, ICON_ROOTCURVE, TIP_("Root preset"), cumap, neg_slope, CURVE_PRESET_ROOT, cb);
+    add_preset_button(block,
+                      dx,
+                      ICON_SHARPCURVE,
+                      TIP_("Sharp preset"),
+                      cumap,
+                      neg_slope,
+                      CURVE_PRESET_SHARP,
+                      cb);
+    add_preset_button(
+        block, dx, ICON_LINCURVE, TIP_("Linear preset"), cumap, neg_slope, CURVE_PRESET_LINE, cb);
+    add_preset_button(
+        block, dx, ICON_NOCURVE, TIP_("Constant preset"), cumap, neg_slope, CURVE_PRESET_MAX, cb);
   }
 
   UI_block_funcN_set(block, nullptr, nullptr, nullptr);
@@ -763,7 +835,8 @@ void uiTemplateCurveMapping(uiLayout *layout,
                             bool levels,
                             bool brush,
                             bool neg_slope,
-                            bool tone)
+                            bool tone,
+                            bool presets)
 {
   PropertyRNA *prop = RNA_struct_find_property(ptr, propname.c_str());
   uiBlock *block = layout->block();
@@ -789,7 +862,7 @@ void uiTemplateCurveMapping(uiLayout *layout,
   UI_block_lock_set(block, (id && !ID_IS_EDITABLE(id)), ERROR_LIBDATA_MESSAGE);
 
   curvemap_buttons_layout(
-      layout, &cptr, type, levels, brush, neg_slope, tone, RNAUpdateCb{*ptr, prop});
+      layout, &cptr, type, levels, brush, neg_slope, tone, presets, RNAUpdateCb{*ptr, prop});
 
   UI_block_lock_clear(block);
 }

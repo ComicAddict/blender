@@ -87,12 +87,10 @@ Context::~Context()
   BLI_assert(back_right == nullptr);
   BLI_assert(texture_pool == nullptr);
 
+  /** IMPORTANT: Do not free resources (texture, batch, buffers) in this function. These objects
+   * are likely to reference the GL/VK/MTLContext which is already destroyed at this point. */
+
   GPU_matrix_state_discard(matrix_state);
-  GPU_BATCH_DISCARD_SAFE(procedural_points_batch);
-  GPU_BATCH_DISCARD_SAFE(procedural_lines_batch);
-  GPU_BATCH_DISCARD_SAFE(procedural_triangles_batch);
-  GPU_BATCH_DISCARD_SAFE(procedural_triangle_strips_batch);
-  GPU_VERTBUF_DISCARD_SAFE(dummy_vbo);
   delete state_manager;
   delete imm;
 }
@@ -107,6 +105,12 @@ void Context::free_resources()
   back_left = nullptr;
   front_right = nullptr;
   back_right = nullptr;
+
+  GPU_BATCH_DISCARD_SAFE(procedural_points_batch);
+  GPU_BATCH_DISCARD_SAFE(procedural_lines_batch);
+  GPU_BATCH_DISCARD_SAFE(procedural_triangles_batch);
+  GPU_BATCH_DISCARD_SAFE(procedural_triangle_strips_batch);
+  GPU_VERTBUF_DISCARD_SAFE(dummy_vbo);
 
   delete texture_pool;
   texture_pool = nullptr;
@@ -340,9 +344,10 @@ void GPU_render_step(bool force_resource_release)
 /** \name Backend selection
  * \{ */
 
-static eGPUBackendType g_backend_type = GPU_BACKEND_OPENGL;
-static std::optional<eGPUBackendType> g_backend_type_override = std::nullopt;
+static GPUBackendType g_backend_type = GPU_BACKEND_OPENGL;
+static std::optional<GPUBackendType> g_backend_type_override = std::nullopt;
 static std::optional<bool> g_backend_type_supported = std::nullopt;
+static std::optional<int> g_vsync_override = std::nullopt;
 static GPUBackend *g_backend = nullptr;
 static GHOST_SystemHandle g_ghost_system = nullptr;
 
@@ -356,18 +361,33 @@ void *GPU_backend_ghost_system_get()
   return g_ghost_system;
 }
 
-void GPU_backend_type_selection_set(const eGPUBackendType backend)
+void GPU_backend_type_selection_set(const GPUBackendType backend)
 {
   g_backend_type = backend;
   g_backend_type_supported = std::nullopt;
 }
 
-eGPUBackendType GPU_backend_type_selection_get()
+int GPU_backend_vsync_get()
+{
+  return g_vsync_override.value();
+}
+
+void GPU_backend_vsync_set_override(const int vsync)
+{
+  g_vsync_override = vsync;
+}
+
+bool GPU_backend_vsync_is_overridden()
+{
+  return g_vsync_override.has_value();
+}
+
+GPUBackendType GPU_backend_type_selection_get()
 {
   return g_backend_type;
 }
 
-void GPU_backend_type_selection_set_override(const eGPUBackendType backend_type)
+void GPU_backend_type_selection_set_override(const GPUBackendType backend_type)
 {
   g_backend_type_override = backend_type;
 }
@@ -379,7 +399,7 @@ bool GPU_backend_type_selection_is_overridden()
 
 bool GPU_backend_type_selection_detect()
 {
-  blender::VectorSet<eGPUBackendType> backends_to_check;
+  blender::VectorSet<GPUBackendType> backends_to_check;
   if (g_backend_type_override.has_value()) {
     backends_to_check.add(*g_backend_type_override);
   }
@@ -393,7 +413,7 @@ bool GPU_backend_type_selection_detect()
   backends_to_check.add(GPU_BACKEND_VULKAN);
 #endif
 
-  for (const eGPUBackendType backend_type : backends_to_check) {
+  for (const GPUBackendType backend_type : backends_to_check) {
     GPU_backend_type_selection_set(backend_type);
     if (GPU_backend_supported()) {
       return true;
@@ -491,7 +511,7 @@ void gpu_backend_discard()
   g_backend = nullptr;
 }
 
-eGPUBackendType GPU_backend_get_type()
+GPUBackendType GPU_backend_get_type()
 {
 
 #ifdef WITH_OPENGL_BACKEND
@@ -591,6 +611,9 @@ GPUSecondaryContext::GPUSecondaryContext()
   /* Create a Ghost GPU Context using the system handle. */
   ghost_context_ = GHOST_CreateGPUContext(ghost_system, gpu_settings);
   BLI_assert(ghost_context_);
+
+  /* Activate it so GPU_context_create has a valid device for info queries. */
+  GHOST_ActivateGPUContext(reinterpret_cast<GHOST_ContextHandle>(ghost_context_));
 
   /* Create a GPU context for the secondary thread to use. */
   gpu_context_ = GPU_context_create(nullptr, ghost_context_);

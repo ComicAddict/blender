@@ -23,12 +23,14 @@
     .depth = R_IMF_CHAN_DEPTH_8, \
     .quality = 90, \
     .compress = 15, \
+    .exr_flag = R_IMF_EXR_FLAG_MULTIPART, \
   }
 
 #define _DNA_DEFAULT_BakeData \
   { \
     .im_format = _DNA_DEFAULT_ImageFormatData, \
     .filepath = "//", \
+    .type = R_BAKE_NORMALS, \
     .flag = R_BAKE_CLEAR, \
     .pass_filter = R_BAKE_PASS_FILTER_ALL, \
     .width = 512, \
@@ -37,6 +39,7 @@
     .margin_type = R_BAKE_ADJACENT_FACES, \
     .normal_space = R_BAKE_SPACE_TANGENT, \
     .normal_swizzle = {R_BAKE_POSX, R_BAKE_POSY, R_BAKE_POSZ}, \
+    .displacement_space = R_BAKE_SPACE_OBJECT, \
   }
 
 #define _DNA_DEFAULT_FFMpegCodecData \
@@ -89,13 +92,6 @@
  \
     .gauss = 1.5, \
     .dither_intensity = 1.0f, \
- \
-    .bake_mode = 0, \
-    .bake_margin = 16, \
-    .bake_margin_type = R_BAKE_ADJACENT_FACES, \
-    .bake_flag = R_BAKE_CLEAR, \
-    .bake_samples = 256, \
-    .bake_biasdist = 0.001f, \
  \
     /* BakeData */ \
     .bake = _DNA_DEFAULT_BakeData, \
@@ -305,11 +301,13 @@
 
 #define _DNA_DEFAULTS_UnifiedPaintSettings \
   { \
-    .size = 50, \
+    .size = 100, \
     .input_samples = 1, \
-    .unprojected_radius = 0.29, \
+    .unprojected_size = 0.58, \
     .alpha = 0.5f, \
     .weight = 0.5f, \
+    .color = {0.0f, 0.0f, 0.0f}, \
+    .secondary_color = {1.0f, 1.0f, 1.0f}, \
     .rgb = {0.0f, 0.0f, 0.0f}, \
     .secondary_rgb = {1.0f, 1.0f, 1.0f}, \
     .flag = UNIFIED_PAINT_SIZE | UNIFIED_PAINT_COLOR, \
@@ -355,6 +353,13 @@
     .sharp_max = DEG2RADF(180.0f), \
   }
 
+#define _DNA_DEFAULTS_UvSculpt \
+  { \
+    .size = 100, \
+    .strength = 1.0f, \
+    .curve_preset = BRUSH_CURVE_SMOOTH, \
+  }
+
 #define _DNA_DEFAULT_ToolSettings \
   { \
     .object_flag = SCE_OBJECT_MODE_LOCK, \
@@ -372,7 +377,7 @@
     .select_thresh = 0.01f, \
  \
     .selectmode = SCE_SELECT_VERTEX, \
-    .uv_selectmode = UV_SELECT_VERTEX, \
+    .uv_selectmode = UV_SELECT_VERT, \
     .autokey_mode = AUTOKEY_MODE_NORMAL, \
  \
     .transform_pivot_point = V3D_AROUND_CENTER_MEDIAN, \
@@ -393,6 +398,10 @@
     .snap_angle_increment_2d = DEG2RADF(5.0f), \
     .snap_angle_increment_3d_precision = DEG2RADF(1.0f), \
     .snap_angle_increment_2d_precision = DEG2RADF(1.0f), \
+ \
+    .snap_flag_seq = SCE_SNAP, \
+    /* Weight Paint */ \
+    .weightuser = OB_DRAW_GROUPUSER_ACTIVE, \
  \
     .curve_paint_settings = _DNA_DEFAULTS_CurvePaintSettings, \
  \
@@ -417,6 +426,7 @@
     .gpencil_v2d_align = GP_PROJECT_VIEWSPACE, \
  \
     /* UV painting */ \
+    .uvsculpt = _DNA_DEFAULTS_UvSculpt, \
     .uv_sculpt_settings = 0, \
  \
     /* Placement */ \

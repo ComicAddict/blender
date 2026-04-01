@@ -132,6 +132,8 @@ static void update_directly_linked_links_and_sockets(const bNodeTree &ntree)
       link->fromnode->runtime->has_available_linked_outputs = true;
       link->tonode->runtime->has_available_linked_inputs = true;
     }
+    BLI_assert(link->fromsock->runtime->owner_node == link->fromnode);
+    BLI_assert(link->tosock->runtime->owner_node == link->tonode);
   }
   for (bNodeSocket *socket : tree_runtime.input_sockets) {
     if (socket->flag & SOCK_MULTI_INPUT) {
@@ -702,8 +704,8 @@ bNodeSocket &bNode::socket_by_decl(const blender::nodes::SocketDeclaration &decl
 static void ensure_inference_usage_cache(const bNodeTree &tree)
 {
   tree.runtime->inferenced_input_socket_usage_mutex.ensure([&]() {
-    tree.runtime->inferenced_input_socket_usage =
-        blender::nodes::socket_usage_inference::infer_all_input_sockets_usage(tree);
+    tree.runtime->inferenced_socket_usage =
+        blender::nodes::socket_usage_inference::infer_all_sockets_usage(tree);
   });
 }
 
@@ -713,12 +715,11 @@ bool bNodeSocket::affects_node_output() const
   BLI_assert(blender::bke::node_tree_runtime::topology_cache_is_available(*this));
   const bNodeTree &tree = this->owner_tree();
   ensure_inference_usage_cache(tree);
-  return tree.runtime->inferenced_input_socket_usage[this->index_in_all_inputs()].is_used;
+  return tree.runtime->inferenced_socket_usage[this->index_in_tree()].is_used;
 }
 
-bool bNodeSocket::inferred_input_socket_visibility() const
+bool bNodeSocket::inferred_socket_visibility() const
 {
-  BLI_assert(this->is_input());
   BLI_assert(blender::bke::node_tree_runtime::topology_cache_is_available(*this));
   const bNode &node = this->owner_node();
   if (node.typeinfo->ignore_inferred_input_socket_visibility) {
@@ -727,5 +728,5 @@ bool bNodeSocket::inferred_input_socket_visibility() const
   const bNodeTree &tree = this->owner_tree();
 
   ensure_inference_usage_cache(tree);
-  return tree.runtime->inferenced_input_socket_usage[this->index_in_all_inputs()].is_visible;
+  return tree.runtime->inferenced_socket_usage[this->index_in_tree()].is_visible;
 }

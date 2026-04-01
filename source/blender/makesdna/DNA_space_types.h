@@ -338,12 +338,10 @@ typedef struct SpaceSeq {
 
   /** Deprecated: offset for drawing the image preview. */
   float xof DNA_DEPRECATED, yof DNA_DEPRECATED;
-  /** Weird name for the sequencer subtype (seq, image, luma... etc). */
-  short mainb;
-  /** ESpaceSeq_Proxy_RenderSize. */
-  short render_size;
+  short mainb; /* eSpaceSeq_RegionType; strange name for view type (image, histogram, ...). */
+  short render_size; /* eSpaceSeq_Proxy_RenderSize. */
   short chanshown;
-  short zebra;
+  short zebra; /* Show overexposed. 0=disabled; otherwise as percentage of "pure white". */
   int flag;
   /** Deprecated, handled by View2D now. */
   float zoom DNA_DEPRECATED;
@@ -874,17 +872,18 @@ typedef struct SpaceNode {
   /** Shader from object or world (#eSpaceNode_ShaderFrom). */
   char shaderfrom;
   /**
-   * Whether to edit any geometry node group, or follow the active modifier context.
-   * #SpaceNodeGeometryNodesType.
+   * The sub type of the node tree being edited.
+   * #SpaceNodeGeometryNodesType or #SpaceNodeCompositorNodesType.
    */
-  char geometry_nodes_type;
+  char node_tree_sub_type;
 
   /**
-   * Used as the editor's top-level node group for #SNODE_GEOMETRY_TOOL. This is stored in the
-   * node editor because it isn't part of the context otherwise, and it isn't meant to be set
-   * separately from the editor's regular node group.
+   * Used as the editor's top-level node group for node trees that are not part of the context and
+   * thus needs to be stored in the node editor. For instance #SNODE_GEOMETRY_MODIFIER is part of
+   * the context since it is stored on the active modifier, while #SNODE_GEOMETRY_TOOL is not part
+   * of the context.
    */
-  struct bNodeTree *geometry_nodes_tool_tree;
+  struct bNodeTree *selected_node_group;
 
   /** Grease-pencil data. */
   struct bGPdata *gpd;
@@ -976,6 +975,12 @@ typedef struct SpaceUserPref {
 /** \name Motion Tracking
  * \{ */
 
+typedef struct SpaceClipOverlay {
+  /* eSpaceClipOverlay_Flag */
+  int flag;
+  char _pad0[4];
+} SpaceClipOverlay;
+
 /** Clip Editor. */
 typedef struct SpaceClip {
   SpaceLink *next, *prev;
@@ -1038,6 +1043,7 @@ typedef struct SpaceClip {
   float cursor[2];
 
   MaskSpaceInfo mask_info;
+  struct SpaceClipOverlay overlay;
 } SpaceClip;
 
 /** \} */
@@ -1138,6 +1144,20 @@ typedef struct SpreadsheetTableID {
   int type;
 } SpreadsheetTableID;
 
+typedef struct SpreadsheetBundlePathElem {
+  char *identifier;
+#ifdef __cplusplus
+  friend bool operator==(const SpreadsheetBundlePathElem &a, const SpreadsheetBundlePathElem &b);
+  friend bool operator!=(const SpreadsheetBundlePathElem &a, const SpreadsheetBundlePathElem &b);
+#endif
+} SpreadsheetBundlePathElem;
+
+typedef enum SpreadsheetClosureInputOutput {
+  SPREADSHEET_CLOSURE_NONE = 0,
+  SPREADSHEET_CLOSURE_INPUT = 1,
+  SPREADSHEET_CLOSURE_OUTPUT = 2,
+} SpreadsheetClosureInputOutput;
+
 typedef struct SpreadsheetTableIDGeometry {
   SpreadsheetTableID base;
   char _pad0[4];
@@ -1147,6 +1167,17 @@ typedef struct SpreadsheetTableIDGeometry {
    * can be pinned so that it stays constant even when the active node changes.
    */
   ViewerPath viewer_path;
+
+  int viewer_item_identifier;
+
+  int bundle_path_num;
+  SpreadsheetBundlePathElem *bundle_path;
+
+  /** #SpreadsheetClosureInputOutput. */
+  int8_t closure_input_output;
+
+  char _pad3[7];
+
   /**
    * The "path" to the currently active instance reference. This is needed when viewing nested
    * instances.

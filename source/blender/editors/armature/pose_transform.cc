@@ -537,9 +537,7 @@ static wmOperatorStatus pose_visual_transform_apply_exec(bContext *C, wmOperator
 
     int i;
     LISTBASE_FOREACH_INDEX (bPoseChannel *, pchan, &ob->pose->chanbase, i) {
-      if (!((pchan->bone->flag & BONE_SELECTED) &&
-            blender::animrig::bone_is_visible_pchan(arm, pchan)))
-      {
+      if (!blender::animrig::bone_is_selected(arm, pchan)) {
         pchan_xform_array[i].is_set = false;
         continue;
       }
@@ -802,7 +800,7 @@ static wmOperatorStatus pose_copy_exec(bContext *C, wmOperator *op)
   /* Sets chan->flag to POSE_KEY if bone selected. */
   set_pose_keys(ob);
 
-  PartialWriteContext copybuffer{BKE_main_blendfile_path(bmain)};
+  PartialWriteContext copybuffer{*bmain};
   copybuffer.id_add(
       &ob->id,
       PartialWriteContext::IDAddOptions{
