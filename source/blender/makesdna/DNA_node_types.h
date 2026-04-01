@@ -3490,5 +3490,6 @@ typedef enum NodeGeometryTransformMode {
 
 typedef enum GeometryNodeVoronoiMode {
   GEO_NODE_VORONOI_BOUNDS = 0,
-  GEO_NODE_VORONOI_BRAVAIS = 1,
+  GEO_NODE_RADICAL_VORONOI_BOUNDS = 1,
+  GEO_NODE_VORONOI_BRAVAIS = 2,
 } GeometryNodeVoronoiMode;
