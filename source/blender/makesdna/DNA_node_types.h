@@ -1361,11 +1361,6 @@ enum GeometryNodeLinearGizmoDrawStyle {
   GEO_NODE_LINEAR_GIZMO_DRAW_STYLE_BOX = 2,
 };
 
-typedef struct NodeGeometryVoronoi {
-  /** #NodeGeometryVoronoi.  */
-  uint8_t mode;
-} NodeGeometryVoronoi;
-
 typedef enum GeometryNodeVoronoiMode {
   GEO_NODE_VORONOI_BOUNDS = 0,
   GEO_NODE_RADICAL_VORONOI_BOUNDS = 1,
@@ -3332,6 +3327,12 @@ struct NodeGeometryRaycast {
   /** #eCustomDataType. */
   int8_t data_type = 0;
 };
+
+typedef struct NodeGeometryVoronoi {
+  /** #NodeGeometryVoronoi.  */
+  DNA_DEFINE_CXX_METHODS(NodeGeometryVoronoi)
+  uint8_t mode;
+} NodeGeometryVoronoi;
 
 struct NodeGeometryCurveFill {
   DNA_DEFINE_CXX_METHODS(NodeGeometryCurveFill)

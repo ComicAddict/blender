@@ -32,28 +32,52 @@ struct AttributeOutputs {
 };
 }  // namespace
 
+static EnumPropertyItem voronoi_mode_items[] = {
+    {GEO_NODE_VORONOI_BOUNDS,
+       "BOUNDS",
+       0,
+       "Bounds",
+       "Use the min and max bounds for voronoi computation"},
+      {GEO_NODE_RADICAL_VORONOI_BOUNDS,
+       "RADICAL_BOUNDS",
+       0,
+       "Radical Voronoi with Bounds",
+       "Use the min and max bounds for radical voronoi computation"},
+      {GEO_NODE_VORONOI_BRAVAIS,
+       "BRAVAIS",
+       0,
+       "Bravais",
+       "Sample the specified number of points along each spline"},
+      {0, nullptr, 0, nullptr, nullptr},
+};
+
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Geometry>("Sites");
-  auto &b_min = b.add_input<decl::Vector>("Min").default_value(float3(-1.0f));
-  auto &b_max = b.add_input<decl::Vector>("Max").default_value(float3(1.0f));
-  auto &a = b.add_input<decl::Float>("A").default_value(1.0f);
-  auto &bx = b.add_input<decl::Float>("Bx").default_value(0.0f);
-  auto &by = b.add_input<decl::Float>("By").default_value(1.0f);
-  auto &cx = b.add_input<decl::Float>("Cx").default_value(0.0f);
-  auto &cy = b.add_input<decl::Float>("Cy").default_value(0.0f);
-  auto &cz = b.add_input<decl::Float>("Cz").default_value(1.0f);
-  auto &px = b.add_input<decl::Bool>("Periodic X");
-  auto &py = b.add_input<decl::Bool>("Periodic Y");
-  auto &pz = b.add_input<decl::Bool>("Periodic Z");
-  b.add_input<decl::Bool>("Boundary");
-  b.add_input<decl::Bool>("Group By Edge");
-  b.add_input<decl::Bool>("Group By Face");
-  b.add_input<decl::Int>("Group ID").implicit_field(NODE_DEFAULT_INPUT_INDEX_FIELD);
-  auto &rad = b.add_input<decl::Int>("Radius").field_on_all();
-  b.add_output<decl::Geometry>("Voronoi");
-  b.add_output<decl::Int>("Cell ID").field_on_all();
-  b.add_output<decl::Vector>("Cell Centers").field_on_all();
+  b.add_input<decl::Geometry>("Sites"_ustr);
+  auto &b_min = b.add_input<decl::Vector>("Min"_ustr).default_value(float3(-1.0f));
+  auto &b_max = b.add_input<decl::Vector>("Max"_ustr).default_value(float3(1.0f));
+  auto &a = b.add_input<decl::Float>("A"_ustr).default_value(1.0f);
+  auto &bx = b.add_input<decl::Float>("Bx"_ustr).default_value(0.0f);
+  auto &by = b.add_input<decl::Float>("By"_ustr).default_value(1.0f);
+  auto &cx = b.add_input<decl::Float>("Cx"_ustr).default_value(0.0f);
+  auto &cy = b.add_input<decl::Float>("Cy"_ustr).default_value(0.0f);
+  auto &cz = b.add_input<decl::Float>("Cz"_ustr).default_value(1.0f);
+  auto &px = b.add_input<decl::Bool>("Periodic X"_ustr);
+  auto &py = b.add_input<decl::Bool>("Periodic Y"_ustr);
+  auto &pz = b.add_input<decl::Bool>("Periodic Z"_ustr);
+  b.add_input<decl::Bool>("Boundary"_ustr);
+  b.add_input<decl::Bool>("Group By Edge"_ustr);
+  b.add_input<decl::Bool>("Group By Face"_ustr);
+  b.add_input<decl::Int>("Group ID"_ustr)
+      .implicit_field(NODE_DEFAULT_INPUT_INDEX_FIELD);
+  auto &rad = b.add_input<decl::Float>("Radius"_ustr)
+      .field_on_all()
+      .make_available([](bNode &node) {
+        node_storage(node).mode = GEO_NODE_RADICAL_VORONOI_BOUNDS;
+      });
+  b.add_output<decl::Geometry>("Voronoi"_ustr);
+  b.add_output<decl::Int>("Cell ID"_ustr).field_on_all();
+  b.add_output<decl::Vector>("Cell Centers"_ustr).field_on_all();
 
   const bNode *node = b.node_or_null();
   if (node != nullptr) {
@@ -75,14 +99,14 @@ static void node_declare(NodeDeclarationBuilder &b)
   }
 }
 
-static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
+static void node_layout(ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  layout->prop(ptr, "mode", UI_ITEM_NONE, "", ICON_NONE);
+  layout.prop(ptr, "mode", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
 {
-  NodeGeometryVoronoi *data = MEM_callocN<NodeGeometryVoronoi>(__func__);
+  NodeGeometryVoronoi *data = MEM_new<NodeGeometryVoronoi>(__func__);
 
   data->mode = GEO_NODE_VORONOI_BOUNDS;
   node->storage = data;
@@ -312,18 +336,18 @@ static Mesh *compute_voronoi_bravais(Span<float3> &positions,
 
 static void node_geo_exec(GeoNodeExecParams params)
 {
-  GeometrySet site_geometry = params.extract_input<GeometrySet>("Sites");
+  GeometrySet site_geometry = params.extract_input<GeometrySet>("Sites"_ustr);
 
   const NodeGeometryVoronoi &storage = node_storage(params.node());
   const GeometryNodeVoronoiMode mode = (GeometryNodeVoronoiMode)storage.mode;
 
-  Field<int> id_field = params.extract_input<Field<int>>("Group ID");
-  Field<int> radius_field = params.extract_input<Field<int>>("Radius");
+  Field<int> id_field = params.extract_input<Field<int>>("Group ID"_ustr);  
+  Field<float> radius_field;  
 
   AttributeOutputs attribute_outputs;
-  attribute_outputs.cell_id = params.get_output_anonymous_attribute_id_if_needed("Cell ID");
+  attribute_outputs.cell_id = params.get_output_anonymous_attribute_id_if_needed("Cell ID"_ustr);
   attribute_outputs.cell_centers = params.get_output_anonymous_attribute_id_if_needed(
-      "Cell Centers");
+      "Cell Centers"_ustr);
 
   Span<float3> positions;
   VArray<int> group_ids;
@@ -333,7 +357,7 @@ static void node_geo_exec(GeoNodeExecParams params)
   if (site_geometry.has_mesh()) {
     const Mesh *site_mesh = site_geometry.get_mesh();
     positions = site_mesh->vert_positions();
-    if (params.extract_input<bool>("Group By Face")) {
+    if (params.extract_input<bool>("Group By Face"_ustr)) {
       Span<int> corner_verts = site_mesh->corner_verts();
       OffsetIndices<int> faces = site_mesh->faces();
       for (const int i : faces.index_range()) {
@@ -347,7 +371,7 @@ static void node_geo_exec(GeoNodeExecParams params)
         }
       }
     }
-    if (params.extract_input<bool>("Group By Edge")) {
+    if (params.extract_input<bool>("Group By Edge"_ustr)) {
       Span<int2> edges = site_mesh->edges();
       for (auto edge : edges) {
         adjacency_list.lookup_or_add(edge[0], Set<int>()).add(edge[1]);
@@ -359,10 +383,18 @@ static void node_geo_exec(GeoNodeExecParams params)
     bke::MeshFieldContext field_context{*site_mesh, att_domain};
     FieldEvaluator field_evaluator{field_context, domain_size};
     field_evaluator.add(id_field);
-    field_evaluator.add(radius_field);
     field_evaluator.evaluate();
     group_ids = field_evaluator.get_evaluated<int>(0);
-    radii = field_evaluator.get_evaluated<float>(1);
+    if (mode == GEO_NODE_RADICAL_VORONOI_BOUNDS){
+      Field<float> radius_field = params.extract_input<Field<float>>("Radius"_ustr);  
+      const bke::AttrDomain att_domain = bke::AttrDomain::Point;
+      const int domain_size = site_mesh->attributes().domain_size(att_domain);
+      bke::MeshFieldContext field_context{*site_mesh, att_domain};
+      FieldEvaluator field_evaluator{field_context, domain_size};
+      field_evaluator.add(radius_field);
+      field_evaluator.evaluate();
+      radii = field_evaluator.get_evaluated<float>(0);
+    }
   }
   else if (site_geometry.has_pointcloud()) {
     const PointCloud *site_pc = site_geometry.get_pointcloud();
@@ -386,22 +418,23 @@ static void node_geo_exec(GeoNodeExecParams params)
     params.error_message_add(NodeWarningType::Error,
                              TIP_("Input should contain one of the following to compute the "
                                   "Voronoi: mesh, point cloud, curve"));
-    params.set_output("Voronoi", std::move(site_geometry));
+    params.set_output("Voronoi"_ustr, std::move(site_geometry));
     return;
   }
 
   switch (mode) {
     case GEO_NODE_VORONOI_BOUNDS: {
+      BLI_assert_msg(true, "before computing");
       Mesh *voronoi = compute_voronoi_bounds(positions,
                                              group_ids,
                                              adjacency_list,
                                              attribute_outputs,
-                                             params.extract_input<float3>("Min"),
-                                             params.extract_input<float3>("Max"),
-                                             params.extract_input<bool>("Periodic X"),
-                                             params.extract_input<bool>("Periodic Y"),
-                                             params.extract_input<bool>("Periodic Z"),
-                                             params.extract_input<bool>("Boundary"));
+                                             params.extract_input<float3>("Min"_ustr),
+                                             params.extract_input<float3>("Max"_ustr),
+                                             params.extract_input<bool>("Periodic X"_ustr),
+                                             params.extract_input<bool>("Periodic Y"_ustr),
+                                             params.extract_input<bool>("Periodic Z"_ustr),
+                                             params.extract_input<bool>("Boundary"_ustr));
       site_geometry.replace_mesh(voronoi);
       site_geometry.keep_only({GeometryComponent::Type::Mesh});
       break;
@@ -412,14 +445,15 @@ static void node_geo_exec(GeoNodeExecParams params)
                                              radii,
                                              adjacency_list,
                                              attribute_outputs,
-                                             params.extract_input<float3>("Min"),
-                                             params.extract_input<float3>("Max"),
-                                             params.extract_input<bool>("Periodic X"),
-                                             params.extract_input<bool>("Periodic Y"),
-                                             params.extract_input<bool>("Periodic Z"),
-                                             params.extract_input<bool>("Boundary"));
+                                             params.extract_input<float3>("Min"_ustr),
+                                             params.extract_input<float3>("Max"_ustr),
+                                             params.extract_input<bool>("Periodic X"_ustr),
+                                             params.extract_input<bool>("Periodic Y"_ustr),
+                                             params.extract_input<bool>("Periodic Z"_ustr),
+                                             params.extract_input<bool>("Boundary"_ustr));
       site_geometry.replace_mesh(voronoi);
       site_geometry.keep_only({GeometryComponent::Type::Mesh});
+      BLI_assert_msg(true, "ran radical voronoi bounds");
       break;
     }
     case GEO_NODE_VORONOI_BRAVAIS: {
@@ -427,20 +461,20 @@ static void node_geo_exec(GeoNodeExecParams params)
                                               group_ids,
                                               adjacency_list,
                                               attribute_outputs,
-                                              params.extract_input<float>("A"),
-                                              params.extract_input<float>("Bx"),
-                                              params.extract_input<float>("By"),
-                                              params.extract_input<float>("Cx"),
-                                              params.extract_input<float>("Cy"),
-                                              params.extract_input<float>("Cz"),
-                                              params.extract_input<bool>("Boundary"));
+                                              params.extract_input<float>("A"_ustr),
+                                              params.extract_input<float>("Bx"_ustr),
+                                              params.extract_input<float>("By"_ustr),
+                                              params.extract_input<float>("Cx"_ustr),
+                                              params.extract_input<float>("Cy"_ustr),
+                                              params.extract_input<float>("Cz"_ustr),
+                                              params.extract_input<bool>("Boundary"_ustr));
       site_geometry.replace_mesh(voronoi);
       site_geometry.keep_only({GeometryComponent::Type::Mesh});
       break;
     }
   }
 
-  params.set_output("Voronoi", std::move(site_geometry));
+  params.set_output("Voronoi"_ustr, std::move(site_geometry));
 }
 
 static void node_rna(StructRNA *srna)
@@ -491,8 +525,8 @@ static void node_register()
       ntype, "NodeGeometryVoronoi", node_free_standard_storage, node_copy_standard_storage);
   ntype.draw_buttons = node_layout;
   blender::bke::node_register_type(ntype);
-
   node_rna(ntype.rna_ext.srna);
+
 }
 NOD_REGISTER_NODE(node_register)
 
