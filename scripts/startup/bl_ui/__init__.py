@@ -60,6 +60,8 @@ _modules = [
     "properties_texture",
     "properties_world",
     "properties_collection",
+    "properties_strip",
+    "properties_strip_modifier",
     "generic_ui_list",
 
     # Generic Space Modules
@@ -87,6 +89,7 @@ _modules = [
     "space_topbar",
     "space_userpref",
     "space_view3d",
+    "space_view3d_sidebar",
     "space_view3d_toolbar",
 
     # XXX, keep last so panels show after all other tool options.
@@ -120,6 +123,7 @@ def register():
             register_class(cls)
 
     space_filebrowser.register_props()
+    properties_paint_common.register()
 
     from bpy.props import (
         EnumProperty,
@@ -182,6 +186,9 @@ def register():
 
 def unregister():
     from bpy.utils import unregister_class
+
+    properties_paint_common.unregister()
+
     for mod in reversed(_modules_loaded):
         for cls in reversed(mod.classes):
             if cls.is_registered:

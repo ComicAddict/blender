@@ -82,7 +82,7 @@ void gather_sample(float2 screen_uv,
                    float2 offset,
                    float offset_len,
                    const bool next,
-                   inout Accumulator accum)
+                   Accumulator &accum)
 {
   float2 sample_uv = screen_uv - offset * motion_blur_buf.target_size_inv;
   float4 sample_vectors = motion_blur_sample_velocity(velocity_tx, sample_uv);
@@ -110,7 +110,7 @@ void gather_blur(float2 screen_uv,
                  float2 max_motion,
                  float ofs,
                  const bool next,
-                 inout Accumulator accum)
+                 Accumulator &accum)
 {
   float center_motion_len = length(center_motion);
   float max_motion_len = length(max_motion);
@@ -181,7 +181,7 @@ void main()
   /* Randomize tile boundary to avoid ugly discontinuities. Randomize 1/4th of the tile.
    * Note this randomize only in one direction but in practice it's enough. */
   rand.x = rand.x * 2.0f - 1.0f;
-  int2 tile = (texel + int2(rand.x * float(MOTION_BLUR_TILE_SIZE) * 0.25f)) /
+  int2 tile = (texel + int2(int(rand.x * float(MOTION_BLUR_TILE_SIZE) * 0.25f))) /
               MOTION_BLUR_TILE_SIZE;
   tile = clamp(tile, int2(0), imageSize(in_tiles_img) - 1);
   /* NOTE: Tile velocity is already in pixel space and with correct zw sign. */

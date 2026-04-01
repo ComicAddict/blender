@@ -6,6 +6,8 @@
  * \ingroup edutil
  */
 
+#include <algorithm>
+
 #include "MEM_guardedalloc.h"
 
 #include "BLI_math_rotation.h"
@@ -33,6 +35,8 @@
 #include "ED_numinput.hh"
 
 #include "UI_interface.hh"
+
+namespace blender {
 
 /* Numeric input which isn't allowing full numeric editing. */
 #define USE_FAKE_EDIT
@@ -71,14 +75,14 @@ void initNumInput(NumInput *n)
 {
   n->idx_max = 0;
   n->unit_sys = USER_UNIT_NONE;
-  copy_vn_i(n->unit_type, NUM_MAX_ELEMENTS, B_UNIT_NONE);
+  std::fill_n(n->unit_type, NUM_MAX_ELEMENTS, B_UNIT_NONE);
   n->unit_use_radians = false;
 
   n->flag = 0;
-  copy_vn_short(n->val_flag, NUM_MAX_ELEMENTS, 0);
+  std::fill_n(n->val_flag, NUM_MAX_ELEMENTS, 0);
   zero_v3(n->val);
-  copy_vn_fl(n->val_org, NUM_MAX_ELEMENTS, 0.0f);
-  copy_vn_fl(n->val_inc, NUM_MAX_ELEMENTS, 1.0f);
+  std::fill_n(n->val_org, NUM_MAX_ELEMENTS, 0.0f);
+  std::fill_n(n->val_inc, NUM_MAX_ELEMENTS, 1.0f);
 
   n->idx = 0;
   n->str[0] = '\0';
@@ -102,7 +106,7 @@ void outputNumInput(NumInput *n, char *str, const UnitSettings &unit_settings)
 
     if (n->val_flag[i] & NUM_EDITED) {
       /* Get the best precision, allows us to draw '10.0001' as '10' instead! */
-      prec = UI_calc_float_precision(prec, double(n->val[i]));
+      prec = ui::calc_float_precision(prec, double(n->val[i]));
       if (i == n->idx) {
         const char *heading_exp = "", *trailing_exp = "";
         char before_cursor[NUM_STR_REP_LEN];
@@ -521,7 +525,7 @@ bool handleNumInput(bContext *C, NumInput *n, const wmEvent *event)
         if (pbuf) {
           const bool success = editstr_insert_at_cursor(n, pbuf, pbuf_len);
 
-          MEM_freeN(pbuf);
+          MEM_delete(pbuf);
           if (!success) {
             return false;
           }
@@ -589,7 +593,7 @@ bool handleNumInput(bContext *C, NumInput *n, const wmEvent *event)
       printf("%s\n", error);
       BKE_report(reports, RPT_ERROR, error);
       BKE_report(reports, RPT_ERROR, "Numeric input evaluation");
-      MEM_freeN(error);
+      MEM_delete(error);
     }
 
     if (success) {
@@ -628,3 +632,5 @@ bool handleNumInput(bContext *C, NumInput *n, const wmEvent *event)
   /* REDRAW SINCE NUMBERS HAVE CHANGED */
   return true;
 }
+
+}  // namespace blender

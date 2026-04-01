@@ -116,17 +116,19 @@ static void extract_edit_data_mesh(const MeshRenderData &mr, MutableSpan<EditLoo
   MutableSpan loose_edge_data = vbo_data.slice(mr.corners_num, mr.loose_edges.size() * 2);
   MutableSpan loose_vert_data = vbo_data.take_back(mr.loose_verts.size());
 
+  const BMUVOffsets uv_offsets_none = BMUVOFFSETS_NONE;
   const OffsetIndices faces = mr.faces;
   const Span<int> corner_verts = mr.corner_verts;
   const Span<int> corner_edges = mr.corner_edges;
   threading::parallel_for(faces.index_range(), 2048, [&](const IndexRange range) {
     for (const int face : range) {
+      EditLoopData face_value = {};
+      if (const BMFace *bm_face = bm_original_face_get(mr, face)) {
+        mesh_render_data_face_flag(mr, bm_face, uv_offsets_none, face_value);
+      }
       for (const int corner : faces[face]) {
         EditLoopData &value = corners_data[corner];
-        value = {};
-        if (const BMFace *bm_face = bm_original_face_get(mr, face)) {
-          mesh_render_data_face_flag(mr, bm_face, {-1, -1, -1, -1}, value);
-        }
+        value = face_value;
         if (const BMVert *bm_vert = bm_original_vert_get(mr, corner_verts[corner])) {
           mesh_render_data_vert_flag(mr, bm_vert, value);
         }
@@ -138,38 +140,36 @@ static void extract_edit_data_mesh(const MeshRenderData &mr, MutableSpan<EditLoo
   });
 
   const Span<int2> edges = mr.edges;
-  const Span<int> loose_edges = mr.loose_edges;
-  threading::parallel_for(loose_edges.index_range(), 2048, [&](const IndexRange range) {
-    for (const int i : range) {
-      EditLoopData &value_1 = loose_edge_data[i * 2 + 0];
-      EditLoopData &value_2 = loose_edge_data[i * 2 + 1];
-      if (const BMEdge *bm_edge = bm_original_edge_get(mr, loose_edges[i])) {
-        value_1 = {};
-        mesh_render_data_edge_flag(mr, bm_edge, value_1);
-        value_2 = value_1;
-      }
-      else {
-        value_2 = value_1 = {};
-      }
-      const int2 edge = edges[loose_edges[i]];
-      if (const BMVert *bm_vert = bm_original_vert_get(mr, edge[0])) {
-        mesh_render_data_vert_flag(mr, bm_vert, value_1);
-      }
-      if (const BMVert *bm_vert = bm_original_vert_get(mr, edge[1])) {
-        mesh_render_data_vert_flag(mr, bm_vert, value_2);
-      }
-    }
-  });
+  mr.loose_edges.foreach_index(
+      [&](const int edge_i, const int pos) {
+        EditLoopData &value_1 = loose_edge_data[pos * 2 + 0];
+        EditLoopData &value_2 = loose_edge_data[pos * 2 + 1];
+        if (const BMEdge *bm_edge = bm_original_edge_get(mr, edge_i)) {
+          value_1 = {};
+          mesh_render_data_edge_flag(mr, bm_edge, value_1);
+          value_2 = value_1;
+        }
+        else {
+          value_2 = value_1 = {};
+        }
+        const int2 edge = edges[edge_i];
+        if (const BMVert *bm_vert = bm_original_vert_get(mr, edge[0])) {
+          mesh_render_data_vert_flag(mr, bm_vert, value_1);
+        }
+        if (const BMVert *bm_vert = bm_original_vert_get(mr, edge[1])) {
+          mesh_render_data_vert_flag(mr, bm_vert, value_2);
+        }
+      },
+      exec_mode::grain_size(2048));
 
-  const Span<int> loose_verts = mr.loose_verts;
-  threading::parallel_for(loose_verts.index_range(), 2048, [&](const IndexRange range) {
-    for (const int i : range) {
-      loose_vert_data[i] = {};
-      if (const BMVert *eve = bm_original_vert_get(mr, loose_verts[i])) {
-        mesh_render_data_vert_flag(mr, eve, loose_vert_data[i]);
-      }
-    }
-  });
+  mr.loose_verts.foreach_index(
+      [&](const int vert, const int pos) {
+        loose_vert_data[pos] = {};
+        if (const BMVert *eve = bm_original_vert_get(mr, vert)) {
+          mesh_render_data_vert_flag(mr, eve, loose_vert_data[pos]);
+        }
+      },
+      exec_mode::grain_size(2048));
 }
 
 static void extract_edit_data_bm(const MeshRenderData &mr, MutableSpan<EditLoopData> vbo_data)
@@ -179,45 +179,45 @@ static void extract_edit_data_bm(const MeshRenderData &mr, MutableSpan<EditLoopD
   MutableSpan loose_vert_data = vbo_data.take_back(mr.loose_verts.size());
 
   const BMesh &bm = *mr.bm;
+  const BMUVOffsets uv_offsets_none = BMUVOFFSETS_NONE;
 
   threading::parallel_for(IndexRange(bm.totface), 2048, [&](const IndexRange range) {
     for (const int face_index : range) {
       const BMFace &face = *BM_face_at_index(&const_cast<BMesh &>(bm), face_index);
+      EditLoopData face_value = {};
+      mesh_render_data_face_flag(mr, &face, uv_offsets_none, face_value);
       const BMLoop *loop = BM_FACE_FIRST_LOOP(&face);
       for ([[maybe_unused]] const int i : IndexRange(face.len)) {
         const int index = BM_elem_index_get(loop);
         EditLoopData &value = corners_data[index];
-        value = {};
-        mesh_render_data_face_flag(mr, &face, {-1, -1, -1, -1}, corners_data[index]);
-        mesh_render_data_edge_flag(mr, loop->e, corners_data[index]);
-        mesh_render_data_vert_flag(mr, loop->v, corners_data[index]);
+        value = face_value;
+        mesh_render_data_edge_flag(mr, loop->e, value);
+        mesh_render_data_vert_flag(mr, loop->v, value);
         loop = loop->next;
       }
     }
   });
 
-  const Span<int> loose_edges = mr.loose_edges;
-  threading::parallel_for(loose_edges.index_range(), 2048, [&](const IndexRange range) {
-    for (const int i : range) {
-      EditLoopData &value_1 = loose_edge_data[i * 2 + 0];
-      EditLoopData &value_2 = loose_edge_data[i * 2 + 1];
-      const BMEdge &edge = *BM_edge_at_index(&const_cast<BMesh &>(bm), loose_edges[i]);
-      value_1 = {};
-      mesh_render_data_edge_flag(mr, &edge, value_1);
-      value_2 = value_1;
-      mesh_render_data_vert_flag(mr, edge.v1, value_1);
-      mesh_render_data_vert_flag(mr, edge.v2, value_2);
-    }
-  });
+  mr.loose_edges.foreach_index(
+      [&](const int edge_i, const int pos) {
+        EditLoopData &value_1 = loose_edge_data[pos * 2 + 0];
+        EditLoopData &value_2 = loose_edge_data[pos * 2 + 1];
+        const BMEdge &edge = *BM_edge_at_index(&const_cast<BMesh &>(bm), edge_i);
+        value_1 = {};
+        mesh_render_data_edge_flag(mr, &edge, value_1);
+        value_2 = value_1;
+        mesh_render_data_vert_flag(mr, edge.v1, value_1);
+        mesh_render_data_vert_flag(mr, edge.v2, value_2);
+      },
+      exec_mode::grain_size(2048));
 
-  const Span<int> loose_verts = mr.loose_verts;
-  threading::parallel_for(loose_verts.index_range(), 2048, [&](const IndexRange range) {
-    for (const int i : range) {
-      loose_vert_data[i] = {};
-      const BMVert &vert = *BM_vert_at_index(&const_cast<BMesh &>(bm), loose_verts[i]);
-      mesh_render_data_vert_flag(mr, &vert, loose_vert_data[i]);
-    }
-  });
+  mr.loose_verts.foreach_index(
+      [&](const int vert_i, const int pos) {
+        loose_vert_data[pos] = {};
+        const BMVert &vert = *BM_vert_at_index(&const_cast<BMesh &>(bm), vert_i);
+        mesh_render_data_vert_flag(mr, &vert, loose_vert_data[pos]);
+      },
+      exec_mode::grain_size(2048));
 }
 
 gpu::VertBufPtr extract_edit_data(const MeshRenderData &mr)
@@ -239,6 +239,7 @@ static void extract_edit_subdiv_data_mesh(const MeshRenderData &mr,
                                           const DRWSubdivCache &subdiv_cache,
                                           MutableSpan<EditLoopData> vbo_data)
 {
+  const BMUVOffsets uv_offsets_none = BMUVOFFSETS_NONE;
   const int corners_num = subdiv_cache.num_subdiv_loops;
   const int loose_edges_num = mr.loose_edges.size();
   const int verts_per_edge = subdiv_verts_per_coarse_edge(subdiv_cache);
@@ -254,13 +255,14 @@ static void extract_edit_subdiv_data_mesh(const MeshRenderData &mr,
   threading::parallel_for(IndexRange(subdiv_cache.num_subdiv_quads), 2048, [&](IndexRange range) {
     for (const int subdiv_quad : range) {
       const int coarse_face = subdiv_loop_face_index[subdiv_quad * 4];
+
+      EditLoopData face_value = {};
+      if (const BMFace *bm_face = bm_original_face_get(mr, coarse_face)) {
+        mesh_render_data_face_flag(mr, bm_face, uv_offsets_none, face_value);
+      }
       for (const int subdiv_corner : IndexRange(subdiv_quad * 4, 4)) {
         EditLoopData &value = corners_data[subdiv_corner];
-        value = {};
-
-        if (const BMFace *bm_face = bm_original_face_get(mr, coarse_face)) {
-          mesh_render_data_face_flag(mr, bm_face, {-1, -1, -1, -1}, value);
-        }
+        value = face_value;
 
         const int vert_origindex = subdiv_loop_vert_index[subdiv_corner];
         if (vert_origindex != -1) {
@@ -280,43 +282,43 @@ static void extract_edit_subdiv_data_mesh(const MeshRenderData &mr,
   });
 
   const Span<int2> edges = mr.edges;
-  const Span<int> loose_edges = mr.loose_edges;
-  threading::parallel_for(loose_edges.index_range(), 2048, [&](const IndexRange range) {
-    for (const int i : range) {
-      MutableSpan<EditLoopData> data = loose_edge_data.slice(i * verts_per_edge, verts_per_edge);
-      if (const BMEdge *edge = bm_original_edge_get(mr, loose_edges[i])) {
-        EditLoopData value{};
-        mesh_render_data_edge_flag(mr, edge, value);
-        data.fill(value);
-      }
-      else {
-        data.fill({});
-      }
-      const int2 edge = edges[loose_edges[i]];
-      if (const BMVert *bm_vert = bm_original_vert_get(mr, edge[0])) {
-        mesh_render_data_vert_flag(mr, bm_vert, data.first());
-      }
-      if (const BMVert *bm_vert = bm_original_vert_get(mr, edge[1])) {
-        mesh_render_data_vert_flag(mr, bm_vert, data.last());
-      }
-    }
-  });
+  mr.loose_edges.foreach_index(
+      [&](const int edge_i, const int pos) {
+        MutableSpan<EditLoopData> data = loose_edge_data.slice(pos * verts_per_edge,
+                                                               verts_per_edge);
+        if (const BMEdge *edge = bm_original_edge_get(mr, edge_i)) {
+          EditLoopData value{};
+          mesh_render_data_edge_flag(mr, edge, value);
+          data.fill(value);
+        }
+        else {
+          data.fill({});
+        }
+        const int2 edge = edges[edge_i];
+        if (const BMVert *bm_vert = bm_original_vert_get(mr, edge[0])) {
+          mesh_render_data_vert_flag(mr, bm_vert, data.first());
+        }
+        if (const BMVert *bm_vert = bm_original_vert_get(mr, edge[1])) {
+          mesh_render_data_vert_flag(mr, bm_vert, data.last());
+        }
+      },
+      exec_mode::grain_size(2048));
 
-  const Span<int> loose_verts = mr.loose_verts;
-  threading::parallel_for(loose_verts.index_range(), 2048, [&](const IndexRange range) {
-    for (const int i : range) {
-      loose_vert_data[i] = {};
-      if (const BMVert *eve = bm_original_vert_get(mr, loose_verts[i])) {
-        mesh_render_data_vert_flag(mr, eve, loose_vert_data[i]);
-      }
-    }
-  });
+  mr.loose_verts.foreach_index(
+      [&](const int vert, const int pos) {
+        loose_vert_data[pos] = {};
+        if (const BMVert *eve = bm_original_vert_get(mr, vert)) {
+          mesh_render_data_vert_flag(mr, eve, loose_vert_data[pos]);
+        }
+      },
+      exec_mode::grain_size(2048));
 }
 
 static void extract_edit_subdiv_data_bm(const MeshRenderData &mr,
                                         const DRWSubdivCache &subdiv_cache,
                                         MutableSpan<EditLoopData> vbo_data)
 {
+  const BMUVOffsets uv_offsets_none = BMUVOFFSETS_NONE;
   const int corners_num = subdiv_cache.num_subdiv_loops;
   const int loose_edges_num = mr.loose_edges.size();
   const int verts_per_edge = subdiv_verts_per_coarse_edge(subdiv_cache);
@@ -333,11 +335,13 @@ static void extract_edit_subdiv_data_bm(const MeshRenderData &mr,
     for (const int subdiv_quad : range) {
       const int coarse_face = subdiv_loop_face_index[subdiv_quad * 4];
       const BMFace *bm_face = BM_face_at_index(&bm, coarse_face);
+
+      EditLoopData face_value = {};
+      mesh_render_data_face_flag(mr, bm_face, uv_offsets_none, face_value);
+
       for (const int subdiv_corner : IndexRange(subdiv_quad * 4, 4)) {
         EditLoopData &value = corners_data[subdiv_corner];
-        value = {};
-
-        mesh_render_data_face_flag(mr, bm_face, {-1, -1, -1, -1}, value);
+        value = face_value;
 
         const int vert_origindex = subdiv_loop_vert_index[subdiv_corner];
         if (vert_origindex != -1) {
@@ -354,27 +358,26 @@ static void extract_edit_subdiv_data_bm(const MeshRenderData &mr,
     }
   });
 
-  const Span<int> loose_edges = mr.loose_edges;
-  threading::parallel_for(loose_edges.index_range(), 2048, [&](const IndexRange range) {
-    for (const int i : range) {
-      MutableSpan<EditLoopData> data = loose_edge_data.slice(i * verts_per_edge, verts_per_edge);
-      const BMEdge *edge = BM_edge_at_index(&bm, loose_edges[i]);
-      EditLoopData value{};
-      mesh_render_data_edge_flag(mr, edge, value);
-      data.fill(value);
-      mesh_render_data_vert_flag(mr, edge->v1, data.first());
-      mesh_render_data_vert_flag(mr, edge->v2, data.last());
-    }
-  });
+  mr.loose_edges.foreach_index(
+      [&](const int edge_i, const int pos) {
+        MutableSpan<EditLoopData> data = loose_edge_data.slice(pos * verts_per_edge,
+                                                               verts_per_edge);
+        const BMEdge *edge = BM_edge_at_index(&bm, edge_i);
+        EditLoopData value{};
+        mesh_render_data_edge_flag(mr, edge, value);
+        data.fill(value);
+        mesh_render_data_vert_flag(mr, edge->v1, data.first());
+        mesh_render_data_vert_flag(mr, edge->v2, data.last());
+      },
+      exec_mode::grain_size(2048));
 
-  const Span<int> loose_verts = mr.loose_verts;
-  threading::parallel_for(loose_verts.index_range(), 2048, [&](const IndexRange range) {
-    for (const int i : range) {
-      loose_vert_data[i] = {};
-      const BMVert *vert = BM_vert_at_index(&bm, loose_verts[i]);
-      mesh_render_data_vert_flag(mr, vert, loose_vert_data[i]);
-    }
-  });
+  mr.loose_verts.foreach_index(
+      [&](const int vert_i, const int pos) {
+        loose_vert_data[pos] = {};
+        const BMVert *vert = BM_vert_at_index(&bm, vert_i);
+        mesh_render_data_vert_flag(mr, vert, loose_vert_data[pos]);
+      },
+      exec_mode::grain_size(2048));
 }
 
 gpu::VertBufPtr extract_edit_data_subdiv(const MeshRenderData &mr,

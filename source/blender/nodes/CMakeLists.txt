@@ -32,7 +32,7 @@ function(add_node_discovery
       ${sources}
       ${extra_args}
     DEPENDS
-      ${SRC}
+      ${sources}
       ${DISCOVER_NODES_PATH}
   )
   set_source_files_properties(${output_file} PROPERTIES GENERATED TRUE)
@@ -55,6 +55,8 @@ set(INC
   texture
   geometry/include
   ../animrig
+  ../compositor
+  ../compositor/cached_resources
   ../editors/include
   ../depsgraph
   ../makesrna
@@ -68,12 +70,12 @@ set(INC_SYS
 )
 
 set(SRC
-  intern/derived_node_tree.cc
+  intern/compositor_gizmos.cc
+  intern/dependencies.cc
   intern/geometry_nodes_bundle.cc
   intern/geometry_nodes_caller_ui.cc
   intern/geometry_nodes_closure.cc
   intern/geometry_nodes_closure_zone.cc
-  intern/geometry_nodes_dependencies.cc
   intern/geometry_nodes_execute.cc
   intern/geometry_nodes_foreach_geometry_element_zone.cc
   intern/geometry_nodes_gizmos.cc
@@ -81,6 +83,7 @@ set(SRC
   intern/geometry_nodes_list.cc
   intern/geometry_nodes_log.cc
   intern/geometry_nodes_repeat_zone.cc
+  intern/geometry_nodes_srna.cc
   intern/geometry_nodes_warning.cc
   intern/inverse_eval.cc
   intern/list_function_eval.cc
@@ -94,6 +97,7 @@ set(SRC
   intern/node_rna_define.cc
   intern/node_socket.cc
   intern/node_socket_declarations.cc
+  intern/node_tree_defaults.cc
   intern/node_util.cc
   intern/partial_eval.cc
   intern/shader_nodes_inline.cc
@@ -107,7 +111,9 @@ set(SRC
 
   NOD_common.hh
   NOD_composite.hh
-  NOD_derived_node_tree.hh
+  NOD_compositor_gizmos.hh
+  NOD_defaults.hh
+  NOD_dependencies.hh
   NOD_geometry.hh
   NOD_geometry_exec.hh
   NOD_geometry_nodes_bundle.hh
@@ -119,13 +125,13 @@ set(SRC
   NOD_geometry_nodes_closure_fwd.hh
   NOD_geometry_nodes_closure_location.hh
   NOD_geometry_nodes_closure_signature.hh
-  NOD_geometry_nodes_dependencies.hh
   NOD_geometry_nodes_execute.hh
   NOD_geometry_nodes_gizmos.hh
   NOD_geometry_nodes_lazy_function.hh
   NOD_geometry_nodes_list.hh
   NOD_geometry_nodes_list_fwd.hh
   NOD_geometry_nodes_log.hh
+  NOD_geometry_nodes_srna.hh
   NOD_geometry_nodes_values.hh
   NOD_geometry_nodes_warning.hh
   NOD_inverse_eval_params.hh
@@ -184,31 +190,13 @@ set(LIB
   bf_nodes_geometry
   bf_nodes_shader
   bf_nodes_texture
-  PRIVATE bf::extern::fmtlib
   PRIVATE bf::extern::xxhash
   PRIVATE bf::render
   PRIVATE bf::windowmanager
   PRIVATE bf::intern::clog
+  PRIVATE bf::dependencies::optional::gmp
+  PRIVATE bf::dependencies::optional::bullet
 )
-
-if(WITH_BULLET)
-  list(APPEND INC_SYS
-    ${BULLET_INCLUDE_DIRS}
-    ../../../intern/rigidbody
-  )
-  list(APPEND LIB
-    ${BULLET_LIBRARIES}
-  )
-  add_definitions(-DWITH_BULLET)
-endif()
-
-if(WITH_TBB)
-  if(WIN32)
-    # TBB includes Windows.h which will define min/max macros
-    # that will collide with the STL versions.
-    add_definitions(-DNOMINMAX)
-  endif()
-endif()
 
 if(WITH_IMAGE_OPENEXR)
   add_definitions(-DWITH_IMAGE_OPENEXR)
@@ -220,18 +208,6 @@ endif()
 
 if(WITH_OPENSUBDIV)
   add_definitions(-DWITH_OPENSUBDIV)
-endif()
-
-if(WITH_GMP)
-  add_definitions(-DWITH_GMP)
-
-  list(APPEND INC_SYS
-    ${GMP_INCLUDE_DIRS}
-  )
-
-  list(APPEND LIB
-    ${GMP_LIBRARIES}
-  )
 endif()
 
 blender_add_lib(bf_nodes "${SRC}" "${INC}" "${INC_SYS}" "${LIB}")
@@ -248,7 +224,8 @@ if(WITH_GTESTS)
     intern/node_iterator_tests.cc
   )
   set(TEST_LIB
+    ${LIB}
     bf_nodes
   )
-  blender_add_test_suite_lib(nodes "${TEST_SRC}" "${INC};${TEST_INC}" "${INC_SYS}" "${LIB}")
+  blender_add_test_suite_lib(nodes "${TEST_SRC}" "${INC};${TEST_INC}" "${INC_SYS}" "${TEST_LIB}")
 endif()

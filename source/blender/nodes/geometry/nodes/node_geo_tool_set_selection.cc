@@ -5,6 +5,10 @@
 #include "BKE_mesh.hh"
 #include "BKE_type_conversions.hh"
 
+#include "FN_field.hh"
+#include "FN_multi_function.hh"
+#include "FN_multi_function_registry.hh"
+
 #include "NOD_rna_define.hh"
 
 #include "UI_interface_layout.hh"
@@ -31,24 +35,24 @@ static void node_declare(NodeDeclarationBuilder &b)
   b.use_custom_socket_order();
   b.allow_any_socket_order();
   b.add_default_layout();
-  b.add_input<decl::Geometry>("Geometry").description("Geometry to update the selection of");
-  b.add_output<decl::Geometry>("Geometry").align_with_previous();
+  b.add_input<decl::Geometry>("Geometry"_ustr).description("Geometry to update the selection of");
+  b.add_output<decl::Geometry>("Geometry"_ustr).align_with_previous();
   if (const bNode *node = b.node_or_null()) {
     switch (SelectionType(node->custom2)) {
       case SelectionType::Boolean:
-        b.add_input<decl::Bool>("Selection").default_value(true).field_on_all();
+        b.add_input<decl::Bool>("Selection"_ustr).default_value(true).field_on_all();
         break;
       case SelectionType::Float:
-        b.add_input<decl::Float>("Selection").default_value(1.0f).field_on_all();
+        b.add_input<decl::Float>("Selection"_ustr).default_value(1.0f).field_on_all();
         break;
     }
   }
 }
 
-static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
+static void node_layout(ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  layout->prop(ptr, "domain", UI_ITEM_NONE, "", ICON_NONE);
-  layout->prop(ptr, "selection_type", UI_ITEM_NONE, "", ICON_NONE);
+  layout.prop(ptr, "domain", UI_ITEM_NONE, "", ICON_NONE);
+  layout.prop(ptr, "selection_type", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
@@ -70,14 +74,13 @@ static GField clamp_selection(const GField &selection)
 static GField invert_selection(const GField &selection)
 {
   if (selection.cpp_type().is<bool>()) {
-    static auto invert = mf::build::SI1_SO<bool, bool>("Invert Selection",
-                                                       [](const bool value) { return !value; });
+    static const mf::MultiFunction &invert = fn::multi_function::registry::lookup("!bool"_ustr);
     return GField(FieldOperation::from(invert, {selection}));
   }
 
-  static auto invert = mf::build::SI1_SO<float, float>(
-      "Invert Selection", [](const float value) { return 1.0f - value; });
-  return GField(FieldOperation::from(invert, {selection}));
+  static const mf::MultiFunction &invert = fn::multi_function::registry::lookup(
+      "float - float"_ustr);
+  return GField(FieldOperation::from(invert, {fn::make_constant_field(1.0f), selection}));
 }
 
 /**
@@ -101,16 +104,16 @@ static void node_geo_exec(GeoNodeExecParams params)
   if (!check_tool_context_and_error(params)) {
     return;
   }
-  GeometrySet geometry = params.extract_input<GeometrySet>("Geometry");
+  GeometrySet geometry = params.extract_input<GeometrySet>("Geometry"_ustr);
   const eObjectMode mode = params.user_data()->call_data->operator_data->mode;
   if (ELEM(mode, OB_MODE_OBJECT, OB_MODE_PAINT_GREASE_PENCIL)) {
     params.error_message_add(NodeWarningType::Error,
                              "Selection control is not supported in this mode");
-    params.set_output("Geometry", std::move(geometry));
+    params.set_output("Geometry"_ustr, std::move(geometry));
     return;
   }
 
-  const GField selection = params.extract_input<GField>("Selection");
+  const GField selection = params.extract_input<GField>("Selection"_ustr);
   const AttrDomain domain = AttrDomain(params.node().custom1);
   const bke::DataTypeConversions &conversions = bke::get_implicit_type_conversions();
   geometry::foreach_real_geometry(geometry, [&](GeometrySet &geometry) {
@@ -193,7 +196,7 @@ static void node_geo_exec(GeoNodeExecParams params)
       }
     }
   });
-  params.set_output("Geometry", std::move(geometry));
+  params.set_output("Geometry"_ustr, std::move(geometry));
 }
 
 static void node_rna(StructRNA *srna)
@@ -230,7 +233,7 @@ static void node_rna(StructRNA *srna)
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
   geo_node_type_base(&ntype, "GeometryNodeToolSetSelection", GEO_NODE_TOOL_SET_SELECTION);
   ntype.ui_name = "Set Selection";
   ntype.ui_description = "Set selection of the edited geometry, for tool execution";
@@ -241,7 +244,7 @@ static void node_register()
   ntype.geometry_node_execute = node_geo_exec;
   ntype.draw_buttons = node_layout;
   ntype.gather_link_search_ops = search_link_ops_for_tool_node;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 
   node_rna(ntype.rna_ext.srna);
 }

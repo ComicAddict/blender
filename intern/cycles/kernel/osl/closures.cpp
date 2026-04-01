@@ -18,7 +18,9 @@
 
 #include "kernel/globals.h"
 
+#include "kernel/geom/attribute.h"
 #include "kernel/geom/object.h"
+#include "kernel/geom/primitive.h"
 #include "kernel/util/differential.h"
 
 #include "kernel/osl/camera.h"
@@ -76,11 +78,11 @@ void OSLRenderServices::register_closures(OSL::ShadingSystem *ss)
 
 /* Surface & Background */
 
-template<>
-void osl_eval_nodes<SHADER_TYPE_SURFACE>(const ThreadKernelGlobalsCPU *kg,
-                                         const void *state,
-                                         ShaderData *sd,
-                                         const uint32_t path_flag)
+template<typename IntegratorGenericState>
+void osl_eval_nodes_surface(const ThreadKernelGlobalsCPU *kg,
+                            IntegratorGenericState state,
+                            ShaderData *sd,
+                            const uint32_t path_flag)
 {
   /* setup shader globals from shader data */
   shaderdata_to_shaderglobals(sd, path_flag, &kg->osl.shader_globals);
@@ -90,9 +92,13 @@ void osl_eval_nodes<SHADER_TYPE_SURFACE>(const ThreadKernelGlobalsCPU *kg,
 
   /* Used by render-services. */
   kg->osl.shader_globals.kg = kg;
-  if (path_flag & PATH_RAY_SHADOW) {
+  if constexpr (std::is_same_v<IntegratorGenericState, IntegratorShadowState>) {
     kg->osl.shader_globals.path_state = nullptr;
     kg->osl.shader_globals.shadow_path_state = (const IntegratorShadowStateCPU *)state;
+  }
+  else if constexpr (std::is_same_v<IntegratorGenericState, IntegratorBakeState>) {
+    kg->osl.shader_globals.path_state = nullptr;
+    kg->osl.shader_globals.shadow_path_state = nullptr;
   }
   else {
     kg->osl.shader_globals.path_state = (const IntegratorStateCPU *)state;
@@ -128,31 +134,22 @@ void osl_eval_nodes<SHADER_TYPE_SURFACE>(const ThreadKernelGlobalsCPU *kg,
 
       /* set state as if undisplaced */
       if (sd->flag & SD_HAS_DISPLACEMENT) {
-        float data[9];
-        const bool found = kg->osl.globals->services->get_attribute(
-            globals,
-            true,
-            OSLRenderServices::u_empty,
-            TypeVector,
-            OSLRenderServices::u_geom_undisplaced,
-            data);
-        (void)found;
-        assert(found);
+        const AttributeDescriptor desc = find_attribute(kg, sd, ATTR_STD_POSITION_UNDISPLACED);
+        kernel_assert(desc.offset != ATTR_STD_NOT_FOUND);
 
-        differential3 tmp_dP;
-        sd->P = make_float3(data[0], data[1], data[2]);
-        tmp_dP.dx = make_float3(data[3], data[4], data[5]);
-        tmp_dP.dy = make_float3(data[6], data[7], data[8]);
+        dual3 P = primitive_surface_attribute<dual3>(kg, sd, desc);
+        object_position_transform(kg, sd, &P);
 
-        object_position_transform(kg, sd, &sd->P);
-        object_dir_transform(kg, sd, &tmp_dP.dx);
-        object_dir_transform(kg, sd, &tmp_dP.dy);
-
-        sd->dP = differential_make_compact(tmp_dP);
+        sd->P = P.val;
+        sd->dP = differential_make_compact(P);
 
         globals->P = TO_VEC3(sd->P);
-        globals->dPdx = TO_VEC3(tmp_dP.dx);
-        globals->dPdy = TO_VEC3(tmp_dP.dy);
+        globals->dPdx = TO_VEC3(P.dx);
+        globals->dPdy = TO_VEC3(P.dy);
+
+        /* Set normal as if undisplaced. */
+        primitive_normal_set_undisplaced(kg, sd, desc.offset);
+        globals->N = TO_VEC3(sd->N);
       }
 
       /* execute bump shader */
@@ -194,13 +191,40 @@ void osl_eval_nodes<SHADER_TYPE_SURFACE>(const ThreadKernelGlobalsCPU *kg,
   }
 }
 
-/* Volume */
+template<>
+void osl_eval_nodes<SHADER_TYPE_SURFACE, IntegratorShadowState>(const ThreadKernelGlobalsCPU *kg,
+                                                                IntegratorShadowState state,
+                                                                ShaderData *sd,
+                                                                const uint32_t path_flag)
+{
+  osl_eval_nodes_surface(kg, state, sd, path_flag);
+}
 
 template<>
-void osl_eval_nodes<SHADER_TYPE_VOLUME>(const ThreadKernelGlobalsCPU *kg,
-                                        const void *state,
-                                        ShaderData *sd,
-                                        const uint32_t path_flag)
+void osl_eval_nodes<SHADER_TYPE_SURFACE, IntegratorState>(const ThreadKernelGlobalsCPU *kg,
+                                                          IntegratorState state,
+                                                          ShaderData *sd,
+                                                          const uint32_t path_flag)
+{
+  osl_eval_nodes_surface(kg, state, sd, path_flag);
+}
+
+template<>
+void osl_eval_nodes<SHADER_TYPE_SURFACE, IntegratorBakeState>(const ThreadKernelGlobalsCPU *kg,
+                                                              IntegratorBakeState state,
+                                                              ShaderData *sd,
+                                                              const uint32_t path_flag)
+{
+  osl_eval_nodes_surface(kg, state, sd, path_flag);
+}
+
+/* Volume */
+
+template<typename IntegratorGenericState>
+void osl_eval_nodes_volume(const ThreadKernelGlobalsCPU *kg,
+                           IntegratorGenericState state,
+                           ShaderData *sd,
+                           const uint32_t path_flag)
 {
   /* setup shader globals from shader data */
   shaderdata_to_shaderglobals(sd, path_flag, &kg->osl.shader_globals);
@@ -210,9 +234,13 @@ void osl_eval_nodes<SHADER_TYPE_VOLUME>(const ThreadKernelGlobalsCPU *kg,
 
   /* Used by render-services. */
   kg->osl.shader_globals.kg = kg;
-  if (path_flag & PATH_RAY_SHADOW) {
+  if constexpr (std::is_same_v<IntegratorGenericState, IntegratorShadowState>) {
     kg->osl.shader_globals.path_state = nullptr;
     kg->osl.shader_globals.shadow_path_state = (const IntegratorShadowStateCPU *)state;
+  }
+  else if constexpr (std::is_same_v<IntegratorGenericState, IntegratorBakeState>) {
+    kg->osl.shader_globals.path_state = nullptr;
+    kg->osl.shader_globals.shadow_path_state = nullptr;
   }
   else {
     kg->osl.shader_globals.path_state = (const IntegratorStateCPU *)state;
@@ -241,13 +269,40 @@ void osl_eval_nodes<SHADER_TYPE_VOLUME>(const ThreadKernelGlobalsCPU *kg,
   }
 }
 
-/* Displacement */
+template<>
+void osl_eval_nodes<SHADER_TYPE_VOLUME, IntegratorShadowState>(const ThreadKernelGlobalsCPU *kg,
+                                                               IntegratorShadowState state,
+                                                               ShaderData *sd,
+                                                               const uint32_t path_flag)
+{
+  osl_eval_nodes_volume(kg, state, sd, path_flag);
+}
 
 template<>
-void osl_eval_nodes<SHADER_TYPE_DISPLACEMENT>(const ThreadKernelGlobalsCPU *kg,
-                                              const void *state,
-                                              ShaderData *sd,
-                                              const uint32_t path_flag)
+void osl_eval_nodes<SHADER_TYPE_VOLUME, IntegratorState>(const ThreadKernelGlobalsCPU *kg,
+                                                         IntegratorState state,
+                                                         ShaderData *sd,
+                                                         const uint32_t path_flag)
+{
+  osl_eval_nodes_volume(kg, state, sd, path_flag);
+}
+
+template<>
+void osl_eval_nodes<SHADER_TYPE_VOLUME, IntegratorBakeState>(const ThreadKernelGlobalsCPU *kg,
+                                                             IntegratorBakeState state,
+                                                             ShaderData *sd,
+                                                             const uint32_t path_flag)
+{
+  osl_eval_nodes_volume(kg, state, sd, path_flag);
+}
+
+/* Displacement */
+
+template<typename IntegratorGenericState>
+void osl_eval_nodes_displacement(const ThreadKernelGlobalsCPU *kg,
+                                 IntegratorGenericState state,
+                                 ShaderData *sd,
+                                 const uint32_t path_flag)
 {
   /* setup shader globals from shader data */
   shaderdata_to_shaderglobals(sd, path_flag, &kg->osl.shader_globals);
@@ -257,8 +312,15 @@ void osl_eval_nodes<SHADER_TYPE_DISPLACEMENT>(const ThreadKernelGlobalsCPU *kg,
 
   /* Used by render-services. */
   kg->osl.shader_globals.kg = kg;
-  kg->osl.shader_globals.path_state = (const IntegratorStateCPU *)state;
-  kg->osl.shader_globals.shadow_path_state = nullptr;
+
+  if constexpr (std::is_same_v<IntegratorGenericState, IntegratorBakeState>) {
+    kg->osl.shader_globals.path_state = nullptr;
+    kg->osl.shader_globals.shadow_path_state = nullptr;
+  }
+  else {
+    kg->osl.shader_globals.path_state = (const IntegratorStateCPU *)state;
+    kg->osl.shader_globals.shadow_path_state = nullptr;
+  }
 
   /* execute shader */
   OSL::ShadingSystem *ss = (OSL::ShadingSystem *)kg->osl.ss;
@@ -280,9 +342,39 @@ void osl_eval_nodes<SHADER_TYPE_DISPLACEMENT>(const ThreadKernelGlobalsCPU *kg,
   sd->P = TO_FLOAT3(globals->P);
 }
 
+template<>
+void osl_eval_nodes<SHADER_TYPE_DISPLACEMENT, IntegratorShadowState>(
+    const ThreadKernelGlobalsCPU *kg,
+    IntegratorShadowState state,
+    ShaderData *sd,
+    const uint32_t path_flag)
+{
+  osl_eval_nodes_displacement(kg, state, sd, path_flag);
+}
+
+template<>
+void osl_eval_nodes<SHADER_TYPE_DISPLACEMENT, IntegratorState>(const ThreadKernelGlobalsCPU *kg,
+                                                               IntegratorState state,
+                                                               ShaderData *sd,
+                                                               const uint32_t path_flag)
+{
+  osl_eval_nodes_displacement(kg, state, sd, path_flag);
+}
+
+template<>
+void osl_eval_nodes<SHADER_TYPE_DISPLACEMENT, IntegratorBakeState>(
+    const ThreadKernelGlobalsCPU *kg,
+    IntegratorBakeState state,
+    ShaderData *sd,
+    const uint32_t path_flag)
+{
+  osl_eval_nodes_displacement(kg, state, sd, path_flag);
+}
+
 /* Camera */
 
 packed_float3 osl_eval_camera(const ThreadKernelGlobalsCPU *kg,
+                              ccl_private ShaderData *sd,
                               const packed_float3 sensor,
                               const packed_float3 dSdx,
                               const packed_float3 dSdy,
@@ -294,12 +386,12 @@ packed_float3 osl_eval_camera(const ThreadKernelGlobalsCPU *kg,
                               packed_float3 &dDdx,
                               packed_float3 &dDdy)
 {
-  if (!kg->osl.globals->camera_state) {
+  if (!kg || !kg->osl.globals->camera_state) {
     return zero_spectrum();
   }
 
   /* Setup shader globals from the sensor position. */
-  cameradata_to_shaderglobals(sensor, dSdx, dSdy, rand_lens, &kg->osl.shader_globals);
+  cameradata_to_shaderglobals(sd, sensor, dSdx, dSdy, rand_lens, &kg->osl.shader_globals);
 
   /* Clear trace data. */
   kg->osl.tracedata.init = false;

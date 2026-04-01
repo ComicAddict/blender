@@ -98,11 +98,11 @@ class Integrator : public Node {
   NODE_SOCKET_API(bool, use_denoise);
   NODE_SOCKET_API(DenoiserType, denoiser_type);
   NODE_SOCKET_API(int, denoise_start_sample);
-  NODE_SOCKET_API(bool, use_denoise_pass_albedo);
-  NODE_SOCKET_API(bool, use_denoise_pass_normal);
+  NODE_SOCKET_API(DenoiserPassMask, denoiser_passes);
   NODE_SOCKET_API(DenoiserPrefilter, denoiser_prefilter);
   NODE_SOCKET_API(bool, denoise_use_gpu);
   NODE_SOCKET_API(DenoiserQuality, denoiser_quality);
+  NODE_SOCKET_API(float, denoiser_upscale_factor);
 
   enum : uint32_t {
     AO_PASS_MODIFIED = (1 << 0),
@@ -113,6 +113,8 @@ class Integrator : public Node {
 
     UPDATE_NONE = 0u,
   };
+
+  bool shadow_catcher_needs_recalc_ = true;
 
   Integrator();
   ~Integrator() override;
@@ -127,6 +129,9 @@ class Integrator : public Node {
   AdaptiveSampling get_adaptive_sampling() const;
   DenoiseParams get_denoise_params() const;
   GuidingParams get_guiding_params(const Device *device) const;
+
+  bool is_modified() const;
+  void clear_modified();
 };
 
 CCL_NAMESPACE_END

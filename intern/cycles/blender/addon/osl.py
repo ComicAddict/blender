@@ -7,7 +7,7 @@ from __future__ import annotations
 import bpy
 import _cycles
 
-from bpy.app.translations import pgettext_tip as tip_
+from bpy.app.translations import pgettext_rpt as rpt_
 
 
 def osl_compile(input_path, report):
@@ -150,6 +150,8 @@ def osl_param_ensure_property(ccam, param):
         ui.update(subtype='ANGLE')
     elif datatype is float and metadata.get('unit') == 'm':
         ui.update(subtype='DISTANCE')
+    elif datatype is float and metadata.get('unit') == 'mm':
+        ui.update(subtype='DISTANCE_CAMERA')
     elif datatype is float and metadata.get('unit') in ('s', 'sec'):
         ui.update(subtype='TIME_ABSOLUTE')
     elif metadata.get('slider'):
@@ -211,7 +213,7 @@ def update_external_script(report, filepath, library):
             try:
                 shutil.copy2(oso_path, dst_path)
             except:
-                report({'ERROR'}, "Failed to write .oso file next to external .osl file at " + dst_path)
+                report({'ERROR'}, rpt_("Failed to write .oso file next to external .osl file at {:s}").format(dst_path))
     elif os.path.dirname(filepath) == "":
         # module in search path
         oso_path = filepath
@@ -307,7 +309,7 @@ def update_script_node(node, report):
                         sockets.remove(sockets[identifier])
         else:
             ok = False
-            report({'ERROR'}, tip_("OSL query failed to open %s") % oso_path)
+            report({'ERROR'}, rpt_("OSL query failed to open %s") % oso_path)
     else:
         report({'ERROR'}, "OSL script compilation failed, see console for errors")
 
@@ -359,7 +361,7 @@ def update_custom_camera_shader(cam, report):
                     del custom_props[prop]
         else:
             ok = False
-            report({'ERROR'}, tip_("OSL query failed to open %s") % oso_path)
+            report({'ERROR'}, rpt_("OSL query failed to open %s") % oso_path)
     else:
         report({'ERROR'}, "Custom Camera shader compilation failed, see console for errors")
 

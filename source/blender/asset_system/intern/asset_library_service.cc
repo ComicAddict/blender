@@ -6,6 +6,8 @@
  * \ingroup asset_system
  */
 
+#include <memory>
+
 #include "BKE_blender.hh"
 #include "BKE_preferences.h"
 
@@ -27,8 +29,11 @@
 #include "essentials_library.hh"
 #include "on_disk_library.hh"
 #include "preferences_on_disk_library.hh"
+#include "remote_library.hh"
 #include "runtime_library.hh"
 #include "utils.hh"
+
+namespace blender {
 
 /* When enabled, use a pre file load handler (#BKE_CB_EVT_LOAD_PRE) callback to destroy the asset
  * library service. Without this an explicit call from the file loading code is needed to do this,
@@ -43,7 +48,7 @@
 
 static CLG_LogRef LOG = {"asset.library"};
 
-namespace blender::asset_system {
+namespace asset_system {
 
 std::unique_ptr<AssetLibraryService> AssetLibraryService::instance_;
 bool AssetLibraryService::atexit_handler_registered_ = false;
@@ -99,6 +104,10 @@ AssetLibrary *AssetLibraryService::get_asset_library(
         return nullptr;
       }
 
+      if (custom_library->flag & ASSET_LIBRARY_USE_REMOTE_URL) {
+        return this->get_remote_asset_library(*custom_library);
+      }
+
       std::string root_path = custom_library->dirpath;
       if (root_path.empty()) {
         return nullptr;
@@ -114,6 +123,36 @@ AssetLibrary *AssetLibraryService::get_asset_library(
   }
 
   return nullptr;
+}
+
+AssetLibrary *AssetLibraryService::get_remote_asset_library(
+    const bUserAssetLibrary &custom_library)
+{
+  if (!custom_library.remote_url[0]) {
+    return nullptr;
+  }
+
+  const StringRefNull remote_url = custom_library.remote_url;
+
+  std::unique_ptr<RemoteAssetLibrary> *lib_uptr_ptr = remote_libraries_.lookup_ptr(remote_url);
+  if (lib_uptr_ptr != nullptr) {
+    CLOG_DEBUG(&LOG, "get \"%s\" (cached)", remote_url.c_str());
+    AssetLibrary *lib = lib_uptr_ptr->get();
+    lib->load_or_reload_catalogs();
+    return lib;
+  }
+
+  std::unique_ptr<RemoteAssetLibrary> lib_uptr = std::make_unique<RemoteAssetLibrary>(
+      remote_url,
+      custom_library.name,
+      /* Constructor normalizes the path. */
+      custom_library.dirpath);
+  AssetLibrary *lib = lib_uptr.get();
+  lib->load_or_reload_catalogs();
+
+  remote_libraries_.add_new(remote_url, std::move(lib_uptr));
+  CLOG_DEBUG(&LOG, "get \"%s\" (loaded)", remote_url.c_str());
+  return lib;
 }
 
 AssetLibrary *AssetLibraryService::get_asset_library_on_disk(
@@ -140,23 +179,26 @@ AssetLibrary *AssetLibraryService::get_asset_library_on_disk(
         lib_uptr = std::make_unique<PreferencesOnDiskAssetLibrary>(name, normalized_root_path);
       }
       else {
-        lib_uptr = std::make_unique<OnDiskAssetLibrary>(library_type, name, normalized_root_path);
+        /* Only used by unit tests. */
+        lib_uptr = std::make_unique<OnDiskAssetLibrary>(
+            library_type, name, normalized_root_path, /*is_read_only=*/false);
       }
       break;
     case ASSET_LIBRARY_ESSENTIALS:
       lib_uptr = std::make_unique<EssentialsAssetLibrary>();
       break;
     default:
-      lib_uptr = std::make_unique<OnDiskAssetLibrary>(library_type, name, normalized_root_path);
+      lib_uptr = std::make_unique<OnDiskAssetLibrary>(
+          library_type, name, normalized_root_path, /*is_read_only=*/true);
       break;
   }
 
-  AssetLibrary *lib = lib_uptr.get();
-
   if (load_catalogs) {
-    lib->load_or_reload_catalogs();
+    lib_uptr->load_or_reload_catalogs();
   }
 
+  /* Get underlying pointer before moving. */
+  AssetLibrary *lib = lib_uptr.get();
   on_disk_libraries_.add_new({library_type, normalized_root_path}, std::move(lib_uptr));
   CLOG_DEBUG(&LOG, "get \"%s\" (loaded)", normalized_root_path.c_str());
   return lib;
@@ -609,9 +651,38 @@ void AssetLibraryService::foreach_loaded_asset_library(FunctionRef<void(AssetLib
     fn(*current_file_library_);
   }
 
+  /* Do essentials library first. Plenty of general features use the essentials, these features
+   * should be available as soon as possible. Not only after other, potentially big libraries are
+   * loaded. */
   for (const auto &asset_lib_uptr : on_disk_libraries_.values()) {
-    fn(*asset_lib_uptr);
+    if (asset_lib_uptr->library_type() != ASSET_LIBRARY_ESSENTIALS) {
+      continue;
+    }
+
+    if (asset_lib_uptr->is_enabled()) {
+      fn(*asset_lib_uptr);
+    }
+    break;
+  }
+
+  for (const auto &asset_lib_uptr : on_disk_libraries_.values()) {
+    /* Already handled above. */
+    if (asset_lib_uptr->library_type() == ASSET_LIBRARY_ESSENTIALS) {
+      continue;
+    }
+
+    if (asset_lib_uptr->is_enabled()) {
+      fn(*asset_lib_uptr);
+    }
+  }
+
+  if (USER_EXPERIMENTAL_TEST(&U, use_remote_asset_libraries)) {
+    for (const auto &asset_lib_uptr : remote_libraries_.values()) {
+      fn(*asset_lib_uptr);
+    }
   }
 }
 
-}  // namespace blender::asset_system
+}  // namespace asset_system
+
+}  // namespace blender

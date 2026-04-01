@@ -15,7 +15,6 @@
 #include "BLI_vector.hh"
 
 #include "BKE_context.hh"
-#include "BKE_library.hh"
 #include "BKE_main.hh"
 
 #include "DNA_scene_types.h"
@@ -26,6 +25,7 @@
 #include "MOV_read.hh"
 
 #include "SEQ_render.hh"
+#include "SEQ_sequencer.hh"
 #include "SEQ_thumbnail_cache.hh"
 #include "SEQ_time.hh"
 
@@ -144,7 +144,7 @@ struct ThumbnailCache {
 
 static ThumbnailCache *ensure_thumbnail_cache(Scene *scene)
 {
-  ThumbnailCache **cache = &scene->ed->runtime.thumbnail_cache;
+  ThumbnailCache **cache = &scene->ed->runtime->thumbnail_cache;
   if (*cache == nullptr) {
     *cache = MEM_new<ThumbnailCache>(__func__);
   }
@@ -156,7 +156,7 @@ static ThumbnailCache *query_thumbnail_cache(Scene *scene)
   if (scene == nullptr || scene->ed == nullptr) {
     return nullptr;
   }
-  return scene->ed->runtime.thumbnail_cache;
+  return scene->ed->runtime->thumbnail_cache;
 }
 
 bool strip_can_have_thumbnail(const Scene *scene, const Strip *strip)
@@ -220,8 +220,7 @@ static ImBuf *make_thumb_for_image(const Scene *scene, const ThumbnailCache::Req
     IMB_free_byte_pixels(ibuf);
   }
 
-  seq_imbuf_to_sequencer_space(scene, ibuf, false);
-  seq_imbuf_assign_spaces(scene, ibuf);
+  ensure_ibuf_is_sequencer_space(scene, ibuf, false);
   return ibuf;
 }
 
@@ -307,17 +306,16 @@ void ThumbGenerationJob::run_fn(void *customdata, wmJobWorkerStatus *worker_stat
     }
 
     /* Sort requests by file, stream and increasing frame index. */
-    std::sort(requests.begin(),
-              requests.end(),
-              [](const ThumbnailCache::Request &a, const ThumbnailCache::Request &b) {
-                if (a.file_path != b.file_path) {
-                  return a.file_path < b.file_path;
-                }
-                if (a.stream_index != b.stream_index) {
-                  return a.stream_index < b.stream_index;
-                }
-                return a.frame_index < b.frame_index;
-              });
+    std::ranges::sort(requests,
+                      [](const ThumbnailCache::Request &a, const ThumbnailCache::Request &b) {
+                        if (a.file_path != b.file_path) {
+                          return a.file_path < b.file_path;
+                        }
+                        if (a.stream_index != b.stream_index) {
+                          return a.stream_index < b.stream_index;
+                        }
+                        return a.frame_index < b.frame_index;
+                      });
 
     /* Note: we could process thumbnail cache requests somewhat in parallel,
      * but let's not do that so that UI responsiveness is not affected much.
@@ -547,8 +545,7 @@ void thumbnail_cache_invalidate_strip(Scene *scene, const Strip *strip)
           paths_count = int(MEM_allocN_len(elem) / sizeof(*elem));
         }
         char filepath[FILE_MAX];
-        const char *basepath = strip->scene ? ID_BLEND_PATH_FROM_GLOBAL(&strip->scene->id) :
-                                              BKE_main_blendfile_path_from_global();
+        const char *basepath = ID_BLEND_PATH_FROM_GLOBAL(&scene->id);
         for (int i = 0; i < paths_count; i++, elem++) {
           BLI_path_join(filepath, sizeof(filepath), strip->data->dirpath, elem->filename);
           BLI_path_abs(filepath, basepath);
@@ -619,7 +616,7 @@ void thumbnail_cache_clear(Scene *scene)
   std::scoped_lock lock(thumb_cache_mutex);
   ThumbnailCache *cache = query_thumbnail_cache(scene);
   if (cache != nullptr) {
-    scene->ed->runtime.thumbnail_cache->clear();
+    scene->ed->runtime->thumbnail_cache->clear();
   }
 }
 
@@ -628,9 +625,9 @@ void thumbnail_cache_destroy(Scene *scene)
   std::scoped_lock lock(thumb_cache_mutex);
   ThumbnailCache *cache = query_thumbnail_cache(scene);
   if (cache != nullptr) {
-    BLI_assert(cache == scene->ed->runtime.thumbnail_cache);
-    MEM_delete(scene->ed->runtime.thumbnail_cache);
-    scene->ed->runtime.thumbnail_cache = nullptr;
+    BLI_assert(cache == scene->ed->runtime->thumbnail_cache);
+    MEM_delete(scene->ed->runtime->thumbnail_cache);
+    scene->ed->runtime->thumbnail_cache = nullptr;
   }
 }
 

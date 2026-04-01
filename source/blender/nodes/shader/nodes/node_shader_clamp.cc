@@ -17,20 +17,22 @@
 #include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
-namespace blender::nodes::node_shader_clamp_cc {
+namespace blender {
+
+namespace nodes::node_shader_clamp_cc {
 
 static void sh_node_clamp_declare(NodeDeclarationBuilder &b)
 {
   b.is_function_node();
-  b.add_input<decl::Float>("Value").default_value(1.0f);
-  b.add_input<decl::Float>("Min").default_value(0.0f).min(-10000.0f).max(10000.0f);
-  b.add_input<decl::Float>("Max").default_value(1.0f).min(-10000.0f).max(10000.0f);
-  b.add_output<decl::Float>("Result");
+  b.add_input<decl::Float>("Value"_ustr).default_value(1.0f);
+  b.add_input<decl::Float>("Min"_ustr).default_value(0.0f).min(-10000.0f).max(10000.0f);
+  b.add_input<decl::Float>("Max"_ustr).default_value(1.0f).min(-10000.0f).max(10000.0f);
+  b.add_output<decl::Float>("Result"_ustr);
 }
 
-static void node_shader_buts_clamp(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
+static void node_shader_buts_clamp(ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  layout->prop(ptr, "clamp_type", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  layout.prop(ptr, "clamp_type", ui::ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
 }
 
 static void node_shader_init_clamp(bNodeTree * /*ntree*/, bNode *node)
@@ -93,13 +95,13 @@ NODE_SHADER_MATERIALX_BEGIN
 #endif
 NODE_SHADER_MATERIALX_END
 
-}  // namespace blender::nodes::node_shader_clamp_cc
+}  // namespace nodes::node_shader_clamp_cc
 
 void register_node_type_sh_clamp()
 {
-  namespace file_ns = blender::nodes::node_shader_clamp_cc;
+  namespace file_ns = nodes::node_shader_clamp_cc;
 
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
 
   common_node_type_base(&ntype, "ShaderNodeClamp", SH_NODE_CLAMP);
   ntype.ui_name = "Clamp";
@@ -113,5 +115,7 @@ void register_node_type_sh_clamp()
   ntype.build_multi_function = file_ns::sh_node_clamp_build_multi_function;
   ntype.materialx_fn = file_ns::node_shader_materialx;
 
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 }
+
+}  // namespace blender

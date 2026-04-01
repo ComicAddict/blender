@@ -23,11 +23,13 @@
 
 #include "eevee_defines.hh"
 
+namespace blender {
+
 extern "C" {
 struct Material;
 }
 
-namespace blender::eevee {
+namespace eevee {
 
 using namespace draw;
 
@@ -54,11 +56,11 @@ class Cryptomatte {
   CryptomatteObjectBuf cryptomatte_object_buf;
 
  public:
-  Cryptomatte(Instance &inst) : inst_(inst){};
+  Cryptomatte(Instance &inst) : inst_(inst) {};
 
   void begin_sync();
   void sync_object(Object *ob, ResourceHandleRange res_handle);
-  void sync_material(const ::Material *material);
+  void sync_material(const blender::Material *material);
   void end_sync();
 
   template<typename PassType> void bind_resources(PassType &pass)
@@ -73,4 +75,5 @@ class Cryptomatte {
 
 /** \} */
 
-}  // namespace blender::eevee
+}  // namespace eevee
+}  // namespace blender

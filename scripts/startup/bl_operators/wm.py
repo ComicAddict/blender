@@ -31,7 +31,7 @@ from bpy.app.translations import (
 
 def _rna_path_prop_search_for_context_impl(context, edit_text, unique_attrs):
     # Use the same logic as auto-completing in the Python console to expand the data-path.
-    from bl_console_utils.autocomplete import intellisense
+    from _bl_console_utils.autocomplete import intellisense
     context_prefix = "context."
     line = context_prefix + edit_text
     cursor = len(line)
@@ -148,7 +148,7 @@ def context_path_validate(context, data_path):
 
 
 def context_path_to_rna_property(context, data_path):
-    from bl_rna_utils.data_path import property_definition_from_data_path
+    from _bl_rna_utils.data_path import property_definition_from_data_path
     rna_prop = property_definition_from_data_path(context, "." + data_path)
     if rna_prop is not None:
         return rna_prop
@@ -167,7 +167,7 @@ def context_path_decompose(data_path):
     # Note that the `.` is removed from the start of the first and second values,
     # this is done because `.attr` isn't convenient to use as an argument,
     # also the convention is not to include this within the data paths or the operator logic for `bpy.ops.wm.*`.
-    from bl_rna_utils.data_path import decompose_data_path
+    from _bl_rna_utils.data_path import decompose_data_path
     path_split = decompose_data_path("." + data_path)
 
     # Find the last property that isn't a function call.
@@ -986,9 +986,18 @@ class WM_OT_context_modal_mouse(Operator):
     def modal(self, context, event):
         event_type = event.type
 
+        # Factor for precision tweaking (match GIZMO_PRECISION_FAC in `gizmo_library_utils.cc`).
+        context_modal_mouse_precision_fac = 0.05
+
         if event_type == 'MOUSEMOVE':
-            delta = event.mouse_x - self.initial_x
-            self._values_delta(delta)
+            total_offset = event.mouse_x - self.initial_x
+            step_delta = event.mouse_x - self._prev_x
+            if event.shift:
+                self._precision_offset += step_delta
+            effective_offset = total_offset - self._precision_offset * (1.0 - context_modal_mouse_precision_fac)
+            self._prev_x = event.mouse_x
+            self._values_delta(effective_offset)
+            delta = effective_offset
             header_text = self.header_text
             if header_text:
                 if len(self._values) == 1:
@@ -1024,6 +1033,8 @@ class WM_OT_context_modal_mouse(Operator):
             return {'CANCELLED'}
         else:
             self.initial_x = event.mouse_x
+            self._prev_x = event.mouse_x
+            self._precision_offset = 0.0
 
             context.window_manager.modal_handler_add(self)
             return {'RUNNING_MODAL'}
@@ -1094,19 +1105,23 @@ class WM_OT_url_open_preset(Operator):
         items=WM_OT_url_open_preset._wm_url_open_preset_type_items,
     )
 
-    def _url_from_bug(self, _context):
+    @staticmethod
+    def _url_from_bug():
         from _bpy_internal.system_info.url_prefill_runtime import url_from_blender
         return url_from_blender()
 
-    def _url_from_release_notes(self, _context):
+    @staticmethod
+    def _url_from_release_notes():
         return "https://www.blender.org/download/releases/{:d}-{:d}/".format(*bpy.app.version[:2])
 
-    def _url_from_manual(self, _context):
+    @staticmethod
+    def _url_from_manual():
         return "https://docs.blender.org/manual/{:s}/{:d}.{:d}/".format(
             bpy.utils.manual_language_code(), *bpy.app.version[:2],
         )
 
-    def _url_from_api(self, _context):
+    @staticmethod
+    def _url_from_api():
         return "https://docs.blender.org/api/{:d}.{:d}/".format(*bpy.app.version[:2])
 
     # This list is: (enum_item, url) pairs.
@@ -1141,15 +1156,18 @@ class WM_OT_url_open_preset(Operator):
          "https://extensions.blender.org/"),
     ]
 
-    def execute(self, context):
-        url = None
-        type = self.type
-        for (item_id, _, _), url in self.preset_items:
-            if item_id == type:
+    @staticmethod
+    def lookup_url_from_type(ty):
+        for (item_id, _, _), url in WM_OT_url_open_preset.preset_items:
+            if item_id == ty:
                 if callable(url):
-                    url = url(self, context)
-                break
+                    return url()
+                return url
+        return None
 
+    def execute(self, _context):
+        url = WM_OT_url_open_preset.lookup_url_from_type(self.type)
+        assert url is not None, "Unexpected enum not found (internal error)"
         return bpy.ops.wm.url_open(url=url)
 
 
@@ -1342,7 +1360,7 @@ class WM_OT_doc_view_manual(Operator):
             self.report(
                 {'WARNING'},
                 rpt_("No reference available {!r}, "
-                     "Update info in 'rna_manual_reference.py' "
+                     "update info in '_rna_manual_reference.py' "
                      "or callback to bpy.utils.manual_map()").format(self.doc_id)
             )
             return {'CANCELLED'}
@@ -1585,8 +1603,9 @@ class WM_OT_properties_edit(Operator):
         name="Value",
         description="Python value for unsupported custom property types",
     )
-
+    enum_items = None
     # Helper method to avoid repetitive code to retrieve a single value from sequences and non-sequences.
+
     @staticmethod
     def _convert_new_value_single(old_value, new_type):
         if hasattr(old_value, "__len__") and len(old_value) > 0:
@@ -1694,6 +1713,7 @@ class WM_OT_properties_edit(Operator):
             self.soft_min_int = rna_data["soft_min"]
             self.soft_max_int = rna_data["soft_max"]
             self.step_int = rna_data["step"]
+            self.enum_items = rna_data.get("items", None)
             self.use_soft_limits = (
                 self.min_int != self.soft_min_int or
                 self.max_int != self.soft_max_int
@@ -1727,11 +1747,11 @@ class WM_OT_properties_edit(Operator):
             return self._convert_new_value_single(item[name_old], bool)
         elif prop_type_new == 'INT_ARRAY':
             prop_type_old = self.get_property_type(item, name_old)
-            if prop_type_old in {'INT', 'FLOAT', 'INT_ARRAY', 'FLOAT_ARRAY', 'BOOL_ARRAY'}:
+            if prop_type_old in {'INT', 'FLOAT', 'BOOL', 'INT_ARRAY', 'FLOAT_ARRAY', 'BOOL_ARRAY'}:
                 return self._convert_new_value_array(item[name_old], int, self.array_length)
         elif prop_type_new == 'FLOAT_ARRAY':
             prop_type_old = self.get_property_type(item, name_old)
-            if prop_type_old in {'INT', 'FLOAT', 'FLOAT_ARRAY', 'INT_ARRAY', 'BOOL_ARRAY'}:
+            if prop_type_old in {'INT', 'FLOAT', 'BOOL', 'FLOAT_ARRAY', 'INT_ARRAY', 'BOOL_ARRAY'}:
                 return self._convert_new_value_array(item[name_old], float, self.array_length)
         elif prop_type_new == 'BOOL_ARRAY':
             prop_type_old = self.get_property_type(item, name_old)
@@ -1784,6 +1804,7 @@ class WM_OT_properties_edit(Operator):
                 step=self.step_int,
                 default=self.default_int[0] if prop_type_new == 'INT' else self.default_int[:self.array_length],
                 description=self.description,
+                items=self.enum_items,
             )
         elif prop_type_new in {'BOOL', 'BOOL_ARRAY'}:
             ui_data = item.id_properties_ui(name)
@@ -1821,6 +1842,7 @@ class WM_OT_properties_edit(Operator):
         item.property_overridable_library_set('["{:s}"]'.format(escaped_name), self.is_overridable_library)
 
     def _update_blender_for_prop_change(self, context, item, name, prop_type_old, prop_type_new):
+        from bpy_extras import anim_utils
         from rna_prop_ui import (
             rna_idprop_ui_prop_update,
         )
@@ -1841,15 +1863,19 @@ class WM_OT_properties_edit(Operator):
 
             def _update_strips(strips):
                 for st in strips:
-                    if st.type == 'CLIP' and st.action:
-                        _update(st.action.fcurves)
+                    if st.type == 'CLIP':
+                        channelbag = anim_utils.action_get_channelbag_for_slot(st.action, st.action_slot)
+                        if not channelbag:
+                            continue
+                        _update(channelbag.fcurves)
                     elif st.type == 'META':
                         _update_strips(st.strips)
 
             adt = getattr(item, "animation_data", None)
             if adt is not None:
-                if adt.action:
-                    _update(adt.action.fcurves)
+                channelbag = anim_utils.action_get_channelbag_for_slot(adt.action, adt.action_slot)
+                if channelbag:
+                    _update(channelbag.fcurves)
                 if adt.drivers:
                     _update(adt.drivers)
                 if adt.nla_tracks:
@@ -1886,12 +1912,12 @@ class WM_OT_properties_edit(Operator):
             try:
                 new_value = eval(self.eval_string)
             except Exception as ex:
-                self.report({'WARNING'}, "Python evaluation failed: " + str(ex))
+                self.report({'WARNING'}, rpt_("Python evaluation failed: {:s}").format(str(ex)))
                 return {'CANCELLED'}
             try:
                 item[name] = new_value
             except Exception as ex:
-                self.report({'ERROR'}, "Failed to assign value: " + str(ex))
+                self.report({'ERROR'}, rpt_("Failed to assign value: {:s}").format(str(ex)))
                 return {'CANCELLED'}
             if name_old != name:
                 del item[name_old]
@@ -2207,7 +2233,7 @@ class WM_OT_sysinfo(Operator):
     """Generate system information, saved into a text file"""
 
     bl_idname = "wm.sysinfo"
-    bl_label = "Save System Info"
+    bl_label = "Save System Info..."
 
     filepath: StringProperty(
         subtype='FILE_PATH',
@@ -3285,14 +3311,14 @@ class WM_OT_batch_rename(Operator):
                 try:
                     re.compile(action.replace_src)
                 except Exception as ex:
-                    self.report({'ERROR'}, "Invalid regular expression (find): " + str(ex))
+                    self.report({'ERROR'}, rpt_("Invalid regular expression (find): {:s}").format(str(ex)))
                     return {'CANCELLED'}
 
                 if action.use_replace_regex_dst:
                     try:
                         re.sub(action.replace_src, action.replace_dst, "")
                     except Exception as ex:
-                        self.report({'ERROR'}, "Invalid regular expression (replace): " + str(ex))
+                        self.report({'ERROR'}, rpt_("Invalid regular expression (replace): {:s}").format(str(ex)))
                         return {'CANCELLED'}
 
         total_len = 0

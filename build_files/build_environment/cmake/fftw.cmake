@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-set(FFTW_EXTRA_ARGS)
+set(FFTW_EXTRA_ARGS "")
 
-macro(fftw_build FFTW_POSTFIX)
+function(fftw_build FFTW_POSTFIX)
   if(WIN32)
     if("${FFTW_POSTFIX}" STREQUAL "float")
       set(FFTW_EXTRA_ARGS -DENABLE_FLOAT=ON)
@@ -50,7 +50,7 @@ macro(fftw_build FFTW_POSTFIX)
       INSTALL_DIR ${LIBDIR}/fftw3
     )
   endif()
-endmacro()
+endfunction()
 
 fftw_build(double)
 fftw_build(float --enable-float)
@@ -79,13 +79,15 @@ if(WIN32)
       DEPENDEES install
     )
   endif()
-else()
-  add_custom_target(external_fftw)
-  add_dependencies(
-    external_fftw
-    external_fftw3_double
-    external_fftw3_float)
+endif()
 
+add_custom_target(external_fftw)
+add_dependencies(
+  external_fftw
+  external_fftw3_double
+  external_fftw3_float)
+
+if(NOT WIN32)
   harvest(external_fftw3 fftw3/include fftw3/include "*.h")
   harvest(external_fftw3 fftw3/lib fftw3/lib "*.a")
 endif()

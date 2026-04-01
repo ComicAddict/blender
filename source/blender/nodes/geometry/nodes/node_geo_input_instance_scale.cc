@@ -12,7 +12,7 @@ namespace blender::nodes::node_geo_input_instance_scale_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_output<decl::Vector>("Scale").field_source();
+  b.add_output<decl::Vector>("Scale"_ustr).field_source();
 }
 
 class InstanceScaleFieldInput final : public bke::InstancesFieldInput {
@@ -42,12 +42,12 @@ class InstanceScaleFieldInput final : public bke::InstancesFieldInput {
 static void node_geo_exec(GeoNodeExecParams params)
 {
   Field<float3> scale{std::make_shared<InstanceScaleFieldInput>()};
-  params.set_output("Scale", std::move(scale));
+  params.set_output("Scale"_ustr, std::move(scale));
 }
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
   geo_node_type_base(&ntype, "GeometryNodeInputInstanceScale", GEO_NODE_INPUT_INSTANCE_SCALE);
   ntype.ui_name = "Instance Scale";
   ntype.ui_description = "Retrieve the scale of each instance in the geometry";
@@ -55,7 +55,7 @@ static void node_register()
   ntype.nclass = NODE_CLASS_INPUT;
   ntype.geometry_node_execute = node_geo_exec;
   ntype.declare = node_declare;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 }
 NOD_REGISTER_NODE(node_register)
 

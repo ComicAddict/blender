@@ -11,7 +11,9 @@
 #include "BLI_path_utils.hh"
 
 #include "BKE_blendfile.hh"
-#include "BKE_icons.h"
+#include "BKE_icons.hh"
+#include "BKE_idtype.hh"
+#include "BKE_lib_id.hh"
 #include "BKE_preview_image.hh"
 
 #include "DNA_ID.h"
@@ -21,6 +23,7 @@
 
 #include "AS_asset_library.hh"
 #include "AS_asset_representation.hh"
+#include "AS_remote_library.hh"
 
 namespace blender::asset_system {
 
@@ -31,16 +34,29 @@ AssetRepresentation::AssetRepresentation(StringRef relative_asset_path,
                                          AssetLibrary &owner_asset_library)
     : owner_asset_library_(owner_asset_library),
       relative_identifier_(relative_asset_path),
-      asset_(AssetRepresentation::ExternalAsset{name, id_type, std::move(metadata), nullptr})
+      asset_(AssetRepresentation::ExternalAsset{name, id_type, std::move(metadata)})
 {
 }
 
 AssetRepresentation::AssetRepresentation(StringRef relative_asset_path,
-                                         ID &id,
-                                         AssetLibrary &owner_asset_library)
+                                         StringRef name,
+                                         const int id_type,
+                                         std::unique_ptr<AssetMetaData> metadata,
+                                         AssetLibrary &owner_asset_library,
+                                         OnlineAssetInfo online_info)
     : owner_asset_library_(owner_asset_library),
       relative_identifier_(relative_asset_path),
-      asset_(&id)
+      asset_(AssetRepresentation::ExternalAsset{
+          name,
+          id_type,
+          std::move(metadata),
+          nullptr,
+          std::make_unique<OnlineAssetInfo>(std::move(online_info))})
+{
+}
+
+AssetRepresentation::AssetRepresentation(ID &id, AssetLibrary &owner_asset_library)
+    : owner_asset_library_(owner_asset_library), asset_(&id)
 {
   if (!id.asset_data) {
     throw std::invalid_argument("Passed ID is not an asset");
@@ -58,24 +74,42 @@ AssetRepresentation::~AssetRepresentation()
 
 AssetWeakReference AssetRepresentation::make_weak_reference() const
 {
-  return AssetWeakReference::make_reference(owner_asset_library_, relative_identifier_);
+  return AssetWeakReference::make_reference(owner_asset_library_, library_relative_identifier());
 }
 
-void AssetRepresentation::ensure_previewable()
+void AssetRepresentation::ensure_previewable(const bContext &C, ReportList *reports)
 {
   if (ID *id = this->local_id()) {
-    PreviewImage *preview = BKE_previewimg_id_ensure(id);
+    PreviewImage *preview = BKE_previewimg_id_get(id);
     BKE_icon_preview_ensure(id, preview);
     return;
   }
 
   ExternalAsset &extern_asset = std::get<ExternalAsset>(asset_);
 
-  /* Use the full path as preview name, it's the only unique identifier we have. */
-  const std::string full_path = this->full_path();
-  /* Doesn't do the actual reading, just allocates and attaches the derived load info. */
-  extern_asset.preview_ = BKE_previewimg_cached_thumbnail_read(
-      full_path.c_str(), full_path.c_str(), THB_SOURCE_BLEND, false);
+  if (extern_asset.preview_ && extern_asset.preview_->runtime->icon_id) {
+    return;
+  }
+
+  if (extern_asset.online_info_) {
+    if (!extern_asset.online_info_->preview_url) {
+      return;
+    }
+
+    const std::string preview_path = remote_library_asset_preview_path(*this);
+    /* Doesn't do the actual reading, just allocates and attaches the derived load info. */
+    extern_asset.preview_ = BKE_previewimg_online_thumbnail_read(
+        this->full_path().c_str(), preview_path.c_str(), false);
+    remote_library_request_preview_download(C, *this, preview_path, reports);
+  }
+  else {
+    /* Use the full path as preview name, it's the only unique identifier we have. */
+    const std::string full_path = this->full_path();
+
+    /* Doesn't do the actual reading, just allocates and attaches the derived load info. */
+    extern_asset.preview_ = BKE_previewimg_cached_thumbnail_read(
+        full_path.c_str(), full_path.c_str(), THB_SOURCE_BLEND, false);
+  }
 
   BKE_icon_preview_ensure(nullptr, extern_asset.preview_);
 }
@@ -115,6 +149,14 @@ AssetMetaData &AssetRepresentation::get_metadata() const
 
 StringRefNull AssetRepresentation::library_relative_identifier() const
 {
+  if (const ID *id = this->local_id()) {
+    StringRef idname = BKE_id_name(*id);
+    /* Lazy-create/-update with the latest ID name. */
+    if (!StringRef{relative_identifier_}.endswith(idname)) {
+      relative_identifier_ = StringRef{BKE_idtype_idcode_to_name(GS(id->name))} + SEP_STR + idname;
+    }
+  }
+
   return relative_identifier_;
 }
 
@@ -124,7 +166,7 @@ std::string AssetRepresentation::full_path() const
   BLI_path_join(filepath,
                 sizeof(filepath),
                 owner_asset_library_.root_path().c_str(),
-                relative_identifier_.c_str());
+                library_relative_identifier().c_str());
   return filepath;
 }
 
@@ -138,6 +180,48 @@ std::string AssetRepresentation::full_library_path() const
   }
 
   return blend_path;
+}
+
+Span<OnlineAssetFile> AssetRepresentation::online_asset_files() const
+{
+  if (!this->is_online()) {
+    return {};
+  }
+  return std::get<ExternalAsset>(asset_).online_info_->files;
+}
+
+std::optional<StringRefNull> AssetRepresentation::online_asset_preview_url() const
+{
+  if (!this->is_online()) {
+    return {};
+  }
+  std::optional<URLWithHash> &url_with_hash =
+      std::get<ExternalAsset>(asset_).online_info_->preview_url;
+  if (!url_with_hash) {
+    return {};
+  }
+  return url_with_hash->url;
+}
+
+std::optional<StringRefNull> AssetRepresentation::online_asset_preview_hash() const
+{
+  if (!this->is_online()) {
+    return {};
+  }
+  std::optional<URLWithHash> &url_with_hash =
+      std::get<ExternalAsset>(asset_).online_info_->preview_url;
+  if (!url_with_hash) {
+    return {};
+  }
+  return url_with_hash->hash;
+}
+
+void AssetRepresentation::online_asset_mark_downloaded()
+{
+  if (!this->is_online()) {
+    return;
+  }
+  std::get<ExternalAsset>(asset_).online_info_ = nullptr;
 }
 
 std::optional<eAssetImportMethod> AssetRepresentation::get_import_method() const
@@ -166,6 +250,24 @@ ID *AssetRepresentation::local_id() const
 bool AssetRepresentation::is_local_id() const
 {
   return std::holds_alternative<ID *>(asset_);
+}
+
+bool AssetRepresentation::is_online() const
+{
+  if (const ExternalAsset *extern_asset = std::get_if<ExternalAsset>(&asset_)) {
+    return extern_asset->online_info_ != nullptr;
+  }
+  return false;
+}
+
+bool AssetRepresentation::is_potentially_editable_asset_blend() const
+{
+  if (this->owner_asset_library().is_read_only()) {
+    return false;
+  }
+
+  std::string lib_path = this->full_library_path();
+  return StringRef(lib_path).endswith(BLENDER_ASSET_FILE_SUFFIX);
 }
 
 AssetLibrary &AssetRepresentation::owner_asset_library() const

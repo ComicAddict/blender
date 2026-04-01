@@ -296,6 +296,10 @@ class RENDER_PT_output(RenderOutputButtonsPanel, Panel):
         'BLENDER_WORKBENCH',
     }
 
+    def draw_header(self, context):
+        rd = context.scene.render
+        self.layout.prop(rd, "save_output", text="")
+
     def draw(self, context):
         layout = self.layout
         layout.use_property_split = False
@@ -303,6 +307,7 @@ class RENDER_PT_output(RenderOutputButtonsPanel, Panel):
 
         rd = context.scene.render
         image_settings = rd.image_settings
+        layout.active = rd.save_output
 
         layout.prop(rd, "filepath", text="")
 
@@ -356,10 +361,12 @@ class RENDER_PT_output_color_management(RenderOutputButtonsPanel, Panel):
     def draw(self, context):
         scene = context.scene
         image_settings = scene.render.image_settings
+        rd = scene.render
 
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False  # No animation.
+        layout.active = rd.save_output
 
         layout.row().prop(image_settings, "color_management", text=" ", expand=True)
 
@@ -437,6 +444,7 @@ class RENDER_PT_output_pixel_density(RenderOutputButtonsPanel, Panel):
         pixeldensity_label_text, show_pixeldensity = RENDER_PT_output_pixel_density._draw_pixeldensity_label(*args)
 
         layout.prop(rd, "ppm_factor", text="Pixels")
+        layout.active = rd.save_output
 
         row = layout.split(factor=0.4)
         row.alignment = 'RIGHT'
@@ -530,13 +538,6 @@ class RENDER_PT_encoding_video(RenderOutputButtonsPanel, Panel):
 
         image_settings = context.scene.render.image_settings
 
-        # Color depth. List of codecs needs to be in sync with
-        # `IMB_ffmpeg_valid_bit_depths` in source code.
-        use_bpp = needs_codec and ffmpeg.codec in {'H264', 'H265', 'AV1', 'PRORES', 'FFV1'}
-        if use_bpp:
-            layout.prop(image_settings, "color_depth", expand=True)
-
-        # Color space
         if image_settings.color_management == 'OVERRIDE':
             display_settings = image_settings.display_settings
             view_settings = image_settings.view_settings
@@ -544,6 +545,21 @@ class RENDER_PT_encoding_video(RenderOutputButtonsPanel, Panel):
             display_settings = context.scene.display_settings
             view_settings = context.scene.view_settings
 
+        # HDR compatibility
+        if view_settings.is_hdr and (not needs_codec or ffmpeg.codec not in {'H265', 'AV1'}):
+            layout.label(text="HDR needs H.265 or AV1", icon='ERROR')
+
+        # Color depth. List of codecs needs to be in sync with
+        # `IMB_ffmpeg_valid_bit_depths` in source code.
+        use_bpp = needs_codec and ffmpeg.codec in {'H264', 'H265', 'AV1', 'PRORES', 'FFV1'}
+        if use_bpp:
+            layout.prop(image_settings, "color_depth", expand=True)
+
+        # HDR compatibility
+        if view_settings.is_hdr and image_settings.color_depth not in {'10', '12'}:
+            layout.label(text="HDR needs 10 or 12 bits", icon='ERROR')
+
+        # Color space
         split = layout.split(factor=0.4)
         col = split.column()
         col.alignment = 'RIGHT'
@@ -554,17 +570,10 @@ class RENDER_PT_encoding_video(RenderOutputButtonsPanel, Panel):
         row.enabled = False
         row.prop(display_settings, "display_device", text="")
 
-        # HDR compatibility
-        if view_settings.is_hdr:
-            if not needs_codec or ffmpeg.codec not in {'H265', 'AV1'}:
-                col.label(text="HDR needs H.265 or AV1", icon='ERROR')
-            elif image_settings.color_depth not in {'10', '12'}:
-                col.label(text="HDR needs 10 or 12 bits", icon='ERROR')
-
-        if ffmpeg.codec == 'DNXHD':
+        if needs_codec and ffmpeg.codec == 'DNXHD':
             layout.prop(ffmpeg, "use_lossless_output")
 
-        if ffmpeg.codec == 'PRORES':
+        if needs_codec and ffmpeg.codec == 'PRORES':
             layout.prop(ffmpeg, "ffmpeg_prores_profile")
 
         # Output quality
@@ -577,6 +586,8 @@ class RENDER_PT_encoding_video(RenderOutputButtonsPanel, Panel):
         }
         if use_crf:
             layout.prop(ffmpeg, "constant_rate_factor")
+            if (ffmpeg.constant_rate_factor == 'CUSTOM'):
+                layout.prop(ffmpeg, "custom_constant_rate_factor")
 
         use_encoding_speed = needs_codec and ffmpeg.codec not in {'DNXHD', 'FFV1', 'HUFFYUV', 'PNG', 'PRORES', 'QTRLE'}
         use_bitrate = needs_codec and ffmpeg.codec not in {'FFV1', 'HUFFYUV', 'PNG', 'PRORES', 'QTRLE'}
@@ -643,7 +654,8 @@ class RENDER_PT_encoding_audio(RenderOutputButtonsPanel, Panel):
         if ffmpeg.audio_codec != 'NONE':
             layout.prop(ffmpeg, "audio_channels")
             layout.prop(ffmpeg, "audio_mixrate", text="Sample Rate")
-            layout.prop(ffmpeg, "audio_bitrate")
+            if ffmpeg.audio_codec not in {'FLAC', 'PCM'}:
+                layout.prop(ffmpeg, "audio_bitrate")
             layout.prop(ffmpeg, "audio_volume", slider=True)
 
 

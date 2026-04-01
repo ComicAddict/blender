@@ -30,8 +30,8 @@ static void node_declare(NodeDeclarationBuilder &b)
 {
   const bNode *node = b.node_or_null();
 
-  auto &first_grid = b.add_input<decl::Float>("Grid 1").hide_value().structure_type(
-      StructureType::Grid);
+  auto &first_grid =
+      b.add_input<decl::Float>("Grid 1"_ustr).hide_value().structure_type(StructureType::Grid);
 
   if (node) {
     static const auto make_available = [](bNode &node) {
@@ -40,14 +40,14 @@ static void node_declare(NodeDeclarationBuilder &b)
     switch (Operation(node->custom1)) {
       case Operation::Intersect:
       case Operation::Union:
-        b.add_input<decl::Float>("Grid", "Grid 2")
+        b.add_input<decl::Float>("Grid"_ustr, "Grid 2"_ustr)
             .hide_value()
             .multi_input()
             .make_available(make_available)
             .structure_type(StructureType::Grid);
         break;
       case Operation::Difference:
-        b.add_input<decl::Float>("Grid 2")
+        b.add_input<decl::Float>("Grid 2"_ustr)
             .hide_value()
             .multi_input()
             .make_available(make_available)
@@ -56,7 +56,7 @@ static void node_declare(NodeDeclarationBuilder &b)
     }
   }
 
-  b.add_output<decl::Float>("Grid").hide_value().structure_type(StructureType::Grid);
+  b.add_output<decl::Float>("Grid"_ustr).hide_value().structure_type(StructureType::Grid);
 
   if (node) {
     switch (Operation(node->custom1)) {
@@ -71,9 +71,9 @@ static void node_declare(NodeDeclarationBuilder &b)
   }
 }
 
-static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
+static void node_layout(ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  layout->prop(ptr, "operation", UI_ITEM_NONE, "", ICON_NONE);
+  layout.prop(ptr, "operation", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
@@ -86,7 +86,7 @@ static void node_geo_exec(GeoNodeExecParams params)
 #ifdef WITH_OPENVDB
   const Operation operation = Operation(params.node().custom1);
 
-  auto grids = params.extract_input<GeoNodesMultiInput<bke::VolumeGrid<float>>>("Grid 2");
+  auto grids = params.extract_input<GeoNodesMultiInput<bke::VolumeGrid<float>>>("Grid 2"_ustr);
   Vector<bke::VolumeGrid<float>> operands;
   switch (operation) {
     case Operation::Intersect:
@@ -94,7 +94,7 @@ static void node_geo_exec(GeoNodeExecParams params)
       operands.extend(grids.values);
       break;
     case Operation::Difference:
-      if (auto grid = params.extract_input<bke::VolumeGrid<float>>("Grid 1")) {
+      if (auto grid = params.extract_input<bke::VolumeGrid<float>>("Grid 1"_ustr)) {
         operands.append(std::move(grid));
       }
       operands.extend(grids.values);
@@ -135,8 +135,9 @@ static void node_geo_exec(GeoNodeExecParams params)
       return;
     }
   }
+  operands.first()->tag_tree_modified();
 
-  params.set_output("Grid", std::move(operands.first()));
+  params.set_output("Grid"_ustr, std::move(operands.first()));
 #else
   node_geo_exec_with_missing_openvdb(params);
 #endif
@@ -170,7 +171,7 @@ static void node_rna(StructRNA *srna)
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
   geo_node_type_base(&ntype, "GeometryNodeSDFGridBoolean", GEO_NODE_SDF_GRID_BOOLEAN);
   ntype.ui_name = "SDF Grid Boolean";
   ntype.ui_description = "Cut, subtract, or join multiple SDF volume grid inputs";
@@ -180,8 +181,7 @@ static void node_register()
   ntype.initfunc = node_init;
   ntype.draw_buttons = node_layout;
   ntype.geometry_node_execute = node_geo_exec;
-  ntype.gather_link_search_ops = search_link_ops_for_volume_grid_node;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
   node_rna(ntype.rna_ext.srna);
 }
 NOD_REGISTER_NODE(node_register)

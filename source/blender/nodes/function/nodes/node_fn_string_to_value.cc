@@ -20,15 +20,16 @@ namespace blender::nodes::node_fn_string_to_value_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::String>("String").optional_label();
+  b.is_function_node();
+  b.add_input<decl::String>("String"_ustr).optional_label();
 
   const bNode *node = b.node_or_null();
   if (node != nullptr) {
     const eNodeSocketDatatype data_type = eNodeSocketDatatype(node->custom1);
-    b.add_output(data_type, "Value");
+    b.add_output(data_type, "Value"_ustr);
   }
 
-  b.add_output<decl::Int>("Length");
+  b.add_output<decl::Int>("Length"_ustr);
 }
 
 static const mf::MultiFunction *get_multi_function(const bNode &bnode)
@@ -74,7 +75,7 @@ static void node_gather_link_searches(GatherLinkSearchOpParams &params)
     if (socket_type == SOCK_STRING) {
       params.add_item(IFACE_("String"), [](LinkSearchOpParams &params) {
         bNode &node = params.add_node("FunctionNodeStringToValue");
-        params.update_and_connect_available_socket(node, "String");
+        params.update_and_connect_available_socket(node, "String"_ustr);
       });
     }
   }
@@ -83,29 +84,29 @@ static void node_gather_link_searches(GatherLinkSearchOpParams &params)
       params.add_item(IFACE_("Value"), [](LinkSearchOpParams &params) {
         bNode &node = params.add_node("FunctionNodeStringToValue");
         node.custom1 = SOCK_INT;
-        params.update_and_connect_available_socket(node, "Value");
+        params.update_and_connect_available_socket(node, "Value"_ustr);
       });
     }
     else if (params.node_tree().typeinfo->validate_link(SOCK_FLOAT, socket_type)) {
       params.add_item(IFACE_("Value"), [](LinkSearchOpParams &params) {
         bNode &node = params.add_node("FunctionNodeStringToValue");
         node.custom1 = SOCK_FLOAT;
-        params.update_and_connect_available_socket(node, "Value");
+        params.update_and_connect_available_socket(node, "Value"_ustr);
       });
     }
 
     if (socket_type == SOCK_INT) {
       params.add_item(IFACE_("Length"), [](LinkSearchOpParams &params) {
         bNode &node = params.add_node("FunctionNodeStringToValue");
-        params.update_and_connect_available_socket(node, "Length");
+        params.update_and_connect_available_socket(node, "Length"_ustr);
       });
     }
   }
 }
 
-static void node_layout(uiLayout *layout, bContext *, PointerRNA *ptr)
+static void node_layout(ui::Layout &layout, bContext *, PointerRNA *ptr)
 {
-  layout->prop(ptr, "data_type", UI_ITEM_NONE, "", ICON_NONE);
+  layout.prop(ptr, "data_type", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_rna(StructRNA *srna)
@@ -126,7 +127,7 @@ static void node_rna(StructRNA *srna)
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
 
   fn_node_type_base(&ntype, "FunctionNodeStringToValue");
   ntype.ui_name = "String to Value";
@@ -137,7 +138,7 @@ static void node_register()
   ntype.draw_buttons = node_layout;
   ntype.build_multi_function = node_build_multi_function;
   ntype.gather_link_search_ops = node_gather_link_searches;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 
   node_rna(ntype.rna_ext.srna);
 }

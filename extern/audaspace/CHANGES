@@ -1,3 +1,46 @@
+Audaspace 1.9
+
+- New Echo effect (thanks AGoldenDragon)
+- Bugfix for Catmull-Rom spline interpolation
+- Build fixes for Mac (thanks Jonas Holzman)
+- Python API documentation for class constructors (thanks Andrej Zhilenkov)
+- CMake fixes (thanks Campbell Barton)
+- Sample rate type warnings (thanks Jacques Lucke and Ray Molenkamp)
+
+Detailed list of changes:
+
+e4a3d40 Porting fixes from blender
+3348de2 PyDoc: Add constructor docstrings to aud types
+7b04aa9 Build: macOS: Fix bitwise operation enum type warning in Audaspace
+a931d65 Bugfix: Catmull-Rom spline interpolation was wrong.
+1550e14 Fix AUD_Sound_Echo wrongly inside WITH_CONVOLUTION guard
+ddda09e Echo: change wet/dry behavior.
+31a59c4 Fixing Echo effect:
+c3d4ba9 Implemented a new Echo effect (#63)
+
+Audaspace 1.8
+
+- Time stretching and pitch scaling including animation and python API added (thanks Kacey La!).
+- Update API of AUD_readSound to fix interruption logic in Blender.
+- Minor other fixes including in the PulseAudio, CoreAudio and FFMPEG plugins.
+
+Detailed list of changes:
+
+9b1be5f Include stdbool.h
+2663809 Use boolean for interrupting AUD_readSound function
+83721b1 Fix broken doc-string function argument type definition
+05d35ba Some fixes for the just introduced better seeking of time stretching.
+301f874 AnimateableTimeStretchPitchScale Seek - Frame-Approach (#58)
+fa006ac FFMPEG: fix memory leak and remove deprecated AV_INPUT_BUFFER_MIN_SIZE.
+3be6dfd Python API for AnimateableProperty and AnimatedTimeScalePitchScale  (#54)
+ff127cf Minor fixes.
+5e09510 AnimatedTimeStretchPitchScale effect (#53)
+39caef7 Updating AUTHORS
+b1058e6 Porting PulseAudio and CoreAudio fixes from upstream Blender.
+d1b3c5b Rename StretcherQuality to just StretcherQualityOption.
+f00f081 Fixer for Rubberband.
+924a19b Add TimeStretchPitchScale effect (#52)
+
 Audaspace 1.7
 
 - Rewrite of the Synchronizer API.

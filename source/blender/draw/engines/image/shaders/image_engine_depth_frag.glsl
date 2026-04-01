@@ -2,10 +2,10 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#include "draw_colormanagement_lib.glsl"
+#include "infos/engine_image_infos.hh"
 
-#define Z_DEPTH_BORDER 1.0f
-#define Z_DEPTH_IMAGE 0.75f
+#include "draw_colormanagement_lib.glsl"
+#include "image_engine_lib.glsl"
 
 bool is_border(float2 uv)
 {

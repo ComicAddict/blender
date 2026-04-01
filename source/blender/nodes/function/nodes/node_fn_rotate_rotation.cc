@@ -22,14 +22,14 @@ static void node_declare(NodeDeclarationBuilder &b)
   b.allow_any_socket_order();
   b.add_default_layout();
   b.is_function_node();
-  b.add_input<decl::Rotation>("Rotation");
-  b.add_output<decl::Rotation>("Rotation").align_with_previous();
-  b.add_input<decl::Rotation>("Rotate By");
+  b.add_input<decl::Rotation>("Rotation"_ustr);
+  b.add_output<decl::Rotation>("Rotation"_ustr).align_with_previous();
+  b.add_input<decl::Rotation>("Rotate By"_ustr);
 };
 
-static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
+static void node_layout(ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  layout->prop(ptr, "rotation_space", UI_ITEM_R_EXPAND, std::nullopt, ICON_NONE);
+  layout.prop(ptr, "rotation_space", ui::ITEM_R_EXPAND, std::nullopt, ICON_NONE);
 }
 
 static void node_build_multi_function(NodeMultiFunctionBuilder &builder)
@@ -76,7 +76,7 @@ static void node_rna(StructRNA *srna)
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
   fn_node_type_base(&ntype, "FunctionNodeRotateRotation", FN_NODE_ROTATE_ROTATION);
   ntype.ui_name = "Rotate Rotation";
   ntype.ui_description = "Apply a secondary rotation to a given rotation value";
@@ -85,7 +85,7 @@ static void node_register()
   ntype.declare = node_declare;
   ntype.draw_buttons = node_layout;
   ntype.build_multi_function = node_build_multi_function;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 
   node_rna(ntype.rna_ext.srna);
 }

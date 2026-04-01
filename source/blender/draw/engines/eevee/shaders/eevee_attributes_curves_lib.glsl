@@ -47,28 +47,28 @@ int curves_attribute_element_id(CurvesPoint point, int index)
   return point.curve_id;
 }
 
-float4 attr_load_tangent(CurvesPoint point, samplerBuffer cd_buf, int index)
+float4 attr_load_tangent(CurvesPoint /*point*/, samplerBuffer /*cd_buf*/, int /*index*/)
 {
   /* Not supported for the moment. */
   return float4(0.0f, 0.0f, 0.0f, 1.0f);
 }
-float3 attr_load_uv(CurvesPoint point, samplerBuffer cd_buf, int index)
+float3 attr_load_uv(CurvesPoint point, samplerBuffer cd_buf, int /*index*/)
 {
   return texelFetch(cd_buf, point.curve_id).rgb;
 }
-float4 attr_load_color(CurvesPoint point, samplerBuffer cd_buf, int index)
+float4 attr_load_color(CurvesPoint point, samplerBuffer cd_buf, int /*index*/)
 {
   return texelFetch(cd_buf, point.curve_id).rgba;
 }
-float4 attr_load_vec4(CurvesPoint point, samplerBuffer cd_buf, int index)
+float4 attr_load_float4(CurvesPoint point, samplerBuffer cd_buf, int index)
 {
   return texelFetch(cd_buf, curves_attribute_element_id(point, index)).rgba;
 }
-float3 attr_load_vec3(CurvesPoint point, samplerBuffer cd_buf, int index)
+float3 attr_load_float3(CurvesPoint point, samplerBuffer cd_buf, int index)
 {
   return texelFetch(cd_buf, curves_attribute_element_id(point, index)).rgb;
 }
-float2 attr_load_vec2(CurvesPoint point, samplerBuffer cd_buf, int index)
+float2 attr_load_float2(CurvesPoint point, samplerBuffer cd_buf, int index)
 {
   return texelFetch(cd_buf, curves_attribute_element_id(point, index)).rg;
 }

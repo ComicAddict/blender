@@ -157,8 +157,8 @@ class ForeachGeometryElementNodeExecuteWrapper : public lf::GraphExecutorNodeExe
         user_data.compute_context, *output_bnode_, index};
     GeoNodesUserData body_user_data = user_data;
     body_user_data.compute_context = &body_compute_context;
-    body_user_data.log_socket_values = should_log_socket_values_for_context(
-        user_data, body_compute_context.hash());
+    body_user_data.verbose_log = should_log_verbose_in_context(user_data,
+                                                               body_compute_context.hash());
 
     GeoNodesLocalUserData body_local_user_data{body_user_data};
     lf::Context body_context{context.storage, &body_user_data, &body_local_user_data};
@@ -496,7 +496,7 @@ class LazyFunctionForForeachGeometryElementZone : public LazyFunction {
 
       /* Prepare indices that are passed into each iteration. */
       component_info.index_values.reinitialize(mask.size());
-      mask.foreach_index(
+      mask.foreach_index_optimized<int>(
           [&](const int i, const int pos) { component_info.index_values[pos].set(i); });
 
       if (create_element_geometries) {
@@ -522,11 +522,13 @@ class LazyFunctionForForeachGeometryElementZone : public LazyFunction {
         const eNodeSocketDatatype socket_type = eNodeSocketDatatype(item.socket_type);
         component_info.item_input_values[item_i].reinitialize(mask.size());
         const GVArray &values = component_info.field_evaluator->get_evaluated(item_i);
-        mask.foreach_index(GrainSize(1024), [&](const int i, const int pos) {
-          SocketValueVariant &value_variant = component_info.item_input_values[item_i][pos];
-          void *buffer = value_variant.allocate_single(socket_type);
-          values.get_to_uninitialized(i, buffer);
-        });
+        mask.foreach_index(
+            [&](const int i, const int pos) {
+              SocketValueVariant &value_variant = component_info.item_input_values[item_i][pos];
+              void *buffer = value_variant.allocate_single(socket_type);
+              values.get_to_uninitialized(i, buffer);
+            },
+            exec_mode::grain_size(1024));
       }
     }
 

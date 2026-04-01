@@ -66,7 +66,8 @@ class OUTLINER_HT_header(Header):
             )
 
         if display_mode in {'LIBRARIES', 'ORPHAN_DATA'}:
-            row.prop(space, "use_filter_id_type", text="", icon='FILTER')
+            row.prop(space, "use_filter_id_type", text="", icon=(
+                'FILTER_FILLED' if space.use_filter_id_type else 'FILTER'))
             sub = row.row(align=True)
             sub.active = space.use_filter_id_type
             sub.prop(space, "filter_id_type", text="", icon_only=True)
@@ -472,7 +473,7 @@ class OUTLINER_PT_filter(Panel):
         row.prop(space, "use_filter_view_layers", text="All View Layers")
 
         row = col.row()
-        row.label(icon='OUTLINER_COLLECTION')
+        row.label(icon='GROUP')
         row.prop(space, "use_filter_collection", text="Collections")
 
         row = col.row()

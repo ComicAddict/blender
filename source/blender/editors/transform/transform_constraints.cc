@@ -482,7 +482,7 @@ static void applyObjectConstraintVec(const TransInfo *t,
     copy_v3_v3(out, in);
     if (t->con.mode & CON_APPLY) {
       mul_m3_v3(t->spacemtx_inv, out);
-      const float(*axismtx)[3] = transform_object_axismtx_get(t, tc, td);
+      const float (*axismtx)[3] = transform_object_axismtx_get(t, tc, td);
       mul_m3_v3(axismtx, out);
       if (t->flag & T_EDIT) {
         mul_m3_v3(tc->mat3_unit, out);
@@ -529,7 +529,7 @@ static void applyObjectConstraintSize(const TransInfo *t,
     float tmat[3][3];
     float imat[3][3];
 
-    const float(*axismtx)[3] = transform_object_axismtx_get(t, tc, td);
+    const float (*axismtx)[3] = transform_object_axismtx_get(t, tc, td);
     invert_m3_m3(imat, axismtx);
 
     if (!(t->con.mode & CON_AXIS0)) {
@@ -606,7 +606,7 @@ static void applyObjectConstraintRot(const TransInfo *t,
 {
   if (t->con.mode & CON_APPLY) {
     float tmp_axismtx[3][3];
-    const float(*axismtx)[3];
+    const float (*axismtx)[3];
 
     /* On setup call, use first object. */
     if (td == nullptr) {
@@ -748,12 +748,11 @@ static void drawLine(
     col[0] = col[1] = col[2] = 220;
   }
   else {
-    UI_GetThemeColor3ubv(TH_GRID, col);
+    ui::theme::get_color_3ubv(TH_GRID, col);
   }
-  UI_make_axis_color(col, axis, col2);
+  ui::theme::make_axis_color(col, axis, col2);
 
-  uint pos = GPU_vertformat_attr_add(
-      immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32_32);
+  uint pos = GPU_vertformat_attr_add(immVertexFormat(), "pos", gpu::VertAttrType::SFLOAT_32_32_32);
 
   float viewport[4];
   GPU_viewport_size_get_f(viewport);
@@ -809,7 +808,7 @@ void drawConstraint(TransInfo *t)
       }
 
       const uint shdr_pos = GPU_vertformat_attr_add(
-          immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32_32);
+          immVertexFormat(), "pos", gpu::VertAttrType::SFLOAT_32_32_32);
 
       immBindBuiltinProgram(GPU_SHADER_3D_LINE_DASHED_UNIFORM_COLOR);
 
@@ -882,7 +881,7 @@ void drawPropCircle(TransInfo *t)
     }
 
     uint pos = GPU_vertformat_attr_add(
-        immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32_32);
+        immVertexFormat(), "pos", gpu::VertAttrType::SFLOAT_32_32_32);
 
     immBindBuiltinProgram(GPU_SHADER_3D_POLYLINE_UNIFORM_COLOR);
 
@@ -916,8 +915,7 @@ void drawPropRange(TransInfo *t)
     return;
   }
 
-  uint pos = GPU_vertformat_attr_add(
-      immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32_32);
+  uint pos = GPU_vertformat_attr_add(immVertexFormat(), "pos", gpu::VertAttrType::SFLOAT_32_32_32);
 
   immBindBuiltinProgram(GPU_SHADER_3D_POLYLINE_UNIFORM_COLOR);
 
@@ -960,7 +958,7 @@ static void drawObjectConstraint(TransInfo *t)
     TransData *td = tc->data;
     for (int i = 0; i < tc->data_len; i++, td++) {
       float co[3];
-      const float(*axismtx)[3];
+      const float (*axismtx)[3];
 
       if (t->flag & T_PROP_EDIT) {
         /* We're sorted, so skip the rest. */

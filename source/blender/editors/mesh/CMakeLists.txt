@@ -21,6 +21,7 @@ set(SRC
   editmesh_automerge.cc
   editmesh_bevel.cc
   editmesh_bisect.cc
+  editmesh_circularize.cc
   editmesh_extrude.cc
   editmesh_extrude_screw.cc
   editmesh_extrude_spin.cc
@@ -30,7 +31,6 @@ set(SRC
   editmesh_knife.cc
   editmesh_knife_project.cc
   editmesh_loopcut.cc
-  editmesh_mask_extract.cc
   editmesh_path.cc
   editmesh_polybuild.cc
   editmesh_preselect_edgering.cc
@@ -61,7 +61,6 @@ set(LIB
   PRIVATE bf::depsgraph
   PRIVATE bf::dna
   PRIVATE bf::draw
-  PRIVATE bf::extern::fmtlib
   PRIVATE bf::functions
   PRIVATE bf::geometry
   PRIVATE bf::gpu

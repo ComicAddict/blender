@@ -8,8 +8,7 @@ if "%BUILD_WITH_SCCACHE%"=="1" (
 )
 
 if "%WITH_CLANG%"=="1" (
-	REM We want to use an external manifest with Clang
-	set CLANG_CMAKE_ARGS=-T"ClangCl" -DWITH_WINDOWS_EXTERNAL_MANIFEST=ON 
+	set CLANG_CMAKE_ARGS=-T"ClangCl"
 
 	REM Create the build directory, so that we can create the Directory.build.props file
 	if NOT EXIST %BUILD_DIR%\nul (
@@ -48,14 +47,14 @@ if NOT EXIST %BUILD_DIR%\nul (
 if "%MUST_CLEAN%"=="1" (
 	echo Cleaning %BUILD_DIR%
 	msbuild ^
-		%BUILD_DIR%\Blender.sln ^
+		%BUILD_DIR%\Blender.%VS_SLN_EXT% ^
 		/target:clean ^
 		/property:Configuration=%BUILD_TYPE% ^
 		/verbosity:minimal ^
 		/p:platform=%MSBUILD_PLATFORM%
 )
 
-if NOT EXIST %BUILD_DIR%\Blender.sln set MUST_CONFIGURE=1
+if NOT EXIST %BUILD_DIR%\Blender.%VS_SLN_EXT% set MUST_CONFIGURE=1
 if "%NOBUILD%"=="1" set MUST_CONFIGURE=1
 
 if "%MUST_CONFIGURE%"=="1" (

@@ -16,8 +16,7 @@
 #include "IMB_imbuf.hh"
 
 #include "SEQ_relations.hh"
-#include "SEQ_render.hh"
-#include "SEQ_time.hh"
+#include "SEQ_sequencer.hh"
 
 #include "final_image_cache.hh"
 #include "prefetch.hh"
@@ -31,16 +30,17 @@ struct FinalImageCache {
     int timeline_frame;
     int view_id;
     int display_channel;
+    int2 image_size;
 
     uint64_t hash() const
     {
-      return get_default_hash(timeline_frame, view_id, display_channel);
+      return get_default_hash(timeline_frame, view_id, display_channel, image_size);
     }
 
     bool operator==(const Key &other) const
     {
       return timeline_frame == other.timeline_frame && view_id == other.view_id &&
-             display_channel == other.display_channel;
+             display_channel == other.display_channel && image_size == image_size;
     }
   };
   Map<Key, ImBuf *> map_;
@@ -61,7 +61,7 @@ struct FinalImageCache {
 
 static FinalImageCache *ensure_final_image_cache(Scene *scene)
 {
-  FinalImageCache **cache = &scene->ed->runtime.final_image_cache;
+  FinalImageCache **cache = &scene->ed->runtime->final_image_cache;
   if (*cache == nullptr) {
     *cache = MEM_new<FinalImageCache>(__func__);
   }
@@ -73,12 +73,14 @@ static FinalImageCache *query_final_image_cache(const Scene *scene)
   if (scene == nullptr || scene->ed == nullptr) {
     return nullptr;
   }
-  return scene->ed->runtime.final_image_cache;
+  return scene->ed->runtime->final_image_cache;
 }
 
-ImBuf *final_image_cache_get(Scene *scene, float timeline_frame, int view_id, int display_channel)
+ImBuf *final_image_cache_get(
+    Scene *scene, float timeline_frame, int view_id, int display_channel, int2 image_size)
 {
-  const FinalImageCache::Key key = {int(math::round(timeline_frame)), view_id, display_channel};
+  const FinalImageCache::Key key = {
+      int(math::round(timeline_frame)), view_id, display_channel, image_size};
 
   ImBuf *res = nullptr;
   {
@@ -96,10 +98,15 @@ ImBuf *final_image_cache_get(Scene *scene, float timeline_frame, int view_id, in
   return res;
 }
 
-void final_image_cache_put(
-    Scene *scene, float timeline_frame, int view_id, int display_channel, ImBuf *image)
+void final_image_cache_put(Scene *scene,
+                           float timeline_frame,
+                           int view_id,
+                           int display_channel,
+                           int2 image_size,
+                           ImBuf *image)
 {
-  const FinalImageCache::Key key = {int(math::round(timeline_frame)), view_id, display_channel};
+  const FinalImageCache::Key key = {
+      int(math::round(timeline_frame)), view_id, display_channel, image_size};
 
   IMB_refImBuf(image);
 
@@ -144,7 +151,7 @@ void final_image_cache_clear(Scene *scene)
   std::lock_guard lock(final_image_cache_mutex);
   FinalImageCache *cache = query_final_image_cache(scene);
   if (cache != nullptr) {
-    scene->ed->runtime.final_image_cache->clear();
+    scene->ed->runtime->final_image_cache->clear();
   }
 }
 
@@ -153,9 +160,9 @@ void final_image_cache_destroy(Scene *scene)
   std::lock_guard lock(final_image_cache_mutex);
   FinalImageCache *cache = query_final_image_cache(scene);
   if (cache != nullptr) {
-    BLI_assert(cache == scene->ed->runtime.final_image_cache);
-    MEM_delete(scene->ed->runtime.final_image_cache);
-    scene->ed->runtime.final_image_cache = nullptr;
+    BLI_assert(cache == scene->ed->runtime->final_image_cache);
+    MEM_delete(scene->ed->runtime->final_image_cache);
+    scene->ed->runtime->final_image_cache = nullptr;
   }
 }
 

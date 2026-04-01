@@ -18,18 +18,22 @@ namespace blender::nodes::node_fn_align_euler_to_vector_cc {
 static void node_declare(NodeDeclarationBuilder &b)
 {
   b.is_function_node();
-  b.add_input<decl::Vector>("Rotation").subtype(PROP_EULER).hide_value();
-  b.add_input<decl::Float>("Factor").default_value(1.0f).min(0.0f).max(1.0f).subtype(PROP_FACTOR);
-  b.add_input<decl::Vector>("Vector").default_value({0.0, 0.0, 1.0});
-  b.add_output<decl::Vector>("Rotation").subtype(PROP_EULER);
+  b.add_input<decl::Vector>("Rotation"_ustr).subtype(PROP_EULER).hide_value();
+  b.add_input<decl::Float>("Factor"_ustr)
+      .default_value(1.0f)
+      .min(0.0f)
+      .max(1.0f)
+      .subtype(PROP_FACTOR);
+  b.add_input<decl::Vector>("Vector"_ustr).default_value({0.0, 0.0, 1.0});
+  b.add_output<decl::Vector>("Rotation"_ustr).subtype(PROP_EULER);
 }
 
-static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
+static void node_layout(ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  layout->prop(ptr, "axis", UI_ITEM_R_EXPAND, std::nullopt, ICON_NONE);
-  layout->use_property_split_set(true);
-  layout->use_property_decorate_set(false);
-  layout->prop(ptr, "pivot_axis", UI_ITEM_NONE, IFACE_("Pivot"), ICON_NONE);
+  layout.prop(ptr, "axis", ui::ITEM_R_EXPAND, std::nullopt, ICON_NONE);
+  layout.use_property_split_set(true);
+  layout.use_property_decorate_set(false);
+  layout.prop(ptr, "pivot_axis", UI_ITEM_NONE, IFACE_("Pivot"), ICON_NONE);
 }
 
 static void align_rotations_auto_pivot(const IndexMask &mask,
@@ -257,7 +261,7 @@ static void node_rna(StructRNA *srna)
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
 
   fn_node_type_base(&ntype, "FunctionNodeAlignEulerToVector", FN_NODE_ALIGN_EULER_TO_VECTOR);
   ntype.ui_name = "Align Euler to Vector";
@@ -268,7 +272,7 @@ static void node_register()
   ntype.draw_buttons = node_layout;
   ntype.build_multi_function = node_build_multi_function;
   ntype.deprecation_notice = N_("Use the \"Align Rotation to Vector\" node instead");
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 
   node_rna(ntype.rna_ext.srna);
 }

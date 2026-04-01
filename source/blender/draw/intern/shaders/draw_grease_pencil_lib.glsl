@@ -231,7 +231,7 @@ float2 gpencil_project_to_screenspace(float4 v, float4 viewport_res)
   return ((v.xy / v.w) * 0.5f + 0.5f) * viewport_res.xy;
 }
 
-float gpencil_stroke_thickness_modulate(float thickness, float4 ndc_pos, float4 viewport_res)
+float gpencil_stroke_thickness_modulate(float thickness, float4 viewport_res)
 {
   /* Modify stroke thickness by object scale. */
   thickness = length(to_float3x3(drw_modelmat()) * float3(thickness * M_SQRT1_3));
@@ -283,26 +283,26 @@ float4 gpencil_vertex(float4 viewport_res,
                       gpMaterialFlag material_flags,
                       float2 alignment_rot,
                       /* World Position. */
-                      out float3 out_P,
+                      float3 &out_P,
                       /* World Normal. */
-                      out float3 out_N,
+                      float3 &out_N,
                       /* Vertex Color. */
-                      out float4 out_color,
+                      float4 &out_color,
                       /* Stroke Strength. */
-                      out float out_strength,
+                      float &out_strength,
                       /* UV coordinates. */
-                      out float2 out_uv,
+                      float2 &out_uv,
                       /* Screen-Space segment endpoints. */
-                      out float4 out_sspos,
+                      float4 &out_sspos,
                       /* Screen-Space adjacent segment endpoints. */
-                      out float4 out_sspos_adj,
+                      float4 &out_sspos_adj,
                       /* Stroke aspect ratio. */
-                      out float2 out_aspect,
+                      float2 &out_aspect,
                       /* Stroke thickness and miter limits (x: clamped, y: unclamped,
                        * z: miter limit segment start, w: miter limit segment end). */
-                      out float4 out_thickness,
+                      float4 &out_thickness,
                       /* Stroke hardness. */
-                      out float out_hardness)
+                      float &out_hardness)
 {
   int stroke_point_id = gpencil_stroke_point_id();
 
@@ -351,7 +351,8 @@ float4 gpencil_vertex(float4 viewport_res,
       }
 
       if (is_last) {
-        int first_stroke_id = point_data1.stroke_id;
+        PointData point_data3 = decode_ma(ma3);
+        int first_stroke_id = point_data3.stroke_id;
         ma3 = floatBitsToInt(texelFetch(gp_pos_tx, (first_stroke_id + 2) * 3 + 1));
         pos3 = texelFetch(gp_pos_tx, (first_stroke_id + 2) * 3 + 0);
       }
@@ -420,7 +421,7 @@ float4 gpencil_vertex(float4 viewport_res,
     float2 line_adj = (use_curr) ? line1 : line2;
 
     float thickness = abs((use_curr) ? thickness1 : thickness2);
-    thickness = gpencil_stroke_thickness_modulate(thickness, out_ndc, viewport_res);
+    thickness = gpencil_stroke_thickness_modulate(thickness, viewport_res);
     /* The radius attribute can have negative values. Make sure that it's not negative by clamping
      * to 0. */
     float clamped_thickness = max(0.0f, thickness);
@@ -596,16 +597,16 @@ float4 gpencil_vertex(float4 viewport_res,
 }
 
 float4 gpencil_vertex(float4 viewport_res,
-                      out float3 out_P,
-                      out float3 out_N,
-                      out float4 out_color,
-                      out float out_strength,
-                      out float2 out_uv,
-                      out float4 out_sspos,
-                      out float4 out_sspos_adj,
-                      out float2 out_aspect,
-                      out float4 out_thickness,
-                      out float out_hardness)
+                      float3 &out_P,
+                      float3 &out_N,
+                      float4 &out_color,
+                      float &out_strength,
+                      float2 &out_uv,
+                      float4 &out_sspos,
+                      float4 &out_sspos_adj,
+                      float2 &out_aspect,
+                      float4 &out_thickness,
+                      float &out_hardness)
 {
   return gpencil_vertex(viewport_res,
                         gpMaterialFlag(0u),

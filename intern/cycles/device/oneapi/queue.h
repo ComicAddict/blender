@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2021-2022 Intel Corporation
+/* SPDX-FileCopyrightText: 2021-2025 Intel Corporation
  *
  * SPDX-License-Identifier: Apache-2.0 */
 
@@ -30,6 +30,7 @@ class OneapiDeviceQueue : public DeviceQueue {
   int num_sort_partitions(int max_num_paths, uint max_scene_shaders) const override;
 
   void init_execution() override;
+  void load_image_info() override;
 
   bool enqueue(DeviceKernel kernel,
                const int kernel_work_size,
@@ -40,11 +41,16 @@ class OneapiDeviceQueue : public DeviceQueue {
   void zero_to_device(device_memory &mem) override;
   void copy_to_device(device_memory &mem) override;
   void copy_from_device(device_memory &mem) override;
+  void *copy_from_device_synchronized(device_memory &mem, vector<uint8_t> &storage) override;
 
   bool supports_local_atomic_sort() const override
   {
     return true;
   }
+
+#  ifdef SYCL_LINEAR_MEMORY_INTEROP_AVAILABLE
+  unique_ptr<DeviceGraphicsInterop> graphics_interop_create() override;
+#  endif
 
  protected:
   OneapiDevice *oneapi_device_;

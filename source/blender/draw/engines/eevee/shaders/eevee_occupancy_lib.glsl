@@ -129,14 +129,14 @@ uint4 to_uint4(Bits occupancy)
 /**
  * From a entry and exit occupancy tuple, returns if a specific bit is inside the volume.
  */
-bool bit_resolve(Bits entry, Bits exit, int bit_n, int bit_count)
+bool bit_resolve(Bits entry, Bits exit, int bit_n, int /*bit_count*/)
 {
   int first_exit = find_lsb(exit);
   int first_entry = find_lsb(entry);
   first_exit = (first_exit == -1) ? 99999 : first_exit;
   /* Check if the first surface is an exit. If it is, initialize as inside the volume. */
   bool inside_volume = first_exit < first_entry;
-  for (int j = 0; j <= bit_n / 32; j++) {
+  for (uint j = 0; j <= bit_n / 32; j++) {
     uint entry_word = entry.bits[j];
     uint exit_word = exit.bits[j];
     /* TODO(fclem): Could use fewer iteration using findLSB and/or other intrinsics. */

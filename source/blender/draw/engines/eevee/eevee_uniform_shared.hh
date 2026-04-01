@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
 /**
- * Shared code between host and client codebases.
+ * Shared code between host and client code-bases.
  */
 
 #pragma once
@@ -23,7 +23,7 @@ namespace blender::eevee {
 /* This should be inside "eevee_light_shared.hh" but it would pull a huge header that is not
  * essential for most shaders. This could be moved back if including "eevee_bxdf_lib.glsl" is used
  * only for shading shaders. */
-enum LightingType : uint32_t {
+enum [[host_shared]] LightingType : uint32_t {
   LIGHT_DIFFUSE = 0u,
   LIGHT_SPECULAR = 1u,
   LIGHT_TRANSMISSION = 2u,
@@ -33,7 +33,7 @@ enum LightingType : uint32_t {
   LIGHT_TRANSLUCENT_WITH_THICKNESS = 4u,
 };
 
-struct ShadowSceneData {
+struct [[host_shared]] ShadowSceneData {
   /* Number of shadow rays to shoot for each light. */
   int ray_count;
   /* Number of shadow samples to take for each shadow ray. */
@@ -43,56 +43,66 @@ struct ShadowSceneData {
   /* Global switch for jittered shadows. */
   bool32_t use_jitter;
 };
-BLI_STATIC_ASSERT_ALIGN(ShadowSceneData, 16)
 
 /* Light Clamping. */
-struct ClampData {
+struct [[host_shared]] ClampData {
   float sun_threshold;
   float surface_direct;
   float surface_indirect;
   float volume_direct;
   float volume_indirect;
-  float _pad0;
-  float _pad1;
-  float _pad2;
+  float direct_scale;
+  float indirect_scale;
+  int _pad0;
 };
-BLI_STATIC_ASSERT_ALIGN(ClampData, 16)
 
-struct PipelineInfoData {
+/* Emulation of the light path node. */
+enum [[host_shared]] RayPipelineType : uint32_t {
+  RAY_TYPE_CAMERA,
+  RAY_TYPE_SHADOW,
+  RAY_TYPE_DIFFUSE,
+  RAY_TYPE_GLOSSY,
+};
+
+struct [[host_shared]] PipelineInfoData {
   float alpha_hash_scale;
-  bool32_t is_sphere_probe;
+  enum RayPipelineType ray_type;
+  /* True if the main camera view has inverted handedness.
+   * This is the case if the camera has negative scale on one axis. */
+  bool32_t is_main_view_inverted;
   /* WORKAROUND: Usually we would use imageSize to get the number of layers and get this id.
    * However, some implementation return the number of layers from the base texture instead of the
    * texture view (see #146132). So we always pass the correct layer index manually to avoid any
    * platform inconsistency. */
   int gbuffer_additional_data_layer_id;
-  float _pad2;
+  /* Use monochromatic transmittance for the forward pipeline. */
+  bool32_t use_monochromatic_transmittance;
+  bool32_t _pad0;
+  bool32_t _pad1;
+  bool32_t _pad2;
 };
-BLI_STATIC_ASSERT_ALIGN(PipelineInfoData, 16)
 
 /* Combines data from several modules to avoid wasting binding slots. */
-struct UniformData {
-  AOData ao;
-  CameraData camera;
-  ClampData clamp;
-  FilmData film;
-  HiZData hiz;
-  RayTraceData raytrace;
-  RenderBuffersInfoData render_pass;
-  ShadowSceneData shadow;
-  SubsurfaceData subsurface;
-  VolumesInfoData volumes;
-  PipelineInfoData pipeline;
+struct [[host_shared]] UniformData {
+  struct AOData ao;
+  struct CameraData camera;
+  struct ClampData clamp;
+  struct FilmData film;
+  struct HiZData hiz;
+  struct RayTraceData raytrace;
+  struct RenderBuffersInfoData render_pass;
+  struct ShadowSceneData shadow;
+  struct SubsurfaceData subsurface;
+  struct VolumesInfoData volumes;
+  struct PipelineInfoData pipeline;
 };
-BLI_STATIC_ASSERT_ALIGN(UniformData, 16)
 
 /**
  * World space clip plane equation. Used to render planar light-probes.
  * Moved here to avoid dependencies to light-probe just for this. */
-struct ClipPlaneData {
+struct [[host_shared]] ClipPlaneData {
   float4 plane;
 };
-BLI_STATIC_ASSERT_ALIGN(ClipPlaneData, 16)
 
 #ifndef GPU_SHADER
 }  // namespace blender::eevee

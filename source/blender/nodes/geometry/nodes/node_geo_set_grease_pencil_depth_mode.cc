@@ -22,15 +22,15 @@ static void node_declare(NodeDeclarationBuilder &b)
   b.use_custom_socket_order();
   b.allow_any_socket_order();
   b.add_default_layout();
-  b.add_input<decl::Geometry>("Grease Pencil")
+  b.add_input<decl::Geometry>("Grease Pencil"_ustr)
       .supported_type(GeometryComponent::Type::GreasePencil)
       .description("Grease Pencil to set the depth order of");
-  b.add_output<decl::Geometry>("Grease Pencil").propagate_all().align_with_previous();
+  b.add_output<decl::Geometry>("Grease Pencil"_ustr).propagate_all().align_with_previous();
 }
 
-static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
+static void node_layout(ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  layout->prop(ptr, "depth_order", UI_ITEM_NONE, "", ICON_NONE);
+  layout.prop(ptr, "depth_order", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
@@ -40,7 +40,7 @@ static void node_init(bNodeTree * /*tree*/, bNode *node)
 
 static void node_geo_exec(GeoNodeExecParams params)
 {
-  GeometrySet geometry_set = params.extract_input<GeometrySet>("Grease Pencil");
+  GeometrySet geometry_set = params.extract_input<GeometrySet>("Grease Pencil"_ustr);
 
   geometry::foreach_real_geometry(geometry_set, [&](GeometrySet &geometry) {
     if (GreasePencil *grease_pencil = geometry.get_grease_pencil_for_write()) {
@@ -50,7 +50,7 @@ static void node_geo_exec(GeoNodeExecParams params)
     }
   });
 
-  params.set_output("Grease Pencil", std::move(geometry_set));
+  params.set_output("Grease Pencil"_ustr, std::move(geometry_set));
 }
 
 static void node_rna(StructRNA *srna)
@@ -65,7 +65,7 @@ static void node_rna(StructRNA *srna)
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
 
   geo_node_type_base(&ntype, "GeometryNodeSetGreasePencilDepth");
   ntype.ui_name = "Set Grease Pencil Depth";
@@ -76,7 +76,7 @@ static void node_register()
   ntype.initfunc = node_init;
   ntype.draw_buttons = node_layout;
   bke::node_type_size(ntype, 180, 120, NODE_DEFAULT_MAX_WIDTH);
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 
   node_rna(ntype.rna_ext.srna);
 }

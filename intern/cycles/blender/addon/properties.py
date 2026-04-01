@@ -74,41 +74,41 @@ def enum_sampling_pattern(self, context):
 
     items = [
         ('AUTOMATIC',
-         "Automatic",
-         "Use a blue-noise sampling pattern, which optimizes the frequency distribution of noise, for random sampling. For viewport rendering, optimize first sample quality for interactive preview",
+         n_("Automatic"),
+         n_("Use a blue-noise sampling pattern, which optimizes the frequency distribution of noise, for random sampling. For viewport rendering, optimize first sample quality for interactive preview"),
          5)]
 
     debug_items = [
         ('SOBOL_BURLEY',
-         "Sobol-Burley",
-         "Use on-the-fly computed Owen-scrambled Sobol for random sampling",
+         n_("Sobol-Burley"),
+         n_("Use on-the-fly computed Owen-scrambled Sobol for random sampling"),
          0),
         ('TABULATED_SOBOL',
-         "Tabulated Sobol",
-         "Use pre-computed tables of Owen-scrambled Sobol for random sampling",
+         n_("Tabulated Sobol"),
+         n_("Use pre-computed tables of Owen-scrambled Sobol for random sampling"),
          1),
         ('BLUE_NOISE',
-         "Blue-Noise (pure)",
-         "Use a blue-noise pattern, which optimizes the frequency distribution of noise, for random sampling",
+         n_("Blue-Noise (pure)"),
+         n_("Use a blue-noise pattern, which optimizes the frequency distribution of noise, for random sampling"),
          2),
         ('BLUE_NOISE_FIRST',
-         "Blue-Noise (first)",
-         "Use a blue-noise pattern for the first sample, then use Tabulated Sobol for the remaining samples, for random sampling",
+         n_("Blue-Noise (first)"),
+         n_("Use a blue-noise pattern for the first sample, then use Tabulated Sobol for the remaining samples, for random sampling"),
          3),
         ('BLUE_NOISE_ROUND',
-         "Blue-Noise (round)",
-         "Use a blue-noise sequence with a length rounded up to the next power of 2, for random sampling",
+         n_("Blue-Noise (round)"),
+         n_("Use a blue-noise sequence with a length rounded up to the next power of 2, for random sampling"),
          4),
     ]
 
     non_debug_items = [
         ('TABULATED_SOBOL',
-         "Classic",
-         "Use pre-computed tables of Owen-scrambled Sobol for random sampling",
+         n_("Classic"),
+         n_("Use pre-computed tables of Owen-scrambled Sobol for random sampling"),
          1),
         ('BLUE_NOISE',
-         "Blue-Noise",
-         "Use a blue-noise pattern, which optimizes the frequency distribution of noise, for random sampling",
+         n_("Blue-Noise"),
+         n_("Use a blue-noise pattern, which optimizes the frequency distribution of noise, for random sampling"),
          2),
     ]
 
@@ -161,7 +161,7 @@ enum_volume_interpolation = (
 enum_world_mis = (
     ('NONE',
      "None",
-     "Don't sample the background, faster but might cause noise for non-solid backgrounds"),
+     "Do not sample the background, faster but might cause noise for non-solid backgrounds"),
     ('AUTOMATIC',
      "Auto",
      "Automatically try to determine the best setting"),
@@ -178,16 +178,6 @@ enum_device_type = (
     ('ONEAPI', "oneAPI", "oneAPI", 6)
 )
 
-enum_texture_limit = (
-    ('OFF', "No Limit", "No texture size limit", 0),
-    ('128', "128", "Limit texture size to 128 pixels", 1),
-    ('256', "256", "Limit texture size to 256 pixels", 2),
-    ('512', "512", "Limit texture size to 512 pixels", 3),
-    ('1024', "1024", "Limit texture size to 1024 pixels", 4),
-    ('2048', "2048", "Limit texture size to 2048 pixels", 5),
-    ('4096', "4096", "Limit texture size to 4096 pixels", 6),
-    ('8192', "8192", "Limit texture size to 8192 pixels", 7),
-)
 
 enum_fast_gi_method = (
     ('REPLACE', "Replace", "Replace global illumination with ambient occlusion after a specified number of bounces"),
@@ -230,7 +220,9 @@ enum_view3d_shading_render_pass = (
     ('UV', "UV", "Show the UV render pass"),
     ('MIST', "Mist", "Show the Mist render pass"),
     ('DENOISING_ALBEDO', "Denoising Albedo", "Albedo pass used by denoiser"),
+    ('DENOISING_SPECULAR_ALBEDO', "Denoising Specular Albedo", "Specular albedo pass used by denoiser"),
     ('DENOISING_NORMAL', "Denoising Normal", "Normal pass used by denoiser"),
+    ('DENOISING_ROUGHNESS', "Denoising Roughness", "Roughness pass used by denoiser"),
     ('SAMPLE_COUNT', "Sample Count", "Per-pixel number of samples"),
 )
 
@@ -271,7 +263,7 @@ def enum_openimagedenoise_denoiser(self, context):
 
 
 def enum_optix_denoiser(self, context):
-    if not context or bool(context.preferences.addons[__package__].preferences.get_device_list('OPTIX')):
+    if not context or bool(context.preferences.addons[__package__].preferences.get_devices_for_type('OPTIX')):
         return [('OPTIX', "OptiX", n_(
             "Use the OptiX AI denoiser with GPU acceleration, only available on NVIDIA GPUs when configured in the system tab in the user preferences"), 2)]
     return []
@@ -304,7 +296,7 @@ def enum_denoiser(self, context):
 
 
 enum_denoising_input_passes = (
-    ('RGB', "None", "Don't use utility passes for denoising", 1),
+    ('RGB', "None", "Do not use utility passes for denoising", 1),
     ('RGB_ALBEDO', "Albedo", "Use albedo pass for denoising", 2),
     ('RGB_ALBEDO_NORMAL', "Albedo and Normal", "Use albedo and normal passes for denoising", 3),
 )
@@ -383,6 +375,7 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
         description="Device to use for rendering",
         items=enum_devices,
         default='CPU',
+        update=update_render_passes,
     )
     shading_system: BoolProperty(
         name="Open Shading Language",
@@ -660,6 +653,7 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
         "learns the light distribution of the scene and guides path into directions "
         "with high direct and indirect light contributions",
         default=False,
+        update=update_render_passes,
     )
 
     use_deterministic_guiding: BoolProperty(
@@ -1005,18 +999,20 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
         subtype='FACTOR',
     )
 
-    texture_limit: EnumProperty(
-        name="Viewport Texture Limit",
-        default='OFF',
-        description="Limit texture size used by viewport rendering",
-        items=enum_texture_limit
+    texture_resolution: FloatProperty(
+        name="Viewport Texture Resolution",
+        default=1.0,
+        description="Scale factor for texture resolution used by viewport rendering",
+        min=0.00001, max=1.0,
+        subtype='FACTOR',
     )
 
-    texture_limit_render: EnumProperty(
-        name="Render Texture Limit",
-        default='OFF',
-        description="Limit texture size used by final rendering",
-        items=enum_texture_limit
+    texture_resolution_render: FloatProperty(
+        name="Render Texture Resolution",
+        default=1.0,
+        description="Scale factor for texture resolution used by final rendering",
+        min=0.0, max=1.0,
+        subtype='FACTOR',
     )
 
     use_fast_gi: BoolProperty(
@@ -1486,7 +1482,7 @@ class CyclesRenderLayerSettings(bpy.types.PropertyGroup):
     )
     pass_render_time: BoolProperty(
         name="Render Time",
-        description="Pass containing an estimate for how long each pixel took to render",
+        description="Reports time per pixel in milliseconds. Supported only on CPU render devices",
         default=False,
         update=update_render_passes,
     )
@@ -1623,10 +1619,9 @@ class CyclesPreferences(bpy.types.AddonPreferences):
     )
 
     use_hiprt: BoolProperty(
-        name="HIP RT (Unstable)",
-        description="HIP RT enables AMD hardware ray tracing on RDNA2 and above. This currently has known stability "
-        "issues, that are expected to be solved before the next release.",
-        default=False,
+        name="HIP RT",
+        description="HIP RT enables AMD hardware ray tracing on RDNA2 and above",
+        default=True,
     )
 
     use_oneapirt: BoolProperty(
@@ -1823,8 +1818,8 @@ class CyclesPreferences(bpy.types.AddonPreferences):
             elif device_type == 'HIP':
                 import sys
                 if sys.platform[:3] == "win":
-                    adrenalin_driver_version = "24.6.1"
-                    pro_driver_version = "24.Q2"
+                    adrenalin_driver_version = "24.9.1"
+                    pro_driver_version = "24.Q4"
                     col.label(
                         text=rpt_("Requires AMD GPU with RDNA architecture"),
                         icon='BLANK1',
@@ -1834,22 +1829,34 @@ class CyclesPreferences(bpy.types.AddonPreferences):
                     col.label(text=rpt_("or AMD Radeon Pro %s driver or newer") %
                               pro_driver_version, icon='BLANK1', translate=False)
                 elif sys.platform.startswith("linux"):
+                    rocm_version = "6.0"
                     driver_version = "23.40"
                     col.label(
                         text=rpt_("Requires AMD GPU with RDNA architecture"),
                         icon='BLANK1',
                         translate=False)
-                    col.label(text=rpt_("and AMD driver version %s or newer") % driver_version, icon='BLANK1',
-                              translate=False)
+                    col.label(
+                        text=rpt_("and ROCm HIP Runtime %s or newer") %
+                        rocm_version, icon='BLANK1', translate=False)
+                    col.label(text=rpt_("or AMD driver version %s or newer") %
+                              driver_version, icon='BLANK1', translate=False)
             elif device_type == 'ONEAPI':
                 import sys
                 if sys.platform.startswith("win"):
-                    driver_version = "XX.X.101.6557"
+                    # NOTE(@sirgienko)
+                    # We need NEO driver version 35716 or higher, see oneapi/device_impl.cpp for more details.
+                    # The minimal version for Intel® Arc™ GPUs is driver 101.8331
+                    # The minimal version for Intel® Arc™ Pro GPUs is driver 101.8306
+                    # The previous driver version for Intel® Arc™ GPUs, before 101.8331, was driver 101.8250
+                    # and no intermediate versions were publicly available between 8250 and 8331 for Intel® Arc™ GPUs.
+                    # As a result, we can safely recommend users to use driver version 8306 or higher, without needing
+                    # to distinguish between Intel® Arc™ and Intel® Arc™ Pro users.
+                    driver_version = "XX.X.101.8306"
                     col.label(text=rpt_("Requires Intel GPU with Xe-HPG architecture"), icon='BLANK1', translate=False)
                     col.label(text=rpt_("and Windows driver version %s or newer") % driver_version,
                               icon='BLANK1', translate=False)
                 elif sys.platform.startswith("linux"):
-                    driver_version = "XX.XX.31740.15"
+                    driver_version = "XX.XX.34666.3"
                     col.label(
                         text=rpt_("Requires Intel GPU with Xe-HPG architecture and"),
                         icon='BLANK1',

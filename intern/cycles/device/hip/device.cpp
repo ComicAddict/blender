@@ -62,9 +62,8 @@ bool device_hip_init()
       LOG_WARNING << "HIPEW initialization failed: Error setting up atexit() handler";
     }
     else if (hipew_result == HIPEW_ERROR_OLD_DRIVER) {
-      LOG_WARNING
-          << "HIPEW initialization failed: Driver version too old, requires AMD Radeon Pro "
-             "24.Q2 driver or newer";
+      LOG_WARNING << "HIPEW initialization failed: Driver version too old, requires AMD Adrenalin "
+                     "driver 24.9.1 or newer, or AMD Radeon Pro driver 24.Q4 or newer";
     }
     else {
       LOG_WARNING << "HIPEW initialization failed: Error opening HIP dynamic library";
@@ -142,7 +141,7 @@ void device_hip_info(vector<DeviceInfo> &devices)
   }
 
 #  ifdef WITH_HIPRT
-  const bool has_hardware_raytracing = hiprtewInit();
+  const bool has_hardware_raytracing = HIPRTDevice::is_supported();
 #  else
   const bool has_hardware_raytracing = false;
 #  endif

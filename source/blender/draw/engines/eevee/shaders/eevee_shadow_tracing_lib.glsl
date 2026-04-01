@@ -8,7 +8,8 @@
  * Evaluate shadowing using shadow map ray-tracing.
  */
 
-#include "infos/eevee_shadow_infos.hh"
+#include "infos/eevee_shadow_pipeline_infos.hh"
+#include "infos/eevee_uniform_infos.hh"
 
 SHADER_LIBRARY_CREATE_INFO(eevee_global_ubo)
 SHADER_LIBRARY_CREATE_INFO(eevee_shadow_data)
@@ -70,7 +71,7 @@ struct ShadowTracingSample {
  * This reverse tracing allows to approximate the geometry behind occluders while minimizing
  * light-leaks.
  */
-void shadow_map_trace_hit_check(inout ShadowMapTracingState state,
+void shadow_map_trace_hit_check(ShadowMapTracingState &state,
                                 ShadowTracingSample samp,
                                 bool is_last_sample)
 {
@@ -148,20 +149,22 @@ struct ShadowRayDirectional {
 };
 
 /* `lP` is supposed to be in light rotated space. But not translated. */
-ShadowRayDirectional shadow_ray_generate_directional(
-    LightData light, float2 random_2d, float3 lP, float3 lNg, float texel_radius)
+ShadowRayDirectional shadow_ray_generate_directional(LightData light,
+                                                     float2 random_2d,
+                                                     float3 lP,
+                                                     float texel_radius)
 {
   float clip_near = orderedIntBitsToFloat(light.clip_near);
   /* Assumed to be non-null. */
   float dist_to_near_plane = -lP.z - clip_near;
   /* Trace in a radius that is covered by low resolution page inflation. */
   float max_tracing_distance = texel_radius * float(SHADOW_PAGE_RES << SHADOW_TILEMAP_LOD);
-  /* TODO(fclem): Remove atan here. We only need the cosine of the angle. */
-  float max_tracing_angle = atan_fast(max_tracing_distance / dist_to_near_plane);
-  float shadow_angle = min(light_sun_data_get(light).shadow_angle, max_tracing_angle);
+  float max_tracing_angle_cos = cos_from_tan(max_tracing_distance / dist_to_near_plane);
+  /* Taking max of cosines to get the minimum of the angles. */
+  float shadow_angle_cos = max(light.sun().shadow_angle_cos, max_tracing_angle_cos);
 
   /* Light shape is 1 unit away from the shading point. */
-  float3 direction = sample_uniform_cone(random_2d, cos(shadow_angle));
+  float3 direction = sample_uniform_cone(random_2d, shadow_angle_cos);
 
   /* It only make sense to trace where there can be occluder. Clamp by distance to near plane. */
   direction *= max(texel_radius, dist_to_near_plane / direction.z);
@@ -176,8 +179,7 @@ ShadowRayDirectional shadow_ray_generate_directional(
   return ray;
 }
 
-ShadowTracingSample shadow_map_trace_sample(ShadowMapTracingState state,
-                                            inout ShadowRayDirectional ray)
+ShadowTracingSample shadow_map_trace_sample(ShadowMapTracingState state, ShadowRayDirectional &ray)
 {
   /* Ray position is ray local position with origin at light origin. */
   float3 ray_pos = ray.origin + ray.direction * state.ray_time;
@@ -218,10 +220,7 @@ struct ShadowRayPunctual {
 };
 
 /* Return ray in UV clip space [0..1]. */
-ShadowRayPunctual shadow_ray_generate_punctual(LightData light,
-                                               float2 random_2d,
-                                               float3 lP,
-                                               float3 lNg)
+ShadowRayPunctual shadow_ray_generate_punctual(LightData light, float2 random_2d, float3 lP)
 {
   if (light.type == LIGHT_RECT) {
     random_2d = random_2d * 2.0f - 1.0f;
@@ -231,14 +230,14 @@ ShadowRayPunctual shadow_ray_generate_punctual(LightData light,
   }
 
   float clip_near = intBitsToFloat(light.clip_near);
-  float shape_radius = light_spot_data_get(light).shadow_radius;
+  float shape_radius = light.spot().local.shadow_radius;
   /* Clamp to a minimum value to avoid `local_ray_up` being degenerate. Could be revisited as the
    * issue might reappear at different zoom level. */
   shape_radius = max(0.00002f, shape_radius);
 
   float3 direction;
   if (is_area_light(light.type)) {
-    random_2d *= light_area_data_get(light).size * light_area_data_get(light).shadow_scale;
+    random_2d *= light.area().size * light.area().shadow_scale;
 
     float3 point_on_light_shape = float3(random_2d, 0.0f);
 
@@ -260,7 +259,7 @@ ShadowRayPunctual shadow_ray_generate_punctual(LightData light,
 
     direction = point_on_light_shape - lP;
   }
-  float3 shadow_position = light_local_data_get(light).shadow_position;
+  float3 shadow_position = light.local().local.shadow_position;
   /* Clip the ray to not cross the near plane.
    * Avoid traces that starts on tiles that have not been queried, creating noise. */
   float clip_distance = length(lP - shadow_position) - clip_near;
@@ -278,8 +277,7 @@ ShadowRayPunctual shadow_ray_generate_punctual(LightData light,
   return ray;
 }
 
-ShadowTracingSample shadow_map_trace_sample(ShadowMapTracingState state,
-                                            inout ShadowRayPunctual ray)
+ShadowTracingSample shadow_map_trace_sample(ShadowMapTracingState state, ShadowRayPunctual &ray)
 {
   float3 receiver_pos = ray.origin + ray.direction * state.ray_time;
   int face_id = shadow_punctual_face_index_get(receiver_pos);
@@ -344,7 +342,7 @@ float shadow_texel_radius_at_position(LightData light, const bool is_directional
   if (is_directional) {
     float3 lP = transform_direction_transposed(light.object_to_world, P);
     lP -= light_position_get(light);
-    LightSunData sun = light_sun_data_get(light);
+    LightSunData sun = light.sun();
     if (light.type == LIGHT_SUN) {
       /* Simplification of `coverage_get(shadow_directional_level_fractional)`.
        * Do not apply the narrowing since we want the size of the tilemap (not its application
@@ -357,12 +355,12 @@ float shadow_texel_radius_at_position(LightData light, const bool is_directional
       /* Uniform distribution everywhere. No distance scaling.
        * shadow_directional_level_fractional returns the cascade level, but all levels have the
        * same density as the level 0. So the effective density only depends on the `lod_bias`. */
-      scale = exp2(float(light_sun_data_get(light).clipmap_lod_min));
+      scale = exp2(float(sun.clipmap_lod_min));
     }
   }
   else {
     float3 lP = light_world_to_local_point(light, P);
-    lP -= light_local_data_get(light).shadow_position;
+    lP -= light.local().local.shadow_position;
     /* Simplification of `exp2(shadow_punctual_level_fractional)`. */
     scale = shadow_punctual_pixel_ratio(light,
                                         lP,
@@ -429,7 +427,7 @@ float shadow_eval(LightData light,
                   const bool is_directional,
                   const bool is_transmission,
                   bool is_translucent_with_thickness,
-                  float thickness, /* Only used if is_transmission is true. */
+                  Thickness thickness, /* Only used if is_transmission is true. */
                   float3 P,
                   float3 Ng,
                   float3 N,
@@ -458,7 +456,7 @@ float shadow_eval(LightData light,
     L = light_z_axis(light);
   }
   else {
-    L = light_position_get(light) + light_local_data_get(light).shadow_position - P;
+    L = light_position_get(light) + light.local().local.shadow_position - P;
     L = normalize_and_get_length(L, distance_to_shadow);
   }
 
@@ -473,7 +471,9 @@ float shadow_eval(LightData light,
     /* Ideally, we should bias using the chosen ray direction. In practice, this conflict with our
      * shadow tile usage tagging system as the sampling position becomes heavily shifted from the
      * tagging position. This is the same thing happening with missing tiles with large radii. */
-    P += abs(is_directional ? thickness : min(thickness, distance_to_shadow - 0.01f)) * L;
+    P += abs(is_directional ? thickness.value() :
+                              min(thickness.value(), distance_to_shadow - 0.01f)) *
+         L;
   }
   /* Avoid self intersection with respect to numerical precision. */
   P = offset_ray(P, N_bias);
@@ -500,11 +500,11 @@ float shadow_eval(LightData light,
     bool has_hit;
     if (is_directional) {
       ShadowRayDirectional clip_ray = shadow_ray_generate_directional(
-          light, random_ray_2d, lP, lNg, texel_radius);
+          light, random_ray_2d, lP, texel_radius);
       has_hit = shadow_map_trace(clip_ray, ray_step_count, random_shadow_3d.z);
     }
     else {
-      ShadowRayPunctual clip_ray = shadow_ray_generate_punctual(light, random_ray_2d, lP, lNg);
+      ShadowRayPunctual clip_ray = shadow_ray_generate_punctual(light, random_ray_2d, lP);
       has_hit = shadow_map_trace(clip_ray, ray_step_count, random_shadow_3d.z);
     }
 

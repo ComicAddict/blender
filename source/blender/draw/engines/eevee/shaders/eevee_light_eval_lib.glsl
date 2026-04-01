@@ -36,6 +36,10 @@ SHADER_LIBRARY_CREATE_INFO(eevee_light_data)
 #  define PIXEL float2(0)
 #endif
 
+#ifdef GLSL_CPP_STUBS
+#  define LIGHT_CLOSURE_EVAL_COUNT 3
+#endif
+
 #if !defined(LIGHT_CLOSURE_EVAL_COUNT)
 #  define LIGHT_CLOSURE_EVAL_COUNT 1
 #  define SKIP_LIGHT_EVAL
@@ -67,7 +71,7 @@ ClosureLight closure_light_get(ClosureLightStack stack, uchar index)
   return closure_null;
 }
 
-void closure_light_set(inout ClosureLightStack stack, uchar index, ClosureLight cl_light)
+void closure_light_set(ClosureLightStack &stack, uchar index, ClosureLight cl_light)
 {
   switch (index) {
     case 0:
@@ -100,13 +104,8 @@ bool light_linking_affects_receiver(uint2 light_set_membership, uchar receiver_l
   return bitmask64_test(light_set_membership, receiver_light_set);
 }
 
-void light_eval_single_closure(LightData light,
-                               LightVector lv,
-                               inout ClosureLight cl,
-                               float3 V,
-                               float attenuation,
-                               float shadow,
-                               const bool is_transmission)
+void light_eval_single_closure(
+    LightData light, LightVector lv, ClosureLight &cl, float3 V, float attenuation, float shadow)
 {
   attenuation *= light_power_get(light, cl.type);
   if (attenuation < 1e-30f) {
@@ -122,11 +121,11 @@ void light_eval_single_closure(LightData light,
 void light_eval_single(uint l_idx,
                        const bool is_directional,
                        const bool is_transmission,
-                       inout ClosureLightStack stack,
+                       ClosureLightStack &stack,
                        float3 P,
                        float3 Ng,
                        float3 V,
-                       float thickness,
+                       Thickness thickness,
                        uchar receiver_light_set,
                        float terminator_normal_offset,
                        float terminator_geometry_offset)
@@ -187,13 +186,13 @@ void light_eval_single(uint l_idx,
     attenuation *= M_1_PI;
   }
 
-  light_eval_single_closure(light, lv, stack.cl[0], V, attenuation, shadow, is_transmission);
+  light_eval_single_closure(light, lv, stack.cl[0], V, attenuation, shadow);
   if (!is_transmission) {
 #if LIGHT_CLOSURE_EVAL_COUNT > 1
-    light_eval_single_closure(light, lv, stack.cl[1], V, attenuation, shadow, is_transmission);
+    light_eval_single_closure(light, lv, stack.cl[1], V, attenuation, shadow);
 #endif
 #if LIGHT_CLOSURE_EVAL_COUNT > 2
-    light_eval_single_closure(light, lv, stack.cl[2], V, attenuation, shadow, is_transmission);
+    light_eval_single_closure(light, lv, stack.cl[2], V, attenuation, shadow);
 #endif
 #if LIGHT_CLOSURE_EVAL_COUNT > 3
 #  error
@@ -201,12 +200,12 @@ void light_eval_single(uint l_idx,
   }
 }
 
-void light_eval_transmission(inout ClosureLightStack stack,
+void light_eval_transmission(ClosureLightStack &stack,
                              float3 P,
                              float3 Ng,
                              float3 V,
-                             float vPz,
-                             float thickness,
+                             [[maybe_unused]] float vPz,
+                             Thickness thickness,
                              uchar receiver_light_set,
                              float terminator_normal_offset,
                              float terminator_geometry_offset)
@@ -246,11 +245,11 @@ void light_eval_transmission(inout ClosureLightStack stack,
   LIGHT_FOREACH_END
 }
 
-void light_eval_reflection(inout ClosureLightStack stack,
+void light_eval_reflection(ClosureLightStack &stack,
                            float3 P,
                            float3 Ng,
                            float3 V,
-                           float vPz,
+                           [[maybe_unused]] float vPz,
                            uchar receiver_light_set,
                            float terminator_normal_offset,
                            float terminator_geometry_offset)
@@ -267,7 +266,7 @@ void light_eval_reflection(inout ClosureLightStack stack,
                       P,
                       Ng,
                       V,
-                      0.0f,
+                      Thickness::zero(),
                       receiver_light_set,
                       terminator_normal_offset,
                       terminator_geometry_offset);
@@ -282,7 +281,7 @@ void light_eval_reflection(inout ClosureLightStack stack,
                       P,
                       Ng,
                       V,
-                      0.0f,
+                      Thickness::zero(),
                       receiver_light_set,
                       terminator_normal_offset,
                       terminator_geometry_offset);

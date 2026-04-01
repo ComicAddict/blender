@@ -2,6 +2,10 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
+#include "infos/compositor_lens_distortion_infos.hh"
+
+COMPUTE_SHADER_CREATE_INFO(compositor_radial_lens_distortion)
+
 #include "gpu_shader_common_hash.glsl"
 #include "gpu_shader_compositor_texture_utilities.glsl"
 
@@ -73,7 +77,7 @@ int4 compute_number_of_integration_steps(float2 uv, float distance_squared)
 
 /* Returns a random jitter amount, which is essentially a random value in the [0, 1] range. If
  * jitter is not enabled, return a constant 0.5 value instead. */
-float get_jitter(int seed)
+float get_jitter([[maybe_unused]] int seed)
 {
 #if defined(JITTER)
   return hash_uint3_to_float(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, seed);

@@ -6,10 +6,12 @@
 #include "DNA_listBase.h"
 
 #include "BLI_compiler_attrs.h"
+#include "BLI_enum_flags.hh"
 #include "BLI_math_vector_types.hh"
 #include "BLI_sys_types.h"
-#include "BLI_utildefines.h"
 #include "BLI_utility_mixins.hh"
+struct BlendHandle;
+namespace blender {
 
 /** \file
  * \ingroup blenloader
@@ -19,14 +21,12 @@
 struct AssetMetaData;
 struct BHead;
 struct BlendfileLinkAppendContext;
-struct BlendHandle;
 struct BlendThumbnail;
 struct FileData;
 struct FileReader;
 struct ID;
 struct Library;
 struct LinkNode;
-struct ListBase;
 struct Main;
 struct MemFile;
 struct PreviewImage;
@@ -42,7 +42,7 @@ struct wmWindowManager;
 struct WorkspaceConfigFileData {
   Main *main; /* has to be freed when done reading file data */
 
-  ListBase workspaces;
+  ListBaseT<WorkSpace> workspaces;
 };
 
 /* -------------------------------------------------------------------- */
@@ -57,7 +57,7 @@ enum eBlenFileType {
   // BLENFILETYPE_RUNTIME = 3, /* UNUSED */
 };
 
-struct BlendFileData : blender::NonCopyable, blender::NonMovable {
+struct BlendFileData : NonCopyable, NonMovable {
   Main *main = nullptr;
   UserDef *user = nullptr;
 
@@ -160,7 +160,7 @@ enum eBLOReadSkip {
   /** Do not attempt to re-use IDs from old bmain for unchanged ones in case of undo. */
   BLO_READ_SKIP_UNDO_OLD_MAIN = (1 << 2),
 };
-ENUM_OPERATORS(eBLOReadSkip, BLO_READ_SKIP_UNDO_OLD_MAIN)
+ENUM_OPERATORS(eBLOReadSkip)
 #define BLO_READ_SKIP_ALL (BLO_READ_SKIP_USERDEF | BLO_READ_SKIP_DATA)
 
 /**
@@ -231,18 +231,18 @@ void BLO_read_do_version_after_setup(Main *new_bmain,
  * \{ */
 
 struct BLODataBlockInfo {
-  char name[/*MAX_ID_NAME-2*/ 256];
-  AssetMetaData *asset_data;
+  char name[/*MAX_ID_NAME-2*/ 256] = "";
+  AssetMetaData *asset_data = nullptr;
   /** Ownership over #asset_data above can be "stolen out" of this struct, for more permanent
    * storage. In that case, set this to false to avoid double freeing of the stolen data. */
-  bool free_asset_data;
+  bool free_asset_data = false;
   /**
    * Optimization: Tag data-blocks for which we know there is no preview.
    * Knowing this can be used to skip the (potentially expensive) preview loading process. If this
    * is set to true it means we looked for a preview and couldn't find one. False may mean that
    * either no preview was found, or that it wasn't looked for in the first place.
    */
-  bool no_preview_found;
+  bool no_preview_found = false;
 };
 
 /**
@@ -274,7 +274,7 @@ BlendHandle *BLO_blendhandle_from_memory(const void *mem,
                                          BlendFileReadReport *reports);
 
 /** Returns the major and minor version number of Blender used to create the file. */
-blender::int3 BLO_blendhandle_get_version(const BlendHandle *bh);
+int3 BLO_blendhandle_get_version(const BlendHandle *bh);
 
 /**
  * Gets the names of all the data-blocks in a file of a certain type
@@ -284,7 +284,7 @@ blender::int3 BLO_blendhandle_get_version(const BlendHandle *bh);
  * \param ofblocktype: The type of names to get.
  * \param use_assets_only: Only list IDs marked as assets.
  * \param r_tot_names: The length of the returned list.
- * \return A BLI_linklist of strings. The string links should be freed with #MEM_freeN().
+ * \return A BLI_linklist of strings. The string links should be freed with #MEM_delete().
  */
 LinkNode *BLO_blendhandle_get_datablock_names(BlendHandle *bh,
                                               int ofblocktype,
@@ -326,7 +326,7 @@ PreviewImage *BLO_blendhandle_get_preview_for_id(BlendHandle *bh,
  * (e.g. "Scene", "Mesh", "Light", etc.).
  *
  * \param bh: The blendhandle to access.
- * \return A BLI_linklist of strings. The string links should be freed with #MEM_freeN().
+ * \return A BLI_linklist of strings. The string links should be freed with #MEM_delete().
  */
 LinkNode *BLO_blendhandle_get_linkable_groups(BlendHandle *bh);
 
@@ -575,6 +575,15 @@ struct ID_Readfile_Data {
      */
     bool needs_linking : 1;
 
+    /**
+     * Memfile undo only: mark IDs used by 'no undo' IDs (e.g. brush dependencies).
+     *
+     * This is currently used to ensure that all linked 'no undo' IDs are preserved and remain
+     * fully valid across undo steps (also used to tag libraries containing such no-undo linked
+     * IDs).
+     */
+    bool used_by_no_undo_id : 1;
+
     /* Specific ID-type reading/versioning related tags. */
 
     /**
@@ -591,7 +600,7 @@ struct ID_Readfile_Data {
  * Return `id->runtime->readfile_data->tags` if the `readfile_data` is allocated,
  * otherwise return an all-zero set of tags.
  */
-ID_Readfile_Data::Tags BLO_readfile_id_runtime_tags(ID &id);
+ID_Readfile_Data::Tags BLO_readfile_id_runtime_tags(const ID &id);
 
 /**
  * Create the `readfile_data` if needed, and return `id->runtime->readfile_data->tags`.
@@ -614,3 +623,5 @@ void BLO_readfile_id_runtime_data_free_all(Main &bmain);
 void BLO_readfile_id_runtime_data_free(ID &id);
 
 #define BLEN_THUMB_MEMSIZE_FILE(_x, _y) (sizeof(int) * (2 + (size_t)(_x) * (size_t)(_y)))
+
+}  // namespace blender

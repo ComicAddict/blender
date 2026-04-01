@@ -1,9 +1,9 @@
 
 msgid ""
 msgstr ""
-"Project-Id-Version: Blender 5.0.0 Alpha (b'7089def6cbcb')\n"
+"Project-Id-Version: Blender 5.2.0 Alpha (b'227100a72567')\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-09-29 09:33+0000\n"
+"POT-Creation-Date: 2026-03-30 09:56+0000\n"
 "PO-Revision-Date: 2025-08-02 18:59+0000\n"
 "Last-Translator: Sarath Geeth <sarathgeeth@gmail.com>\n"
 "Language-Team: Malayalam <https://translate.blender.org/projects/blender-ui/ui/ml/>\n"
@@ -105,14 +105,6 @@ msgstr "സ്ലോട്ടുകൾക്കായുള്ള ആനിമ�
 
 msgid "For each action slot, a list of animation channels that are meant for that slot"
 msgstr "ഓരോ ആക്ഷൻ സ്ലോട്ടിനും, അതിന്റെതായ അനിമേഷൻ ചാനലുകളുടെ ലിസ്റ്റ് ഉണ്ട്"
-
-
-msgid "Action F-Curves"
-msgstr "ആക്ഷൻ F-കർവുകൾ"
-
-
-msgid "Collection of action F-Curves. Note that this is a legacy API that is unaware of action slots, and will only consider the F-Curves for this action's first slot"
-msgstr "ആക്ഷൻ F-കർവുകളുടെ ശേഖരം. ശ്രദ്ധിക്കുക, ഇത് ആക്ഷൻ സ്ലോട്ടുകൾ ഉൾപ്പെടാത്ത പഴയ API ആണ് ,അതുകൊണ്ട് ആക്ഷന്റെ ആദ്യത്തെ സ്ലോട്ടിലുള്ള F-കർവുകളെ മാത്രമേ ഇത് പരിഗണിക്കു"
 
 
 msgid "Action Group"
@@ -281,14 +273,6 @@ msgstr "ആക്ഷൻ ഗ്രൂപ്പ് ഗ്രാഫ് എഡിറ
 
 msgid "Pin in Graph Editor"
 msgstr "ഗ്രാഫ് എഡിറ്ററിൽ പിൻ ചെയ്യുക"
-
-
-msgid "Action Groups"
-msgstr "ആക്ഷൻ ഗ്രൂപ്പുകൾ"
-
-
-msgid "Collection of action groups"
-msgstr "ആക്ഷൻ ഗ്രൂപ്പുകളുടെ ശേഖരം"
 
 
 msgid "Action Layer"

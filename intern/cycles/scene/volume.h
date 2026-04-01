@@ -17,12 +17,6 @@ CCL_NAMESPACE_BEGIN
 class Object;
 class Octree;
 
-enum VolumeRenderingAlgorithm {
-  NULL_SCATTERING,
-  RAY_MARCHING,
-  NONE,
-};
-
 class Volume : public Mesh {
  public:
   NODE_DECLARE
@@ -50,12 +44,15 @@ class VolumeManager {
   /* Tag volume octree for update when scene changes. */
   void tag_update();
   void tag_update(const Shader *shader);
-  void tag_update(const Object *object, const uint32_t flag);
-  void tag_update(const Geometry *geometry);
+  void tag_update(const set<Object *> &objects, const uint32_t flag);
+  void tag_update(const set<Geometry *> &geometry);
   void tag_update_indices();
+  void tag_update_algorithm();
 
   /* Check whether the shader is a homogeneous volume. */
   static bool is_homogeneous_volume(const Object *, const Shader *);
+
+  bool need_update_step_size;
 
  private:
   /* Initialize octrees from the volumes in the scene. */
@@ -75,23 +72,25 @@ class VolumeManager {
   int num_octree_nodes() const;
   int num_octree_roots() const;
 
-  /* When running Blender with `--log-level debug`, an octree visualization is written to
-   * `filename`, which is a Python script that can be run inside Blender. */
+  /* When running Blender with environment variable `CYCLES_VOLUME_OCTREE_DUMP`, an octree
+   * visualization is written to `filename`, which is a Python script that can be run inside
+   * Blender. */
   std::string visualize_octree(const char *filename) const;
 
   /* Step size for ray marching. */
-  void update_step_size(const Scene *, DeviceScene *) const;
+  void update_step_size(const Scene *, DeviceScene *, Progress &progress);
 
   /* One octree per object per shader. */
   std::map<std::pair<const Object *, const Shader *>, std::shared_ptr<Octree>> object_octrees_;
 
+  /* TODO(weizhen): replace booleans with enum `update_flags`? */
   bool update_root_indices_ = false;
   bool need_rebuild_;
   bool update_visualization_ = false;
+  bool algorithm_modified_ = true;
+
   int num_octree_nodes_;
   int num_octree_roots_;
-
-  VolumeRenderingAlgorithm last_algorithm = NONE;
 
 #ifdef WITH_OPENVDB
   /* Create SDF grid for mesh volumes, to determine whether a certain point is in the

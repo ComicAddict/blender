@@ -13,6 +13,8 @@
 
 #include "GPU_material.hh"
 
+#include "COM_result.hh"
+
 #include "node_composite_util.hh"
 
 namespace blender::nodes::node_composite_alpha_over_cc {
@@ -21,41 +23,45 @@ static const EnumPropertyItem type_items[] = {
     {CMP_NODE_ALPHA_OVER_OPERATION_TYPE_OVER,
      "OVER",
      ICON_NONE,
-     "Over",
-     "The foreground goes over the background according to the alpha of the foreground"},
+     N_("Over"),
+     N_("The foreground goes over the background according to the alpha of the foreground")},
     {CMP_NODE_ALPHA_OVER_OPERATION_TYPE_DISJOINT_OVER,
      "DISJOINT_OVER",
      ICON_NONE,
-     "Disjoint Over",
-     "The foreground goes over the background according to the alpha of the foreground while "
-     "assuming the background is being held out by the foreground"},
+     N_("Disjoint Over"),
+     N_("The foreground goes over the background according to the alpha of the foreground while "
+        "assuming the background is being held out by the foreground")},
     {CMP_NODE_ALPHA_OVER_OPERATION_TYPE_CONJOINT_OVER,
      "CONJOINT_OVER",
      ICON_NONE,
-     "Conjoint Over",
-     "The foreground goes over the background according to the alpha of the foreground but the "
-     "foreground completely covers the background if it is more opaque"},
+     N_("Conjoint Over"),
+     N_("The foreground goes over the background according to the alpha of the foreground but the "
+        "foreground completely covers the background if it is more opaque")},
     {0, nullptr, 0, nullptr, nullptr},
 };
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
   b.is_function_node();
-  b.add_input<decl::Color>("Background").default_value({1.0f, 1.0f, 1.0f, 1.0f});
-  b.add_input<decl::Color>("Foreground").default_value({1.0f, 1.0f, 1.0f, 1.0f});
-  b.add_input<decl::Float>("Fac").default_value(1.0f).min(0.0f).max(1.0f).subtype(PROP_FACTOR);
-  b.add_input<decl::Menu>("Type")
+  b.add_input<decl::Color>("Background"_ustr).default_value({1.0f, 1.0f, 1.0f, 1.0f});
+  b.add_input<decl::Color>("Foreground"_ustr).default_value({1.0f, 1.0f, 1.0f, 1.0f});
+  b.add_input<decl::Float>("Factor"_ustr, "Fac"_ustr)
+      .default_value(1.0f)
+      .min(0.0f)
+      .max(1.0f)
+      .subtype(PROP_FACTOR);
+  b.add_input<decl::Menu>("Type"_ustr)
       .default_value(CMP_NODE_ALPHA_OVER_OPERATION_TYPE_OVER)
       .static_items(type_items)
       .optional_label();
-  b.add_input<decl::Bool>("Straight Alpha")
+  b.add_input<decl::Bool>("Straight Alpha"_ustr)
       .default_value(false)
       .description(
           "Defines whether the foreground is in straight alpha form, which is necessary to know "
           "for proper alpha compositing. Images in the compositor are in premultiplied alpha form "
           "by default, so this should be false in most cases. But if, and only if, the foreground "
           "was converted to straight alpha form for some reason, this should be set to true");
-  b.add_output<decl::Color>("Image");
+  b.add_output<decl::Color>("Image"_ustr);
 }
 
 static int node_gpu_material(GPUMaterial *material,
@@ -140,22 +146,27 @@ static float4 alpha_over_conjoint(const float4 &background,
   return math::interpolate(background, mix_result, factor);
 }
 
-static void node_build_multi_function(blender::nodes::NodeMultiFunctionBuilder &builder)
+using compositor::Color;
+
+static void node_build_multi_function(nodes::NodeMultiFunctionBuilder &builder)
 {
-  static auto function = mf::build::SI5_SO<float4, float4, float, MenuValue, bool, float4>(
+  static auto function = mf::build::SI5_SO<Color, Color, float, MenuValue, bool, Color>(
       "Alpha Over",
-      [=](const float4 &background,
-          const float4 &foreground,
+      [=](const Color &background,
+          const Color &foreground,
           const float factor,
           const MenuValue type,
-          const bool straight_alpha) -> float4 {
+          const bool straight_alpha) -> Color {
         switch (CMPNodeAlphaOverOperationType(type.value)) {
           case CMP_NODE_ALPHA_OVER_OPERATION_TYPE_OVER:
-            return alpha_over(background, foreground, factor, straight_alpha);
+            return Color(
+                alpha_over(float4(background), float4(foreground), factor, straight_alpha));
           case CMP_NODE_ALPHA_OVER_OPERATION_TYPE_DISJOINT_OVER:
-            return alpha_over_disjoint(background, foreground, factor, straight_alpha);
+            return Color(alpha_over_disjoint(
+                float4(background), float4(foreground), factor, straight_alpha));
           case CMP_NODE_ALPHA_OVER_OPERATION_TYPE_CONJOINT_OVER:
-            return alpha_over_conjoint(background, foreground, factor, straight_alpha);
+            return Color(alpha_over_conjoint(
+                float4(background), float4(foreground), factor, straight_alpha));
         }
         return background;
       },
@@ -164,9 +175,9 @@ static void node_build_multi_function(blender::nodes::NodeMultiFunctionBuilder &
   builder.set_matching_fn(function);
 }
 
-static void register_node_type_cmp_alphaover()
+static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
 
   cmp_node_type_base(&ntype, "CompositorNodeAlphaOver", CMP_NODE_ALPHAOVER);
   ntype.ui_name = "Alpha Over";
@@ -177,8 +188,8 @@ static void register_node_type_cmp_alphaover()
   ntype.gpu_fn = node_gpu_material;
   ntype.build_multi_function = node_build_multi_function;
 
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 }
-NOD_REGISTER_NODE(register_node_type_cmp_alphaover)
+NOD_REGISTER_NODE(node_register)
 
 }  // namespace blender::nodes::node_composite_alpha_over_cc

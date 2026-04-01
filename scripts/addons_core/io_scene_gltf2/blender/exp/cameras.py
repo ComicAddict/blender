@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import bpy
-import math
 from ...io.com import gltf2_io
 from ...blender.com.conversion import yvof_blender_to_gltf
 from ...io.exp.user_extensions import export_user_extensions
@@ -67,7 +66,8 @@ def __gather_orthographic(blender_camera, export_settings):
         scene_square = max(scene_x, scene_y)
         del _render
 
-        # `Camera().ortho_scale` (and also FOV FTR) maps to the maximum of either image width or image height— This is the box that gets shown from camera view with the checkbox `.show_sensor = True`.
+        # `Camera().ortho_scale` (and also FOV FTR) maps to the maximum of either image width or image height
+        # This is the box that gets shown from camera view with the checkbox `.show_sensor = True`.
 
         orthographic.xmag = blender_camera.ortho_scale * (scene_x / scene_square) / 2
         orthographic.ymag = blender_camera.ortho_scale * (scene_y / scene_square) / 2

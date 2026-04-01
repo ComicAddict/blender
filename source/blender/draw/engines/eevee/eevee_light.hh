@@ -86,7 +86,7 @@ struct Light : public LightData, NonCopyable {
   void sync(ShadowModule &shadows,
             float4x4 object_to_world,
             char visibility_flag,
-            const ::Light *la,
+            const blender::Light *la,
             const LightLinking *light_linking,
             float threshold);
 
@@ -96,10 +96,10 @@ struct Light : public LightData, NonCopyable {
   void debug_draw();
 
  private:
-  float shadow_lod_min_get(const ::Light *la);
-  float shadow_shape_size_get(const ::Light *la);
-  float attenuation_radius_get(const ::Light *la, float light_threshold, float light_power);
-  void shape_parameters_set(const ::Light *la,
+  float shadow_lod_min_get(const blender::Light *la);
+  float shadow_shape_size_get(const blender::Light *la);
+  float attenuation_radius_get(const blender::Light *la, float light_threshold, float light_power);
+  void shape_parameters_set(const blender::Light *la,
                             const float3 &scale,
                             const float3 &z_axis,
                             float threshold,
@@ -130,7 +130,12 @@ class LightModule {
 
   /** Map of light objects data. Converted to flat array each frame. */
   Map<ObjectKey, Light> light_map_;
-  ObjectKey world_sunlight_key;
+  /**
+   * In order to treat the world sun lights the same way as regular lights,
+   * an #ObjectKey needs to be associated to each of them.
+   * */
+  ObjectKey world_sunlight_key_[WORLD_SUN_MAX] = {ObjectKey(WORLD_SUN_DIFFUSE),
+                                                  ObjectKey(WORLD_SUN_GLOSSY)};
   /** Flat array sent to GPU, populated from light_map_. Source buffer for light culling. */
   LightDataBuf light_buf_ = {"Lights_no_cull"};
   /** Luminous intensity to consider the light boundary at. Used for culling. */
@@ -175,7 +180,7 @@ class LightModule {
   PassSimple debug_draw_ps_ = {"LightCulling.Debug"};
 
  public:
-  LightModule(Instance &inst) : inst_(inst){};
+  LightModule(Instance &inst) : inst_(inst) {};
   ~LightModule();
 
   void begin_sync();
@@ -201,6 +206,8 @@ class LightModule {
   void culling_pass_sync();
   void update_pass_sync();
   void debug_pass_sync();
+
+  void add_world_sun_light(const ObjectKey &key, bool use_diffuse, bool use_glossy);
 };
 
 /** \} */

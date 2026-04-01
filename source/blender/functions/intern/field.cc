@@ -10,11 +10,13 @@
 #include "BLI_vector_set.hh"
 
 #include "FN_field.hh"
+#include "FN_multi_function.hh"
 #include "FN_multi_function_builder.hh"
 #include "FN_multi_function_procedure.hh"
 #include "FN_multi_function_procedure_builder.hh"
 #include "FN_multi_function_procedure_executor.hh"
 #include "FN_multi_function_procedure_optimization.hh"
+#include "FN_multi_function_registry.hh"
 
 namespace blender::fn {
 
@@ -498,7 +500,8 @@ void evaluate_constant_field(const GField &field, void *r_value)
     return;
   }
 
-  ResourceScope scope;
+  AlignedBuffer<512, 64> local_buffer;
+  ResourceScope scope(local_buffer);
   FieldContext context;
   Vector<GVArray> varrays = evaluate_fields(scope, {field}, IndexRange(1), context);
   varrays[0].get_to_uninitialized(0, r_value);
@@ -519,8 +522,7 @@ GField make_field_constant_if_possible(GField field)
 
 Field<bool> invert_boolean_field(const Field<bool> &field)
 {
-  static auto not_fn = mf::build::SI1_SO<bool, bool>(
-      "Not", [](bool a) { return !a; }, mf::build::exec_presets::AllSpanOrSingle());
+  const mf::MultiFunction &not_fn = fn::multi_function::registry::lookup("!bool"_ustr);
   auto not_op = FieldOperation::from(not_fn, {field});
   return Field<bool>(not_op);
 }
@@ -540,10 +542,7 @@ GVArray FieldContext::get_varray_for_input(const FieldInput &field_input,
   return field_input.get_varray_for_context(*this, mask, scope);
 }
 
-IndexFieldInput::IndexFieldInput() : FieldInput(CPPType::get<int>(), "Index")
-{
-  category_ = Category::Generated;
-}
+IndexFieldInput::IndexFieldInput() : FieldInput(CPPType::get<int>(), "Index") {}
 
 GVArray IndexFieldInput::get_index_varray(const IndexMask &mask)
 {
@@ -695,14 +694,14 @@ FieldInput::~FieldInput() = default;
 FieldConstant::FieldConstant(const CPPType &type, const void *value)
     : FieldNode(FieldNodeType::Constant), type_(type)
 {
-  value_ = MEM_mallocN_aligned(type.size, type.alignment, __func__);
+  value_ = MEM_new_uninitialized_aligned(type.size, type.alignment, __func__);
   type.copy_construct(value, value_);
 }
 
 FieldConstant::~FieldConstant()
 {
   type_.destruct(value_);
-  MEM_freeN(value_);
+  MEM_delete_void(value_);
 }
 
 const CPPType &FieldConstant::output_cpp_type(int output_index) const
@@ -720,6 +719,25 @@ const CPPType &FieldConstant::type() const
 GPointer FieldConstant::value() const
 {
   return {type_, value_};
+}
+
+uint64_t FieldConstant::hash() const
+{
+  return type_.hash_or_fallback(value_, get_default_hash(this));
+}
+
+bool FieldConstant::is_equal_to(const FieldNode &other) const
+{
+  if (const FieldConstant *other_constant = dynamic_cast<const FieldConstant *>(&other)) {
+    if (type_ != other_constant->type_) {
+      return false;
+    }
+    if (type_.is_equal_or_false(value_, other_constant->value_)) {
+      return true;
+    }
+    return this == &other;
+  }
+  return false;
 }
 
 /** \} */

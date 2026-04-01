@@ -10,14 +10,14 @@ namespace blender::nodes::node_geo_input_curve_handles_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Bool>("Relative")
+  b.add_input<decl::Bool>("Relative"_ustr)
       .default_value(false)
       .supports_field()
       .description(
           "Output the handle positions relative to the corresponding control point "
           "instead of in the local space of the geometry");
-  b.add_output<decl::Vector>("Left").field_source_reference_all();
-  b.add_output<decl::Vector>("Right").field_source_reference_all();
+  b.add_output<decl::Vector>("Left"_ustr).field_source_reference_all();
+  b.add_output<decl::Vector>("Right"_ustr).field_source_reference_all();
 }
 
 class HandlePositionFieldInput final : public bke::GeometryFieldInput {
@@ -107,27 +107,27 @@ class HandlePositionFieldInput final : public bke::GeometryFieldInput {
 
 static void node_geo_exec(GeoNodeExecParams params)
 {
-  Field<bool> relative = params.extract_input<Field<bool>>("Relative");
+  Field<bool> relative = params.extract_input<Field<bool>>("Relative"_ustr);
   Field<float3> left_field{std::make_shared<HandlePositionFieldInput>(relative, true)};
   Field<float3> right_field{std::make_shared<HandlePositionFieldInput>(relative, false)};
 
-  params.set_output("Left", std::move(left_field));
-  params.set_output("Right", std::move(right_field));
+  params.set_output("Left"_ustr, std::move(left_field));
+  params.set_output("Right"_ustr, std::move(right_field));
 }
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
   geo_node_type_base(
       &ntype, "GeometryNodeInputCurveHandlePositions", GEO_NODE_INPUT_CURVE_HANDLES);
   ntype.ui_name = "Curve Handle Positions";
   ntype.ui_description = "Retrieve the position of each Bézier control point's handles";
   ntype.enum_name_legacy = "INPUT_CURVE_HANDLES";
   ntype.nclass = NODE_CLASS_INPUT;
-  blender::bke::node_type_size_preset(ntype, blender::bke::eNodeSizePreset::Middle);
+  bke::node_type_size_preset(ntype, bke::eNodeSizePreset::Middle);
   ntype.geometry_node_execute = node_geo_exec;
   ntype.declare = node_declare;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 }
 NOD_REGISTER_NODE(node_register)
 

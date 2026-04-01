@@ -15,11 +15,14 @@ namespace blender::asset_system {
 class OnDiskAssetLibrary : public AssetLibrary {
  public:
   OnDiskAssetLibrary(eAssetLibraryType library_type,
-                     StringRef name = "",
-                     StringRef root_path = "");
+                     StringRef name,
+                     StringRef root_path,
+                     bool is_read_only);
 
   std::optional<AssetLibraryReference> library_reference() const override;
   void refresh_catalogs() override;
+
+  virtual bool is_enabled() const;
 };
 
 }  // namespace blender::asset_system

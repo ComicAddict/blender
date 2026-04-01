@@ -12,14 +12,14 @@ namespace blender::nodes::node_geo_mesh_face_group_boundaries_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Int>("Face Group ID", "Face Set")
+  b.add_input<decl::Int>("Face Group ID"_ustr, "Face Set"_ustr)
       .default_value(0)
       .hide_value()
       .supports_field()
       .description(
           "An identifier for the group of each face. All contiguous faces with the "
           "same value are in the same region");
-  b.add_output<decl::Bool>("Boundary Edges")
+  b.add_output<decl::Bool>("Boundary Edges"_ustr)
       .field_source_reference_all()
       .description("The edges that lie on the boundaries between the different face groups");
 }
@@ -32,7 +32,6 @@ class BoundaryFieldInput final : public bke::MeshFieldInput {
   BoundaryFieldInput(const Field<int> face_set)
       : bke::MeshFieldInput(CPPType::get<bool>(), "Face Group Boundaries"), face_set_(face_set)
   {
-    category_ = Category::Generated;
   }
 
   GVArray get_varray_for_context(const Mesh &mesh,
@@ -117,14 +116,14 @@ class BoundaryFieldInput final : public bke::MeshFieldInput {
 
 static void node_geo_exec(GeoNodeExecParams params)
 {
-  const Field<int> face_set_field = params.extract_input<Field<int>>("Face Set");
+  const Field<int> face_set_field = params.extract_input<Field<int>>("Face Set"_ustr);
   Field<bool> face_set_boundaries{std::make_shared<BoundaryFieldInput>(face_set_field)};
-  params.set_output("Boundary Edges", std::move(face_set_boundaries));
+  params.set_output("Boundary Edges"_ustr, std::move(face_set_boundaries));
 }
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
   geo_node_type_base(
       &ntype, "GeometryNodeMeshFaceSetBoundaries", GEO_NODE_MESH_FACE_GROUP_BOUNDARIES);
   ntype.ui_name = "Face Group Boundaries";
@@ -135,7 +134,7 @@ static void node_register()
   bke::node_type_size_preset(ntype, bke::eNodeSizePreset::Middle);
   ntype.declare = node_declare;
   ntype.geometry_node_execute = node_geo_exec;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 }
 NOD_REGISTER_NODE(node_register)
 

@@ -12,7 +12,6 @@
 
 #include "BLO_read_write.hh"
 
-#include "DNA_defaults.h"
 #include "DNA_modifier_types.h"
 #include "DNA_screen_types.h"
 
@@ -37,10 +36,7 @@ namespace blender {
 static void init_data(ModifierData *md)
 {
   GreasePencilThickModifierData *gpmd = reinterpret_cast<GreasePencilThickModifierData *>(md);
-
-  BLI_assert(MEMCMP_STRUCT_AFTER_IS_ZERO(gpmd, modifier));
-
-  MEMCPY_STRUCT_AFTER(gpmd, DNA_struct_default_get(GreasePencilThickModifierData), modifier);
+  INIT_DEFAULT_STRUCT_AFTER(gpmd, modifier);
   modifier::greasepencil::init_influence_data(&gpmd->influence, true);
 }
 
@@ -73,7 +69,7 @@ static void blend_write(BlendWriter *writer, const ID * /*id_owner*/, const Modi
   const GreasePencilThickModifierData *mmd =
       reinterpret_cast<const GreasePencilThickModifierData *>(md);
 
-  BLO_write_struct(writer, GreasePencilThickModifierData, mmd);
+  writer->write_struct(mmd);
   modifier::greasepencil::write_influence_data(writer, &mmd->influence);
 }
 
@@ -110,43 +106,45 @@ static void deform_drawing(const ModifierData &md,
                            ((mmd.influence.flag & GREASE_PENCIL_INFLUENCE_INVERT_VERTEX_GROUP) !=
                             0);
 
-  strokes.foreach_index(GrainSize(512), [&](const int curve) {
-    const IndexRange points = points_by_curve[curve];
-    for (const int i : points.index_range()) {
-      const int point = points[i];
-      const float weight = vgroup_weights[point];
-      if (weight <= 0.0f) {
-        continue;
-      }
+  strokes.foreach_index(
+      [&](const int curve) {
+        const IndexRange points = points_by_curve[curve];
+        for (const int i : points.index_range()) {
+          const int point = points[i];
+          const float weight = vgroup_weights[point];
+          if (weight <= 0.0f) {
+            continue;
+          }
 
-      if ((!is_normalized) && (mmd.flag & MOD_GREASE_PENCIL_THICK_WEIGHT_FACTOR)) {
-        radii[point] *= (is_inverted ? 1.0f - weight : weight);
-        radii[point] = math::max(radii[point], 0.0f);
-        continue;
-      }
+          if ((!is_normalized) && (mmd.flag & MOD_GREASE_PENCIL_THICK_WEIGHT_FACTOR)) {
+            radii[point] *= (is_inverted ? 1.0f - weight : weight);
+            radii[point] = math::max(radii[point], 0.0f);
+            continue;
+          }
 
-      const float influence = [&]() {
-        if (mmd.influence.flag & GREASE_PENCIL_INFLUENCE_USE_CUSTOM_CURVE &&
-            (mmd.influence.custom_curve))
-        {
-          /* Normalize value to evaluate curve. */
-          const float value = math::safe_divide(float(i), float(points.size() - 1));
-          return BKE_curvemapping_evaluateF(mmd.influence.custom_curve, 0, value);
+          const float influence = [&]() {
+            if (mmd.influence.flag & GREASE_PENCIL_INFLUENCE_USE_CUSTOM_CURVE &&
+                (mmd.influence.custom_curve))
+            {
+              /* Normalize value to evaluate curve. */
+              const float value = math::safe_divide(float(i), float(points.size() - 1));
+              return BKE_curvemapping_evaluateF(mmd.influence.custom_curve, 0, value);
+            }
+            return 1.0f;
+          }();
+
+          const float target = [&]() {
+            if (is_normalized) {
+              return mmd.thickness * influence;
+            }
+            return radii[point] * math::interpolate(1.0f, mmd.thickness_fac, influence);
+          }();
+
+          const float radius = math::interpolate(radii[point], target, weight);
+          radii[point] = math::max(radius, 0.0f);
         }
-        return 1.0f;
-      }();
-
-      const float target = [&]() {
-        if (is_normalized) {
-          return mmd.thickness * influence;
-        }
-        return radii[point] * math::interpolate(1.0f, mmd.thickness_fac, influence);
-      }();
-
-      const float radius = math::interpolate(radii[point], target, weight);
-      radii[point] = math::max(radius, 0.0f);
-    }
-  });
+      },
+      exec_mode::grain_size(512));
 }
 
 static void modify_geometry_set(ModifierData *md,
@@ -174,33 +172,33 @@ static void modify_geometry_set(ModifierData *md,
 
 static void panel_draw(const bContext *C, Panel *panel)
 {
-  uiLayout *layout = panel->layout;
+  ui::Layout &layout = *panel->layout;
 
   PointerRNA *ptr = modifier_panel_get_property_pointers(panel, nullptr);
 
-  layout->use_property_split_set(true);
+  layout.use_property_split_set(true);
 
-  layout->prop(ptr, "use_uniform_thickness", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout.prop(ptr, "use_uniform_thickness", UI_ITEM_NONE, std::nullopt, ICON_NONE);
   if (RNA_boolean_get(ptr, "use_uniform_thickness")) {
-    layout->prop(ptr, "thickness", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    layout.prop(ptr, "thickness", UI_ITEM_NONE, std::nullopt, ICON_NONE);
   }
   else {
     const bool is_weighted = !RNA_boolean_get(ptr, "use_weight_factor");
-    uiLayout *row = &layout->row(true);
-    row->active_set(is_weighted);
-    row->prop(ptr, "thickness_factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-    uiLayout *sub = &row->row(true);
-    sub->active_set(true);
-    row->prop(ptr, "use_weight_factor", UI_ITEM_NONE, "", ICON_MOD_VERTEX_WEIGHT);
+    ui::Layout &row = layout.row(true);
+    row.active_set(is_weighted);
+    row.prop(ptr, "thickness_factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+    ui::Layout &sub = row.row(true);
+    sub.active_set(true);
+    row.prop(ptr, "use_weight_factor", UI_ITEM_NONE, "", ICON_MOD_VERTEX_WEIGHT);
   }
 
-  if (uiLayout *influence_panel = layout->panel_prop(
+  if (ui::Layout *influence_panel = layout.panel_prop(
           C, ptr, "open_influence_panel", IFACE_("Influence")))
   {
-    modifier::greasepencil::draw_layer_filter_settings(C, influence_panel, ptr);
-    modifier::greasepencil::draw_material_filter_settings(C, influence_panel, ptr);
-    modifier::greasepencil::draw_vertex_group_settings(C, influence_panel, ptr);
-    modifier::greasepencil::draw_custom_curve_settings(C, influence_panel, ptr);
+    modifier::greasepencil::draw_layer_filter_settings(C, *influence_panel, ptr);
+    modifier::greasepencil::draw_material_filter_settings(C, *influence_panel, ptr);
+    modifier::greasepencil::draw_vertex_group_settings(C, *influence_panel, ptr);
+    modifier::greasepencil::draw_custom_curve_settings(C, *influence_panel, ptr);
   }
 
   modifier_error_message_draw(layout, ptr);
@@ -210,8 +208,6 @@ static void panel_register(ARegionType *region_type)
 {
   modifier_panel_register(region_type, eModifierType_GreasePencilThickness, panel_draw);
 }
-
-}  // namespace blender
 
 ModifierTypeInfo modifierType_GreasePencilThickness = {
     /*idname*/ "GreasePencilThicknessModifier",
@@ -225,26 +221,28 @@ ModifierTypeInfo modifierType_GreasePencilThickness = {
         eModifierTypeFlag_EnableInEditmode | eModifierTypeFlag_SupportsMapping,
     /*icon*/ ICON_MOD_THICKNESS,
 
-    /*copy_data*/ blender::copy_data,
+    /*copy_data*/ copy_data,
 
     /*deform_verts*/ nullptr,
     /*deform_matrices*/ nullptr,
     /*deform_verts_EM*/ nullptr,
     /*deform_matrices_EM*/ nullptr,
     /*modify_mesh*/ nullptr,
-    /*modify_geometry_set*/ blender::modify_geometry_set,
+    /*modify_geometry_set*/ modify_geometry_set,
 
-    /*init_data*/ blender::init_data,
+    /*init_data*/ init_data,
     /*required_data_mask*/ nullptr,
-    /*free_data*/ blender::free_data,
+    /*free_data*/ free_data,
     /*is_disabled*/ nullptr,
     /*update_depsgraph*/ nullptr,
     /*depends_on_time*/ nullptr,
     /*depends_on_normals*/ nullptr,
-    /*foreach_ID_link*/ blender::foreach_ID_link,
+    /*foreach_ID_link*/ foreach_ID_link,
     /*foreach_tex_link*/ nullptr,
     /*free_runtime_data*/ nullptr,
-    /*panel_register*/ blender::panel_register,
-    /*blend_write*/ blender::blend_write,
-    /*blend_read*/ blender::blend_read,
+    /*panel_register*/ panel_register,
+    /*blend_write*/ blend_write,
+    /*blend_read*/ blend_read,
 };
+
+}  // namespace blender

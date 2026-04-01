@@ -20,6 +20,7 @@
 
 #include "BKE_context.hh"
 #include "BKE_main.hh"
+#include "BKE_preferences.h"
 #include "BKE_screen.hh"
 
 #include "BLI_listbase.h"
@@ -42,6 +43,9 @@
 
 #include "asset_library_reference.hh"
 
+/* TODO somehow update online asset status after downloaded by subscribing to
+ * #WM_MSG_TYPE_REMOTE_DOWNLOADER messages. */
+
 namespace blender::ed::asset::list {
 
 /* -------------------------------------------------------------------- */
@@ -63,7 +67,8 @@ class FileListWrapper {
 
  public:
   explicit FileListWrapper(eFileSelectType filesel_type)
-      : file_list_(filelist_new(filesel_type), filelist_free_fn)
+      : file_list_(filelist_new(filesel_type, /*is_from_global_asset_list=*/true),
+                   filelist_free_fn)
   {
   }
   FileListWrapper(FileListWrapper &&other) = default;
@@ -92,6 +97,7 @@ class AssetList : NonCopyable {
 
   static bool listen(const wmNotifier &notifier);
 
+  void ensure_updated();
   void setup();
   void fetch(const bContext &C);
   void ensure_blocking(const bContext &C);
@@ -121,17 +127,6 @@ void AssetList::setup()
   /* TODO pass options properly. */
   filelist_setrecursion(files, FILE_SELECT_MAX_RECURSIONS);
   filelist_setsorting(files, FILE_SORT_ASSET_CATALOG, false);
-  filelist_setlibrary(files, &library_ref_);
-  filelist_setfilter_options(
-      files,
-      true,
-      true,
-      true, /* Just always hide parent, prefer to not add an extra user option for this. */
-      FILE_TYPE_BLENDERLIB,
-      FILTER_ID_ALL,
-      true,
-      "",
-      "");
 
   const bool use_asset_indexer = !USER_DEVELOPER_TOOL_TEST(&U, no_asset_indexing);
   filelist_setindexer(files, use_asset_indexer ? &index::file_indexer_asset : &file_indexer_noop);
@@ -141,6 +136,26 @@ void AssetList::setup()
     STRNCPY(dirpath, asset_lib_path.c_str());
   }
   filelist_setdir(files, dirpath);
+}
+
+void AssetList::ensure_updated()
+{
+  FileList *files = filelist_;
+
+  const bool show_online_assets = (U.uiflag2 & USER_UIFLAG2_SHOW_ONLINE_ASSETS) != 0;
+  filelist_setlibrary(files, &library_ref_);
+  filelist_setfilter_options(
+      files,
+      true,
+      true,
+      true, /* Just always hide parent, prefer to not add an extra user option for this. */
+      FILE_TYPE_BLENDERLIB,
+      FILTER_ID_ALL,
+      true,
+      (U.uiflag2 & USER_UIFLAG2_SHOW_ONLINE_ASSETS) == 0,
+      "",
+      "");
+  filelist_set_asset_include_online(files, show_online_assets);
 }
 
 void AssetList::fetch(const bContext &C)
@@ -272,7 +287,12 @@ int AssetList::size() const
 void AssetList::tag_main_data_dirty() const
 {
   if (filelist_needs_reset_on_main_changes(filelist_)) {
-    filelist_tag_force_reset_mainfiles(filelist_);
+    if (!filelist_is_ready(filelist_)) {
+      filelist_tag_force_reset(filelist_);
+    }
+    else {
+      filelist_tag_force_reset_mainfiles(filelist_);
+    }
   }
 }
 
@@ -346,8 +366,15 @@ static std::optional<eFileSelectType> asset_library_reference_to_fileselect_type
     case ASSET_LIBRARY_ALL:
       return FILE_ASSET_LIBRARY_ALL;
     case ASSET_LIBRARY_ESSENTIALS:
-    case ASSET_LIBRARY_CUSTOM:
       return FILE_ASSET_LIBRARY;
+    case ASSET_LIBRARY_CUSTOM: {
+      const bUserAssetLibrary *user_library = BKE_preferences_asset_library_find_index(
+          &U, library_reference.custom_library_index);
+      if (user_library->flag & ASSET_LIBRARY_USE_REMOTE_URL) {
+        return FILE_ASSET_LIBRARY_REMOTE;
+      }
+      return FILE_ASSET_LIBRARY;
+    }
     case ASSET_LIBRARY_LOCAL:
       return FILE_MAIN_ASSET;
   }
@@ -407,6 +434,8 @@ void storage_fetch(const AssetLibraryReference *library_reference, const bContex
   }
 
   auto [list, is_new] = ensure_list_storage(*library_reference, *filesel_type);
+  list.ensure_updated();
+
   if (is_new || list.needs_refetch()) {
     list.setup();
     list.fetch(*C);
@@ -422,6 +451,8 @@ void storage_fetch_blocking(const AssetLibraryReference &library_reference, cons
   }
 
   auto [list, is_new] = ensure_list_storage(library_reference, *filesel_type);
+  list.ensure_updated();
+
   if (is_new || list.needs_refetch()) {
     list.setup();
     list.ensure_blocking(C);
@@ -445,13 +476,13 @@ static void foreach_visible_asset_browser_showing_library(
     const wmWindowManager *wm,
     const FunctionRef<void(SpaceFile &sfile)> fn)
 {
-  LISTBASE_FOREACH (const wmWindow *, win, &wm->windows) {
-    const bScreen *screen = WM_window_get_active_screen(win);
-    LISTBASE_FOREACH (const ScrArea *, area, &screen->areabase) {
+  for (const wmWindow &win : wm->windows) {
+    const bScreen *screen = WM_window_get_active_screen(&win);
+    for (const ScrArea &area : screen->areabase) {
       /* Only needs to cover visible file/asset browsers, since others are already cleared through
        * area exiting. */
-      if (area->spacetype == SPACE_FILE) {
-        SpaceFile *sfile = reinterpret_cast<SpaceFile *>(area->spacedata.first);
+      if (area.spacetype == SPACE_FILE) {
+        SpaceFile *sfile = reinterpret_cast<SpaceFile *>(area.spacedata.first);
         if (sfile->browse_mode == FILE_BROWSE_MODE_ASSETS) {
           if (sfile->asset_params && sfile->asset_params->asset_library_ref == library_reference) {
             fn(*sfile);

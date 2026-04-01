@@ -214,6 +214,24 @@ string string_to_lower(const string &s)
   return r;
 }
 
+string string_remove_gpu_from_cpu_name(const string &s)
+{
+  if (s.find("AMD") == std::string::npos) {
+    return s;
+  }
+
+  size_t pos = s.find("w/");
+  if (pos == std::string::npos) {
+    pos = s.find("with");
+  }
+
+  if (pos != std::string::npos) {
+    return string_strip(s.substr(0, pos));
+  }
+
+  return s;
+}
+
 /* Wide char strings helpers for Windows. */
 
 #ifdef _WIN32
@@ -270,7 +288,7 @@ string string_human_readable_size(size_t size)
   if (*suffix != 'B') {
     return string_printf("%.2f%c", double(size * 1024 + r) / 1024.0, *suffix);
   }
-  return string_printf("%zu", size);
+  return string_printf("%zuB", size);
 }
 
 string string_human_readable_number(size_t num)

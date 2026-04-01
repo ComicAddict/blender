@@ -4,15 +4,12 @@
 
 #include "BLI_task.hh"
 
-#include "DNA_ID_enums.h"
 #include "DNA_curve_types.h"
 
 #include "BKE_curves.hh"
 #include "BKE_geometry_fields.hh"
 #include "BKE_geometry_set.hh"
 #include "BKE_lib_id.hh"
-
-#include "attribute_access_intern.hh"
 
 namespace blender::bke {
 
@@ -277,7 +274,6 @@ static VArray<float> construct_curve_length_gvarray(const CurvesGeometry &curves
 CurveLengthFieldInput::CurveLengthFieldInput()
     : CurvesFieldInput(CPPType::get<float>(), "Spline Length node")
 {
-  category_ = Category::Generated;
 }
 
 GVArray CurveLengthFieldInput::get_varray_for_context(const CurvesGeometry &curves,

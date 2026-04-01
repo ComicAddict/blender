@@ -20,14 +20,10 @@
 #include "scene/tables.h"
 #include "scene/volume.h"
 
+#include "util/colorspace.h"
 #include "util/log.h"
 #include "util/murmurhash.h"
 #include "util/transform.h"
-
-#ifdef WITH_OCIO
-#  include <OpenColorIO/OpenColorIO.h>
-namespace OCIO = OCIO_NAMESPACE;
-#endif
 
 #include "scene/shader.tables"
 
@@ -97,12 +93,14 @@ Shader::Shader() : Node(get_node_type())
   has_surface_bssrdf = false;
   has_volume = false;
   has_displacement = false;
-  has_bump = false;
+  has_bump_from_displacement = false;
+  has_bump_from_surface = false;
   has_bssrdf_bump = false;
   has_surface_spatial_varying = false;
   has_volume_spatial_varying = false;
   has_volume_attribute_dependency = false;
   has_volume_connected = false;
+  prev_has_surface_shadow_transparency = false;
   prev_volume_step_rate = 0.0f;
   has_light_path_node = false;
 
@@ -117,6 +115,8 @@ Shader::Shader() : Node(get_node_type())
   need_update_uvs = true;
   need_update_attribute = true;
   need_update_displacement = true;
+  need_update_shadow_transparency = true;
+  shadow_transparency_needs_realloc = true;
 }
 
 static float3 output_estimate_emission(ShaderOutput *output, bool &is_constant)
@@ -308,6 +308,21 @@ void Shader::set_graph(unique_ptr<ShaderGraph> &&graph_)
   has_volume_connected = (graph->output()->input("Volume")->link != nullptr);
 }
 
+bool Shader::has_surface_shadow_transparency() const
+{
+  if (!use_transparent_shadow) {
+    return false;
+  }
+
+  for (ShaderNode *node : graph->nodes) {
+    if (node->has_surface_transparent()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 void Shader::tag_update(Scene *scene)
 {
   /* update tag */
@@ -377,6 +392,7 @@ void Shader::tag_update(Scene *scene)
   if (has_displacement) {
     if (displacement_method == DISPLACE_BOTH) {
       attributes.add(ATTR_STD_POSITION_UNDISPLACED);
+      attributes.add(ATTR_STD_NORMAL_UNDISPLACED);
     }
     if (displacement_method_is_modified()) {
       need_update_displacement = true;
@@ -393,9 +409,17 @@ void Shader::tag_update(Scene *scene)
     scene->procedural_manager->tag_update();
   }
 
+  if (prev_has_surface_shadow_transparency != has_surface_shadow_transparency()) {
+    prev_has_surface_shadow_transparency = !prev_has_surface_shadow_transparency;
+    shadow_transparency_needs_realloc = true;
+  }
+
+  need_update_shadow_transparency = prev_has_surface_shadow_transparency;
+
   if (has_volume != prev_has_volume || volume_step_rate != prev_volume_step_rate) {
     scene->geometry_manager->need_flags_update = true;
     scene->object_manager->need_flags_update = true;
+    scene->volume_manager->need_update_step_size = true;
     prev_volume_step_rate = volume_step_rate;
   }
 
@@ -471,7 +495,7 @@ uint64_t ShaderManager::get_attribute_id(AttributeStandard std)
   return (uint64_t)std;
 }
 
-int ShaderManager::get_shader_id(Shader *shader, bool smooth)
+int ShaderManager::get_shader_id(const Shader *shader, bool smooth)
 {
   /* get a shader id to pass to the kernel */
   int id = shader->id;
@@ -482,7 +506,7 @@ int ShaderManager::get_shader_id(Shader *shader, bool smooth)
   }
 
   /* default flags */
-  id |= SHADER_CAST_SHADOW | SHADER_AREA_LIGHT;
+  id |= SHADER_CAST_SHADOW;
 
   return id;
 }
@@ -516,12 +540,14 @@ void ShaderManager::device_update_pre(Device * /*device*/,
   for (Shader *shader : scene->shaders) {
     if (shader->is_modified()) {
       ShaderNode *output = shader->graph->output();
-      shader->has_bump = (shader->get_displacement_method() != DISPLACE_TRUE) &&
-                         output->input("Surface")->link && output->input("Displacement")->link;
-      shader->has_bssrdf_bump = shader->has_bump;
+      shader->has_bump_from_displacement = (shader->get_displacement_method() != DISPLACE_TRUE) &&
+                                           output->input("Surface")->link &&
+                                           output->input("Displacement")->link;
+      shader->has_bssrdf_bump = shader->has_bump_from_displacement;
 
-      shader->graph->finalize(
-          scene, shader->has_bump, shader->get_displacement_method() == DISPLACE_BOTH);
+      shader->graph->finalize(scene,
+                              shader->has_bump_from_displacement,
+                              shader->get_displacement_method() == DISPLACE_BOTH);
 
       shader->has_surface = output->input("Surface")->link != nullptr;
       shader->has_surface_transparent = false;
@@ -532,6 +558,7 @@ void ShaderManager::device_update_pre(Device * /*device*/,
       shader->has_volume_spatial_varying = false;
       shader->has_volume_attribute_dependency = false;
       shader->has_displacement = output->input("Displacement")->link != nullptr;
+      shader->has_bump_from_surface = false;
 
       shader->has_light_path_node = false;
       for (ShaderNode *node : shader->graph->nodes) {
@@ -633,8 +660,11 @@ void ShaderManager::device_update_common(Device * /*device*/,
     if (shader->get_volume_interpolation_method() == VOLUME_INTERPOLATION_CUBIC) {
       flag |= SD_VOLUME_CUBIC;
     }
-    if (shader->has_bump) {
-      flag |= SD_HAS_BUMP;
+    if (shader->has_bump_from_displacement) {
+      flag |= SD_HAS_BUMP_FROM_DISPLACEMENT;
+    }
+    if (shader->has_bump_from_surface) {
+      flag |= SD_HAS_BUMP_FROM_SURFACE;
     }
     if (shader->get_displacement_method() != DISPLACE_BUMP) {
       flag |= SD_HAS_DISPLACEMENT;
@@ -700,7 +730,7 @@ void ShaderManager::device_update_common(Device * /*device*/,
   kfilm->rec709_to_r = make_float4(rec709_to_r);
   kfilm->rec709_to_g = make_float4(rec709_to_g);
   kfilm->rec709_to_b = make_float4(rec709_to_b);
-  kfilm->is_rec709 = scene_linear_space == SceneLinearSpace::Rec709;
+  kfilm->is_rec709 = scene_linear_interop_id == "lin_rec709_scene";
 }
 
 void ShaderManager::device_free_common(Device * /*device*/, DeviceScene *dscene, Scene *scene)
@@ -885,37 +915,6 @@ bool ShaderManager::need_update() const
   return update_flags != UPDATE_NONE;
 }
 
-#ifdef WITH_OCIO
-static bool to_scene_linear_transform(OCIO::ConstConfigRcPtr &config,
-                                      const char *colorspace,
-                                      Transform &to_scene_linear)
-{
-  OCIO::ConstProcessorRcPtr processor;
-  try {
-    processor = config->getProcessor("scene_linear", colorspace);
-  }
-  catch (OCIO::Exception &) {
-    return false;
-  }
-
-  if (!processor) {
-    return false;
-  }
-
-  const OCIO::ConstCPUProcessorRcPtr device_processor = processor->getDefaultCPUProcessor();
-  if (!device_processor) {
-    return false;
-  }
-
-  to_scene_linear = transform_identity();
-  device_processor->applyRGB(&to_scene_linear.x.x);
-  device_processor->applyRGB(&to_scene_linear.y.x);
-  device_processor->applyRGB(&to_scene_linear.z.x);
-  to_scene_linear = transform_transposed_inverse(to_scene_linear);
-  return true;
-}
-#endif
-
 void ShaderManager::compute_thin_film_table(const Transform &xyz_to_rgb)
 {
   /* Our implementation of Thin Film Fresnel is based on
@@ -981,84 +980,21 @@ void ShaderManager::compute_thin_film_table(const Transform &xyz_to_rgb)
 
 void ShaderManager::init_xyz_transforms()
 {
-  /* Default to ITU-BT.709 in case no appropriate transform found.
-   * Note XYZ here is defined as having a D65 white point. */
-  const Transform xyz_to_rec709 = make_transform(3.2404542f,
-                                                 -1.5371385f,
-                                                 -0.4985314f,
-                                                 0.0f,
-                                                 -0.9692660f,
-                                                 1.8760108f,
-                                                 0.0415560f,
-                                                 0.0f,
-                                                 0.0556434f,
-                                                 -0.2040259f,
-                                                 1.0572252f,
-                                                 0.0f);
+  const Transform xyz_to_rgb = ColorSpaceManager::get_xyz_to_scene_linear_rgb();
 
-  xyz_to_r = make_float3(xyz_to_rec709.x);
-  xyz_to_g = make_float3(xyz_to_rec709.y);
-  xyz_to_b = make_float3(xyz_to_rec709.z);
-  rgb_to_y = make_float3(0.2126729f, 0.7151522f, 0.0721750f);
-  white_xyz = make_float3(0.95047f, 1.0f, 1.08883f);
+  scene_linear_interop_id = ColorSpaceManager::get_scene_linear_interop_id();
 
-  rec709_to_r = make_float3(1.0f, 0.0f, 0.0f);
-  rec709_to_g = make_float3(0.0f, 1.0f, 0.0f);
-  rec709_to_b = make_float3(0.0f, 0.0f, 1.0f);
-  scene_linear_space = SceneLinearSpace::Rec709;
-
-  compute_thin_film_table(xyz_to_rec709);
-
-#ifdef WITH_OCIO
-  /* Get from OpenColorO config if it has the required roles. */
-  OCIO::ConstConfigRcPtr config = nullptr;
-  try {
-    config = OCIO::GetCurrentConfig();
-  }
-  catch (OCIO::Exception &exception) {
-    LOG_WARNING << "OCIO config error: " << exception.what();
-    return;
-  }
-
-  if (!(config && config->hasRole("scene_linear"))) {
-    return;
-  }
-
-  Transform xyz_to_rgb;
-
-  if (config->hasRole("aces_interchange")) {
-    /* Standard OpenColorIO role, defined as ACES AP0 (ACES2065-1). */
-    Transform aces_to_rgb;
-    if (!to_scene_linear_transform(config, "aces_interchange", aces_to_rgb)) {
-      return;
-    }
-
-    /* This is the OpenColorIO builtin transform:
-     * UTILITY - ACES-AP0_to_CIE-XYZ-D65_BFD. */
-    const Transform ACES_AP0_to_xyz_D65 = make_transform(0.938280f,
-                                                         -0.004451f,
-                                                         0.016628f,
-                                                         0.000000f,
-                                                         0.337369f,
-                                                         0.729522f,
-                                                         -0.066890f,
-                                                         0.000000f,
-                                                         0.001174f,
-                                                         -0.003711f,
-                                                         1.091595f,
-                                                         0.000000f);
-    const Transform xyz_to_aces = transform_inverse(ACES_AP0_to_xyz_D65);
-    xyz_to_rgb = aces_to_rgb * xyz_to_aces;
-  }
-  else if (config->hasRole("XYZ")) {
-    /* Custom role used before the standard existed. */
-    if (!to_scene_linear_transform(config, "XYZ", xyz_to_rgb)) {
-      return;
-    }
+  if (scene_linear_interop_id == "lin_rec709_scene") {
+    rec709_to_r = make_float3(1.0f, 0.0f, 0.0f);
+    rec709_to_g = make_float3(0.0f, 1.0f, 0.0f);
+    rec709_to_b = make_float3(0.0f, 0.0f, 1.0f);
   }
   else {
-    /* No reference role found to determine XYZ. */
-    return;
+    const Transform xyz_to_rec709 = ColorSpaceManager::get_xyz_to_rec709();
+    const Transform rec709_to_rgb = xyz_to_rgb * transform_inverse(xyz_to_rec709);
+    rec709_to_r = make_float3(rec709_to_rgb.x);
+    rec709_to_g = make_float3(rec709_to_rgb.y);
+    rec709_to_b = make_float3(rec709_to_rgb.z);
   }
 
   xyz_to_r = make_float3(xyz_to_rgb.x);
@@ -1069,51 +1005,7 @@ void ShaderManager::init_xyz_transforms()
   rgb_to_y = make_float3(rgb_to_xyz.y);
   white_xyz = transform_direction(&rgb_to_xyz, one_float3());
 
-  const Transform rec709_to_rgb = xyz_to_rgb * transform_inverse(xyz_to_rec709);
-  rec709_to_r = make_float3(rec709_to_rgb.x);
-  rec709_to_g = make_float3(rec709_to_rgb.y);
-  rec709_to_b = make_float3(rec709_to_rgb.z);
-
   compute_thin_film_table(xyz_to_rgb);
-
-  const Transform xyz_to_rec2020 = make_transform(1.7166512f,
-                                                  -0.3556708f,
-                                                  -0.2533663f,
-                                                  0.0f,
-                                                  -0.6666844,
-                                                  1.6164812f,
-                                                  0.0157685f,
-                                                  0.0f,
-                                                  0.0176399f,
-                                                  -0.0427706f,
-                                                  0.9421031f,
-                                                  0.0f);
-  const Transform acescg_to_xyz = make_transform(0.652238f,
-                                                 0.128237f,
-                                                 0.169983f,
-                                                 0.0f,
-                                                 0.267672f,
-                                                 0.674340f,
-                                                 0.057988f,
-                                                 0.0f,
-                                                 -0.005382f,
-                                                 0.001369f,
-                                                 1.093071f,
-                                                 0.0f);
-
-  if (transform_equal_threshold(xyz_to_rgb, xyz_to_rec709, 0.001f)) {
-    scene_linear_space = SceneLinearSpace::Rec709;
-  }
-  else if (transform_equal_threshold(xyz_to_rgb, xyz_to_rec2020, 0.001f)) {
-    scene_linear_space = SceneLinearSpace::Rec2020;
-  }
-  else if (transform_equal_threshold(rgb_to_xyz, acescg_to_xyz, 0.001f)) {
-    scene_linear_space = SceneLinearSpace::ACEScg;
-  }
-  else {
-    scene_linear_space = SceneLinearSpace::Unknown;
-  }
-#endif
 }
 
 size_t ShaderManager::ensure_bsdf_table_impl(DeviceScene *dscene,

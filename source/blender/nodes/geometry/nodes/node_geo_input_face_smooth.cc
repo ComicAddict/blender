@@ -8,18 +8,20 @@ namespace blender::nodes::node_geo_input_face_smooth_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_output<decl::Bool>("Smooth").field_source().translation_context(BLT_I18NCONTEXT_ID_MESH);
+  b.add_output<decl::Bool>("Smooth"_ustr)
+      .field_source()
+      .translation_context(BLT_I18NCONTEXT_ID_MESH);
 }
 
 static void node_geo_exec(GeoNodeExecParams params)
 {
   Field<bool> sharp = AttributeFieldInput::from<bool>("sharp_face");
-  params.set_output("Smooth", fn::invert_boolean_field(std::move(sharp)));
+  params.set_output("Smooth"_ustr, fn::invert_boolean_field(std::move(sharp)));
 }
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
 
   geo_node_type_base(&ntype, "GeometryNodeInputShadeSmooth", GEO_NODE_INPUT_FACE_SMOOTH);
   ntype.ui_name = "Is Face Smooth";
@@ -28,7 +30,7 @@ static void node_register()
   ntype.nclass = NODE_CLASS_INPUT;
   ntype.geometry_node_execute = node_geo_exec;
   ntype.declare = node_declare;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 }
 NOD_REGISTER_NODE(node_register)
 

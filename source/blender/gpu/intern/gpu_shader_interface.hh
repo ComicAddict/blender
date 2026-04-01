@@ -151,6 +151,31 @@ class ShaderInterface {
 
   inline uint valid_bindings_get(const ShaderInput *const inputs, const uint inputs_len) const;
 
+  bool attr_len_get() const
+  {
+    return attr_len_;
+  }
+
+  bool ubo_len_get() const
+  {
+    return ubo_len_;
+  }
+
+  bool uniform_len_get() const
+  {
+    return uniform_len_;
+  }
+
+  bool ssbo_len_get() const
+  {
+    return ssbo_len_;
+  }
+
+  bool constant_len_get() const
+  {
+    return constant_len_;
+  }
+
  protected:
   static inline const char *builtin_uniform_name(GPUUniformBuiltin u);
   static inline const char *builtin_uniform_block_name(GPUUniformBlockBuiltin u);
@@ -214,12 +239,10 @@ inline const char *ShaderInterface::builtin_uniform_name(GPUUniformBuiltin u)
       return "color";
     case GPU_UNIFORM_BASE_INSTANCE:
       return "gpu_BaseInstance";
-    case GPU_UNIFORM_RESOURCE_CHUNK:
-      return "drw_resourceChunk";
-    case GPU_UNIFORM_RESOURCE_ID:
-      return "drw_ResourceID";
     case GPU_UNIFORM_SRGB_TRANSFORM:
       return "srgbTarget";
+    case GPU_UNIFORM_SCENE_LINEAR_XFORM:
+      return "gpu_scene_linear_to_rec709";
 
     default:
       return nullptr;
@@ -264,7 +287,7 @@ inline uint32_t ShaderInterface::set_input_name(ShaderInput *input,
     }
   }
 
-  input->name_offset = (uint32_t)(name - name_buffer_);
+  input->name_offset = uint32_t(name - name_buffer_);
   input->name_hash = BLI_hash_string(name);
   return name_len + 1; /* include NULL terminator */
 }

@@ -13,6 +13,7 @@ import api
 import argparse
 import fnmatch
 import glob
+import logging
 import pathlib
 import shutil
 import sys
@@ -78,7 +79,10 @@ def print_row(config: api.TestConfig, entries: list, end='\n') -> None:
         output = entry.output
         result = ''
         if status in {'done', 'outdated'} and output:
-            result = '%.4fs' % output['time']
+            if 'time' in output:
+                result = '%7.4f s' % output['time']
+            elif 'fps' in output:
+                result = '%8.3f fps' % output['fps']
 
             if status == 'outdated':
                 result += " (outdated)"
@@ -136,6 +140,11 @@ def run_entry(env: api.TestEnvironment,
     testcategory = entry.category
     device_type = entry.device_type
     device_id = entry.device_id
+    gpu_backend = {
+        'VULKAN': 'vulkan',
+        'METAL': 'metal',
+        'OPENGL': 'opengl'
+    }.get(device_type, 'default')
 
     test = config.tests.find(testname, testcategory)
     if not test:
@@ -180,7 +189,7 @@ def run_entry(env: api.TestEnvironment,
         print_row(config, row, end='\r')
 
         try:
-            entry.output = test.run(env, device_id)
+            entry.output = test.run(env, device_id, gpu_backend)
             if not entry.output:
                 raise Exception("Test produced no output")
             entry.status = 'done'
@@ -351,6 +360,7 @@ def cmd_graph(argv: list):
 
 
 def main():
+    logging.basicConfig()
     usage = ('benchmark <command> [<args>]\n'
              '\n'
              'Commands:\n'

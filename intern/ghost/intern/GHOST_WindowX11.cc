@@ -15,7 +15,7 @@
 #include "GHOST_Debug.hh"
 #include "GHOST_IconX11.hh"
 #include "GHOST_SystemX11.hh"
-#include "GHOST_Types.h"
+#include "GHOST_Types.hh"
 #include "GHOST_WindowX11.hh"
 #include "GHOST_utildefines.hh"
 
@@ -261,6 +261,13 @@ GHOST_WindowX11::GHOST_WindowX11(GHOST_SystemX11 *system,
   /* XClassHint, title */
   {
     XClassHint *xclasshint = XAllocClassHint();
+/* See `GHOST_X11_RES_NAME` definition in GHOST_SystemX11.hh */
+#if defined(WITH_X11_XINPUT) && defined(X_HAVE_UTF8_STRING)
+    /* Safe as these are logically `const` (the values aren't manipulated). */
+    xclasshint->res_name = const_cast<char *>(GHOST_X11_RES_NAME);
+    xclasshint->res_class = const_cast<char *>(GHOST_X11_RES_CLASS);
+    XSetClassHint(display_, window_, xclasshint);
+#else
     const int len = strlen(title) + 1;
     char *wmclass = (char *)malloc(sizeof(char) * len);
     memcpy(wmclass, title, len * sizeof(char));
@@ -268,6 +275,7 @@ GHOST_WindowX11::GHOST_WindowX11(GHOST_SystemX11 *system,
     xclasshint->res_class = wmclass;
     XSetClassHint(display_, window_, xclasshint);
     free(wmclass);
+#endif
     XFree(xclasshint);
   }
 
@@ -300,6 +308,11 @@ GHOST_WindowX11::GHOST_WindowX11(GHOST_SystemX11 *system,
     xwmhints->flags = InputHint | StateHint;
     XSetWMHints(display, window_, xwmhints);
     XFree(xwmhints);
+  }
+  /* Controlled via the `--no-window-frame` CLI argument and wont change at run-time.
+   * Set this once and never change. */
+  if (GHOST_ISystem::getUseWindowFrame() == false) {
+    motifShowWindowFrame(false);
   }
 
   /* set the icon */
@@ -813,15 +826,17 @@ bool GHOST_WindowX11::netwmIsFullScreen() const
   return st;
 }
 
-void GHOST_WindowX11::motifFullScreen(bool set)
+void GHOST_WindowX11::motifShowWindowFrame(bool set)
 {
   MotifWmHints hints;
 
   hints.flags = MWM_HINTS_DECORATIONS;
-  if (set == True) {
+  if (set == false) {
     hints.decorations = 0;
   }
   else {
+    GHOST_ASSERT(GHOST_ISystem::getUseWindowFrame(),
+                 "Only allowed when the window frame is shown.");
     hints.decorations = 1;
   }
 
@@ -835,7 +850,7 @@ void GHOST_WindowX11::motifFullScreen(bool set)
                   4);
 }
 
-bool GHOST_WindowX11::motifIsFullScreen() const
+bool GHOST_WindowX11::motifIsShowWindowFrame() const
 {
   MotifWmHints *prop_ret;
   ulong bytes_after, num_ret;
@@ -869,6 +884,25 @@ bool GHOST_WindowX11::motifIsFullScreen() const
     XFree(prop_ret);
   }
   return state;
+}
+
+void GHOST_WindowX11::motifFullScreen(bool set)
+{
+  if (set == true || (GHOST_ISystem::getUseWindowFrame() == false)) {
+    motifShowWindowFrame(false);
+  }
+  else {
+    motifShowWindowFrame(true);
+  }
+}
+
+bool GHOST_WindowX11::motifIsFullScreen() const
+{
+  /* When false, the decorations can't be used to detect full-screen. */
+  if (GHOST_ISystem::getUseWindowFrame() == false) {
+    return false;
+  }
+  return motifIsShowWindowFrame();
 }
 
 GHOST_TWindowState GHOST_WindowX11::getState() const
@@ -1488,6 +1522,11 @@ GHOST_TSuccess GHOST_WindowX11::setWindowCustomCursorShape(const uint8_t *bitmap
 
 uint16_t GHOST_WindowX11::getDPIHint()
 {
+  /* Early out if use of DPI scale is disabled. */
+  if (!system_->native_pixel_) {
+    return 96;
+  }
+
   /* Try to read DPI setting set using xrdb */
   char *resMan = XResourceManagerString(display_);
   if (resMan) {

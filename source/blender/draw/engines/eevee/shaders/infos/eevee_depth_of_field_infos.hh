@@ -11,8 +11,11 @@
 #  include "draw_view_infos.hh"
 #  include "eevee_common_infos.hh"
 #  include "eevee_depth_of_field_shared.hh"
+#  include "eevee_sampling_infos.hh"
 #  include "eevee_velocity_infos.hh"
+#endif
 
+#ifdef GLSL_CPP_STUBS
 #  define DOF_BOKEH_TEXTURE true
 #  define DILATE_MODE_MIN_MAX true
 #endif
@@ -98,8 +101,8 @@ UNIFORM_BUF(6, DepthOfFieldData, dof_buf)
 SAMPLER(0, sampler2D, downsample_tx)
 STORAGE_BUF(0, write, ScatterRect, scatter_fg_list_buf[])
 STORAGE_BUF(1, write, ScatterRect, scatter_bg_list_buf[])
-STORAGE_BUF(2, read_write, DrawCommand, scatter_fg_indirect_buf)
-STORAGE_BUF(3, read_write, DrawCommand, scatter_bg_indirect_buf)
+STORAGE_BUF(2, read_write, DrawCommandArray, scatter_fg_indirect_buf)
+STORAGE_BUF(3, read_write, DrawCommandArray, scatter_bg_indirect_buf)
 IMAGE(0, SFLOAT_16_16_16_16, read_write, image2D, inout_color_lod0_img)
 IMAGE(1, SFLOAT_16_16_16_16, write, image2D, out_color_lod1_img)
 IMAGE(2, SFLOAT_16_16_16_16, write, image2D, out_color_lod2_img)
@@ -181,14 +184,6 @@ GPU_SHADER_CREATE_INFO(eevee_depth_of_field_foreground)
 DEFINE_VALUE("DOF_FOREGROUND_PASS", "true")
 GPU_SHADER_CREATE_END()
 
-#define EEVEE_DOF_LUT_VARIATIONS(prefix, ...) \
-  CREATE_INFO_VARIANT(prefix##_lut, eevee_depth_of_field_lut, __VA_ARGS__) \
-  CREATE_INFO_VARIANT(prefix##_no_lut, eevee_depth_of_field_no_lut, __VA_ARGS__)
-
-#define EEVEE_DOF_GROUND_VARIATIONS(name, ...) \
-  EEVEE_DOF_LUT_VARIATIONS(name##_background, eevee_depth_of_field_background, __VA_ARGS__) \
-  EEVEE_DOF_LUT_VARIATIONS(name##_foreground, eevee_depth_of_field_foreground, __VA_ARGS__)
-
 /** \} */
 
 /* -------------------------------------------------------------------- */
@@ -216,7 +211,22 @@ COMPUTE_SOURCE("eevee_depth_of_field_gather_comp.glsl")
 ADDITIONAL_INFO(eevee_depth_of_field_gather_common)
 GPU_SHADER_CREATE_END()
 
-EEVEE_DOF_GROUND_VARIATIONS(eevee_depth_of_field_gather, eevee_depth_of_field_gather)
+CREATE_INFO_VARIANT(eevee_depth_of_field_gather_background_lut,
+                    eevee_depth_of_field_lut,
+                    eevee_depth_of_field_background,
+                    eevee_depth_of_field_gather)
+CREATE_INFO_VARIANT(eevee_depth_of_field_gather_background_no_lut,
+                    eevee_depth_of_field_no_lut,
+                    eevee_depth_of_field_background,
+                    eevee_depth_of_field_gather)
+CREATE_INFO_VARIANT(eevee_depth_of_field_gather_foreground_lut,
+                    eevee_depth_of_field_lut,
+                    eevee_depth_of_field_foreground,
+                    eevee_depth_of_field_gather)
+CREATE_INFO_VARIANT(eevee_depth_of_field_gather_foreground_no_lut,
+                    eevee_depth_of_field_no_lut,
+                    eevee_depth_of_field_foreground,
+                    eevee_depth_of_field_gather)
 
 GPU_SHADER_CREATE_INFO(eevee_depth_of_field_hole_fill)
 DO_STATIC_COMPILATION()
@@ -307,6 +317,11 @@ IMAGE(2, SFLOAT_16_16_16_16, write, image2D, out_color_img)
 COMPUTE_SOURCE("eevee_depth_of_field_resolve_comp.glsl")
 GPU_SHADER_CREATE_END()
 
-EEVEE_DOF_LUT_VARIATIONS(eevee_depth_of_field_resolve, eevee_depth_of_field_resolve)
+CREATE_INFO_VARIANT(eevee_depth_of_field_resolve_lut,
+                    eevee_depth_of_field_lut,
+                    eevee_depth_of_field_resolve)
+CREATE_INFO_VARIANT(eevee_depth_of_field_resolve_no_lut,
+                    eevee_depth_of_field_no_lut,
+                    eevee_depth_of_field_resolve)
 
 /** \} */

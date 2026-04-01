@@ -170,17 +170,21 @@ class TOPBAR_MT_file(Menu):
         layout.separator()
 
         layout.operator_context = 'EXEC_AREA' if context.blend_data.is_saved else 'INVOKE_AREA'
-        layout.operator("wm.save_mainfile", text="Save", icon='FILE_TICK')
+        layout.operator("wm.save_mainfile", text="Save", icon='FILE_TICK').show_save_modified_images_dialog = True
 
         layout.operator_context = 'INVOKE_AREA'
-        layout.operator("wm.save_as_mainfile", text="Save As...")
+        layout.operator("wm.save_as_mainfile", text="Save As...").show_save_modified_images_dialog = True
         layout.operator_context = 'INVOKE_AREA'
-        layout.operator("wm.save_as_mainfile", text="Save Copy...").copy = True
+        save_copy = layout.operator("wm.save_as_mainfile", text="Save Copy...")
+        save_copy.copy = True
+        save_copy.show_save_modified_images_dialog = True
 
         sub = layout.row()
         sub.enabled = context.blend_data.is_saved
         sub.operator_context = 'EXEC_AREA'
-        sub.operator("wm.save_mainfile", text="Save Incremental").incremental = True
+        save_incremental = sub.operator("wm.save_mainfile", text="Save Incremental")
+        save_incremental.incremental = True
+        save_incremental.show_save_modified_images_dialog = True
 
         layout.separator()
 
@@ -467,6 +471,11 @@ class TOPBAR_MT_render(Menu):
         layout = self.layout
 
         rd = context.scene.render
+        scene = context.scene
+        seq_scene = context.sequencer_scene
+        strips = getattr(context, "strips", ())
+
+        can_render_seq = seq_scene and seq_scene.render.use_sequencer and strips
 
         layout.operator("render.render", text="Render Image", icon='RENDER_STILL').use_viewport = True
         props = layout.operator("render.render", text="Render Animation", icon='RENDER_ANIMATION')
@@ -474,6 +483,18 @@ class TOPBAR_MT_render(Menu):
         props.use_viewport = True
 
         layout.separator()
+
+        if can_render_seq and (seq_scene != scene):
+            props = layout.operator("render.render", text="Render Sequencer Image", icon='RENDER_STILL')
+            props.use_viewport = True
+            props.use_sequencer_scene = True
+
+            props = layout.operator("render.render", text="Render Sequencer Animation", icon='RENDER_ANIMATION')
+            props.animation = True
+            props.use_viewport = True
+            props.use_sequencer_scene = True
+
+            layout.separator()
 
         layout.operator("sound.mixdown", text="Render Audio...")
 
@@ -495,8 +516,8 @@ class TOPBAR_MT_edit(Menu):
 
         show_developer = context.preferences.view.show_developer_ui
 
-        layout.operator("ed.undo")
-        layout.operator("ed.redo")
+        layout.operator("ed.undo", icon='LOOP_BACK')
+        layout.operator("ed.redo", icon='LOOP_FORWARDS')
         layout.menu("TOPBAR_MT_undo_history")
 
         layout.separator()
@@ -536,7 +557,7 @@ class TOPBAR_MT_window(Menu):
 
     def draw(self, context):
         import sys
-        from bl_ui_utils.layout import operator_context
+        from _bl_ui_utils.layout import operator_context
 
         layout = self.layout
 
@@ -558,14 +579,14 @@ class TOPBAR_MT_window(Menu):
 
         layout.separator()
 
-        layout.operator("screen.screenshot")
+        layout.operator("screen.screenshot", text="Save Screenshot...")
 
         # Showing the status in the area doesn't work well in this case.
         # - From the top-bar, the text replaces the file-menu (not so bad but strange).
         # - From menu-search it replaces the area that the user may want to screen-shot.
         # Setting the context to screen causes the status to show in the global status-bar.
         with operator_context(layout, 'INVOKE_SCREEN'):
-            layout.operator("screen.screenshot_area")
+            layout.operator("screen.screenshot_area", text="Save Screenshot (Editor)...")
 
         if sys.platform[:3] == "win":
             layout.separator()
@@ -585,10 +606,10 @@ class TOPBAR_MT_help(Menu):
         show_developer = context.preferences.view.show_developer_ui
 
         layout.operator("wm.url_open_preset", text="Manual", icon='URL').type = 'MANUAL'
-        layout.operator("wm.url_open_preset", text="Release Notes").type = 'RELEASE_NOTES'
-        layout.operator("wm.url_open", text="Tutorials").url = "https://www.blender.org/tutorials"
         layout.operator("wm.url_open", text="Support").url = "https://www.blender.org/support"
         layout.operator("wm.url_open", text="User Communities").url = "https://www.blender.org/community/"
+        layout.operator("wm.url_open", text="Get Involved").url = "https://www.blender.org/get-involved/"
+        layout.operator("wm.url_open_preset", text="Release Notes").type = 'RELEASE_NOTES'
 
         layout.separator()
 
@@ -758,13 +779,22 @@ class TOPBAR_PT_name_marker(Panel):
     @staticmethod
     def is_using_pose_markers(context):
         sd = context.space_data
-        return (sd.type == 'DOPESHEET_EDITOR' and sd.mode in {'ACTION', 'SHAPEKEY'} and
-                sd.show_pose_markers and context.active_action)
+        return (
+            sd.type == 'DOPESHEET_EDITOR' and sd.mode in {'ACTION', 'SHAPEKEY'} and
+            sd.show_pose_markers and context.active_action
+        )
+
+    @staticmethod
+    def is_using_sequencer(context):
+        sd = context.space_data
+        return sd.type == 'SEQUENCE_EDITOR'
 
     @staticmethod
     def get_selected_marker(context):
         if TOPBAR_PT_name_marker.is_using_pose_markers(context):
             markers = context.active_action.pose_markers
+        elif TOPBAR_PT_name_marker.is_using_sequencer(context):
+            markers = context.sequencer_scene.timeline_markers
         else:
             markers = context.scene.timeline_markers
 

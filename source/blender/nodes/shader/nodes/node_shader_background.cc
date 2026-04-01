@@ -4,21 +4,23 @@
 
 #include "node_shader_util.hh"
 
-namespace blender::nodes::node_shader_background_cc {
+namespace blender {
+
+namespace nodes::node_shader_background_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Color>("Color")
+  b.add_input<decl::Color>("Color"_ustr)
       .default_value({0.8f, 0.8f, 0.8f, 1.0f})
       .description("Color of the emitted light");
-  b.add_input<decl::Float>("Strength")
+  b.add_input<decl::Float>("Strength"_ustr)
       .default_value(1.0f)
       .min(0.0f)
       .max(1000000.0f)
       .description("Strength of the emitted light")
       .translation_context(BLT_I18NCONTEXT_AMOUNT);
-  b.add_input<decl::Float>("Weight").available(false);
-  b.add_output<decl::Shader>("Background");
+  b.add_input<decl::Float>("Weight"_ustr).available(false);
+  b.add_output<decl::Shader>("Background"_ustr);
 }
 
 static int node_shader_gpu_background(GPUMaterial *mat,
@@ -30,14 +32,14 @@ static int node_shader_gpu_background(GPUMaterial *mat,
   return GPU_stack_link(mat, node, "node_background", in, out);
 }
 
-}  // namespace blender::nodes::node_shader_background_cc
+}  // namespace nodes::node_shader_background_cc
 
 /* node type definition */
 void register_node_type_sh_background()
 {
-  namespace file_ns = blender::nodes::node_shader_background_cc;
+  namespace file_ns = nodes::node_shader_background_cc;
 
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
 
   sh_node_type_base(&ntype, "ShaderNodeBackground", SH_NODE_BACKGROUND);
   ntype.ui_name = "Background";
@@ -50,5 +52,7 @@ void register_node_type_sh_background()
   ntype.add_ui_poll = world_shader_nodes_poll;
   ntype.gpu_fn = file_ns::node_shader_gpu_background;
 
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 }
+
+}  // namespace blender

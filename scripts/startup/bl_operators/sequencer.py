@@ -34,14 +34,17 @@ class SequencerCrossfadeSounds(Operator):
 
     @classmethod
     def poll(cls, context):
+        sequencer_scene = context.sequencer_scene
+        if not sequencer_scene:
+            return False
         strip = context.active_strip
         return strip and (strip.type == 'SOUND')
 
     def execute(self, context):
-        scene = context.scene
+        scene = context.sequencer_scene
         strip1 = None
         strip2 = None
-        for strip in scene.sequence_editor.strips_all:
+        for strip in scene.sequence_editor.strips:
             if strip.select and strip.type == 'SOUND':
                 if strip1 is None:
                     strip1 = strip
@@ -53,20 +56,15 @@ class SequencerCrossfadeSounds(Operator):
         if strip2 is None:
             self.report({'ERROR'}, "Select 2 sound strips")
             return {'CANCELLED'}
-        if strip1.frame_final_start > strip2.frame_final_start:
+        if strip1.left_handle > strip2.left_handle:
             strip1, strip2 = strip2, strip1
-        if strip1.frame_final_end > strip2.frame_final_start:
-            tempcfra = scene.frame_current
-            scene.frame_current = strip2.frame_final_start
-            strip1.keyframe_insert("volume")
-            scene.frame_current = strip1.frame_final_end
+        if strip1.right_handle > strip2.left_handle:
+            strip1.keyframe_insert("volume", frame=strip2.left_handle)
             strip1.volume = 0
-            strip1.keyframe_insert("volume")
-            strip2.keyframe_insert("volume")
-            scene.frame_current = strip2.frame_final_start
+            strip1.keyframe_insert("volume", frame=strip1.right_handle)
+            strip2.keyframe_insert("volume", frame=strip1.right_handle)
             strip2.volume = 0
-            strip2.keyframe_insert("volume")
-            scene.frame_current = tempcfra
+            strip2.keyframe_insert("volume", frame=strip2.left_handle)
             return {'FINISHED'}
 
         self.report({'ERROR'}, "The selected strips don't overlap")
@@ -89,11 +87,14 @@ class SequencerSplitMulticam(Operator):
 
     @classmethod
     def poll(cls, context):
+        sequencer_scene = context.sequencer_scene
+        if not sequencer_scene:
+            return False
         strip = context.active_strip
         return strip and (strip.type == 'MULTICAM')
 
     def execute(self, context):
-        scene = context.scene
+        scene = context.sequencer_scene
         camera = self.camera
 
         strip = context.active_strip
@@ -126,7 +127,8 @@ class SequencerDeinterlaceSelectedMovies(Operator):
         return (scene and scene.sequence_editor)
 
     def execute(self, context):
-        for strip in context.scene.sequence_editor.strips_all:
+        scene = context.sequencer_scene
+        for strip in scene.sequence_editor.strips:
             if strip.select and strip.type == 'MOVIE':
                 strip.use_deinterlace = True
 
@@ -141,22 +143,27 @@ class SequencerFadesClear(Operator):
 
     @classmethod
     def poll(cls, context):
+        sequencer_scene = context.sequencer_scene
+        if not sequencer_scene:
+            return False
         strip = context.active_strip
         return strip is not None
 
     def execute(self, context):
-        scene = context.scene
+        from bpy_extras import anim_utils
+
+        scene = context.sequencer_scene
         animation_data = scene.animation_data
         if animation_data is None:
             return {'CANCELLED'}
-        action = animation_data.action
-        if action is None:
+        channelbag = anim_utils.action_get_channelbag_for_slot(animation_data.action, animation_data.action_slot)
+        if channelbag is None:
             return {'CANCELLED'}
-        fcurves = action.fcurves
+        fcurves = channelbag.fcurves
         fcurve_map = {
             curve.data_path: curve
             for curve in fcurves
-            if curve.data_path.startswith("sequence_editor.strips_all")
+            if curve.data_path.startswith("sequence_editor.strips")
         }
         for strip in context.selected_strips:
             for animated_property in _animated_properties_get(strip):
@@ -199,6 +206,9 @@ class SequencerFadesAdd(Operator):
 
     @classmethod
     def poll(cls, context):
+        sequencer_scene = context.sequencer_scene
+        if not sequencer_scene:
+            return False
         # Can't use context.selected_strips as it can have an impact on performances
         strip = context.active_strip
         return strip is not None
@@ -207,7 +217,7 @@ class SequencerFadesAdd(Operator):
         from math import floor
 
         # We must create a scene action first if there's none
-        scene = context.scene
+        scene = context.sequencer_scene
         if not scene.animation_data:
             scene.animation_data_create()
         if not scene.animation_data.action:
@@ -223,13 +233,13 @@ class SequencerFadesAdd(Operator):
         if self.type in {'CURSOR_TO', 'CURSOR_FROM'}:
             strips = [
                 strip for strip in strips
-                if strip.frame_final_start < scene.frame_current < strip.frame_final_end
+                if strip.left_handle < scene.frame_current < strip.right_handle
             ]
             if not strips:
                 self.report({'ERROR'}, "Current frame not within strip framerange")
                 return {'CANCELLED'}
 
-        max_duration = min(strips, key=lambda strip: strip.frame_final_duration).frame_final_duration
+        max_duration = min(strips, key=lambda strip: strip.duration).duration
         max_duration = floor(max_duration / 2.0) if self.type == 'IN_OUT' else max_duration
 
         faded_strips = []
@@ -252,20 +262,20 @@ class SequencerFadesAdd(Operator):
         return {'FINISHED'}
 
     def calculate_fade_duration(self, context, strip):
-        scene = context.scene
+        scene = context.sequencer_scene
         frame_current = scene.frame_current
         duration = 0.0
         if self.type == 'CURSOR_TO':
-            duration = abs(frame_current - strip.frame_final_start)
+            duration = abs(frame_current - strip.left_handle)
         elif self.type == 'CURSOR_FROM':
-            duration = abs(strip.frame_final_end - frame_current)
+            duration = abs(strip.right_handle - frame_current)
         else:
             duration = calculate_duration_frames(scene, self.duration_seconds)
         return max(1, duration)
 
     def is_long_enough(self, strip, duration=0.0):
         minimum_duration = duration * 2 if self.type == 'IN_OUT' else duration
-        return strip.frame_final_duration >= minimum_duration
+        return strip.duration >= minimum_duration
 
     def calculate_fades(self, strip, fade_fcurve, animated_property, duration):
         """
@@ -286,7 +296,7 @@ class SequencerFadesAdd(Operator):
         that corresponds to the strip.
         Returns the matching FCurve or creates a new one if the function can't find a match.
         """
-        scene = context.scene
+        scene = context.sequencer_scene
         action = scene.animation_data.action
         searched_data_path = strip.path_from_id(animated_property)
         return action.fcurve_ensure_for_datablock(scene, searched_data_path)
@@ -341,11 +351,11 @@ class Fade:
         self.max_value = self.calculate_max_value(strip, fade_fcurve)
 
         if ty == 'IN':
-            self.start = Vector((strip.frame_final_start, 0.0))
-            self.end = Vector((strip.frame_final_start + self.duration, self.max_value))
+            self.start = Vector((strip.left_handle, 0.0))
+            self.end = Vector((strip.left_handle + self.duration, self.max_value))
         elif ty == 'OUT':
-            self.start = Vector((strip.frame_final_end - self.duration, self.max_value))
-            self.end = Vector((strip.frame_final_end, 0.0))
+            self.start = Vector((strip.right_handle - self.duration, self.max_value))
+            self.end = Vector((strip.right_handle, 0.0))
 
     def calculate_max_value(self, strip, fade_fcurve):
         """
@@ -358,10 +368,10 @@ class Fade:
             max_value = getattr(strip, self.animated_property, 1.0)
         else:
             if self.type == 'IN':
-                fade_end = strip.frame_final_start + self.duration
+                fade_end = strip.left_handle + self.duration
                 keyframes = (k for k in fade_fcurve.keyframe_points if k.co[0] >= fade_end)
             if self.type == 'OUT':
-                fade_start = strip.frame_final_end - self.duration
+                fade_start = strip.right_handle - self.duration
                 keyframes = (k for k in reversed(fade_fcurve.keyframe_points) if k.co[0] <= fade_start)
             try:
                 max_value = next(keyframes).co[1]

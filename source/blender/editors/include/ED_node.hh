@@ -6,6 +6,7 @@
 
 #include <optional>
 
+#include "BLI_bounds.hh"
 #include "BLI_compute_context.hh"
 #include "BLI_math_vector_types.hh"
 #include "BLI_string_ref.hh"
@@ -13,14 +14,14 @@
 
 #include "BKE_compute_context_cache_fwd.hh"
 
-#include "NOD_geometry_nodes_bundle_signature.hh"
 #include "NOD_geometry_nodes_closure_location.hh"
-#include "NOD_geometry_nodes_closure_signature.hh"
 #include "NOD_nested_node_id.hh"
 
 #include "ED_node_c.hh"
 
 #include "UI_interface_layout.hh"
+
+namespace blender {
 
 struct SpaceNode;
 struct ARegion;
@@ -28,22 +29,33 @@ struct Main;
 struct bContext;
 struct bNodeSocket;
 struct bNodeTree;
+struct bNodeTreeInterfacePanel;
+struct bNodeTreeInterfaceSocket;
 struct Object;
 struct rcti;
 struct rctf;
 struct NodesModifierData;
-struct uiLayout;
 
-namespace blender::bke {
+namespace bke {
 class bNodeTreeZone;
 }
 
-namespace blender::ed::space_node {
+namespace ui {
+struct Layout;
+}  // namespace ui
+
+namespace nodes {
+class ItemDeclaration;
+}
+
+namespace ed::space_node {
 
 void tree_update(const bContext *C);
-void tag_update_id(ID *id);
 
 float grid_size_get();
+
+/* Compute the nearest 1D coordinate corresponding to the nearest grid in node editors. */
+float nearest_node_grid_coord(float co);
 
 /** Update the active node tree based on the context. */
 void snode_set_context(const bContext &C);
@@ -93,8 +105,8 @@ std::optional<nodes::FoundNestedNodeID> find_nested_node_id_in_root(
     const bNodeTree &root_tree, const ComputeContext *compute_context, const int node_id);
 
 struct ObjectAndModifier {
-  const Object *object;
-  const NodesModifierData *nmd;
+  const Object *object = nullptr;
+  const NodesModifierData *nmd = nullptr;
 };
 /**
  * Finds the context-modifier for the node editor.
@@ -136,12 +148,26 @@ bool node_editor_is_for_geometry_nodes_modifier(const SpaceNode &snode,
     bke::ComputeContextCache &compute_context_cache,
     const ComputeContext *parent_compute_context);
 
-void ui_template_node_asset_menu_items(uiLayout &layout,
+void ui_template_node_asset_menu_items(ui::Layout &layout,
                                        const bContext &C,
                                        StringRef catalog_path,
-                                       const NodeAssetMenuOperatorType operator_type);
+                                       const ui::NodeAssetMenuOperatorType operator_type);
 
-/** See #SpaceNode_Runtime::node_can_sync_states. */
+/** See #ed::space_node::SpaceNode_Runtime::node_can_sync_states. */
 Map<int, bool> &node_can_sync_cache_get(SpaceNode &snode);
 
-}  // namespace blender::ed::space_node
+void node_tree_interface_draw(bContext &C, ui::Layout &layout, bNodeTree &tree);
+
+const char *node_socket_get_label(const bNodeSocket *socket, const char *panel_label = nullptr);
+
+const char *node_socket_get_description(const bNodeSocket *socket);
+
+std::optional<Bounds<float2>> node_bounds(Span<const bNode *> nodes);
+std::optional<Bounds<float2>> node_location_bounds(Span<const bNode *> nodes);
+
+/** Find the top-most parent shared by all the nodes, or null if no parent contains all nodes. */
+bNode *find_common_parent_node(Span<bNode *> nodes);
+
+}  // namespace ed::space_node
+
+}  // namespace blender

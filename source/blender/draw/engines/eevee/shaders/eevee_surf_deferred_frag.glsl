@@ -9,9 +9,11 @@
  * Some render-pass are written during this pass.
  */
 
-#include "infos/eevee_material_infos.hh"
+#include "infos/eevee_geom_infos.hh"
+#include "infos/eevee_nodetree_infos.hh"
+#include "infos/eevee_surf_deferred_infos.hh"
 
-FRAGMENT_SHADER_CREATE_INFO(eevee_node_tree)
+FRAGMENT_SHADER_CREATE_INFO(eevee_nodetree)
 FRAGMENT_SHADER_CREATE_INFO(eevee_geom_mesh)
 FRAGMENT_SHADER_CREATE_INFO(eevee_surf_deferred)
 FRAGMENT_SHADER_CREATE_INFO(eevee_render_pass_out)
@@ -23,8 +25,9 @@ FRAGMENT_SHADER_CREATE_INFO(eevee_cryptomatte_out)
 #include "eevee_nodetree_frag_lib.glsl"
 #include "eevee_sampling_lib.glsl"
 #include "eevee_surf_lib.glsl"
+#include "eevee_thickness_lib.glsl"
 
-float4 closure_to_rgba(Closure cl)
+float4 closure_to_rgba(Closure /*cl*/)
 {
   float4 out_color;
   out_color.rgb = g_emission;
@@ -73,7 +76,7 @@ void main()
 
   g_holdout = saturate(g_holdout);
 
-  float thickness = nodetree_thickness() * thickness_mode;
+  Thickness thickness = Thickness::from(nodetree_thickness(), thickness_mode);
 
   /** Transparency weight is already applied through dithering, remove it from other closures. */
   float alpha = 1.0f - average(g_transmittance);

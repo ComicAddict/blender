@@ -12,6 +12,7 @@ VERTEX_SHADER_CREATE_INFO(overlay_armature_shape_outline)
 #include "gpu_shader_index_load_lib.glsl"
 
 #include "gpu_shader_math_matrix_transform_lib.glsl"
+#include "gpu_shader_math_safe_lib.glsl"
 #include "gpu_shader_utildefines_lib.glsl"
 #include "overlay_common_lib.glsl"
 #include "select_lib.glsl"
@@ -91,7 +92,7 @@ void emit_vertex(const uint strip_index,
 void geometry_main(VertOut geom_in[4],
                    uint out_vertex_id,
                    uint out_primitive_id,
-                   uint out_invocation_id)
+                   uint /*out_invocation_id*/)
 {
   bool is_persp = (drw_view().winmat[3][3] == 0.0f);
 
@@ -100,14 +101,18 @@ void geometry_main(VertOut geom_in[4],
   float3 v12 = geom_in[2].vs_P - geom_in[1].vs_P;
   float3 v13 = geom_in[3].vs_P - geom_in[1].vs_P;
 
+  /* Known Issue: This also generates outlines for connected-overlapping edges, since their vector
+   * is zero-length. */
   float3 n0 = cross(v12, v10);
+  n0 *= safe_rcp(length(n0));
   float3 n3 = cross(v13, v12);
+  n3 *= safe_rcp(length(n3));
 
   float fac0 = dot(view_vec, n0);
   float fac3 = dot(view_vec, n3);
 
   /* If one of the face is perpendicular to the view,
-   * consider it and outline edge. */
+   * consider it an outline edge. */
   if (abs(fac0) > 1e-5f && abs(fac3) > 1e-5f) {
     /* If both adjacent verts are facing the camera the same way,
      * then it isn't an outline edge. */

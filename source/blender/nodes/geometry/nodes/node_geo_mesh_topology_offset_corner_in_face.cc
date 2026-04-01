@@ -10,14 +10,16 @@ namespace blender::nodes::node_geo_mesh_topology_offset_corner_in_face_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Int>("Corner Index")
+  b.add_input<decl::Int>("Corner Index"_ustr)
       .implicit_field(NODE_DEFAULT_INPUT_INDEX_FIELD)
       .description("The corner to retrieve data from. Defaults to the corner from the context")
       .structure_type(StructureType::Field);
-  b.add_input<decl::Int>("Offset").supports_field().description(
-      "The number of corners to move around the face before finding the result, "
-      "circling around the start of the face if necessary");
-  b.add_output<decl::Int>("Corner Index")
+  b.add_input<decl::Int>("Offset"_ustr)
+      .supports_field()
+      .description(
+          "The number of corners to move around the face before finding the result, "
+          "circling around the start of the face if necessary");
+  b.add_output<decl::Int>("Corner Index"_ustr)
       .field_source_reference_all()
       .description("The index of the offset corner");
 }
@@ -32,7 +34,6 @@ class OffsetCornerInFaceFieldInput final : public bke::MeshFieldInput {
         corner_index_(std::move(corner_index)),
         offset_(std::move(offset))
   {
-    category_ = Category::Generated;
   }
 
   GVArray get_varray_for_context(const Mesh &mesh,
@@ -53,18 +54,21 @@ class OffsetCornerInFaceFieldInput final : public bke::MeshFieldInput {
     const Span<int> corner_to_face = mesh.corner_to_face_map();
 
     Array<int> offset_corners(mask.min_array_size());
-    mask.foreach_index_optimized<int>(GrainSize(2048), [&](const int selection_i) {
-      const int corner = corner_indices[selection_i];
-      const int offset = offsets[selection_i];
-      if (!corner_to_face.index_range().contains(corner)) {
-        offset_corners[selection_i] = 0;
-        return;
-      }
-      const IndexRange face = faces[corner_to_face[corner]];
-      const int corner_index_in_face = corner - face.start();
-      offset_corners[selection_i] = face.start() + math::mod_periodic<int>(
-                                                       corner_index_in_face + offset, face.size());
-    });
+    mask.foreach_index_optimized<int>(
+        [&](const int selection_i) {
+          const int corner = corner_indices[selection_i];
+          const int offset = offsets[selection_i];
+          if (!corner_to_face.index_range().contains(corner)) {
+            offset_corners[selection_i] = 0;
+            return;
+          }
+          const IndexRange face = faces[corner_to_face[corner]];
+          const int corner_index_in_face = corner - face.start();
+          offset_corners[selection_i] = face.start() +
+                                        math::mod_periodic<int>(corner_index_in_face + offset,
+                                                                face.size());
+        },
+        exec_mode::grain_size(4096));
 
     return VArray<int>::from_container(std::move(offset_corners));
   }
@@ -98,15 +102,15 @@ class OffsetCornerInFaceFieldInput final : public bke::MeshFieldInput {
 
 static void node_geo_exec(GeoNodeExecParams params)
 {
-  params.set_output("Corner Index",
+  params.set_output("Corner Index"_ustr,
                     Field<int>(std::make_shared<OffsetCornerInFaceFieldInput>(
-                        params.extract_input<Field<int>>("Corner Index"),
-                        params.extract_input<Field<int>>("Offset"))));
+                        params.extract_input<Field<int>>("Corner Index"_ustr),
+                        params.extract_input<Field<int>>("Offset"_ustr))));
 }
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
   geo_node_type_base(
       &ntype, "GeometryNodeOffsetCornerInFace", GEO_NODE_MESH_TOPOLOGY_OFFSET_CORNER_IN_FACE);
   ntype.ui_name = "Offset Corner in Face";
@@ -115,7 +119,7 @@ static void node_register()
   ntype.nclass = NODE_CLASS_INPUT;
   ntype.geometry_node_execute = node_geo_exec;
   ntype.declare = node_declare;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 }
 NOD_REGISTER_NODE(node_register)
 

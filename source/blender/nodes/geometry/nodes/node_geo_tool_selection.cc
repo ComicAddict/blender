@@ -10,11 +10,12 @@ namespace blender::nodes::node_geo_tool_selection_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_output<decl::Bool>("Boolean", "Selection")
+  b.add_output<decl::Bool>("Boolean"_ustr, "Selection"_ustr)
       .field_source()
       .description("The selection of each element as a true or false value");
-  b.add_output<decl::Float>("Float").field_source().description(
-      "The selection of each element as a floating point value");
+  b.add_output<decl::Float>("Float"_ustr)
+      .field_source()
+      .description("The selection of each element as a floating point value");
 }
 
 static const void *true_value(const bke::AttrType data_type)
@@ -74,7 +75,6 @@ class EditSelectionFieldInput final : public bke::GeometryFieldInput {
   EditSelectionFieldInput(bke::AttrType data_type)
       : bke::GeometryFieldInput(bke::attribute_type_to_cpp_type(data_type), "Edit Selection")
   {
-    category_ = Category::NamedAttribute;
   }
 
   GVArray get_varray_for_context(const bke::GeometryFieldContext &context,
@@ -103,7 +103,6 @@ class SculptSelectionFieldInput final : public bke::GeometryFieldInput {
   SculptSelectionFieldInput(bke::AttrType data_type)
       : bke::GeometryFieldInput(bke::attribute_type_to_cpp_type(data_type), "Sculpt Selection")
   {
-    category_ = Category::NamedAttribute;
   }
 
   GVArray get_varray_for_context(const bke::GeometryFieldContext &context,
@@ -127,13 +126,15 @@ class SculptSelectionFieldInput final : public bke::GeometryFieldInput {
           case bke::AttrType::Bool: {
             Array<bool> selection(mask.min_array_size());
             mask.foreach_index_optimized<int>(
-                GrainSize(4096), [&](const int i) { selection[i] = attribute[i] < 1.0f; });
+                [&](const int i) { selection[i] = attribute[i] < 1.0f; },
+                exec_mode::grain_size(4096));
             return VArray<bool>::from_container(std::move(selection));
           }
           case bke::AttrType::Float: {
             Array<float> selection(mask.min_array_size());
             mask.foreach_index_optimized<int>(
-                GrainSize(4096), [&](const int i) { selection[i] = 1.0f - attribute[i]; });
+                [&](const int i) { selection[i] = 1.0f - attribute[i]; },
+                exec_mode::grain_size(4096));
             return VArray<float>::from_container(std::move(selection));
           }
           default: {
@@ -175,13 +176,13 @@ static void node_geo_exec(GeoNodeExecParams params)
     return;
   }
   const eObjectMode mode = params.user_data()->call_data->operator_data->mode;
-  params.set_output("Selection", get_selection_field(mode, bke::AttrType::Bool));
-  params.set_output("Float", get_selection_field(mode, bke::AttrType::Float));
+  params.set_output("Selection"_ustr, get_selection_field(mode, bke::AttrType::Bool));
+  params.set_output("Float"_ustr, get_selection_field(mode, bke::AttrType::Float));
 }
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
   geo_node_type_base(&ntype, "GeometryNodeToolSelection", GEO_NODE_TOOL_SELECTION);
   ntype.ui_name = "Selection";
   ntype.ui_description = "User selection of the edited geometry, for tool execution";
@@ -190,7 +191,7 @@ static void node_register()
   ntype.declare = node_declare;
   ntype.geometry_node_execute = node_geo_exec;
   ntype.gather_link_search_ops = search_link_ops_for_tool_node;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 }
 NOD_REGISTER_NODE(node_register)
 

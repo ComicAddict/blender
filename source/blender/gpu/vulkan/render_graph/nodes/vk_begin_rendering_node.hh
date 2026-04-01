@@ -77,10 +77,10 @@ class VKBeginRenderingNode : public VKNodeInfo<VKNodeType::BEGIN_RENDERING,
    * Extract read/write resource dependencies from `create_info` and add them to `node_links`.
    */
   void build_links(VKResourceStateTracker &resources,
-                   VKRenderGraphNodeLinks &node_links,
+                   VKRenderGraphLinks &links,
                    const CreateInfo &create_info) override
   {
-    create_info.resources.build_links(resources, node_links);
+    create_info.resources.build_links(resources, links);
   }
 
   /**
@@ -88,6 +88,7 @@ class VKBeginRenderingNode : public VKNodeInfo<VKNodeType::BEGIN_RENDERING,
    */
   void build_commands(VKCommandBufferInterface &command_buffer,
                       Data &data,
+                      Span<uint8_t> /*storage_push_constants*/,
                       VKBoundPipelines & /*r_bound_pipelines*/) override
   {
     /* Localize pointers just before sending to the command buffer. Pointer can (and will) change
@@ -104,5 +105,37 @@ class VKBeginRenderingNode : public VKNodeInfo<VKNodeType::BEGIN_RENDERING,
     }
     command_buffer.begin_rendering(&data.vk_rendering_info);
   }
+
+  /**
+   * Reconfigure the vk_rendering_info to be restarted.
+   *
+   * When a render scope is restarted the clear/load ops needs to load in the previous stored
+   * results.
+   */
+  static void reconfigure_for_restart(VKBeginRenderingData &begin_rendering_data)
+  {
+    auto reconfigure_attachment = [](VkRenderingAttachmentInfo &rendering_attachment) {
+      if (ELEM(rendering_attachment.loadOp,
+               VK_ATTACHMENT_LOAD_OP_CLEAR,
+               VK_ATTACHMENT_LOAD_OP_DONT_CARE))
+      {
+        rendering_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+      }
+    };
+
+    if (begin_rendering_data.vk_rendering_info.pStencilAttachment != nullptr) {
+      reconfigure_attachment(begin_rendering_data.stencil_attachment);
+    }
+    if (begin_rendering_data.vk_rendering_info.pDepthAttachment != nullptr) {
+      reconfigure_attachment(begin_rendering_data.depth_attachment);
+    }
+    for (VkRenderingAttachmentInfo &color_attachment : MutableSpan<VkRenderingAttachmentInfo>(
+             begin_rendering_data.color_attachments,
+             begin_rendering_data.vk_rendering_info.colorAttachmentCount))
+    {
+      reconfigure_attachment(color_attachment);
+    }
+  }
 };
+
 }  // namespace blender::gpu::render_graph

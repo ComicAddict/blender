@@ -27,6 +27,7 @@ def object_ensure_material(obj, mat_name):
             break
     if mat is None:
         mat = bpy.data.materials.new(mat_name)
+        mat.node_tree.nodes.clear()
         if mat_slot:
             mat_slot.material = mat
         else:
@@ -107,7 +108,7 @@ class QuickFur(ObjectModeOperator, Operator):
         asset_library_filepath = os.path.join(
             bpy.utils.system_resource('DATAFILES'),
             "assets",
-            "geometry_nodes",
+            "nodes",
             "procedural_hair_node_assets.blend",
         )
 
@@ -448,7 +449,6 @@ class QuickSmoke(ObjectModeOperator, Operator):
             self.report({'ERROR'}, "Built without Fluid modifier")
             return {'CANCELLED'}
 
-        context_override = context.copy()
         mesh_objects = [
             obj for obj in context.selected_objects
             if obj.type == 'MESH'
@@ -461,20 +461,17 @@ class QuickSmoke(ObjectModeOperator, Operator):
             return {'CANCELLED'}
 
         for obj in mesh_objects:
-            context_override["object"] = obj
-            # make each selected object a smoke flow
-            with context.temp_override(**context_override):
-                bpy.ops.object.modifier_add(type='FLUID')
-            obj.modifiers[-1].fluid_type = 'FLOW'
+            fluid = obj.modifiers.new(name=data_("FLUID"), type='FLUID')
+            fluid.fluid_type = 'FLOW'
 
             # set type
-            obj.modifiers[-1].flow_settings.flow_type = self.style
+            fluid.flow_settings.flow_type = self.style
 
             # set flow behavior
-            obj.modifiers[-1].flow_settings.flow_behavior = 'INFLOW'
+            fluid.flow_settings.flow_behavior = 'INFLOW'
 
             # use some surface distance for smoke emission
-            obj.modifiers[-1].flow_settings.surface_distance = 1.0
+            fluid.flow_settings.surface_distance = 1.0
 
             if not self.show_flows:
                 obj.display_type = 'WIRE'
@@ -492,16 +489,16 @@ class QuickSmoke(ObjectModeOperator, Operator):
         obj.scale = 0.5 * (max_co - min_co) + Vector((1.0, 1.0, 2.0))
 
         # setup smoke domain
-        bpy.ops.object.modifier_add(type='FLUID')
-        obj.modifiers[-1].fluid_type = 'DOMAIN'
+        fluid = obj.modifiers.new(name=data_("FLUID"), type='FLUID')
+        fluid.fluid_type = 'DOMAIN'
         # The default value leads to unstable simulations (see #126924).
-        obj.modifiers[-1].domain_settings.cfl_condition = 4.0
+        fluid.domain_settings.cfl_condition = 4.0
         if self.style == {'FIRE', 'BOTH'}:
-            obj.modifiers[-1].domain_settings.use_noise = True
+            fluid.domain_settings.use_noise = True
 
         # ensure correct cache file format for smoke
         if bpy.app.build_options.openvdb:
-            obj.modifiers[-1].domain_settings.cache_data_format = 'OPENVDB'
+            fluid.domain_settings.cache_data_format = 'OPENVDB'
 
         # Setup material
 
@@ -554,7 +551,6 @@ class QuickLiquid(Operator):
             self.report({'ERROR'}, "Built without Fluid modifier")
             return {'CANCELLED'}
 
-        context_override = context.copy()
         mesh_objects = [
             obj for obj in context.selected_objects
             if obj.type == 'MESH'
@@ -574,20 +570,17 @@ class QuickLiquid(Operator):
                         space.shading.type = 'WIREFRAME'
 
         for obj in mesh_objects:
-            context_override["object"] = obj
-            # make each selected object a liquid flow
-            with context.temp_override(**context_override):
-                bpy.ops.object.modifier_add(type='FLUID')
-            obj.modifiers[-1].fluid_type = 'FLOW'
+            fluid = obj.modifiers.new(name=data_("FLUID"), type='FLUID')
+            fluid.fluid_type = 'FLOW'
 
             # set type
-            obj.modifiers[-1].flow_settings.flow_type = 'LIQUID'
+            fluid.flow_settings.flow_type = 'LIQUID'
 
             # set flow behavior
-            obj.modifiers[-1].flow_settings.flow_behavior = 'GEOMETRY'
+            fluid.flow_settings.flow_behavior = 'GEOMETRY'
 
             # use some surface distance for smoke emission
-            obj.modifiers[-1].flow_settings.surface_distance = 0.0
+            fluid.flow_settings.surface_distance = 0.0
 
             if not self.show_flows:
                 obj.display_type = 'WIRE'
@@ -605,34 +598,32 @@ class QuickLiquid(Operator):
         obj.scale = 0.5 * (max_co - min_co) + Vector((1.0, 1.0, 2.0))
 
         # setup liquid domain
-        bpy.ops.object.modifier_add(type='FLUID')
-        obj.modifiers[-1].fluid_type = 'DOMAIN'
+        fluid = obj.modifiers.new(name=data_("FLUID"), type='FLUID')
+        fluid.fluid_type = 'DOMAIN'
         # set all domain borders to obstacle
-        obj.modifiers[-1].domain_settings.use_collision_border_front = True
-        obj.modifiers[-1].domain_settings.use_collision_border_back = True
-        obj.modifiers[-1].domain_settings.use_collision_border_right = True
-        obj.modifiers[-1].domain_settings.use_collision_border_left = True
-        obj.modifiers[-1].domain_settings.use_collision_border_top = True
-        obj.modifiers[-1].domain_settings.use_collision_border_bottom = True
+        fluid.domain_settings.use_collision_border_front = True
+        fluid.domain_settings.use_collision_border_back = True
+        fluid.domain_settings.use_collision_border_right = True
+        fluid.domain_settings.use_collision_border_left = True
+        fluid.domain_settings.use_collision_border_top = True
+        fluid.domain_settings.use_collision_border_bottom = True
 
         # ensure correct cache file formats for liquid
         if bpy.app.build_options.openvdb:
-            obj.modifiers[-1].domain_settings.cache_data_format = 'OPENVDB'
-        obj.modifiers[-1].domain_settings.cache_mesh_format = 'BOBJECT'
+            fluid.domain_settings.cache_data_format = 'OPENVDB'
+        fluid.domain_settings.cache_mesh_format = 'BOBJECT'
 
         # change domain type, will also allocate and show particle system for FLIP
-        obj.modifiers[-1].domain_settings.domain_type = 'LIQUID'
-
-        liquid_domain = obj.modifiers[-2]
+        fluid.domain_settings.domain_type = 'LIQUID'
 
         # set color mapping field to show phi grid for liquid
-        liquid_domain.domain_settings.color_ramp_field = 'PHI'
+        fluid.domain_settings.color_ramp_field = 'PHI'
 
         # perform a single slice of the domain
-        liquid_domain.domain_settings.use_slice = True
+        fluid.domain_settings.use_slice = True
 
         # set display thickness to a lower value for more detailed display of phi grids
-        liquid_domain.domain_settings.display_thickness = 0.02
+        fluid.domain_settings.display_thickness = 0.02
 
         # make the domain smooth so it renders nicely
         bpy.ops.object.shade_smooth()

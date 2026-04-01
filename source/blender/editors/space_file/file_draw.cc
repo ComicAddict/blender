@@ -16,6 +16,7 @@
 #include "MEM_guardedalloc.h"
 
 #include "AS_asset_representation.hh"
+#include "AS_remote_library.hh"
 
 #include "BLI_fileops.h"
 #include "BLI_fileops_types.h"
@@ -35,6 +36,9 @@
 
 #include "BKE_blendfile.hh"
 #include "BKE_context.hh"
+#include "BKE_global.hh"
+#include "BKE_icons.hh"
+#include "BKE_preferences.h"
 #include "BKE_report.hh"
 
 #include "BLO_readfile.hh"
@@ -59,6 +63,7 @@
 #include "ED_screen.hh"
 
 #include "UI_interface.hh"
+#include "UI_interface_c.hh"
 #include "UI_interface_icons.hh"
 #include "UI_resources.hh"
 #include "UI_view2d.hh"
@@ -74,25 +79,28 @@
 
 #include "file_intern.hh" /* own include */
 
+namespace blender {
+
+using RemoteLibraryLoadingStatus = asset_system::RemoteLibraryLoadingStatus;
+
 void ED_file_path_button(bScreen *screen,
                          const SpaceFile *sfile,
                          FileSelectParams *params,
-                         uiBlock *block)
+                         ui::Block *block)
 {
-  uiBut *but;
+  ui::Button *but;
 
   BLI_assert_msg(params != nullptr,
                  "File select parameters not set. The caller is expected to check this.");
 
   PointerRNA params_rna_ptr = RNA_pointer_create_discrete(
-      &screen->id, &RNA_FileSelectParams, params);
+      &screen->id, RNA_FileSelectParams, params);
 
   /* callbacks for operator check functions */
-  UI_block_func_set(block, file_draw_check_cb, nullptr, nullptr);
+  block_func_set(block, file_draw_check_cb, nullptr, nullptr);
 
   but = uiDefButR(block,
-                  ButType::Text,
-                  -1,
+                  ui::ButtonType::Text,
                   "",
                   0,
                   0,
@@ -104,21 +112,22 @@ void ED_file_path_button(bScreen *screen,
                   0.0f,
                   float(FILE_MAX),
                   TIP_("File path"));
+  button_retval_set(but, -1);
 
-  BLI_assert(!UI_but_flag_is_set(but, UI_BUT_UNDO));
-  BLI_assert(!UI_but_is_utf8(but));
+  BLI_assert(!button_flag_is_set(but, ui::BUT_UNDO));
+  BLI_assert(!but_is_utf8(but));
 
-  UI_but_func_complete_set(but, autocomplete_directory, nullptr);
-  UI_but_funcN_set(but, file_directory_enter_handle, nullptr, but);
+  button_func_complete_set(but, autocomplete_directory, nullptr);
+  button_funcN_set(but, file_directory_enter_handle, nullptr, but);
 
   /* TODO: directory editing is non-functional while a library is loaded
    * until this is properly supported just disable it. */
   if (sfile && sfile->files && filelist_lib(sfile->files)) {
-    UI_but_flag_enable(but, UI_BUT_DISABLED);
+    button_flag_enable(but, ui::BUT_DISABLED);
   }
 
   /* clear func */
-  UI_block_func_set(block, nullptr, nullptr, nullptr);
+  block_func_set(block, nullptr, nullptr, nullptr);
 }
 
 struct FileTooltipData {
@@ -128,15 +137,15 @@ struct FileTooltipData {
 
 static FileTooltipData *file_tooltip_data_create(const SpaceFile *sfile, const FileDirEntry *file)
 {
-  FileTooltipData *data = MEM_mallocN<FileTooltipData>(__func__);
+  FileTooltipData *data = MEM_new_uninitialized<FileTooltipData>(__func__);
   data->sfile = sfile;
   data->file = file;
   return data;
 }
 
 static void file_draw_tooltip_custom_func(bContext & /*C*/,
-                                          uiTooltipData &tip,
-                                          uiBut * /*but*/,
+                                          ui::TooltipData &tip,
+                                          ui::Button * /*but*/,
                                           void *argN)
 {
   FileTooltipData *file_data = static_cast<FileTooltipData *>(argN);
@@ -153,8 +162,8 @@ static void file_draw_tooltip_custom_func(bContext & /*C*/,
   /* Only free if it is loaded later. */
   bool free_imbuf = (thumb == nullptr);
 
-  UI_tooltip_text_field_add(tip, file->name, {}, UI_TIP_STYLE_HEADER, UI_TIP_LC_MAIN);
-  UI_tooltip_text_field_add(tip, {}, {}, UI_TIP_STYLE_SPACER, UI_TIP_LC_NORMAL);
+  tooltip_text_field_add(tip, file->name, {}, ui::TIP_STYLE_HEADER, ui::TIP_LC_MAIN);
+  tooltip_text_field_add(tip, {}, {}, ui::TIP_STYLE_SPACER, ui::TIP_LC_NORMAL);
 
   if (!(file->typeflag & FILE_TYPE_BLENDERLIB)) {
 
@@ -164,27 +173,31 @@ static void file_draw_tooltip_custom_func(bContext & /*C*/,
     if (params->recursion_level > 0) {
       char root[FILE_MAX];
       BLI_path_split_dir_part(full_path, root, FILE_MAX);
-      UI_tooltip_text_field_add(tip, root, {}, UI_TIP_STYLE_NORMAL, UI_TIP_LC_NORMAL);
+      tooltip_text_field_add(tip, root, {}, ui::TIP_STYLE_NORMAL, ui::TIP_LC_NORMAL);
     }
 
     if (file->redirection_path) {
-      UI_tooltip_text_field_add(tip,
-                                fmt::format("{}: {}", N_("Link target"), file->redirection_path),
-                                {},
-                                UI_TIP_STYLE_NORMAL,
-                                UI_TIP_LC_NORMAL);
+      tooltip_text_field_add(
+          tip,
+          fmt::format(fmt::runtime(TIP_("Link target: {}")), file->redirection_path),
+          {},
+          ui::TIP_STYLE_NORMAL,
+          ui::TIP_LC_NORMAL);
     }
     if (file->attributes & FILE_ATTR_OFFLINE) {
-      UI_tooltip_text_field_add(
-          tip, N_("This file is offline"), {}, UI_TIP_STYLE_NORMAL, UI_TIP_LC_ALERT);
+      tooltip_text_field_add(
+          tip, TIP_("This file is offline"), {}, ui::TIP_STYLE_NORMAL, ui::TIP_LC_ALERT);
     }
     if (file->attributes & FILE_ATTR_READONLY) {
-      UI_tooltip_text_field_add(
-          tip, N_("This file is read-only"), {}, UI_TIP_STYLE_NORMAL, UI_TIP_LC_ALERT);
+      tooltip_text_field_add(
+          tip, TIP_("This file is read-only"), {}, ui::TIP_STYLE_NORMAL, ui::TIP_LC_ALERT);
     }
     if (file->attributes & (FILE_ATTR_SYSTEM | FILE_ATTR_RESTRICTED)) {
-      UI_tooltip_text_field_add(
-          tip, N_("This is a restricted system file"), {}, UI_TIP_STYLE_NORMAL, UI_TIP_LC_ALERT);
+      tooltip_text_field_add(tip,
+                             TIP_("This is a restricted system file"),
+                             {},
+                             ui::TIP_STYLE_NORMAL,
+                             ui::TIP_LC_ALERT);
     }
 
     if (file->typeflag & (FILE_TYPE_BLENDER | FILE_TYPE_BLENDER_BACKUP)) {
@@ -208,12 +221,12 @@ static void file_draw_tooltip_custom_func(bContext & /*C*/,
       }
 
       if (version_str[0]) {
-        UI_tooltip_text_field_add(tip,
-                                  fmt::format("Blender {}", version_str),
-                                  {},
-                                  UI_TIP_STYLE_NORMAL,
-                                  UI_TIP_LC_NORMAL);
-        UI_tooltip_text_field_add(tip, {}, {}, UI_TIP_STYLE_SPACER, UI_TIP_LC_NORMAL);
+        tooltip_text_field_add(tip,
+                               fmt::format("Blender {}", version_str),
+                               {},
+                               ui::TIP_STYLE_NORMAL,
+                               ui::TIP_LC_NORMAL);
+        tooltip_text_field_add(tip, {}, {}, ui::TIP_STYLE_SPACER, ui::TIP_LC_NORMAL);
       }
     }
     else if (file->typeflag & FILE_TYPE_IMAGE) {
@@ -229,12 +242,12 @@ static void file_draw_tooltip_custom_func(bContext & /*C*/,
             IMB_metadata_get_field(
                 thumb->metadata, "Thumb::Image::Height", value2, sizeof(value2)))
         {
-          UI_tooltip_text_field_add(tip,
-                                    fmt::format("{} \u00D7 {}", value1, value2),
-                                    {},
-                                    UI_TIP_STYLE_NORMAL,
-                                    UI_TIP_LC_NORMAL);
-          UI_tooltip_text_field_add(tip, {}, {}, UI_TIP_STYLE_SPACER, UI_TIP_LC_NORMAL);
+          tooltip_text_field_add(tip,
+                                 fmt::format("{} \u00D7 {}", value1, value2),
+                                 {},
+                                 ui::TIP_STYLE_NORMAL,
+                                 ui::TIP_LC_NORMAL);
+          tooltip_text_field_add(tip, {}, {}, ui::TIP_STYLE_SPACER, ui::TIP_LC_NORMAL);
         }
       }
     }
@@ -252,11 +265,11 @@ static void file_draw_tooltip_custom_func(bContext & /*C*/,
             IMB_metadata_get_field(
                 thumb->metadata, "Thumb::Video::Height", value2, sizeof(value2)))
         {
-          UI_tooltip_text_field_add(tip,
-                                    fmt::format("{} \u00D7 {}", value1, value2),
-                                    {},
-                                    UI_TIP_STYLE_NORMAL,
-                                    UI_TIP_LC_NORMAL);
+          tooltip_text_field_add(tip,
+                                 fmt::format("{} \u00D7 {}", value1, value2),
+                                 {},
+                                 ui::TIP_STYLE_NORMAL,
+                                 ui::TIP_LC_NORMAL);
         }
         if (IMB_metadata_get_field(
                 thumb->metadata, "Thumb::Video::Frames", value1, sizeof(value1)) &&
@@ -264,26 +277,26 @@ static void file_draw_tooltip_custom_func(bContext & /*C*/,
             IMB_metadata_get_field(
                 thumb->metadata, "Thumb::Video::Duration", value3, sizeof(value3)))
         {
-          UI_tooltip_text_field_add(
+          tooltip_text_field_add(
               tip,
-              fmt::format("{} {} @ {} {}", value1, N_("Frames"), value2, N_("FPS")),
+              fmt::format(fmt::runtime(TIP_("{} Frames @ {} FPS")), value1, value2),
               {},
-              UI_TIP_STYLE_NORMAL,
-              UI_TIP_LC_NORMAL);
-          UI_tooltip_text_field_add(tip,
-                                    fmt::format("{} {}", value3, N_("seconds")),
-                                    {},
-                                    UI_TIP_STYLE_NORMAL,
-                                    UI_TIP_LC_NORMAL);
-          UI_tooltip_text_field_add(tip, {}, {}, UI_TIP_STYLE_SPACER, UI_TIP_LC_NORMAL);
+              ui::TIP_STYLE_NORMAL,
+              ui::TIP_LC_NORMAL);
+          tooltip_text_field_add(tip,
+                                 fmt::format(fmt::runtime(TIP_("{} seconds")), value3),
+                                 {},
+                                 ui::TIP_STYLE_NORMAL,
+                                 ui::TIP_LC_NORMAL);
+          tooltip_text_field_add(tip, {}, {}, ui::TIP_STYLE_SPACER, ui::TIP_LC_NORMAL);
         }
       }
     }
     else if (file->typeflag & FILE_TYPE_FTFONT) {
       float color[4];
-      bTheme *btheme = UI_GetTheme();
+      bTheme *btheme = ui::theme::theme_get();
       rgba_uchar_to_float(color, btheme->tui.wcol_tooltip.text);
-      thumb = IMB_font_preview(full_path,
+      thumb = IMB_font_preview(file->redirection_path ? file->redirection_path : full_path,
                                512 * UI_SCALE_FAC,
                                color,
                                TIP_("The five boxing wizards jump quickly! 0123456789"));
@@ -296,17 +309,16 @@ static void file_draw_tooltip_custom_func(bContext & /*C*/,
     BLI_filelist_entry_datetime_to_string(
         nullptr, file->time, false, time_str, date_str, &is_today, &is_yesterday);
     if (is_today || is_yesterday) {
-      day_string = (is_today ? N_("Today") : N_("Yesterday")) + std::string(" ");
+      day_string = (is_today ? TIP_("Today") : TIP_("Yesterday")) + std::string(" ");
     }
-    UI_tooltip_text_field_add(tip,
-                              fmt::format("{}: {}{}{}",
-                                          N_("Modified"),
-                                          day_string,
-                                          (is_today || is_yesterday) ? "" : date_str,
-                                          (is_today || is_yesterday) ? time_str : ""),
-                              {},
-                              UI_TIP_STYLE_NORMAL,
-                              UI_TIP_LC_NORMAL);
+    tooltip_text_field_add(tip,
+                           fmt::format(fmt::runtime(TIP_("Modified: {}{}{}")),
+                                       day_string,
+                                       (is_today || is_yesterday) ? "" : date_str,
+                                       (is_today || is_yesterday) ? time_str : ""),
+                           {},
+                           ui::TIP_STYLE_NORMAL,
+                           ui::TIP_LC_NORMAL);
 
     if (!(file->typeflag & FILE_TYPE_DIR) && file->size > 0) {
       char size[16];
@@ -314,49 +326,49 @@ static void file_draw_tooltip_custom_func(bContext & /*C*/,
       if (file->size < 10000) {
         char size_full[BLI_STR_FORMAT_UINT64_GROUPED_SIZE];
         BLI_str_format_uint64_grouped(size_full, file->size);
-        UI_tooltip_text_field_add(
+        tooltip_text_field_add(
             tip,
-            fmt::format("{}: {} ({} {})", N_("Size"), size, size_full, N_("bytes")),
+            fmt::format(fmt::runtime(TIP_("Size: {} ({} bytes)")), size, size_full),
             {},
-            UI_TIP_STYLE_NORMAL,
-            UI_TIP_LC_NORMAL);
+            ui::TIP_STYLE_NORMAL,
+            ui::TIP_LC_NORMAL);
       }
       else {
-        UI_tooltip_text_field_add(tip,
-                                  fmt::format("{}: {}", N_("Size"), size),
-                                  {},
-                                  UI_TIP_STYLE_NORMAL,
-                                  UI_TIP_LC_NORMAL);
+        tooltip_text_field_add(tip,
+                               fmt::format(fmt::runtime(TIP_("Size: {}")), size),
+                               {},
+                               ui::TIP_STYLE_NORMAL,
+                               ui::TIP_LC_NORMAL);
       }
     }
   }
 
   if (thumb && file->typeflag & FILE_TYPE_FTFONT) {
     const float scale = (512.0f * UI_SCALE_FAC) / float(std::max(thumb->x, thumb->y));
-    uiTooltipImage image_data;
+    ui::TooltipImage image_data;
     image_data.ibuf = thumb;
     image_data.width = short(float(thumb->x) * scale);
     image_data.height = short(float(thumb->y) * scale);
-    image_data.background = uiTooltipImageBackground::None;
+    image_data.background = ui::TooltipImageBackground::None;
     image_data.premultiplied = false;
     image_data.text_color = true;
     image_data.border = false;
-    UI_tooltip_text_field_add(tip, {}, {}, UI_TIP_STYLE_SPACER, UI_TIP_LC_NORMAL);
-    UI_tooltip_image_field_add(tip, image_data);
+    tooltip_text_field_add(tip, {}, {}, ui::TIP_STYLE_SPACER, ui::TIP_LC_NORMAL);
+    tooltip_image_field_add(tip, image_data);
   }
   else if (thumb && params->display != FILE_IMGDISPLAY) {
-    UI_tooltip_text_field_add(tip, {}, {}, UI_TIP_STYLE_SPACER, UI_TIP_LC_NORMAL);
-    UI_tooltip_text_field_add(tip, {}, {}, UI_TIP_STYLE_SPACER, UI_TIP_LC_NORMAL);
+    tooltip_text_field_add(tip, {}, {}, ui::TIP_STYLE_SPACER, ui::TIP_LC_NORMAL);
+    tooltip_text_field_add(tip, {}, {}, ui::TIP_STYLE_SPACER, ui::TIP_LC_NORMAL);
 
-    uiTooltipImage image_data;
+    ui::TooltipImage image_data;
     float scale = (96.0f * UI_SCALE_FAC) / float(std::max(thumb->x, thumb->y));
     image_data.ibuf = thumb;
     image_data.width = short(float(thumb->x) * scale);
     image_data.height = short(float(thumb->y) * scale);
     image_data.border = true;
-    image_data.background = uiTooltipImageBackground::Checkerboard_Themed;
+    image_data.background = ui::TooltipImageBackground::Checkerboard_Themed;
     image_data.premultiplied = true;
-    UI_tooltip_image_field_add(tip, image_data);
+    tooltip_image_field_add(tip, image_data);
   }
 
   if (thumb && free_imbuf) {
@@ -365,12 +377,12 @@ static void file_draw_tooltip_custom_func(bContext & /*C*/,
 }
 
 static void file_draw_asset_tooltip_custom_func(bContext & /*C*/,
-                                                uiTooltipData &tip,
-                                                uiBut * /*but*/,
+                                                ui::TooltipData &tip,
+                                                ui::Button * /*but*/,
                                                 void *argN)
 {
-  const auto *asset = static_cast<blender::asset_system::AssetRepresentation *>(argN);
-  blender::ed::asset::asset_tooltip(*asset, tip);
+  const auto *asset = static_cast<asset_system::AssetRepresentation *>(argN);
+  ed::asset::asset_tooltip(*asset, tip);
 }
 
 static void draw_tile_background(const rcti *draw_rect, int colorid, int shade)
@@ -379,12 +391,12 @@ static void draw_tile_background(const rcti *draw_rect, int colorid, int shade)
   rctf draw_rect_fl;
   BLI_rctf_rcti_copy(&draw_rect_fl, draw_rect);
 
-  UI_GetThemeColorShade4fv(colorid, shade, color);
-  UI_draw_roundbox_corner_set(UI_CNR_ALL);
-  UI_draw_roundbox_aa(&draw_rect_fl, true, 5.0f, color);
+  ui::theme::get_color_shade_4fv(colorid, shade, color);
+  draw_roundbox_corner_set(ui::CNR_ALL);
+  ui::draw_roundbox_aa(&draw_rect_fl, true, 5.0f, color);
 }
 
-static void file_but_enable_drag(uiBut *but,
+static void file_but_enable_drag(ui::Button *but,
                                  const SpaceFile *sfile,
                                  const FileDirEntry *file,
                                  const char *path,
@@ -395,9 +407,9 @@ static void file_but_enable_drag(uiBut *but,
   ID *id;
 
   if ((id = filelist_file_get_id(file))) {
-    UI_but_drag_set_id(but, id);
+    button_drag_set_id(but, id);
     if (preview_image) {
-      UI_but_drag_attach_image(but, preview_image, scale);
+      button_drag_attach_image(but, preview_image, scale);
     }
   }
   else if (sfile->browse_mode == FILE_BROWSE_MODE_ASSETS &&
@@ -414,41 +426,45 @@ static void file_but_enable_drag(uiBut *but,
                 FILE_ASSET_IMPORT_INSTANCE_COLLECTIONS_ON_LINK :
                 FILE_ASSET_IMPORT_INSTANCE_COLLECTIONS_ON_APPEND)) != 0;
 
-      UI_but_drag_set_asset(but, file->asset, import_settings, icon, file->preview_icon_id);
+      button_drag_set_asset(but, file->asset, import_settings, icon, file->preview_icon_id);
     }
   }
   else if (preview_image) {
-    UI_but_drag_set_image(but, path, icon, preview_image, scale);
+    button_drag_set_image(but, path, icon, preview_image, scale);
   }
   else {
     /* path is no more static, cannot give it directly to but... */
-    UI_but_drag_set_path(but, path);
+    button_drag_set_path(but, path);
   }
 }
 
-static void file_but_tooltip_func_set(const SpaceFile *sfile, const FileDirEntry *file, uiBut *but)
+static void file_but_tooltip_func_set(const SpaceFile *sfile,
+                                      const FileDirEntry *file,
+                                      ui::Button *but)
 {
   if (file->asset) {
-    UI_but_func_tooltip_custom_set(but, file_draw_asset_tooltip_custom_func, file->asset, nullptr);
+    button_func_tooltip_custom_set(but, file_draw_asset_tooltip_custom_func, file->asset, nullptr);
   }
   else {
-    UI_but_func_tooltip_custom_set(
-        but, file_draw_tooltip_custom_func, file_tooltip_data_create(sfile, file), MEM_freeN);
+    button_func_tooltip_custom_set(but,
+                                   file_draw_tooltip_custom_func,
+                                   file_tooltip_data_create(sfile, file),
+                                   MEM_delete_void);
   }
 }
 
-static uiBut *file_add_icon_but(const SpaceFile *sfile,
-                                uiBlock *block,
-                                const char * /*path*/,
-                                const FileDirEntry *file,
-                                const rcti *tile_draw_rect,
-                                int icon,
-                                int width,
-                                int height,
-                                int padx,
-                                bool dimmed)
+static ui::Button *file_add_icon_but(const SpaceFile *sfile,
+                                     ui::Block *block,
+                                     const char * /*path*/,
+                                     const FileDirEntry *file,
+                                     const rcti *tile_draw_rect,
+                                     int icon,
+                                     int width,
+                                     int height,
+                                     int padx,
+                                     bool dimmed)
 {
-  uiBut *but;
+  ui::Button *but;
 
   const int x = tile_draw_rect->xmin + padx;
   const int y = tile_draw_rect->ymin +
@@ -456,41 +472,58 @@ static uiBut *file_add_icon_but(const SpaceFile *sfile,
 
   if (icon < BIFICONID_LAST_STATIC) {
     /* Small built-in icon. Draw centered in given width. */
-    but = uiDefIconBut(
-        block, ButType::Label, 0, icon, x, y, width, height, nullptr, 0.0f, 0.0f, std::nullopt);
+    but = uiDefIconBut(block,
+                       ui::ButtonType::Label,
+                       icon,
+                       x,
+                       y,
+                       width,
+                       height,
+                       nullptr,
+                       0.0f,
+                       0.0f,
+                       std::nullopt);
     /* Center the icon. */
-    UI_but_drawflag_disable(but, UI_BUT_ICON_LEFT);
+    button_drawflag_disable(but, ui::BUT_ICON_LEFT);
   }
   else {
     /* Larger preview icon. Fills available width/height. */
-    but = uiDefIconPreviewBut(
-        block, ButType::Label, 0, icon, x, y, width, height, nullptr, 0.0f, 0.0f, std::nullopt);
+    but = uiDefIconPreviewBut(block,
+                              ui::ButtonType::Label,
+                              icon,
+                              x,
+                              y,
+                              width,
+                              height,
+                              nullptr,
+                              0.0f,
+                              0.0f,
+                              std::nullopt);
   }
-  UI_but_label_alpha_factor_set(but, dimmed ? 0.3f : 1.0f);
+  button_label_alpha_factor_set(but, dimmed ? 0.3f : 1.0f);
   file_but_tooltip_func_set(sfile, file, but);
 
   return but;
 }
 
-static uiBut *file_add_overlay_icon_but(uiBlock *block, int pos_x, int pos_y, int icon)
+static ui::Button *file_add_overlay_icon_but(ui::Block *block, int pos_x, int pos_y, int icon)
 {
-  uiBut *but = uiDefIconBut(block,
-                            ButType::Label,
-                            0,
-                            icon,
-                            pos_x,
-                            pos_y,
-                            ICON_DEFAULT_WIDTH_SCALE,
-                            ICON_DEFAULT_HEIGHT_SCALE,
-                            nullptr,
-                            0.0f,
-                            0.0f,
-                            std::nullopt);
+  ui::Button *but = uiDefIconBut(block,
+                                 ui::ButtonType::Label,
+                                 icon,
+                                 pos_x,
+                                 pos_y,
+                                 ICON_DEFAULT_WIDTH_SCALE,
+                                 ICON_DEFAULT_HEIGHT_SCALE,
+                                 nullptr,
+                                 0.0f,
+                                 0.0f,
+                                 std::nullopt);
   /* Otherwise a left hand padding will be added. */
-  UI_but_drawflag_disable(but, UI_BUT_ICON_LEFT);
-  UI_but_label_alpha_factor_set(but, 0.6f);
+  button_drawflag_disable(but, ui::BUT_ICON_LEFT);
+  button_label_alpha_factor_set(but, 0.6f);
   const uchar light[4] = {255, 255, 255, 255};
-  UI_but_color_set(but, light);
+  button_color_set(but, light);
 
   return but;
 }
@@ -500,7 +533,7 @@ static void file_draw_string(int sx,
                              const char *string,
                              float width,
                              int height,
-                             eFontStyle_Align align,
+                             ui::FontStyleAlign align,
                              const uchar col[4])
 {
   uiFontStyle fs;
@@ -511,23 +544,23 @@ static void file_draw_string(int sx,
     return;
   }
 
-  const uiStyle *style = UI_style_get();
+  const uiStyle *style = ui::style_get();
   fs = style->widget;
 
   STRNCPY(filename, string);
-  UI_text_clip_middle_ex(&fs, filename, width, UI_ICON_SIZE, sizeof(filename), '\0');
+  ui::text_clip_middle_ex(&fs, filename, width, UI_ICON_SIZE, sizeof(filename), '\0');
 
-  /* no text clipping needed, UI_fontstyle_draw does it but is a bit too strict
+  /* no text clipping needed, fontstyle_draw does it but is a bit too strict
    * (for buttons it works) */
   rect.xmin = sx;
   rect.xmax = sx + round_fl_to_int(width);
   rect.ymin = sy - height;
   rect.ymax = sy;
 
-  uiFontStyleDraw_Params font_style_params{};
+  ui::FontStyleDrawParams font_style_params{};
   font_style_params.align = align;
 
-  UI_fontstyle_draw(&fs, &rect, filename, sizeof(filename), col, &font_style_params);
+  fontstyle_draw(&fs, &rect, filename, sizeof(filename), col, &font_style_params);
 }
 
 /**
@@ -535,17 +568,38 @@ static void file_draw_string(int sx,
  */
 static void file_draw_string_mulitline_clipped(const rcti *rect,
                                                const char *string,
-                                               eFontStyle_Align align,
+                                               ui::FontStyleAlign align,
                                                const uchar col[4])
 {
   if (string[0] == '\0' || BLI_rcti_size_x(rect) < 1) {
     return;
   }
 
-  const uiStyle *style = UI_style_get();
+  const uiStyle *style = ui::style_get();
   uiFontStyle fs = style->widget;
 
-  UI_fontstyle_draw_multiline_clipped(&fs, rect, string, col, align);
+  fontstyle_draw_multiline_clipped(&fs, rect, string, col, align);
+}
+
+static rcti file_measure_string_multiline(const StringRef string, const int wrap_width)
+{
+  if (string[0] == '\0' || wrap_width < 1) {
+    return {.xmin = 0, .xmax = 0, .ymin = 0, .ymax = 0};
+  }
+
+  const uiStyle *style = ui::style_get();
+  const int font_id = style->widget.uifont_id;
+
+  rcti textbox;
+  BLF_wordwrap(font_id,
+               wrap_width,
+               BLFWrapMode(int(BLFWrapMode::Typographical) | int(BLFWrapMode::Path) |
+                           int(BLFWrapMode::HardLimit)));
+  BLF_enable(font_id, BLF_WORD_WRAP);
+  BLF_boundbox(font_id, string.data(), string.size(), &textbox);
+  BLF_disable(font_id, BLF_WORD_WRAP);
+
+  return textbox;
 }
 
 /**
@@ -555,7 +609,7 @@ static void file_draw_string_mulitline_clipped(const rcti *rect,
  */
 static void file_draw_string_multiline(int sx,
                                        int sy,
-                                       const char *string,
+                                       const StringRef string,
                                        int wrap_width,
                                        int line_height,
                                        const uchar text_col[4],
@@ -568,47 +622,38 @@ static void file_draw_string_multiline(int sx,
     return;
   }
 
-  const uiStyle *style = UI_style_get();
-  int font_id = style->widget.uifont_id;
-  int len = strlen(string);
+  const uiStyle *style = ui::style_get();
+  const rcti textbox = file_measure_string_multiline(string, wrap_width);
 
-  rcti textbox;
-  BLF_wordwrap(font_id, wrap_width);
-  BLF_enable(font_id, BLF_WORD_WRAP);
-  BLF_boundbox(font_id, string, len, &textbox);
-  BLF_disable(font_id, BLF_WORD_WRAP);
-
-  /* no text clipping needed, UI_fontstyle_draw does it but is a bit too strict
+  /* no text clipping needed, fontstyle_draw does it but is a bit too strict
    * (for buttons it works) */
   rect.xmin = sx;
   rect.xmax = sx + wrap_width;
-  /* Need to increase the clipping rect by one more line, since the #UI_fontstyle_draw_ex() will
+  /* Need to increase the clipping rect by one more line, since the #fontstyle_draw_ex() will
    * actually start drawing at (ymax - line-height). */
   rect.ymin = sy - BLI_rcti_size_y(&textbox) - line_height;
   rect.ymax = sy;
 
-  uiFontStyleDraw_Params font_style_params{};
-  font_style_params.align = UI_STYLE_TEXT_LEFT;
+  ui::FontStyleDrawParams font_style_params{};
+  font_style_params.align = ui::UI_STYLE_TEXT_LEFT;
   font_style_params.word_wrap = true;
 
   ResultBLF result;
-  UI_fontstyle_draw_ex(
-      &style->widget, &rect, string, len, text_col, &font_style_params, nullptr, nullptr, &result);
+  fontstyle_draw_ex(&style->widget,
+                    &rect,
+                    string.data(),
+                    string.size(),
+                    text_col,
+                    &font_style_params,
+                    nullptr,
+                    nullptr,
+                    &result);
   if (r_sx) {
     *r_sx = result.width;
   }
   if (r_sy) {
     *r_sy = rect.ymin + line_height;
   }
-}
-
-void file_calc_previews(const bContext *C, ARegion *region)
-{
-  SpaceFile *sfile = CTX_wm_space_file(C);
-  View2D *v2d = &region->v2d;
-
-  ED_fileselect_init_layout(sfile, region);
-  UI_view2d_totRect_set(v2d, sfile->layout->width, sfile->layout->height);
 }
 
 static std::tuple<int, int, float> preview_image_scaled_dimensions_get(const int image_width,
@@ -644,12 +689,11 @@ static std::tuple<int, int, float> preview_image_scaled_dimensions_get(const int
 }
 
 static void file_add_preview_drag_but(const SpaceFile *sfile,
-                                      uiBlock *block,
+                                      ui::Block *block,
                                       FileLayout *layout,
                                       const FileDirEntry *file,
                                       const char *path,
                                       const rcti *tile_draw_rect,
-                                      const ImBuf *preview_image,
                                       const int file_type_icon)
 {
   /* Invisible button for dragging. */
@@ -658,38 +702,38 @@ static void file_add_preview_drag_but(const SpaceFile *sfile,
    * for box select. */
   BLI_rcti_pad(&drag_rect, -layout->tile_border_x, -layout->tile_border_y);
 
-  uiBut *but = uiDefBut(block,
-                        ButType::Label,
-                        0,
-                        "",
-                        drag_rect.xmin,
-                        drag_rect.ymin,
-                        BLI_rcti_size_x(&drag_rect),
-                        BLI_rcti_size_y(&drag_rect),
-                        nullptr,
-                        0.0,
-                        0.0,
-                        std::nullopt);
+  ui::Button *but = uiDefBut(block,
+                             ui::ButtonType::Label,
+                             "",
+                             drag_rect.xmin,
+                             drag_rect.ymin,
+                             BLI_rcti_size_x(&drag_rect),
+                             BLI_rcti_size_y(&drag_rect),
+                             nullptr,
+                             0.0,
+                             0.0,
+                             std::nullopt);
 
-  const ImBuf *drag_image = preview_image ? preview_image :
-                                            /* Larger directory or document icon. */
-                                            filelist_geticon_special_file_image_ex(file);
-  const float scale = (PREVIEW_DRAG_DRAW_SIZE * UI_SCALE_FAC) /
-                      std::max(drag_image->x, drag_image->y);
+  const ImBuf *preview_image = filelist_file_get_preview_image(file);
+  const ImBuf *drag_image = (preview_image || file->asset) ?
+                                preview_image :
+                                /* Larger directory or document icon. */
+                                filelist_geticon_special_file_image_ex(file);
+  const float scale = drag_image ? (PREVIEW_DRAG_DRAW_SIZE * UI_SCALE_FAC) /
+                                       std::max(drag_image->x, drag_image->y) :
+                                   1.0f;
   file_but_enable_drag(but, sfile, file, path, drag_image, file_type_icon, scale);
   file_but_tooltip_func_set(sfile, file, but);
 }
 
 static void file_draw_preview(const FileDirEntry *file,
                               const rcti *tile_draw_rect,
-                              const ImBuf *imb,
+                              const IconBufferRef &preview,
                               FileLayout *layout,
                               const bool dimmed)
 {
-  BLI_assert(imb != nullptr);
-
   const auto [scaled_width, scaled_height, scale] = preview_image_scaled_dimensions_get(
-      imb->x, imb->y, *layout);
+      preview.width, preview.height, *layout);
 
   /* Additional offset to keep the scaled image centered. Difference between maximum
    * width/height and the actual width/height, divided by two for centering. */
@@ -702,7 +746,7 @@ static void file_draw_preview(const FileDirEntry *file,
 
   float document_img_col[4] = {1.0f, 1.0f, 1.0f, 1.0f};
   if (file->typeflag & FILE_TYPE_FTFONT) {
-    UI_GetThemeColor4fv(TH_TEXT, document_img_col);
+    ui::theme::get_color_4fv(TH_TEXT, document_img_col);
   }
   if (dimmed) {
     document_img_col[3] *= 0.3f;
@@ -719,15 +763,18 @@ static void file_draw_preview(const FileDirEntry *file,
     GPU_blend(GPU_BLEND_ALPHA_PREMULT);
   }
 
+  const gpu::TextureFormat format = gpu::TextureFormat::UNORM_8_8_8_8;
+  BLI_assert_msg(preview.channels == 4, "preview images are expected to be 4 channels");
+
   IMMDrawPixelsTexState state = immDrawPixelsTexSetup(GPU_SHADER_3D_IMAGE_COLOR);
   immDrawPixelsTexTiled_scaling(&state,
                                 float(xmin),
                                 float(ymin),
-                                imb->x,
-                                imb->y,
-                                blender::gpu::TextureFormat::UNORM_8_8_8_8,
+                                preview.width,
+                                preview.height,
+                                format,
                                 true,
-                                imb->byte_buffer.data,
+                                preview.buffer.data(),
                                 scale,
                                 scale,
                                 1.0f,
@@ -741,11 +788,11 @@ static void file_draw_preview(const FileDirEntry *file,
     GPU_blend(GPU_BLEND_ALPHA);
 
     GPUVertFormat *format = immVertexFormat();
-    uint pos = GPU_vertformat_attr_add(format, "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
+    uint pos = GPU_vertformat_attr_add(format, "pos", gpu::VertAttrType::SFLOAT_32_32);
     immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
     float border_color[4] = {1.0f, 1.0f, 1.0f, 0.15f};
     float bgcolor[4];
-    UI_GetThemeColor4fv(TH_BACK, bgcolor);
+    ui::theme::get_color_4fv(TH_BACK, bgcolor);
     if (srgb_to_grayscale(bgcolor) > 0.5f) {
       border_color[0] = 0.0f;
       border_color[1] = 0.0f;
@@ -772,10 +819,10 @@ static void file_draw_special_image(const FileDirEntry *file,
 {
   float document_img_col[4] = {1.0f, 1.0f, 1.0f, 1.0f};
   if (file->typeflag & FILE_TYPE_DIR) {
-    UI_GetThemeColor4fv(TH_ICON_FOLDER, document_img_col);
+    ui::theme::get_color_4fv(TH_ICON_FOLDER, document_img_col);
   }
   else {
-    UI_GetThemeColor4fv(TH_TEXT, document_img_col);
+    ui::theme::get_color_4fv(TH_TEXT, document_img_col);
   }
 
   if (dimmed) {
@@ -799,15 +846,15 @@ static void file_draw_special_image(const FileDirEntry *file,
     const float scale = 4.0f;
     const float ofs_y = (file->typeflag & FILE_TYPE_DIR ? -0.02f : 0.0f) * layout->prv_h;
 
-    UI_icon_draw_ex(cent_x - (ICON_DEFAULT_WIDTH * scale / aspect / 2.0f),
-                    cent_y - (ICON_DEFAULT_HEIGHT * scale / aspect / 2.0f) + ofs_y,
-                    icon_large,
-                    icon_aspect / UI_SCALE_FAC / scale,
-                    document_img_col[3],
-                    0.0f,
-                    icon_col,
-                    false,
-                    UI_NO_ICON_OVERLAY_TEXT);
+    ui::icon_draw_ex(cent_x - (ICON_DEFAULT_WIDTH * scale / aspect / 2.0f),
+                     cent_y - (ICON_DEFAULT_HEIGHT * scale / aspect / 2.0f) + ofs_y,
+                     icon_large,
+                     icon_aspect / UI_SCALE_FAC / scale,
+                     document_img_col[3],
+                     0.0f,
+                     icon_col,
+                     false,
+                     UI_NO_ICON_OVERLAY_TEXT);
   }
 
   if (file_type_icon) {
@@ -823,15 +870,15 @@ static void file_draw_special_image(const FileDirEntry *file,
     const float scale = file->typeflag & FILE_TYPE_DIR ? 1.5f : 2.0f;
     const float ofs_y = (file->typeflag & FILE_TYPE_DIR ? -0.035f : -0.135f) * layout->prv_h;
 
-    UI_icon_draw_ex(cent_x - (ICON_DEFAULT_WIDTH * scale / aspect / 2.0f),
-                    cent_y - (ICON_DEFAULT_HEIGHT * scale / aspect / 2.0f) + ofs_y,
-                    file_type_icon,
-                    icon_aspect / UI_SCALE_FAC / scale,
-                    icon_opacity,
-                    0.0f,
-                    icon_color,
-                    false,
-                    UI_NO_ICON_OVERLAY_TEXT);
+    ui::icon_draw_ex(cent_x - (ICON_DEFAULT_WIDTH * scale / aspect / 2.0f),
+                     cent_y - (ICON_DEFAULT_HEIGHT * scale / aspect / 2.0f) + ofs_y,
+                     file_type_icon,
+                     icon_aspect / UI_SCALE_FAC / scale,
+                     icon_opacity,
+                     0.0f,
+                     icon_color,
+                     false,
+                     UI_NO_ICON_OVERLAY_TEXT);
   }
 
   GPU_blend(GPU_BLEND_NONE);
@@ -843,21 +890,21 @@ static void file_draw_loading_icon(const rcti *tile_draw_rect,
 {
   uchar icon_color[4] = {0, 0, 0, 255};
   /* Contrast with background since we are not showing the large document image. */
-  UI_GetThemeColor4ubv(TH_TEXT, icon_color);
+  ui::theme::get_color_4ubv(TH_TEXT, icon_color);
 
   const int cent_x = tile_draw_rect->xmin + layout->prv_border_x + (layout->prv_w / 2.0f) + 0.5f;
   const int cent_y = tile_draw_rect->ymax - layout->prv_border_y - (layout->prv_h / 2.0f) + 0.5f;
   const float aspect = preview_icon_aspect / UI_SCALE_FAC;
 
-  UI_icon_draw_ex(cent_x - (ICON_DEFAULT_WIDTH / aspect / 2.0f),
-                  cent_y - (ICON_DEFAULT_HEIGHT / aspect / 2.0f),
-                  ICON_PREVIEW_LOADING,
-                  aspect,
-                  1.0f,
-                  0.0f,
-                  icon_color,
-                  false,
-                  UI_NO_ICON_OVERLAY_TEXT);
+  ui::icon_draw_ex(cent_x - (ICON_DEFAULT_WIDTH / aspect / 2.0f),
+                   cent_y - (ICON_DEFAULT_HEIGHT / aspect / 2.0f),
+                   ICON_PREVIEW_LOADING,
+                   aspect,
+                   1.0f,
+                   0.0f,
+                   icon_color,
+                   false,
+                   UI_NO_ICON_OVERLAY_TEXT);
 }
 
 static void file_draw_indicator_icons(const FileList *files,
@@ -866,7 +913,8 @@ static void file_draw_indicator_icons(const FileList *files,
                                       const rcti *tile_draw_rect,
                                       const float preview_icon_aspect,
                                       const int file_type_icon,
-                                      const bool has_special_file_image)
+                                      const bool has_special_file_image,
+                                      const eDirEntry_SelectFlag selflag)
 {
   const bool is_offline = (file->attributes & FILE_ATTR_OFFLINE);
   const bool is_link = (file->attributes & FILE_ATTR_ANY_LINK);
@@ -880,27 +928,27 @@ static void file_draw_indicator_icons(const FileList *files,
     const uchar light[4] = {255, 255, 255, 255};
     if (is_offline) {
       /* Icon at bottom to indicate the file is offline. */
-      UI_icon_draw_ex(icon_x,
-                      icon_y,
-                      ICON_INTERNET,
-                      1.0f / UI_SCALE_FAC,
-                      0.6f,
-                      0.0f,
-                      light,
-                      true,
-                      UI_NO_ICON_OVERLAY_TEXT);
+      ui::icon_draw_ex(icon_x,
+                       icon_y,
+                       ICON_INTERNET,
+                       1.0f / UI_SCALE_FAC,
+                       0.6f,
+                       0.0f,
+                       light,
+                       true,
+                       UI_NO_ICON_OVERLAY_TEXT);
     }
     else if (is_link) {
       /* Icon at bottom to indicate it is a shortcut, link, or alias. */
-      UI_icon_draw_ex(icon_x,
-                      icon_y,
-                      ICON_FILE_ALIAS,
-                      1.0f / UI_SCALE_FAC,
-                      0.6f,
-                      0.0f,
-                      nullptr,
-                      false,
-                      UI_NO_ICON_OVERLAY_TEXT);
+      ui::icon_draw_ex(icon_x,
+                       icon_y,
+                       ICON_FILE_ALIAS,
+                       1.0f / UI_SCALE_FAC,
+                       0.6f,
+                       0.0f,
+                       nullptr,
+                       false,
+                       UI_NO_ICON_OVERLAY_TEXT);
     }
     else if (file_type_icon) {
       /* Smaller, fainter type icon at bottom-left.
@@ -911,36 +959,51 @@ static void file_draw_indicator_icons(const FileList *files,
        * render a font preview already, the type indicator would be redundant.
        */
       if (is_loading || !(has_special_file_image || (file->typeflag & FILE_TYPE_FTFONT))) {
-        UI_icon_draw_ex(icon_x,
-                        icon_y,
-                        file_type_icon,
-                        1.0f / UI_SCALE_FAC,
-                        0.6f,
-                        0.0f,
-                        light,
-                        true,
-                        UI_NO_ICON_OVERLAY_TEXT);
+        ui::icon_draw_ex(icon_x,
+                         icon_y,
+                         file_type_icon,
+                         1.0f / UI_SCALE_FAC,
+                         0.6f,
+                         0.0f,
+                         light,
+                         true,
+                         UI_NO_ICON_OVERLAY_TEXT);
       }
     }
   }
 
-  const bool is_current_main_data = filelist_file_get_id(file) != nullptr;
-  if (is_current_main_data) {
-    /* Smaller, fainter icon at the top-right indicating that the file represents data from the
-     * current file (from current #Main in fact). */
-    float icon_x, icon_y;
+  {
+    const float icon_x = float(tile_draw_rect->xmax) - (16.0f * UI_SCALE_FAC);
+    const float icon_y = float(tile_draw_rect->ymax) - (20.0f * UI_SCALE_FAC);
     const uchar light[4] = {255, 255, 255, 255};
-    icon_x = float(tile_draw_rect->xmax) - (16.0f * UI_SCALE_FAC);
-    icon_y = float(tile_draw_rect->ymax) - (20.0f * UI_SCALE_FAC);
-    UI_icon_draw_ex(icon_x,
-                    icon_y,
-                    ICON_CURRENT_FILE,
-                    1.0f / UI_SCALE_FAC,
-                    0.6f,
-                    0.0f,
-                    light,
-                    true,
-                    UI_NO_ICON_OVERLAY_TEXT);
+
+    const bool is_current_main_data = filelist_file_get_id(file) != nullptr;
+    if (is_current_main_data) {
+      /* Smaller, fainter icon at the top-right indicating that the file represents data from the
+       * current file (from current #Main in fact). */
+      ui::icon_draw_ex(icon_x,
+                       icon_y,
+                       ICON_CURRENT_FILE,
+                       1.0f / UI_SCALE_FAC,
+                       0.6f,
+                       0.0f,
+                       light,
+                       true,
+                       UI_NO_ICON_OVERLAY_TEXT);
+    }
+    else if ((file->typeflag & FILE_TYPE_ASSET_ONLINE) != 0) {
+      if (selflag & (FILE_SEL_HIGHLIGHTED | FILE_SEL_SELECTED)) {
+        ui::icon_draw_ex(icon_x,
+                         icon_y,
+                         ICON_INTERNET,
+                         1.0f / UI_SCALE_FAC,
+                         0.6f,
+                         0.0f,
+                         light,
+                         true,
+                         UI_NO_ICON_OVERLAY_TEXT);
+      }
+    }
   }
 }
 
@@ -951,7 +1014,7 @@ static void renamebutton_cb(bContext *C, void * /*arg1*/, char *oldname)
   char filename[FILE_MAX + 12];
   wmWindowManager *wm = CTX_wm_manager(C);
   wmWindow *win = CTX_wm_window(C);
-  SpaceFile *sfile = (SpaceFile *)CTX_wm_space_data(C);
+  SpaceFile *sfile = reinterpret_cast<SpaceFile *>(CTX_wm_space_data(C));
   ARegion *region = CTX_wm_region(C);
   FileSelectParams *params = ED_fileselect_get_active_params(sfile);
 
@@ -994,11 +1057,10 @@ static void draw_background(FileLayout *layout, View2D *v2d)
   int i;
   int sy;
 
-  uint pos = GPU_vertformat_attr_add(
-      immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
+  uint pos = GPU_vertformat_attr_add(immVertexFormat(), "pos", gpu::VertAttrType::SFLOAT_32_32);
   immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
   float col_alternating[4];
-  UI_GetThemeColor4fv(TH_ROW_ALTERNATE, col_alternating);
+  ui::theme::get_color_4fv(TH_ROW_ALTERNATE, col_alternating);
   immUniformThemeColorBlend(TH_BACK, TH_ROW_ALTERNATE, col_alternating[3]);
 
   /* alternating flat shade background */
@@ -1035,16 +1097,15 @@ static void draw_dividers(FileLayout *layout, View2D *v2d)
     float v1[2], v2[2];
     float col_hi[3], col_lo[3];
 
-    UI_GetThemeColorShade3fv(TH_BACK, 30, col_hi);
-    UI_GetThemeColorShade3fv(TH_BACK, -30, col_lo);
+    ui::theme::get_color_shade_3fv(TH_BACK, 30, col_hi);
+    ui::theme::get_color_shade_3fv(TH_BACK, -30, col_lo);
 
     v1[1] = v2d->cur.ymax - layout->tile_border_y;
     v2[1] = v2d->cur.ymin;
 
     GPUVertFormat *format = immVertexFormat();
-    uint pos = GPU_vertformat_attr_add(format, "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
-    uint color = GPU_vertformat_attr_add(
-        format, "color", blender::gpu::VertAttrType::SFLOAT_32_32_32);
+    uint pos = GPU_vertformat_attr_add(format, "pos", gpu::VertAttrType::SFLOAT_32_32);
+    uint color = GPU_vertformat_attr_add(format, "color", gpu::VertAttrType::SFLOAT_32_32_32);
 
     immBindBuiltinProgram(GPU_SHADER_3D_FLAT_COLOR);
     immBegin(GPU_PRIM_LINES, vertex_len);
@@ -1073,8 +1134,7 @@ static void draw_dividers(FileLayout *layout, View2D *v2d)
 
 static void draw_columnheader_background(const FileLayout *layout, const View2D *v2d)
 {
-  uint pos = GPU_vertformat_attr_add(
-      immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
+  uint pos = GPU_vertformat_attr_add(immVertexFormat(), "pos", gpu::VertAttrType::SFLOAT_32_32);
 
   immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
   immUniformThemeColorShade(TH_BACK, 11);
@@ -1108,11 +1168,11 @@ static void draw_columnheader_columns(const FileSelectParams *params,
       float tri_color[4];
 
       rgba_uchar_to_float(tri_color, text_col);
-      UI_draw_icon_tri(sx + column->width - (0.3f * U.widget_unit) -
-                           ATTRIBUTE_COLUMN_PADDING / 2.0f,
-                       sy + (0.1f * U.widget_unit) - (layout->attribute_column_header_h / 2),
-                       (params->flag & FILE_SORT_INVERT) ? 't' : 'v',
-                       tri_color);
+      ui::draw_icon_tri(sx + column->width - (0.3f * U.widget_unit) -
+                            ATTRIBUTE_COLUMN_PADDING / 2.0f,
+                        sy + (0.1f * U.widget_unit) - (layout->attribute_column_header_h / 2),
+                        (params->flag & FILE_SORT_INVERT) ? 't' : 'v',
+                        tri_color);
     }
 
     file_draw_string(sx + ATTRIBUTE_COLUMN_PADDING,
@@ -1120,13 +1180,13 @@ static void draw_columnheader_columns(const FileSelectParams *params,
                      IFACE_(column->name),
                      column->width - 2 * ATTRIBUTE_COLUMN_PADDING,
                      layout->attribute_column_header_h - layout->tile_border_y,
-                     UI_STYLE_TEXT_LEFT,
+                     ui::UI_STYLE_TEXT_LEFT,
                      text_col);
 
     /* Separator line */
     if (column_type != COLUMN_NAME) {
       uint pos = GPU_vertformat_attr_add(
-          immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
+          immVertexFormat(), "pos", gpu::VertAttrType::SFLOAT_32_32);
 
       immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
       immUniformThemeColorShade(TH_BACK, -10);
@@ -1142,8 +1202,7 @@ static void draw_columnheader_columns(const FileSelectParams *params,
 
   /* Vertical separator lines line */
   {
-    uint pos = GPU_vertformat_attr_add(
-        immVertexFormat(), "pos", blender::gpu::VertAttrType::SFLOAT_32_32);
+    uint pos = GPU_vertformat_attr_add(immVertexFormat(), "pos", gpu::VertAttrType::SFLOAT_32_32);
     immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
     immUniformThemeColorShade(TH_BACK, -10);
     immBegin(GPU_PRIM_LINES, 4);
@@ -1236,7 +1295,7 @@ static void draw_details_columns(const FileSelectParams *params,
                        IFACE_(str),
                        column->width - 2 * ATTRIBUTE_COLUMN_PADDING,
                        layout->tile_h,
-                       eFontStyle_Align(column->text_align),
+                       ui::FontStyleAlign(column->text_align),
                        text_col);
     }
 
@@ -1295,12 +1354,12 @@ void file_draw_list(const bContext *C, ARegion *region)
   View2D *v2d = &region->v2d;
   FileList *files = sfile->files;
   FileDirEntry *file;
-  uiBlock *block = UI_block_begin(C, region, __func__, blender::ui::EmbossType::Emboss);
+  ui::Block *block = block_begin(C, region, __func__, ui::EmbossType::Emboss);
   int numfiles;
   int numfiles_layout;
   int offset;
   int i;
-  eFontStyle_Align align;
+  ui::FontStyleAlign align;
   bool do_drag;
   uchar text_col[4];
   const bool draw_columnheader = (params->display == FILE_VERTICALDISPLAY);
@@ -1329,7 +1388,7 @@ void file_draw_list(const bContext *C, ARegion *region)
 
   filelist_file_cache_slidingwindow_set(files, numfiles_layout);
 
-  align = (FILE_IMGDISPLAY == params->display) ? UI_STYLE_TEXT_CENTER : UI_STYLE_TEXT_LEFT;
+  align = (FILE_IMGDISPLAY == params->display) ? ui::UI_STYLE_TEXT_CENTER : ui::UI_STYLE_TEXT_LEFT;
 
   if (numfiles > 0) {
     const bool success = filelist_file_cache_block(
@@ -1341,7 +1400,9 @@ void file_draw_list(const bContext *C, ARegion *region)
 
     /* Handle preview timer here,
      * since it's filelist_file_cache_block() and filelist_cache_previews_update()
-     * which controls previews task. */
+     * which controls previews task.
+     * Note that online assets don't use this system.
+     */
     {
       const bool previews_running = filelist_cache_previews_running(files) &&
                                     !filelist_cache_previews_done(files);
@@ -1361,42 +1422,56 @@ void file_draw_list(const bContext *C, ARegion *region)
 
   BLF_batch_draw_begin();
 
-  UI_GetThemeColor4ubv(TH_TEXT, text_col);
+  ui::theme::get_color_4ubv(TH_TEXT, text_col);
+
+  const bool filelist_loading = !filelist_is_ready(files);
 
   for (i = offset; (i < numfiles) && (i < offset + numfiles_layout); i++) {
-    eDirEntry_SelectFlag file_selflag;
     const int padx = 0.1f * UI_UNIT_X;
     int icon_ofs = 0;
 
     const rcti tile_draw_rect = tile_draw_rect_get(v2d, layout, i);
 
     file = filelist_file(files, i);
-    file_selflag = filelist_entry_select_get(sfile->files, file, CHECK_ALL);
+    eDirEntry_SelectFlag file_selflag = filelist_entry_select_get(sfile->files, file, CHECK_ALL);
+    if (params->highlight_file == i) {
+      file_selflag |= FILE_SEL_HIGHLIGHTED;
+    }
 
     char path[FILE_MAX_LIBEXTRA];
     filelist_file_get_full_path(files, file, path);
 
     if (!(file_selflag & FILE_SEL_EDITING)) {
-      if ((params->highlight_file == i) || (file_selflag & FILE_SEL_HIGHLIGHTED) ||
-          (file_selflag & FILE_SEL_SELECTED))
-      {
+      if (file_selflag & (FILE_SEL_HIGHLIGHTED | FILE_SEL_SELECTED)) {
         int colorid = (file_selflag & FILE_SEL_SELECTED) ? TH_HILITE : TH_BACK;
-        int shade = (params->highlight_file == i) || (file_selflag & FILE_SEL_HIGHLIGHTED) ? 35 :
-                                                                                             0;
+        int shade = (file_selflag & FILE_SEL_HIGHLIGHTED) ? 35 : 0;
         BLI_assert(i == 0 || !FILENAME_IS_CURRPAR(file->relpath));
 
         draw_tile_background(&tile_draw_rect, colorid, shade);
       }
     }
-    UI_draw_roundbox_corner_set(UI_CNR_NONE);
+    draw_roundbox_corner_set(ui::CNR_NONE);
 
     /* don't drag parent or refresh items */
     do_drag = !FILENAME_IS_CURRPAR(file->relpath);
     const bool is_hidden = (file->attributes & FILE_ATTR_HIDDEN);
 
     if (FILE_IMGDISPLAY == params->display) {
+      if ((file->typeflag & FILE_TYPE_ASSET_ONLINE) && !filelist_loading) {
+        filelist_online_asset_preview_request(C, file);
+        /* Trigger the preview loader to wait until the download is done and load the preview from
+         * disk. Has to be done explicitly here because the preview isn't attached to a button. */
+        if (!file->asset->is_local_id()) {
+          ui::icon_render_id_ex(
+              C, nullptr, nullptr, ICON_SIZE_PREVIEW, true, file->asset->get_preview());
+        }
+      }
+
       const int file_type_icon = filelist_geticon_file_type(files, i, false);
-      const ImBuf *preview_imb = filelist_get_preview_image(files, i);
+      std::optional<IconBufferRef> preview_buf = file->preview_icon_id ?
+                                                     BKE_icon_get_buffer(file->preview_icon_id,
+                                                                         ICON_SIZE_PREVIEW) :
+                                                     std::nullopt;
 
       bool has_special_file_image = false;
 
@@ -1404,8 +1479,8 @@ void file_draw_list(const bContext *C, ARegion *region)
       if (is_loading) {
         file_draw_loading_icon(&tile_draw_rect, thumb_icon_aspect, layout);
       }
-      else if (preview_imb) {
-        file_draw_preview(file, &tile_draw_rect, preview_imb, layout, is_hidden);
+      else if (preview_buf) {
+        file_draw_preview(file, &tile_draw_rect, *preview_buf, layout, is_hidden);
       }
       else {
         /* Larger folder or document icon, with file/folder type icon in the middle (if any). */
@@ -1420,23 +1495,23 @@ void file_draw_list(const bContext *C, ARegion *region)
                                 &tile_draw_rect,
                                 thumb_icon_aspect,
                                 file_type_icon,
-                                has_special_file_image);
+                                has_special_file_image,
+                                file_selflag);
 
       if (do_drag) {
         file_add_preview_drag_but(
-            sfile, block, layout, file, path, &tile_draw_rect, preview_imb, file_type_icon);
+            sfile, block, layout, file, path, &tile_draw_rect, file_type_icon);
       }
     }
     else {
-      const bool filelist_loading = !filelist_is_ready(files);
       const BIFIconID icon = [&]() {
         if (file->asset) {
-          file->asset->ensure_previewable();
+          file->asset->ensure_previewable(*C);
 
           if (filelist_loading) {
             return BIFIconID(ICON_PREVIEW_LOADING);
           }
-          return blender::ed::asset::asset_preview_or_icon(*file->asset);
+          return ed::asset::asset_preview_or_icon(*file->asset);
         }
         return filelist_geticon_file_type(files, i, true);
       }();
@@ -1445,43 +1520,42 @@ void file_draw_list(const bContext *C, ARegion *region)
 
       /* Add dummy draggable button covering the icon and the label. */
       if (do_drag) {
-        const uiStyle *style = UI_style_get();
-        const int str_width = UI_fontstyle_string_width(&style->widget, file->name);
+        const uiStyle *style = ui::style_get();
+        const int str_width = ui::fontstyle_string_width(&style->widget, file->name);
         const int drag_width = std::min(
             str_width + icon_ofs,
             int(layout->attribute_columns[COLUMN_NAME].width - ATTRIBUTE_COLUMN_PADDING));
         if (drag_width > 0) {
           /* Uses full row height (tile height plus 2 * tile border padding) so there's no space
            * between rows. */
-          uiBut *drag_but = uiDefBut(block,
-                                     ButType::Label,
-                                     0,
-                                     "",
-                                     tile_draw_rect.xmin,
-                                     tile_draw_rect.ymin - layout->tile_border_y,
-                                     drag_width,
-                                     layout->tile_h + layout->tile_border_y * 2,
-                                     nullptr,
-                                     0,
-                                     0,
-                                     std::nullopt);
-          UI_but_dragflag_enable(drag_but, UI_BUT_DRAG_FULL_BUT);
+          ui::Button *drag_but = uiDefBut(block,
+                                          ui::ButtonType::Label,
+                                          "",
+                                          tile_draw_rect.xmin,
+                                          tile_draw_rect.ymin - layout->tile_border_y,
+                                          drag_width,
+                                          layout->tile_h + layout->tile_border_y * 2,
+                                          nullptr,
+                                          0,
+                                          0,
+                                          std::nullopt);
+          button_dragflag_enable(drag_but, ui::BUT_DRAG_FULL_BUT);
           file_but_enable_drag(drag_but, sfile, file, path, nullptr, icon, UI_SCALE_FAC);
           file_but_tooltip_func_set(sfile, file, drag_but);
         }
       }
 
       /* Add this after the fake draggable button, so the icon button tooltip is displayed. */
-      uiBut *icon_but = file_add_icon_but(sfile,
-                                          block,
-                                          path,
-                                          file,
-                                          &tile_draw_rect,
-                                          icon,
-                                          layout->prv_w,
-                                          layout->prv_h,
-                                          padx,
-                                          is_hidden);
+      ui::Button *icon_but = file_add_icon_but(sfile,
+                                               block,
+                                               path,
+                                               file,
+                                               &tile_draw_rect,
+                                               icon,
+                                               layout->prv_w,
+                                               layout->prv_h,
+                                               padx,
+                                               is_hidden);
       if (do_drag) {
         /* For some reason the dragging is unreliable for the icon button if we don't explicitly
          * enable dragging, even though the dummy drag button above covers the same area. */
@@ -1508,23 +1582,23 @@ void file_draw_list(const bContext *C, ARegion *region)
               layout->text_line_height * 1.4f :
               /* Just a little smaller than the tile height, clamped to #UI_UNIT_Y as maximum. */
               std::min(short(BLI_rcti_size_y(&text_rect) - 1.0f * UI_SCALE_FAC), UI_UNIT_Y);
-      uiBut *but = uiDefBut(block,
-                            ButType::Text,
-                            1,
-                            "",
-                            text_rect.xmin,
-                            /* First line only, when name is displayed in multiple lines. */
-                            text_rect.ymax - but_height,
-                            BLI_rcti_size_x(&text_rect),
-                            but_height,
-                            params->renamefile,
-                            1.0f,
-                            float(sizeof(params->renamefile)),
-                            "");
-      UI_but_func_rename_set(but, renamebutton_cb, file);
-      UI_but_flag_enable(but, UI_BUT_NO_UTF8); /* Allow non UTF8 names. */
-      UI_but_flag_disable(but, UI_BUT_UNDO);
-      if (false == UI_but_active_only(C, region, block, but)) {
+      ui::Button *but = uiDefBut(block,
+                                 ui::ButtonType::Text,
+                                 "",
+                                 text_rect.xmin,
+                                 /* First line only, when name is displayed in multiple lines. */
+                                 text_rect.ymax - but_height,
+                                 BLI_rcti_size_x(&text_rect),
+                                 but_height,
+                                 params->renamefile,
+                                 1.0f,
+                                 float(sizeof(params->renamefile)),
+                                 "");
+      button_retval_set(but, 1);
+      button_func_rename_set(but, renamebutton_cb, file);
+      button_flag_enable(but, ui::BUT_NO_UTF8); /* Allow non UTF8 names. */
+      button_flag_disable(but, ui::BUT_UNDO);
+      if (false == button_active_only(C, region, block, but)) {
         /* Note that this is the only place where we can also handle a cancelled renaming. */
 
         file_params_rename_end(wm, win, sfile, file);
@@ -1564,7 +1638,7 @@ void file_draw_list(const bContext *C, ARegion *region)
 
   if (numfiles < 1) {
     const rcti tile_draw_rect = tile_draw_rect_get(v2d, layout, 0);
-    const uiStyle *style = UI_style_get();
+    const uiStyle *style = ui::style_get();
 
     const bool is_filtered = params->filter_search[0] != '\0';
 
@@ -1584,17 +1658,17 @@ void file_draw_list(const bContext *C, ARegion *region)
       return IFACE_("No items");
     }();
 
-    UI_fontstyle_draw_simple(&style->widget,
-                             tile_draw_rect.xmin + UI_UNIT_X,
-                             tile_draw_rect.ymax - UI_UNIT_Y,
-                             message,
-                             text_col_mod);
+    ui::fontstyle_draw_simple(&style->widget,
+                              tile_draw_rect.xmin + UI_UNIT_X,
+                              tile_draw_rect.ymax - UI_UNIT_Y,
+                              message,
+                              text_col_mod);
   }
 
   BLF_batch_draw_end();
 
-  UI_block_end(C, block);
-  UI_block_draw(C, block);
+  block_end(C, block);
+  block_draw(C, block);
 
   /* Draw last, on top of file list. */
   if (draw_columnheader) {
@@ -1617,7 +1691,7 @@ static void file_draw_invalid_asset_library_hint(const bContext *C,
   file_path_to_ui_path(asset_params->base_params.dir, library_ui_path, sizeof(library_ui_path));
 
   uchar text_col[4];
-  UI_GetThemeColor4ubv(TH_TEXT, text_col);
+  ui::theme::get_color_4ubv(TH_TEXT, text_col);
 
   const View2D *v2d = &region->v2d;
   const int pad = sfile->layout->tile_border_x;
@@ -1632,40 +1706,233 @@ static void file_draw_invalid_asset_library_hint(const bContext *C,
     file_draw_string_multiline(sx, sy, message, width, line_height, text_col, nullptr, &sy);
 
     sy -= line_height;
-    file_draw_string(sx, sy, library_ui_path, width, line_height, UI_STYLE_TEXT_LEFT, text_col);
+    file_draw_string(
+        sx, sy, library_ui_path, width, line_height, ui::UI_STYLE_TEXT_LEFT, text_col);
   }
 
   /* Separate a bit further. */
   sy -= line_height * 2.2f;
 
   {
-    UI_icon_draw(sx, sy - UI_UNIT_Y, ICON_INFO);
+    ui::icon_draw(sx, sy - UI_UNIT_Y, ICON_INFO);
 
     const char *suggestion = RPT_(
         "Asset Libraries are local directories that can contain .blend files with assets inside.\n"
-        "Manage Asset Libraries from the File Paths section in Preferences");
+        "Manage Asset Libraries from the Asset Libraries section in the Preferences");
     file_draw_string_multiline(
         sx + UI_UNIT_X, sy, suggestion, width - UI_UNIT_X, line_height, text_col, nullptr, &sy);
 
-    uiBlock *block = UI_block_begin(C, region, __func__, blender::ui::EmbossType::Emboss);
+    ui::Block *block = block_begin(C, region, __func__, ui::EmbossType::Emboss);
     wmOperatorType *ot = WM_operatortype_find("SCREEN_OT_userpref_show", false);
-    uiBut *but = uiDefIconTextButO_ptr(block,
-                                       ButType::But,
-                                       ot,
-                                       blender::wm::OpCallContext::InvokeDefault,
-                                       ICON_PREFERENCES,
-                                       WM_operatortype_name(ot, nullptr),
-                                       sx + UI_UNIT_X,
-                                       sy - line_height - UI_UNIT_Y * 1.2f,
-                                       UI_UNIT_X * 8,
-                                       UI_UNIT_Y,
-                                       std::nullopt);
-    PointerRNA *but_opptr = UI_but_operator_ptr_ensure(but);
-    RNA_enum_set(but_opptr, "section", USER_SECTION_FILE_PATHS);
+    ui::Button *but = uiDefIconTextButO_ptr(block,
+                                            ui::ButtonType::But,
+                                            ot,
+                                            wm::OpCallContext::InvokeDefault,
+                                            ICON_PREFERENCES,
+                                            WM_operatortype_name(ot, nullptr),
+                                            sx + UI_UNIT_X,
+                                            sy - line_height - UI_UNIT_Y * 1.2f,
+                                            UI_UNIT_X * 8,
+                                            UI_UNIT_Y,
+                                            std::nullopt);
+    PointerRNA *but_opptr = button_operator_ptr_ensure(but);
+    RNA_enum_set(but_opptr, "section", USER_SECTION_ASSETS);
 
-    UI_block_end(C, block);
-    UI_block_draw(C, block);
+    block_end(C, block);
+    block_draw(C, block);
   }
+}
+
+static void file_draw_asset_library_internet_access_required_hint(const bContext *C,
+                                                                  const SpaceFile *sfile,
+                                                                  ARegion *region)
+{
+  using namespace blender;
+
+  uchar text_col[4];
+  ui::theme::get_color_4ubv(TH_TEXT, text_col);
+
+  const View2D *v2d = &region->v2d;
+  const int pad_x = sfile->layout->tile_border_x * 2;
+  const int pad_y = sfile->layout->tile_border_y * 2;
+  const int available_width = BLI_rctf_size_x(&v2d->tot) - (2 * pad_x);
+  const int line_height = sfile->layout->text_line_height;
+  const char *message = RPT_(
+      "Allow Online Access in order to browse and download online assets, or turn off the "
+      "\"Remote Assets\" filter to show only the downloaded assets.\n\nYou can adjust this "
+      "later from the \"System\" preferences.");
+
+  const int box_width = std::min(available_width, UI_UNIT_X * 28);
+  /* The width we have available inside the box. */
+  const int wrap_width = box_width - 2 * pad_x;
+  const rcti message_textbox = file_measure_string_multiline(message, wrap_width);
+  /* The text box doesn't seem to encompass all text, apparently half a line too little. */
+  const int message_height = BLI_rcti_size_y(&message_textbox) + 0.5f * line_height;
+
+  const int heading_height = UI_UNIT_Y;
+  const int box_height = heading_height + message_height +
+                         /* Extra spacing after header and after main message. */
+                         2 * pad_y +
+                         /* Button height. */
+                         UI_UNIT_Y +
+                         /* Top and bottom padding. */
+                         2 * pad_y;
+
+  int sx = round_fl_to_int(BLI_rctf_cent_x(&v2d->tot) - box_width / 2.0f);
+  int sy = round_fl_to_int(BLI_rctf_cent_y(&v2d->tot) + box_height / 2.0f);
+
+  ui::Block *block = ui::block_begin(C, region, __func__, ui::EmbossType::Emboss);
+
+  uiDefBut(block,
+           ui::ButtonType::Roundbox,
+           "",
+           sx,
+           sy - box_height,
+           box_width,
+           box_height,
+           nullptr,
+           0.0,
+           0.0,
+           "");
+
+  /* Top left padding within the box. */
+  sx += pad_x;
+  sy -= pad_y;
+
+  {
+    uiDefIconTextBut(block,
+                     ui::ButtonType::Label,
+                     ICON_INTERNET_OFFLINE,
+                     "Internet Access Required",
+                     sx,
+                     sy - heading_height,
+                     wrap_width,
+                     heading_height,
+                     nullptr,
+                     {});
+
+    const int button_width = (wrap_width - pad_x) * 0.5f;
+    ui::Button *but = uiDefIconTextButO(block,
+                                        ui::ButtonType::But,
+                                        "WM_OT_context_set_boolean",
+                                        wm::OpCallContext::InvokeDefault,
+                                        ICON_X,
+                                        "Continue Offline",
+                                        sx,
+                                        sy + pad_y - box_height + pad_y,
+                                        button_width,
+                                        UI_UNIT_Y,
+                                        {});
+    PointerRNA *but_opptr = ui::button_operator_ptr_ensure(but);
+    RNA_string_set(but_opptr, "data_path", "preferences.extensions.use_online_access_handled");
+    RNA_boolean_set(but_opptr, "value", true);
+
+    uiDefIconTextButO(block,
+                      ui::ButtonType::But,
+                      "extensions.userpref_allow_online",
+                      wm::OpCallContext::InvokeDefault,
+                      ICON_CHECKMARK,
+                      "Allow Online Access",
+                      sx + button_width + pad_x,
+                      sy + pad_y - box_height + pad_y,
+                      button_width,
+                      UI_UNIT_Y,
+                      {});
+  }
+
+  ui::block_end(C, block);
+  ui::block_draw(C, block);
+
+  /* Draw multi-line text on top of widget drawing. */
+  file_draw_string_multiline(sx,
+                             sy - heading_height - pad_y,
+                             message,
+                             wrap_width,
+                             line_height,
+                             text_col,
+                             nullptr,
+                             nullptr);
+}
+
+static void file_draw_asset_library_remote_loading_failed_hint(const bContext *C,
+                                                               const SpaceFile *sfile,
+                                                               ARegion *region,
+                                                               const bUserAssetLibrary *library)
+{
+  using namespace blender;
+
+  uchar text_col[4];
+  ui::theme::get_color_4ubv(TH_TEXT, text_col);
+
+  const View2D *v2d = &region->v2d;
+  const int pad_x = sfile->layout->tile_border_x * 2;
+  const int pad_y = sfile->layout->tile_border_y * 2;
+  const int available_width = BLI_rctf_size_x(&v2d->tot) - (2 * pad_x);
+  const int line_height = sfile->layout->text_line_height;
+  StringRefNull message =
+      RemoteLibraryLoadingStatus::failure_message(library->remote_url).value_or("Unknown reason");
+
+  const int message_width = ui::fontstyle_string_width(&ui::style_get()->widget, message.c_str());
+  const int box_width = std::min({available_width, UI_UNIT_X * 28, message_width + (2 * pad_x)});
+  /* The width we have available inside the box. */
+  const int wrap_width = box_width - 2 * pad_x;
+  const rcti message_textbox = file_measure_string_multiline(message, wrap_width);
+  /* The text box doesn't seem to encompass all text, apparently half a line too little. */
+  const int message_height = BLI_rcti_size_y(&message_textbox) + 0.5f * line_height;
+
+  const int heading_height = UI_UNIT_Y;
+  const int box_height = heading_height + message_height +
+                         /* Extra spacing after header. */
+                         pad_y +
+                         /* Top and bottom padding. */
+                         2 * pad_y;
+
+  int sx = round_fl_to_int(BLI_rctf_cent_x(&v2d->tot) - box_width / 2.0f);
+  int sy = round_fl_to_int(BLI_rctf_cent_y(&v2d->tot) + box_height / 2.0f);
+
+  ui::Block *block = ui::block_begin(C, region, __func__, ui::EmbossType::Emboss);
+
+  uiDefBut(block,
+           ui::ButtonType::Roundbox,
+           "",
+           sx,
+           sy - box_height,
+           box_width,
+           box_height,
+           nullptr,
+           0.0,
+           0.0,
+           "");
+
+  /* Top left padding within the box. */
+  sx += pad_x;
+  sy -= pad_y;
+
+  {
+    uiDefIconTextBut(block,
+                     ui::ButtonType::Label,
+                     ICON_CANCEL,
+                     "Asset Library Download Failed",
+                     sx,
+                     sy - heading_height,
+                     wrap_width,
+                     heading_height,
+                     nullptr,
+                     {});
+  }
+
+  ui::block_end(C, block);
+  ui::block_draw(C, block);
+
+  /* Draw multi-line text on top of widget drawing. */
+  file_draw_string_multiline(sx,
+                             sy - heading_height - pad_y,
+                             message,
+                             wrap_width,
+                             line_height,
+                             text_col,
+                             nullptr,
+                             nullptr);
 }
 
 static void file_draw_invalid_library_hint(const bContext * /*C*/,
@@ -1675,7 +1942,7 @@ static void file_draw_invalid_library_hint(const bContext * /*C*/,
                                            ReportList *reports)
 {
   uchar text_col[4];
-  UI_GetThemeColor4ubv(TH_TEXT, text_col);
+  ui::theme::get_color_4ubv(TH_TEXT, text_col);
 
   const View2D *v2d = &region->v2d;
   const int pad = sfile->layout->tile_border_x;
@@ -1690,14 +1957,14 @@ static void file_draw_invalid_library_hint(const bContext * /*C*/,
     file_draw_string_multiline(sx, sy, message, width, line_height, text_col, nullptr, &sy);
 
     sy -= line_height;
-    file_draw_string(sx, sy, blendfile_path, width, line_height, UI_STYLE_TEXT_LEFT, text_col);
+    file_draw_string(sx, sy, blendfile_path, width, line_height, ui::UI_STYLE_TEXT_LEFT, text_col);
   }
 
   /* Separate a bit further. */
   sy -= line_height * 2.2f;
 
-  LISTBASE_FOREACH (Report *, report, &reports->list) {
-    const short report_type = report->type;
+  for (Report &report : reports->list) {
+    const short report_type = report.type;
     if (report_type <= RPT_INFO) {
       continue;
     }
@@ -1706,11 +1973,11 @@ static void file_draw_invalid_library_hint(const bContext * /*C*/,
     if (report_type > RPT_WARNING) {
       icon = ICON_ERROR;
     }
-    UI_icon_draw(sx, sy - UI_UNIT_Y, icon);
+    ui::icon_draw(sx, sy - UI_UNIT_Y, icon);
 
     file_draw_string_multiline(sx + UI_UNIT_X,
                                sy,
-                               RPT_(report->message),
+                               RPT_(report.message),
                                width - UI_UNIT_X,
                                line_height,
                                text_col,
@@ -1720,20 +1987,71 @@ static void file_draw_invalid_library_hint(const bContext * /*C*/,
   }
 }
 
+static const bUserAssetLibrary *assetlib_as_remote_library(
+    const AssetLibraryReference &asset_library_ref)
+{
+  if (asset_library_ref.type != ASSET_LIBRARY_CUSTOM) {
+    return nullptr;
+  }
+
+  const bUserAssetLibrary *library = BKE_preferences_asset_library_find_index(
+      &U, asset_library_ref.custom_library_index);
+  if (!library) {
+    return nullptr;
+  }
+
+  const bool is_remote_lib = library->flag & ASSET_LIBRARY_USE_REMOTE_URL;
+  if (!is_remote_lib) {
+    return nullptr;
+  }
+
+  return library;
+}
+
 bool file_draw_hint_if_invalid(const bContext *C, const SpaceFile *sfile, ARegion *region)
 {
   char blendfile_path[FILE_MAX_LIBEXTRA];
   const bool is_asset_browser = ED_fileselect_is_asset_browser(sfile);
   const bool is_library_browser = !is_asset_browser &&
                                   filelist_islibrary(sfile->files, blendfile_path, nullptr);
+  /* Call this before drawing a hint, otherwise drawing will not be visible. */
+  const auto setup_view = [region]() {
+    ui::view2d_totRect_set(&region->v2d, region->winx, region->winy);
+    ui::view2d_view_ortho(&region->v2d);
+  };
 
   if (is_asset_browser) {
     FileAssetSelectParams *asset_params = ED_fileselect_get_asset_params(sfile);
 
+    const bUserAssetLibrary *remote_library = assetlib_as_remote_library(
+        asset_params->asset_library_ref);
+    const bool is_remote_library = remote_library != nullptr;
+
+    if (is_remote_library) {
+      const bool is_online_allowed = G.f & G_FLAG_INTERNET_ALLOW;
+      const bool was_choice_made = U.extension_flag & USER_EXTENSION_FLAG_ONLINE_ACCESS_HANDLED;
+      if (!is_online_allowed && !was_choice_made) {
+        setup_view();
+        file_draw_asset_library_internet_access_required_hint(C, sfile, region);
+        return true;
+      }
+      if (RemoteLibraryLoadingStatus::status(remote_library->remote_url) ==
+          RemoteLibraryLoadingStatus::Failure)
+      {
+        setup_view();
+        file_draw_asset_library_remote_loading_failed_hint(C, sfile, region, remote_library);
+        return true;
+      }
+    }
+
+    const bool is_on_disk_library = !ELEM(asset_params->asset_library_ref.type,
+                                          ASSET_LIBRARY_LOCAL,
+                                          ASSET_LIBRARY_ALL) &&
+                                    !is_remote_library;
+
     /* Check if the asset library exists. */
-    if (!((asset_params->asset_library_ref.type == ASSET_LIBRARY_LOCAL) ||
-          filelist_is_dir(sfile->files, asset_params->base_params.dir)))
-    {
+    if (is_on_disk_library && !filelist_is_dir(sfile->files, asset_params->base_params.dir)) {
+      setup_view();
       file_draw_invalid_asset_library_hint(C, sfile, region, asset_params);
       return true;
     }
@@ -1769,6 +2087,7 @@ bool file_draw_hint_if_invalid(const bContext *C, const SpaceFile *sfile, ARegio
       sfile->runtime->is_blendfile_status_set = true;
     }
     if (!sfile->runtime->is_blendfile_readable) {
+      setup_view();
       file_draw_invalid_library_hint(
           C, sfile, region, blendfile_path, &sfile->runtime->is_blendfile_readable_reports);
       return true;
@@ -1777,3 +2096,5 @@ bool file_draw_hint_if_invalid(const bContext *C, const SpaceFile *sfile, ARegio
 
   return false;
 }
+
+}  // namespace blender

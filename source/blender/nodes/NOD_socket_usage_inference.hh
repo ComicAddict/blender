@@ -15,15 +15,45 @@
 #include "NOD_socket_usage_inference_fwd.hh"
 #include "NOD_socket_value_inference.hh"
 
+namespace blender {
+
 struct bNodeTree;
 struct bNodeSocket;
 struct IDProperty;
 
-namespace blender::nodes::socket_usage_inference {
+namespace nodes::socket_usage_inference {
 
-struct SocketUsageInferencer;
+class SocketUsageInferencerImpl;
 
-class InputSocketUsageParams {
+/**
+ * Can detect which sockets are used or disabled.
+ */
+class SocketUsageInferencer {
+ private:
+  SocketUsageInferencerImpl &impl_;
+
+  friend class SocketUsageParams;
+
+ public:
+  SocketUsageInferencer(const bNodeTree &tree,
+                        ResourceScope &scope,
+                        SocketValueInferencer &value_inferencer,
+                        bke::ComputeContextCache &compute_context_cache,
+                        bool ignore_top_level_node_muting = false);
+
+  bool is_socket_used(const SocketInContext &socket);
+  bool is_group_input_used(int input_i);
+
+  bool is_disabled_output(const SocketInContext &socket);
+  bool is_disabled_group_output(int output_i);
+
+  /** This can be used when detecting the usage of all input sockets in a node tree, instead of
+   * just the inputs of the group as a whole.
+   */
+  void mark_top_level_node_outputs_as_used();
+};
+
+class SocketUsageParams {
  private:
   SocketUsageInferencer &inferencer_;
   const ComputeContext *compute_context_ = nullptr;
@@ -33,17 +63,17 @@ class InputSocketUsageParams {
   const bNode &node;
   const bNodeSocket &socket;
 
-  InputSocketUsageParams(SocketUsageInferencer &inferencer,
-                         const ComputeContext *compute_context,
-                         const bNodeTree &tree,
-                         const bNode &node,
-                         const bNodeSocket &socket);
+  SocketUsageParams(SocketUsageInferencer &inferencer,
+                    const ComputeContext *compute_context,
+                    const bNodeTree &tree,
+                    const bNode &node,
+                    const bNodeSocket &socket);
 
   /**
    * Get an the statically known input value for the given socket identifier. The value may be
    * unknown, in which case null is returned.
    */
-  InferenceValue get_input(StringRef identifier) const;
+  InferenceValue get_input(UString identifier) const;
 
   /**
    * Returns true if any output is known to be used or false if no output is used. std::nullopt is
@@ -55,7 +85,7 @@ class InputSocketUsageParams {
   /**
    * Utility for the case when the socket depends on a specific menu input to have a certain value.
    */
-  bool menu_input_may_be(StringRef identifier, int enum_value) const;
+  bool menu_input_may_be(UString identifier, int enum_value) const;
 };
 
 /**
@@ -93,10 +123,12 @@ void infer_group_interface_inputs_usage(const bNodeTree &group,
  * Same as above, but automatically retrieves the input values from the given properties.
  * This is used with the geometry nodes modifier and node tools.
  */
-void infer_group_interface_usage(
+void infer_group_interface_inputs_usage(
     const bNodeTree &group,
-    const IDProperty *properties,
+    const PointerRNA &properties_ptr,
     MutableSpan<SocketUsage> r_input_usages,
     std::optional<MutableSpan<SocketUsage>> r_output_usages = std::nullopt);
 
-}  // namespace blender::nodes::socket_usage_inference
+}  // namespace nodes::socket_usage_inference
+
+}  // namespace blender

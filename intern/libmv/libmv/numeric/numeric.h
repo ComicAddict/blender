@@ -25,6 +25,8 @@
 #ifndef LIBMV_NUMERIC_NUMERIC_H
 #define LIBMV_NUMERIC_NUMERIC_H
 
+#include <cassert>
+
 #include <Eigen/Cholesky>
 #include <Eigen/Core>
 #include <Eigen/Eigenvalues>
@@ -289,7 +291,7 @@ void MeanAndVarianceAlongRows(const Mat& A,
                               Vec* mean_pointer,
                               Vec* variance_pointer);
 
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(__clang__)
 // TODO(bomboze): un-#if this for both platforms once tested under Windows
 /* This solution was extensively discussed here
    http://forum.kde.org/viewtopic.php?f=74&t=61940 */

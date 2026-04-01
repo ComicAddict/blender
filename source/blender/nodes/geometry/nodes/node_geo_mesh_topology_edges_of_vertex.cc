@@ -14,21 +14,25 @@ namespace blender::nodes::node_geo_mesh_topology_edges_of_vertex_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Int>("Vertex Index")
+  b.add_input<decl::Int>("Vertex Index"_ustr)
       .implicit_field(NODE_DEFAULT_INPUT_INDEX_FIELD)
       .description("The vertex to retrieve data from. Defaults to the vertex from the context")
       .structure_type(StructureType::Field);
-  b.add_input<decl::Float>("Weights").supports_field().hide_value().description(
-      "Values used to sort the edges connected to the vertex. Uses indices by default");
-  b.add_input<decl::Int>("Sort Index")
-      .min(0)
+  b.add_input<decl::Float>("Weights"_ustr)
       .supports_field()
-      .description("Which of the sorted edges to output");
-  b.add_output<decl::Int>("Edge Index")
+      .hide_value()
+      .description(
+          "Values used to sort the edges connected to the vertex. Uses indices by default");
+  b.add_input<decl::Int>("Sort Index"_ustr)
+      .supports_field()
+      .description("Which of the sorted edges to output. Negative indexing is supported");
+  b.add_output<decl::Int>("Edge Index"_ustr)
       .field_source_reference_all()
       .description("An edge connected to the face, chosen by the sort index");
-  b.add_output<decl::Int>("Total").field_source().reference_pass({0}).description(
-      "The number of edges connected to each vertex");
+  b.add_output<decl::Int>("Total"_ustr)
+      .field_source()
+      .reference_pass({0})
+      .description("The number of edges connected to each vertex");
 }
 
 class EdgesOfVertInput final : public bke::MeshFieldInput {
@@ -43,7 +47,6 @@ class EdgesOfVertInput final : public bke::MeshFieldInput {
         sort_index_(std::move(sort_index)),
         sort_weight_(std::move(sort_weight))
   {
-    category_ = Category::Generated;
   }
 
   GVArray get_varray_for_context(const Mesh &mesh,
@@ -73,50 +76,52 @@ class EdgesOfVertInput final : public bke::MeshFieldInput {
     const bool use_sorting = !all_sort_weights.is_single();
 
     Array<int> edge_of_vertex(mask.min_array_size());
-    mask.foreach_segment(GrainSize(1024), [&](const IndexMaskSegment segment) {
-      /* Reuse arrays to avoid allocation. */
-      Array<float> sort_weights;
-      Array<int> sort_indices;
+    mask.foreach_segment(
+        [&](const IndexMaskSegment segment) {
+          /* Reuse arrays to avoid allocation. */
+          Array<float> sort_weights;
+          Array<int> sort_indices;
 
-      for (const int selection_i : segment) {
-        const int vert_i = vert_indices[selection_i];
-        const int index_in_sort = indices_in_sort[selection_i];
-        if (!vert_range.contains(vert_i)) {
-          edge_of_vertex[selection_i] = 0;
-          continue;
-        }
+          for (const int selection_i : segment) {
+            const int vert_i = vert_indices[selection_i];
+            const int index_in_sort = indices_in_sort[selection_i];
+            if (!vert_range.contains(vert_i)) {
+              edge_of_vertex[selection_i] = 0;
+              continue;
+            }
 
-        const Span<int> edges = vert_to_edge_map[vert_i];
-        if (edges.is_empty()) {
-          edge_of_vertex[selection_i] = 0;
-          continue;
-        }
+            const Span<int> edges = vert_to_edge_map[vert_i];
+            if (edges.is_empty()) {
+              edge_of_vertex[selection_i] = 0;
+              continue;
+            }
 
-        const int index_in_sort_wrapped = mod_i(index_in_sort, edges.size());
-        if (use_sorting) {
-          /* Retrieve a compressed array of weights for each edge. */
-          sort_weights.reinitialize(edges.size());
-          IndexMaskMemory memory;
-          all_sort_weights.materialize_compressed(IndexMask::from_indices<int>(edges, memory),
-                                                  sort_weights.as_mutable_span());
+            const int index_in_sort_wrapped = mod_i(index_in_sort, edges.size());
+            if (use_sorting) {
+              /* Retrieve a compressed array of weights for each edge. */
+              sort_weights.reinitialize(edges.size());
+              IndexMaskMemory memory;
+              all_sort_weights.materialize_compressed(IndexMask::from_indices<int>(edges, memory),
+                                                      sort_weights.as_mutable_span());
 
-          /* Sort a separate array of compressed indices corresponding to the compressed weights.
-           * This allows using `materialize_compressed` to avoid virtual function call overhead
-           * when accessing values in the sort weights. However, it means a separate array of
-           * indices within the compressed array is necessary for sorting. */
-          sort_indices.reinitialize(edges.size());
-          array_utils::fill_index_range<int>(sort_indices);
-          std::stable_sort(sort_indices.begin(), sort_indices.end(), [&](int a, int b) {
-            return sort_weights[a] < sort_weights[b];
-          });
+              /* Sort a separate array of compressed indices corresponding to the compressed
+               * weights. This allows using `materialize_compressed` to avoid virtual function call
+               * overhead when accessing values in the sort weights. However, it means a separate
+               * array of indices within the compressed array is necessary for sorting. */
+              sort_indices.reinitialize(edges.size());
+              array_utils::fill_index_range<int>(sort_indices);
+              std::stable_sort(sort_indices.begin(), sort_indices.end(), [&](int a, int b) {
+                return sort_weights[a] < sort_weights[b];
+              });
 
-          edge_of_vertex[selection_i] = edges[sort_indices[index_in_sort_wrapped]];
-        }
-        else {
-          edge_of_vertex[selection_i] = edges[index_in_sort_wrapped];
-        }
-      }
-    });
+              edge_of_vertex[selection_i] = edges[sort_indices[index_in_sort_wrapped]];
+            }
+            else {
+              edge_of_vertex[selection_i] = edges[index_in_sort_wrapped];
+            }
+          }
+        },
+        exec_mode::grain_size(1024));
 
     return VArray<int>::from_container(std::move(edge_of_vertex));
   }
@@ -150,10 +155,7 @@ class EdgesOfVertInput final : public bke::MeshFieldInput {
 
 class EdgesOfVertCountInput final : public bke::MeshFieldInput {
  public:
-  EdgesOfVertCountInput() : bke::MeshFieldInput(CPPType::get<int>(), "Corner Face Index")
-  {
-    category_ = Category::Generated;
-  }
+  EdgesOfVertCountInput() : bke::MeshFieldInput(CPPType::get<int>(), "Corner Face Index") {}
 
   GVArray get_varray_for_context(const Mesh &mesh,
                                  const AttrDomain domain,
@@ -185,26 +187,26 @@ class EdgesOfVertCountInput final : public bke::MeshFieldInput {
 
 static void node_geo_exec(GeoNodeExecParams params)
 {
-  const Field<int> vert_index = params.extract_input<Field<int>>("Vertex Index");
-  if (params.output_is_required("Total")) {
-    params.set_output("Total",
+  const Field<int> vert_index = params.extract_input<Field<int>>("Vertex Index"_ustr);
+  if (params.output_is_required("Total"_ustr)) {
+    params.set_output("Total"_ustr,
                       Field<int>(std::make_shared<bke::EvaluateAtIndexInput>(
                           vert_index,
                           Field<int>(std::make_shared<EdgesOfVertCountInput>()),
                           AttrDomain::Point)));
   }
-  if (params.output_is_required("Edge Index")) {
-    params.set_output("Edge Index",
+  if (params.output_is_required("Edge Index"_ustr)) {
+    params.set_output("Edge Index"_ustr,
                       Field<int>(std::make_shared<EdgesOfVertInput>(
                           vert_index,
-                          params.extract_input<Field<int>>("Sort Index"),
-                          params.extract_input<Field<float>>("Weights"))));
+                          params.extract_input<Field<int>>("Sort Index"_ustr),
+                          params.extract_input<Field<float>>("Weights"_ustr))));
   }
 }
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
   geo_node_type_base(&ntype, "GeometryNodeEdgesOfVertex", GEO_NODE_MESH_TOPOLOGY_EDGES_OF_VERTEX);
   ntype.ui_name = "Edges of Vertex";
   ntype.ui_description = "Retrieve the edges connected to each vertex";
@@ -212,7 +214,7 @@ static void node_register()
   ntype.nclass = NODE_CLASS_INPUT;
   ntype.geometry_node_execute = node_geo_exec;
   ntype.declare = node_declare;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 }
 NOD_REGISTER_NODE(node_register)
 

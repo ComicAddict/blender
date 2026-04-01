@@ -21,7 +21,7 @@ class SpaceNodeAccessor : public AbstractSpaceAccessor {
  public:
   SpaceNodeAccessor(SpaceNode *snode) : snode(snode) {}
 
-  ::Image *get_image(Main *bmain) override
+  blender::Image *get_image(Main *bmain) override
   {
     return BKE_image_ensure_viewer(bmain, IMA_TYPE_COMPOSITE, "Viewer Node");
   }
@@ -31,12 +31,12 @@ class SpaceNodeAccessor : public AbstractSpaceAccessor {
     return nullptr;
   }
 
-  ImBuf *acquire_image_buffer(::Image *image, void **lock) override
+  ImBuf *acquire_image_buffer(blender::Image *image, void **lock) override
   {
-    return BKE_image_acquire_ibuf(image, nullptr, lock);
+    return BKE_image_acquire_ibuf_gpu(image, nullptr, lock);
   }
 
-  void release_buffer(::Image *image, ImBuf *ibuf, void *lock) override
+  void release_buffer(blender::Image *image, ImBuf *ibuf, void *lock) override
   {
     BKE_image_release_ibuf(image, ibuf, lock);
   }
@@ -45,36 +45,36 @@ class SpaceNodeAccessor : public AbstractSpaceAccessor {
   {
     if ((snode->flag & SNODE_USE_ALPHA) != 0) {
       /* Show RGBA */
-      r_shader_parameters.flags |= ImageDrawFlags::SHOW_ALPHA | ImageDrawFlags::APPLY_ALPHA;
+      r_shader_parameters.flags |= IMAGE_DRAW_FLAG_SHOW_ALPHA | IMAGE_DRAW_FLAG_APPLY_ALPHA;
     }
     else if ((snode->flag & SNODE_SHOW_ALPHA) != 0) {
-      r_shader_parameters.flags |= ImageDrawFlags::SHUFFLING;
+      r_shader_parameters.flags |= IMAGE_DRAW_FLAG_SHUFFLING;
       r_shader_parameters.shuffle = float4(0.0f, 0.0f, 0.0f, 1.0f);
     }
     else if ((snode->flag & SNODE_SHOW_R) != 0) {
-      r_shader_parameters.flags |= ImageDrawFlags::SHUFFLING;
+      r_shader_parameters.flags |= IMAGE_DRAW_FLAG_SHUFFLING;
       if (IMB_alpha_affects_rgb(ibuf)) {
-        r_shader_parameters.flags |= ImageDrawFlags::APPLY_ALPHA;
+        r_shader_parameters.flags |= IMAGE_DRAW_FLAG_APPLY_ALPHA;
       }
       r_shader_parameters.shuffle = float4(1.0f, 0.0f, 0.0f, 0.0f);
     }
     else if ((snode->flag & SNODE_SHOW_G) != 0) {
-      r_shader_parameters.flags |= ImageDrawFlags::SHUFFLING;
+      r_shader_parameters.flags |= IMAGE_DRAW_FLAG_SHUFFLING;
       if (IMB_alpha_affects_rgb(ibuf)) {
-        r_shader_parameters.flags |= ImageDrawFlags::APPLY_ALPHA;
+        r_shader_parameters.flags |= IMAGE_DRAW_FLAG_APPLY_ALPHA;
       }
       r_shader_parameters.shuffle = float4(0.0f, 1.0f, 0.0f, 0.0f);
     }
     else if ((snode->flag & SNODE_SHOW_B) != 0) {
-      r_shader_parameters.flags |= ImageDrawFlags::SHUFFLING;
+      r_shader_parameters.flags |= IMAGE_DRAW_FLAG_SHUFFLING;
       if (IMB_alpha_affects_rgb(ibuf)) {
-        r_shader_parameters.flags |= ImageDrawFlags::APPLY_ALPHA;
+        r_shader_parameters.flags |= IMAGE_DRAW_FLAG_APPLY_ALPHA;
       }
       r_shader_parameters.shuffle = float4(0.0f, 0.0f, 1.0f, 0.0f);
     }
     else /* RGB */ {
       if (IMB_alpha_affects_rgb(ibuf)) {
-        r_shader_parameters.flags |= ImageDrawFlags::APPLY_ALPHA;
+        r_shader_parameters.flags |= IMAGE_DRAW_FLAG_APPLY_ALPHA;
       }
     }
   }
@@ -82,6 +82,11 @@ class SpaceNodeAccessor : public AbstractSpaceAccessor {
   bool use_tile_drawing() const override
   {
     return false;
+  }
+
+  bool use_display_window() const override
+  {
+    return true;
   }
 
   /**

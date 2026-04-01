@@ -61,9 +61,9 @@ class VKShaderInterface : public ShaderInterface {
 
   void init(const shader::ShaderCreateInfo &info);
 
-  const VKDescriptorSet::Location descriptor_set_location(
+  VKDescriptorSet::Location descriptor_set_location(
       const shader::ShaderCreateInfo::Resource &resource) const;
-  const std::optional<VKDescriptorSet::Location> descriptor_set_location(
+  std::optional<VKDescriptorSet::Location> descriptor_set_location(
       const shader::ShaderCreateInfo::Resource::BindType &bind_type, int binding) const;
 
   /** Get the Layout of the shader. */
@@ -84,7 +84,7 @@ class VKShaderInterface : public ShaderInterface {
 
   bool is_point_shader() const
   {
-    return (shader_builtins_ & shader::BuiltinBits::POINT_SIZE) == shader::BuiltinBits::POINT_SIZE;
+    return flag_is_set(shader_builtins_, shader::BuiltinBits::POINT_SIZE);
   }
 
   const Span<VKResourceBinding> resource_bindings_get() const

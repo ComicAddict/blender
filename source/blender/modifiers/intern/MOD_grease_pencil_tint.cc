@@ -10,7 +10,6 @@
 
 #include "BLI_math_matrix.hh"
 
-#include "DNA_defaults.h"
 #include "DNA_material_types.h"
 #include "DNA_modifier_types.h"
 #include "DNA_scene_types.h"
@@ -53,10 +52,7 @@ using bke::greasepencil::Drawing;
 static void init_data(ModifierData *md)
 {
   auto *tmd = reinterpret_cast<GreasePencilTintModifierData *>(md);
-
-  BLI_assert(MEMCMP_STRUCT_AFTER_IS_ZERO(tmd, modifier));
-
-  MEMCPY_STRUCT_AFTER(tmd, DNA_struct_default_get(GreasePencilTintModifierData), modifier);
+  INIT_DEFAULT_STRUCT_AFTER(tmd, modifier);
   modifier::greasepencil::init_influence_data(&tmd->influence, true);
 
   /* Add default color ramp. */
@@ -80,13 +76,13 @@ static void copy_data(const ModifierData *md, ModifierData *target, const int fl
   auto *ttmd = reinterpret_cast<GreasePencilTintModifierData *>(target);
 
   modifier::greasepencil::free_influence_data(&ttmd->influence);
-  MEM_SAFE_FREE(ttmd->color_ramp);
+  MEM_SAFE_DELETE(ttmd->color_ramp);
 
   BKE_modifier_copydata_generic(md, target, flag);
   modifier::greasepencil::copy_influence_data(&tmd->influence, &ttmd->influence, flag);
 
   if (tmd->color_ramp) {
-    ttmd->color_ramp = static_cast<ColorBand *>(MEM_dupallocN(tmd->color_ramp));
+    ttmd->color_ramp = MEM_dupalloc(tmd->color_ramp);
   }
 }
 
@@ -95,14 +91,14 @@ static void free_data(ModifierData *md)
   auto *tmd = reinterpret_cast<GreasePencilTintModifierData *>(md);
   modifier::greasepencil::free_influence_data(&tmd->influence);
 
-  MEM_SAFE_FREE(tmd->color_ramp);
+  MEM_SAFE_DELETE(tmd->color_ramp);
 }
 
 static void foreach_ID_link(ModifierData *md, Object *ob, IDWalkFunc walk, void *user_data)
 {
   auto *tmd = reinterpret_cast<GreasePencilTintModifierData *>(md);
   modifier::greasepencil::foreach_influence_ID_link(&tmd->influence, ob, walk, user_data);
-  walk(user_data, ob, (ID **)&tmd->object, IDWALK_CB_NOP);
+  walk(user_data, ob, reinterpret_cast<ID **>(&tmd->object), IDWALK_CB_NOP);
 }
 
 static void foreach_working_space_color(ModifierData *md,
@@ -209,23 +205,27 @@ static void modify_stroke_color(Object &ob,
   const GreasePencilTintModifierMode tint_mode = GreasePencilTintModifierMode(tmd.tint_mode);
   switch (tint_mode) {
     case MOD_GREASE_PENCIL_TINT_UNIFORM: {
-      curves_mask.foreach_index(GrainSize(512), [&](const int64_t curve_i) {
-        const ColorGeometry4f material_color = get_material_color(curve_i);
+      curves_mask.foreach_index(
+          [&](const int64_t curve_i) {
+            const ColorGeometry4f material_color = get_material_color(curve_i);
 
-        const IndexRange points = points_by_curve[curve_i];
-        for (const int64_t i : points.index_range()) {
-          const int64_t point_i = points[i];
-          const float curve_input = points.size() >= 2 ? (float(i) / float(points.size() - 1)) :
-                                                         0.0f;
-          const float curve_factor = use_curve ? BKE_curvemapping_evaluateF(
-                                                     tmd.influence.custom_curve, 0, curve_input) :
-                                                 1.0f;
-          vertex_colors[point_i] = apply_uniform_tint(
-              tmd,
-              get_base_color(vertex_colors[point_i], material_color),
-              get_point_factor(point_i) * curve_factor);
-        }
-      });
+            const IndexRange points = points_by_curve[curve_i];
+            for (const int64_t i : points.index_range()) {
+              const int64_t point_i = points[i];
+              const float curve_input = points.size() >= 2 ?
+                                            (float(i) / float(points.size() - 1)) :
+                                            0.0f;
+              const float curve_factor = use_curve ?
+                                             BKE_curvemapping_evaluateF(
+                                                 tmd.influence.custom_curve, 0, curve_input) :
+                                             1.0f;
+              vertex_colors[point_i] = apply_uniform_tint(
+                  tmd,
+                  get_base_color(vertex_colors[point_i], material_color),
+                  get_point_factor(point_i) * curve_factor);
+            }
+          },
+          exec_mode::grain_size(512));
       break;
     }
     case MOD_GREASE_PENCIL_TINT_GRADIENT: {
@@ -238,19 +238,21 @@ static void modify_stroke_color(Object &ob,
       /* Transforms points to the gradient object space. */
       const float4x4 matrix = tmd.object->world_to_object() * ob.object_to_world();
 
-      curves_mask.foreach_index(GrainSize(512), [&](const int64_t curve_i) {
-        const ColorGeometry4f material_color = get_material_color(curve_i);
+      curves_mask.foreach_index(
+          [&](const int64_t curve_i) {
+            const ColorGeometry4f material_color = get_material_color(curve_i);
 
-        const IndexRange points = points_by_curve[curve_i];
-        for (const int64_t point_i : points) {
-          vertex_colors[point_i] = apply_gradient_tint(
-              tmd,
-              matrix,
-              positions[point_i],
-              get_base_color(vertex_colors[point_i], material_color),
-              get_point_factor(point_i));
-        }
-      });
+            const IndexRange points = points_by_curve[curve_i];
+            for (const int64_t point_i : points) {
+              vertex_colors[point_i] = apply_gradient_tint(
+                  tmd,
+                  matrix,
+                  positions[point_i],
+                  get_base_color(vertex_colors[point_i], material_color),
+                  get_point_factor(point_i));
+            }
+          },
+          exec_mode::grain_size(512));
       break;
     }
   }
@@ -308,11 +310,15 @@ static void modify_fill_color(Object &ob,
 
   switch (tint_mode) {
     case MOD_GREASE_PENCIL_TINT_UNIFORM: {
-      curves_mask.foreach_index(GrainSize(512), [&](int64_t curve_i) {
-        const ColorGeometry4f material_color = get_material_color(curve_i);
-        fill_colors[curve_i] = apply_uniform_tint(
-            tmd, get_base_color(fill_colors[curve_i], material_color), get_curve_factor(curve_i));
-      });
+      curves_mask.foreach_index(
+          [&](int64_t curve_i) {
+            const ColorGeometry4f material_color = get_material_color(curve_i);
+            fill_colors[curve_i] = apply_uniform_tint(
+                tmd,
+                get_base_color(fill_colors[curve_i], material_color),
+                get_curve_factor(curve_i));
+          },
+          exec_mode::grain_size(512));
       break;
     }
     case MOD_GREASE_PENCIL_TINT_GRADIENT: {
@@ -321,20 +327,22 @@ static void modify_fill_color(Object &ob,
       /* Transforms points to the gradient object space. */
       const float4x4 matrix = tmd.object->world_to_object() * ob.object_to_world();
 
-      curves_mask.foreach_index(GrainSize(512), [&](int64_t curve_i) {
-        const ColorGeometry4f material_color = get_material_color(curve_i);
-        /* Use the first stroke point for gradient position. */
-        const IndexRange points = points_by_curve[curve_i];
-        const float3 pos = points.is_empty() ? float3(0.0f, 0.0f, 0.0f) :
-                                               positions[points.first()];
+      curves_mask.foreach_index(
+          [&](int64_t curve_i) {
+            const ColorGeometry4f material_color = get_material_color(curve_i);
+            /* Use the first stroke point for gradient position. */
+            const IndexRange points = points_by_curve[curve_i];
+            const float3 pos = points.is_empty() ? float3(0.0f, 0.0f, 0.0f) :
+                                                   positions[points.first()];
 
-        fill_colors[curve_i] = apply_gradient_tint(
-            tmd,
-            matrix,
-            pos,
-            get_base_color(fill_colors[curve_i], material_color),
-            get_curve_factor(curve_i));
-      });
+            fill_colors[curve_i] = apply_gradient_tint(
+                tmd,
+                matrix,
+                pos,
+                get_base_color(fill_colors[curve_i], material_color),
+                get_curve_factor(curve_i));
+          },
+          exec_mode::grain_size(512));
       break;
     }
   }
@@ -357,13 +365,15 @@ static void modify_opacity(const GreasePencilTintModifierData &tmd,
     return;
   }
 
-  curves_mask.foreach_index(GrainSize(512), [&](const int64_t curve_i) {
-    const IndexRange points = points_by_curve[curve_i];
-    for (const int64_t point_i : points) {
-      opacities.span[point_i] = std::clamp(
-          opacities.span[point_i] + tmd.factor - 1.0f, 0.0f, 1.0f);
-    }
-  });
+  curves_mask.foreach_index(
+      [&](const int64_t curve_i) {
+        const IndexRange points = points_by_curve[curve_i];
+        for (const int64_t point_i : points) {
+          opacities.span[point_i] = std::clamp(
+              opacities.span[point_i] + tmd.factor - 1.0f, 0.0f, 1.0f);
+        }
+      },
+      exec_mode::grain_size(512));
 
   opacities.finish();
 }
@@ -422,46 +432,46 @@ static void modify_geometry_set(ModifierData *md,
 
 static void panel_draw(const bContext *C, Panel *panel)
 {
-  uiLayout *layout = panel->layout;
+  ui::Layout &layout = *panel->layout;
 
   PointerRNA ob_ptr;
   PointerRNA *ptr = modifier_panel_get_property_pointers(panel, &ob_ptr);
 
-  layout->use_property_split_set(true);
+  layout.use_property_split_set(true);
 
   const GreasePencilTintModifierMode tint_mode = GreasePencilTintModifierMode(
       RNA_enum_get(ptr, "tint_mode"));
   const bool use_weight_as_factor = RNA_boolean_get(ptr, "use_weight_as_factor");
 
-  layout->prop(ptr, "color_mode", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  layout.prop(ptr, "color_mode", UI_ITEM_NONE, std::nullopt, ICON_NONE);
 
-  uiLayout *row = &layout->row(true);
-  row->active_set(!use_weight_as_factor);
-  row->prop(ptr, "factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-  row->prop(ptr, "use_weight_as_factor", UI_ITEM_NONE, "", ICON_MOD_VERTEX_WEIGHT);
+  ui::Layout &row = layout.row(true);
+  row.active_set(!use_weight_as_factor);
+  row.prop(ptr, "factor", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+  row.prop(ptr, "use_weight_as_factor", UI_ITEM_NONE, "", ICON_MOD_VERTEX_WEIGHT);
 
-  layout->prop(ptr, "tint_mode", UI_ITEM_R_EXPAND, std::nullopt, ICON_NONE);
+  layout.prop(ptr, "tint_mode", ui::ITEM_R_EXPAND, std::nullopt, ICON_NONE);
   switch (tint_mode) {
     case MOD_GREASE_PENCIL_TINT_UNIFORM:
-      layout->prop(ptr, "color", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      layout.prop(ptr, "color", UI_ITEM_NONE, std::nullopt, ICON_NONE);
       break;
     case MOD_GREASE_PENCIL_TINT_GRADIENT:
-      uiLayout *col = &layout->column(false);
-      col->use_property_split_set(false);
-      uiTemplateColorRamp(col, ptr, "color_ramp", true);
-      layout->separator();
-      layout->prop(ptr, "object", UI_ITEM_NONE, std::nullopt, ICON_NONE);
-      layout->prop(ptr, "radius", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      ui::Layout &col = layout.column(false);
+      col.use_property_split_set(false);
+      template_color_ramp(&col, ptr, "color_ramp", true);
+      layout.separator();
+      layout.prop(ptr, "object", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+      layout.prop(ptr, "radius", UI_ITEM_NONE, std::nullopt, ICON_NONE);
       break;
   }
 
-  if (uiLayout *influence_panel = layout->panel_prop(
+  if (ui::Layout *influence_panel = layout.panel_prop(
           C, ptr, "open_influence_panel", IFACE_("Influence")))
   {
-    modifier::greasepencil::draw_layer_filter_settings(C, influence_panel, ptr);
-    modifier::greasepencil::draw_material_filter_settings(C, influence_panel, ptr);
-    modifier::greasepencil::draw_vertex_group_settings(C, influence_panel, ptr);
-    modifier::greasepencil::draw_custom_curve_settings(C, influence_panel, ptr);
+    modifier::greasepencil::draw_layer_filter_settings(C, *influence_panel, ptr);
+    modifier::greasepencil::draw_material_filter_settings(C, *influence_panel, ptr);
+    modifier::greasepencil::draw_vertex_group_settings(C, *influence_panel, ptr);
+    modifier::greasepencil::draw_custom_curve_settings(C, *influence_panel, ptr);
   }
 
   modifier_error_message_draw(layout, ptr);
@@ -476,10 +486,10 @@ static void blend_write(BlendWriter *writer, const ID * /*id_owner*/, const Modi
 {
   const auto *tmd = reinterpret_cast<const GreasePencilTintModifierData *>(md);
 
-  BLO_write_struct(writer, GreasePencilTintModifierData, tmd);
+  writer->write_struct(tmd);
   modifier::greasepencil::write_influence_data(writer, &tmd->influence);
   if (tmd->color_ramp) {
-    BLO_write_struct(writer, ColorBand, tmd->color_ramp);
+    writer->write_struct(tmd->color_ramp);
   }
 }
 
@@ -490,8 +500,6 @@ static void blend_read(BlendDataReader *reader, ModifierData *md)
   modifier::greasepencil::read_influence_data(reader, &tmd->influence);
   BLO_read_struct(reader, ColorBand, &tmd->color_ramp);
 }
-
-}  // namespace blender
 
 ModifierTypeInfo modifierType_GreasePencilTint = {
     /*idname*/ "GreasePencilTint",
@@ -504,28 +512,30 @@ ModifierTypeInfo modifierType_GreasePencilTint = {
         eModifierTypeFlag_EnableInEditmode | eModifierTypeFlag_SupportsMapping,
     /*icon*/ ICON_MOD_TINT,
 
-    /*copy_data*/ blender::copy_data,
+    /*copy_data*/ copy_data,
 
     /*deform_verts*/ nullptr,
     /*deform_matrices*/ nullptr,
     /*deform_verts_EM*/ nullptr,
     /*deform_matrices_EM*/ nullptr,
     /*modify_mesh*/ nullptr,
-    /*modify_geometry_set*/ blender::modify_geometry_set,
+    /*modify_geometry_set*/ modify_geometry_set,
 
-    /*init_data*/ blender::init_data,
+    /*init_data*/ init_data,
     /*required_data_mask*/ nullptr,
-    /*free_data*/ blender::free_data,
-    /*is_disabled*/ blender::is_disabled,
-    /*update_depsgraph*/ blender::update_depsgraph,
+    /*free_data*/ free_data,
+    /*is_disabled*/ is_disabled,
+    /*update_depsgraph*/ update_depsgraph,
     /*depends_on_time*/ nullptr,
     /*depends_on_normals*/ nullptr,
-    /*foreach_ID_link*/ blender::foreach_ID_link,
+    /*foreach_ID_link*/ foreach_ID_link,
     /*foreach_tex_link*/ nullptr,
     /*free_runtime_data*/ nullptr,
-    /*panel_register*/ blender::panel_register,
-    /*blend_write*/ blender::blend_write,
-    /*blend_read*/ blender::blend_read,
+    /*panel_register*/ panel_register,
+    /*blend_write*/ blend_write,
+    /*blend_read*/ blend_read,
     /*foreach_cache*/ nullptr,
-    /*foreach_working_space_color*/ blender::foreach_working_space_color,
+    /*foreach_working_space_color*/ foreach_working_space_color,
 };
+
+}  // namespace blender

@@ -11,8 +11,11 @@
 #include "BLI_sys_types.h"
 #include "DNA_layer_types.h"
 
+namespace blender {
+
 /* Forward declarations. */
 struct CryptomatteSession;
+struct Main;
 struct Material;
 struct Object;
 struct RenderResult;
@@ -56,3 +59,5 @@ void BKE_cryptomatte_matte_id_to_entries(struct NodeCryptomatte *node_storage,
 
 void BKE_cryptomatte_store_metadata(const struct CryptomatteSession *session,
                                     struct RenderResult *render_result);
+
+}  // namespace blender

@@ -66,20 +66,17 @@ struct OSLClosure {
   OSLClosureType id;
 };
 
-struct ccl_align(8) OSLClosureMul : public OSLClosure
-{
+struct ccl_align(8) OSLClosureMul : public OSLClosure {
   packed_float3 weight;
   const ccl_private OSLClosure *closure;
 };
 
-struct ccl_align(8) OSLClosureAdd : public OSLClosure
-{
+struct ccl_align(8) OSLClosureAdd : public OSLClosure {
   const ccl_private OSLClosure *closureA;
   const ccl_private OSLClosure *closureB;
 };
 
-struct ccl_align(8) OSLClosureComponent : public OSLClosure
-{
+struct ccl_align(8) OSLClosureComponent : public OSLClosure {
   packed_float3 weight;
 };
 
@@ -148,13 +145,12 @@ struct OSLNoiseOptions {};
 
 struct OSLTextureOptions {};
 
-#define OSL_TEXTURE_HANDLE_TYPE_IES ((uintptr_t)0x2 << 30)
-#define OSL_TEXTURE_HANDLE_TYPE_SVM ((uintptr_t)0x1 << 30)
-#define OSL_TEXTURE_HANDLE_TYPE_AO_OR_BEVEL ((uintptr_t)0x3 << 30)
+/* Note: starting from 1 instead of 0 so that the encoded handle is never a null pointer
+ * the OSL will interpret as an invalid handle. */
+enum class OSLTextureHandleType : unsigned int { IMAGE = 1, IES = 2, BEVEL = 3, AO = 4 };
 
-#define OSL_TEXTURE_HANDLE_TYPE(handle) \
-  ((unsigned int)((uintptr_t)(handle) & ((uintptr_t)0x3 << 30)))
-#define OSL_TEXTURE_HANDLE_SLOT(handle) \
-  ((unsigned int)((uintptr_t)(handle) & ((uintptr_t)0x3FFFFFFF)))
+#define OSL_TEXTURE_HANDLE_ENCODE(type, id) ((uintptr_t(type) << 32) | uintptr_t(uint(id)))
+#define OSL_TEXTURE_HANDLE_TYPE(handle) OSLTextureHandleType(uintptr_t(handle) >> 32)
+#define OSL_TEXTURE_HANDLE_ID(handle) int(uint(uintptr_t(handle) & uintptr_t(0xFFFFFFFF)))
 
 CCL_NAMESPACE_END

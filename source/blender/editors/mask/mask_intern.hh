@@ -8,9 +8,11 @@
 
 #pragma once
 
-#include "BKE_mask.h"
+#include "BKE_mask.hh"
 
 #include "ED_clip.hh"
+
+namespace blender {
 
 struct Mask;
 struct MaskLayer;
@@ -57,6 +59,7 @@ void MASK_OT_normals_make_consistent(wmOperatorType *ot);
 void MASK_OT_handle_type_set(wmOperatorType *ot);
 
 void MASK_OT_layer_move(wmOperatorType *ot);
+void MASK_OT_move_to_layer(wmOperatorType *ot);
 
 void MASK_OT_duplicate(wmOperatorType *ot);
 void MASK_OT_copy_splines(wmOperatorType *ot);
@@ -144,3 +147,5 @@ void MASK_OT_shape_key_insert(wmOperatorType *ot);
 void MASK_OT_shape_key_clear(wmOperatorType *ot);
 void MASK_OT_shape_key_feather_reset(wmOperatorType *ot);
 void MASK_OT_shape_key_rekey(wmOperatorType *ot);
+
+}  // namespace blender

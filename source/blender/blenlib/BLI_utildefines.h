@@ -2,9 +2,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-/* Use a define instead of `#pragma once` because of `BLI_memory_utils.h` */
-#ifndef __BLI_UTILDEFINES_H__
-#define __BLI_UTILDEFINES_H__
+#pragma once
 
 /** \file
  * \ingroup bli
@@ -25,7 +23,7 @@
 #  include <type_traits>
 #  include <utility>
 
-extern "C" {
+namespace blender {
 #endif
 
 /* -------------------------------------------------------------------- */
@@ -335,7 +333,7 @@ inline constexpr int64_t power_of_2_max(const int64_t x)
  * \{ */
 
 #define POINTER_OFFSET(v, ofs) \
-  (reinterpret_cast<typename std::remove_reference<decltype(v)>::type>((char *)(v) + (ofs)))
+  (reinterpret_cast<std::remove_reference_t<decltype(v)>>((char *)(v) + (ofs)))
 
 /* Warning-free macros for storing ints in pointers. Use these _only_
  * for storing an int in a pointer, not a pointer in an int (64bit)! */
@@ -384,18 +382,34 @@ inline constexpr int64_t power_of_2_max(const int64_t x)
   } \
   ((void)0)
 
-/* defined
- * in memory_utils.c for now. I do not know where we should put it actually... */
-#ifndef __BLI_MEMORY_UTILS_H__
-/**
- * Check if memory is zeroed, as with `memset(arr, 0, arr_size)`.
- */
-extern bool BLI_memory_is_zero(const void *arr, size_t arr_size);
+#ifdef __cplusplus
+constexpr bool memory_is_zero(const void *data, const size_t size)
+{
+  const char *arr_byte = static_cast<const char *>(data);
+  const char *arr_end = static_cast<const char *>(data) + size;
+
+  while ((arr_byte != arr_end) && (*arr_byte == 0)) {
+    arr_byte++;
+  }
+
+  return (arr_byte == arr_end);
+}
+
+#  define MEMCMP_STRUCT_AFTER_IS_ZERO_OR_EQUAL(struct_dst, struct_src, member) \
+    (memory_is_zero((const char *)(struct_dst) + OFFSETOF_STRUCT_AFTER(struct_dst, member), \
+                    sizeof(*(struct_dst)) - OFFSETOF_STRUCT_AFTER(struct_dst, member)) || \
+     (memcmp((const char *)(struct_dst) + OFFSETOF_STRUCT_AFTER(struct_dst, member), \
+             (const char *)(struct_src) + OFFSETOF_STRUCT_AFTER(struct_src, member), \
+             sizeof(*(struct_dst)) - OFFSETOF_STRUCT_AFTER(struct_dst, member)) == 0))
+
 #endif
 
-#define MEMCMP_STRUCT_AFTER_IS_ZERO(struct_var, member) \
-  (BLI_memory_is_zero((const char *)(struct_var) + OFFSETOF_STRUCT_AFTER(struct_var, member), \
-                      sizeof(*(struct_var)) - OFFSETOF_STRUCT_AFTER(struct_var, member)))
+#define INIT_DEFAULT_STRUCT_AFTER(struct_dst, member) \
+  { \
+    const typename std::remove_reference<decltype(*(struct_dst))>::type struct_src; \
+    BLI_assert(MEMCMP_STRUCT_AFTER_IS_ZERO_OR_EQUAL(struct_dst, &struct_src, member)); \
+    MEMCPY_STRUCT_AFTER(struct_dst, &struct_src, member); \
+  }
 
 /** \} */
 
@@ -547,50 +561,6 @@ extern bool BLI_memory_is_zero(const void *arr, size_t arr_size);
 /** \} */
 
 /* -------------------------------------------------------------------- */
-/** \name C++ Macros
- * \{ */
-
-#ifdef __cplusplus
-
-/* Useful to port C code using enums to C++ where enums are strongly typed.
- * To use after the enum declaration. */
-/* If any enumerator `C` is set to say `A|B`, then `C` would be the max enum value. */
-#  define ENUM_OPERATORS(_enum_type, _max_enum_value) \
-    extern "C++" { \
-    inline constexpr _enum_type operator|(_enum_type a, _enum_type b) \
-    { \
-      return (_enum_type)(uint64_t(a) | uint64_t(b)); \
-    } \
-    inline constexpr _enum_type operator&(_enum_type a, _enum_type b) \
-    { \
-      return (_enum_type)(uint64_t(a) & uint64_t(b)); \
-    } \
-    inline constexpr _enum_type operator~(_enum_type a) \
-    { \
-      return (_enum_type)(~uint64_t(a) & (2 * uint64_t(_max_enum_value) - 1)); \
-    } \
-    inline _enum_type &operator|=(_enum_type &a, _enum_type b) \
-    { \
-      return a = (_enum_type)(uint64_t(a) | uint64_t(b)); \
-    } \
-    inline _enum_type &operator&=(_enum_type &a, _enum_type b) \
-    { \
-      return a = (_enum_type)(uint64_t(a) & uint64_t(b)); \
-    } \
-    inline _enum_type &operator^=(_enum_type &a, _enum_type b) \
-    { \
-      return a = (_enum_type)(uint64_t(a) ^ uint64_t(b)); \
-    } \
-    } /* extern "C++" */
-
-#else
-/* Output nothing. */
-#  define ENUM_OPERATORS(_type, _max)
-#endif
-
-/** \} */
-
-/* -------------------------------------------------------------------- */
 /** \name Misc Macros
  * \{ */
 
@@ -599,15 +569,6 @@ extern bool BLI_memory_is_zero(const void *arr, size_t arr_size);
 
 /** No-op for expressions we don't want to instantiate, but must remain valid. */
 #define EXPR_NOP(expr) (void)(0 ? ((void)(expr), 1) : 0)
-
-/**
- * Utility macro that wraps `std::enable_if` to make it a bit easier to use and less verbose for
- * SFINAE in common cases.
- *
- * \note Often one has to invoke this macro with double parenthesis. That's because the condition
- * often contains a comma and angle brackets are not recognized as parenthesis by the preprocessor.
- */
-#define BLI_ENABLE_IF(condition) typename std::enable_if_t<(condition)> * = nullptr
 
 #if defined(_MSC_VER) && !defined(__clang__)
 #  define BLI_NO_UNIQUE_ADDRESS [[msvc::no_unique_address]]
@@ -624,15 +585,14 @@ extern bool BLI_memory_is_zero(const void *arr, size_t arr_size);
 /** \} */
 
 #ifdef __cplusplus
-}
 
-namespace blender::blenlib_internal {
+namespace blenlib_internal {
 
 /* A replacement for std::is_bounded_array_v until we go C++20. */
 template<class T> struct IsBoundedArray : std::false_type {};
 template<class T, std::size_t N> struct IsBoundedArray<T[N]> : std::true_type {};
 
-}  // namespace blender::blenlib_internal
+}  // namespace blenlib_internal
 
 /**
  * Size of a bounded array provided as an arg.
@@ -657,12 +617,11 @@ template<class T, size_t N> constexpr size_t ARRAY_SIZE(const T (&arg)[N]) noexc
  *   `BOUNDED_ARRAY_TYPE_SIZE<decltype(MyType::array)>` returns 12.
  */
 template<class T>
-constexpr std::enable_if_t<blender::blenlib_internal::IsBoundedArray<T>::value, size_t>
+constexpr std::enable_if_t<blenlib_internal::IsBoundedArray<T>::value, size_t>
 BOUNDED_ARRAY_TYPE_SIZE() noexcept
 {
   return sizeof(std::declval<T>()) / sizeof(std::declval<T>()[0]);
 }
 
+}  // namespace blender
 #endif
-
-#endif /* __BLI_UTILDEFINES_H__ */

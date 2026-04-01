@@ -255,7 +255,7 @@ void ShadowPunctual::end_sync(Light &light)
         light.type, object_to_world, near, far, face, light.shadow_set_membership);
   }
 
-  light.local.tilemaps_count = tilemaps_needed;
+  light.local().tilemaps_count = tilemaps_needed;
   light.tilemap_index = tilemap_pool.tilemaps_data.size();
   for (ShadowTileMap *tilemap : tilemaps_) {
     /* Add shadow tile-maps grouped by lights to the GPU buffer. */
@@ -377,9 +377,9 @@ void ShadowDirectional::cascade_tilemaps_distribution(Light &light, const Camera
   /* Offset in tiles between the first and the last tile-maps. */
   int2 offset_vector = int2(round(farthest_tilemap_center / tile_size));
 
-  light.sun.clipmap_base_offset_neg = int2(0); /* Unused. */
-  light.sun.clipmap_base_offset_pos = (offset_vector * (1 << 16)) /
-                                      max_ii(levels_range.size() - 1, 1);
+  light.sun().clipmap_base_offset_neg = int2(0); /* Unused. */
+  light.sun().clipmap_base_offset_pos = (offset_vector * (1 << 16)) /
+                                        max_ii(levels_range.size() - 1, 1);
 
   /* \note cascade_level_range starts the range at the unique LOD to apply to all tile-maps. */
   int level = levels_range.first();
@@ -388,7 +388,7 @@ void ShadowDirectional::cascade_tilemaps_distribution(Light &light, const Camera
 
     /* Equal spacing between cascades layers since we want uniform shadow density. */
     int2 level_offset = origin_offset +
-                        shadow_cascade_grid_offset(light.sun.clipmap_base_offset_pos, i);
+                        shadow_cascade_grid_offset(light.sun().clipmap_base_offset_pos, i);
     tilemap->sync_orthographic(
         object_mat, level_offset, level, SHADOW_PROJECTION_CASCADE, light.shadow_set_membership);
 
@@ -397,14 +397,14 @@ void ShadowDirectional::cascade_tilemaps_distribution(Light &light, const Camera
     tilemap->set_updated();
   }
 
-  light.sun.clipmap_origin = float2(origin_offset) * tile_size;
+  light.sun().clipmap_origin = float2(origin_offset) * tile_size;
 
   light.type = LIGHT_SUN_ORTHO;
 
   /* Not really clip-maps, but this is in order to make #light_tilemap_max_get() work and determine
    * the scaling. */
-  light.sun.clipmap_lod_min = levels_range.first();
-  light.sun.clipmap_lod_max = levels_range.last();
+  light.sun().clipmap_lod_min = levels_range.first();
+  light.sun().clipmap_lod_max = levels_range.last();
 }
 
 /************************************************************************
@@ -472,8 +472,8 @@ void ShadowDirectional::clipmap_tilemaps_distribution(Light &light, const Camera
   }
 
   /* Number of levels is limited to 32 by `clipmap_level_range()` for this reason. */
-  light.sun.clipmap_base_offset_pos = pos_offset;
-  light.sun.clipmap_base_offset_neg = neg_offset;
+  light.sun().clipmap_base_offset_pos = pos_offset;
+  light.sun().clipmap_base_offset_neg = neg_offset;
 
   float tile_size_max = ShadowDirectional::tile_size_get(levels_range.last());
   int2 level_offset_max = tilemaps_[levels_range.size() - 1]->grid_offset;
@@ -487,10 +487,10 @@ void ShadowDirectional::clipmap_tilemaps_distribution(Light &light, const Camera
   light.object_to_world.y.w = location.y;
   light.object_to_world.z.w = location.z;
   /* Used as origin for the clipmap_base_offset trick. */
-  light.sun.clipmap_origin = float2(level_offset_max * tile_size_max);
+  light.sun().clipmap_origin = float2(level_offset_max * tile_size_max);
 
-  light.sun.clipmap_lod_min = levels_range.first();
-  light.sun.clipmap_lod_max = levels_range.last();
+  light.sun().clipmap_lod_min = levels_range.first();
+  light.sun().clipmap_lod_max = levels_range.last();
 }
 
 void ShadowDirectional::release_excess_tilemaps(const Light &light, const Camera &camera)
@@ -587,7 +587,7 @@ void ShadowModule::init()
     ShadowModule::shadow_technique = ShadowTechnique::ATOMIC_RASTER;
   }
 
-  ::Scene &scene = *inst_.scene;
+  blender::Scene &scene = *inst_.scene;
 
   global_lod_bias_ = (1.0f - scene.eevee.shadow_resolution_scale) * SHADOW_TILEMAP_LOD;
 
@@ -932,20 +932,23 @@ void ShadowModule::end_sync()
       /* Mark for update all shadow pages touching an updated shadow caster. */
       PassSimple &pass = caster_update_ps_;
       pass.init();
+      pass.framebuffer_set(&update_tag_fb_);
+      pass.state_set(DRW_STATE_WRITE_COLOR | DRW_STATE_CULL_FRONT);
       pass.shader_set(inst_.shaders.static_shader_get(SHADOW_TILEMAP_TAG_UPDATE));
       pass.bind_ssbo("tilemaps_buf", tilemap_pool.tilemaps_data);
       pass.bind_ssbo("tiles_buf", tilemap_pool.tiles_data);
+      pass.push_constant("tilemap_count", int(tilemap_pool.tilemaps_data.size()));
       /* Past caster transforms. */
       if (past_casters_updated_.size() > 0) {
         pass.bind_ssbo("bounds_buf", &manager.bounds_buf.previous());
         pass.bind_ssbo("resource_ids_buf", past_casters_updated_);
-        pass.dispatch(int3(past_casters_updated_.size(), 1, tilemap_pool.tilemaps_data.size()));
+        pass.draw(box_batch_, past_casters_updated_.size() * tilemap_pool.tilemaps_data.size());
       }
       /* Current caster transforms. */
       if (curr_casters_updated_.size() > 0) {
         pass.bind_ssbo("bounds_buf", &manager.bounds_buf.current());
         pass.bind_ssbo("resource_ids_buf", curr_casters_updated_);
-        pass.dispatch(int3(curr_casters_updated_.size(), 1, tilemap_pool.tilemaps_data.size()));
+        pass.draw(box_batch_, curr_casters_updated_.size() * tilemap_pool.tilemaps_data.size());
       }
       pass.barrier(GPU_BARRIER_SHADER_STORAGE);
     }
@@ -955,13 +958,31 @@ void ShadowModule::end_sync()
       PassSimple &pass = jittered_transparent_caster_update_ps_;
       pass.init();
       if (jittered_transparent_casters_.size() > 0) {
+        pass.framebuffer_set(&update_tag_fb_);
+        pass.state_set(DRW_STATE_WRITE_COLOR | DRW_STATE_CULL_FRONT);
         pass.shader_set(inst_.shaders.static_shader_get(SHADOW_TILEMAP_TAG_UPDATE));
+        pass.push_constant("tilemap_count", int(tilemap_pool.tilemaps_data.size()));
         pass.bind_ssbo("tilemaps_buf", tilemap_pool.tilemaps_data);
         pass.bind_ssbo("tiles_buf", tilemap_pool.tiles_data);
         pass.bind_ssbo("bounds_buf", &manager.bounds_buf.current());
         pass.bind_ssbo("resource_ids_buf", jittered_transparent_casters_);
-        pass.dispatch(
-            int3(jittered_transparent_casters_.size(), 1, tilemap_pool.tilemaps_data.size()));
+        pass.draw(box_batch_,
+                  jittered_transparent_casters_.size() * tilemap_pool.tilemaps_data.size());
+        pass.barrier(GPU_BARRIER_SHADER_STORAGE);
+      }
+    }
+
+    {
+      /* Propagate the update tag to the lower LODs. */
+      PassSimple &pass = update_propagate_ps_;
+      pass.init();
+      if (past_casters_updated_.size() > 0 || curr_casters_updated_.size() > 0 ||
+          jittered_transparent_casters_.size() > 0)
+      {
+        pass.shader_set(inst_.shaders.static_shader_get(SHADOW_TILEMAP_TAG_UPDATE_PROPAGATE));
+        pass.bind_ssbo("tilemaps_buf", tilemap_pool.tilemaps_data);
+        pass.bind_ssbo("tiles_buf", tilemap_pool.tiles_data);
+        pass.dispatch(int3(1, 1, tilemap_pool.tilemaps_data.size()));
         pass.barrier(GPU_BARRIER_SHADER_STORAGE);
       }
     }
@@ -1317,6 +1338,8 @@ void ShadowModule::set_view(View &view, int2 extent)
     BLI_assert_unreachable();
   }
 
+  update_tag_fb_.ensure(int2(SHADOW_TILEMAP_RES));
+
   inst_.hiz_buffer.update();
 
   int loop_count = 0;
@@ -1326,14 +1349,15 @@ void ShadowModule::set_view(View &view, int2 extent)
       GPU_uniformbuf_clear_to_zero(shadow_multi_view_.matrices_ubo_get());
 
       inst_.manager->submit(tilemap_setup_ps_, view);
-      if (assign_if_different(update_casters_, false)) {
-        /* Run caster update only once. */
-        /* TODO(fclem): There is an optimization opportunity here where we can
-         * test casters only against the static tile-maps instead of all of them. */
-        inst_.manager->submit(caster_update_ps_, view);
-      }
       if (loop_count == 0) {
+        if (assign_if_different(update_casters_, false)) {
+          /* Run caster update only once. */
+          /* TODO(fclem): There is an optimization opportunity here where we can
+           * test casters only against the static tile-maps instead of all of them. */
+          inst_.manager->submit(caster_update_ps_, view);
+        }
         inst_.manager->submit(jittered_transparent_caster_update_ps_, view);
+        inst_.manager->submit(update_propagate_ps_, view);
       }
       inst_.manager->submit(tilemap_usage_ps_, view);
       inst_.manager->submit(tilemap_update_ps_, view);
@@ -1378,7 +1402,7 @@ void ShadowModule::set_view(View &view, int2 extent)
       }
 
       GPU_framebuffer_multi_viewports_set(render_fb_,
-                                          reinterpret_cast<int(*)[4]>(multi_viewports_.data()));
+                                          reinterpret_cast<int (*)[4]>(multi_viewports_.data()));
 
       inst_.pipelines.shadow.render(shadow_multi_view_);
 

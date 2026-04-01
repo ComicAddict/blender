@@ -17,7 +17,9 @@
 
 #include "gpu_capabilities_private.hh"
 
-namespace blender::gpu {
+namespace blender {
+
+namespace gpu {
 
 GPUCapabilities GCaps = {};
 
@@ -39,11 +41,22 @@ int GPU_max_texture_3d_size()
   return GCaps.max_texture_3d_size;
 }
 
+uint32_t GPU_max_buffer_texture_size()
+{
+  return GCaps.max_buffer_texture_size;
+}
+
 int GPU_texture_size_with_limit(int res)
 {
   int size = GPU_max_texture_size();
   int reslimit = (U.glreslimit != 0) ? min_ii(U.glreslimit, size) : size;
   return min_ii(reslimit, res);
+}
+
+bool GPU_is_safe_texture_size(int width, int height)
+{
+  const int max_texture_size = GPU_max_texture_size();
+  return size_t(width) * height <= size_t(max_texture_size) * max_texture_size / 4;
 }
 
 int GPU_max_texture_layers()
@@ -240,3 +253,5 @@ void GPU_compilation_subprocess_override_set(int count)
 }
 
 /** \} */
+
+}  // namespace blender

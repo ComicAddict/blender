@@ -21,6 +21,8 @@
 #include "ED_select_utils.hh"
 #include "ED_view3d.hh"
 
+namespace blender {
+
 struct bContext;
 struct Curves;
 struct UndoType;
@@ -30,12 +32,12 @@ struct wmKeyConfig;
 struct wmOperator;
 struct wmKeyMap;
 struct EnumPropertyItem;
-namespace blender::bke {
+namespace bke {
 enum class AttrDomain : int8_t;
 struct GSpanAttributeWriter;
-}  // namespace blender::bke
+}  // namespace bke
 
-namespace blender::ed::curves {
+namespace ed::curves {
 
 void operatortypes_curves();
 void operatormacros_curves();
@@ -91,6 +93,8 @@ class PenToolOperation {
 
   bool point_added;
   bool point_removed;
+  /* Used to go back to `aligned` after `move_handle` becomes `false` */
+  bool handle_moved;
 
   float4x4 projection;
   float2 mouse_co;
@@ -228,6 +232,13 @@ void transverts_from_curves_positions_create(bke::CurvesGeometry &curves,
                                              TransVertStore *tvs,
                                              const bool skip_handles);
 
+/**
+ * Update original curve positions with transform changes.
+ */
+void transverts_update_curves(bke::CurvesGeometry &curves,
+                              const TransVertStore *tvs,
+                              bool skip_handles);
+
 /* -------------------------------------------------------------------- */
 /** \name Poll Functions
  * \{ */
@@ -255,14 +266,6 @@ void CURVES_OT_separate(wmOperatorType *ot);
 /* -------------------------------------------------------------------- */
 /** \name Mask Functions
  * \{ */
-
-/**
- * Create a mask for all curves that have at least one point in the point mask.
- */
-IndexMask curve_mask_from_points(const bke::CurvesGeometry &curves,
-                                 const IndexMask &point_mask,
-                                 const GrainSize grain_size,
-                                 IndexMaskMemory &memory);
 
 /**
  * Return a mask of all the end points in the curves.
@@ -324,15 +327,15 @@ bool has_anything_selected(const VArray<bool> &varray, const IndexMask &indices_
  * Find curves that have any point selected (a selection factor greater than zero),
  * or curves that have their own selection factor greater than zero.
  */
-IndexMask retrieve_selected_curves(const bke::CurvesGeometry &curves, IndexMaskMemory &memory);
-IndexMask retrieve_selected_curves(const Curves &curves_id, IndexMaskMemory &memory);
+IndexMask retrieve_selected_curves(const bke::CurvesGeometry &curves, LinearAllocator<> &memory);
+IndexMask retrieve_selected_curves(const Curves &curves_id, LinearAllocator<> &memory);
 
 /**
  * Find points that are selected (a selection factor greater than zero),
  * or points in curves with a selection factor greater than zero).
  */
-IndexMask retrieve_selected_points(const bke::CurvesGeometry &curves, IndexMaskMemory &memory);
-IndexMask retrieve_selected_points(const Curves &curves_id, IndexMaskMemory &memory);
+IndexMask retrieve_selected_points(const bke::CurvesGeometry &curves, LinearAllocator<> &memory);
+IndexMask retrieve_selected_points(const Curves &curves_id, LinearAllocator<> &memory);
 /**
  * Find points that are selected, for a given attribute_name, requires mask of all Bezier points.
  * Note: When retrieving ".selection_handle_left" or ".selection_handle_right" all non-Bezier
@@ -341,7 +344,7 @@ IndexMask retrieve_selected_points(const Curves &curves_id, IndexMaskMemory &mem
 IndexMask retrieve_selected_points(const bke::CurvesGeometry &curves,
                                    StringRef attribute_name,
                                    const IndexMask &bezier_points,
-                                   IndexMaskMemory &memory);
+                                   LinearAllocator<> &memory);
 
 /**
  * Find points that are selected (a selection factor greater than zero) or have
@@ -349,7 +352,7 @@ IndexMask retrieve_selected_points(const bke::CurvesGeometry &curves,
  */
 IndexMask retrieve_all_selected_points(const bke::CurvesGeometry &curves,
                                        int handle_display,
-                                       IndexMaskMemory &memory);
+                                       LinearAllocator<> &memory);
 
 /**
  * If the selection_id attribute doesn't exist, create it with the requested type (bool or float).
@@ -585,4 +588,5 @@ extern const EnumPropertyItem rna_enum_set_handle_type_items[];
 
 /** \} */
 
-}  // namespace blender::ed::curves
+}  // namespace ed::curves
+}  // namespace blender

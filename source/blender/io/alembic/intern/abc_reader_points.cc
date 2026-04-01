@@ -23,9 +23,11 @@
 
 #include <algorithm>
 
+namespace blender {
+
 using namespace Alembic::AbcGeom;
 
-namespace blender::io::alembic {
+namespace io::alembic {
 
 AbcPointsReader::AbcPointsReader(const Alembic::Abc::IObject &object, ImportSettings &settings)
     : AbcObjectReader(object, settings)
@@ -76,7 +78,7 @@ void AbcPointsReader::readObjectData(Main *bmain, const Alembic::Abc::ISampleSel
   }
 
   m_object = BKE_object_add_only_object(bmain, OB_POINTCLOUD, m_object_name.c_str());
-  m_object->data = pointcloud;
+  m_object->data = id_cast<ID *>(pointcloud);
 
   if (m_settings->always_add_cache_reader || has_animations(m_schema, m_settings)) {
     addCacheModifier();
@@ -116,7 +118,7 @@ template<> float3 convert_abc_value(const V3f &in)
 
 template<> ColorGeometry4f convert_abc_value(const C3f &in)
 {
-  return ColorGeometry4f(in[0], in[1], in[2], 1.f);
+  return ColorGeometry4f(in[0], in[1], in[2], 1.0f);
 }
 
 template<> float2 convert_abc_value(const V2f &in)
@@ -152,6 +154,10 @@ static void read_point_arb_geom_params(const IPointsSchema &schema,
                                        bke::MutableAttributeAccessor &attribute_accessor)
 {
   const ICompoundProperty prop = schema.getArbGeomParams();
+  if (!prop.valid()) {
+    return;
+  }
+
   for (size_t i = 0; i < prop.getNumProperties(); i++) {
     const PropertyHeader header = prop.getPropertyHeader(i);
     const PropertyType property_type = header.getPropertyType();
@@ -269,4 +275,5 @@ void AbcPointsReader::read_geometry(bke::GeometrySet &geometry_set,
   geometry_set.replace_pointcloud(pointcloud);
 }
 
-}  // namespace blender::io::alembic
+}  // namespace io::alembic
+}  // namespace blender

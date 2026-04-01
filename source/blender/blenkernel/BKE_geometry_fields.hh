@@ -15,10 +15,12 @@
 
 #include "FN_field.hh"
 
+namespace blender {
+
 struct Mesh;
 struct PointCloud;
 
-namespace blender::bke {
+namespace bke {
 
 class CurvesGeometry;
 class GeometryFieldInput;
@@ -282,8 +284,6 @@ class AttributeFieldInput : public GeometryFieldInput {
         name_(std::move(name)),
         socket_inspection_name_(std::move(socket_inspection_name))
   {
-    category_ = attribute_name_is_anonymous(name_) ? Category::AnonymousAttribute :
-                                                     Category::NamedAttribute;
   }
 
   static fn::GField from(std::string name,
@@ -325,7 +325,6 @@ class AttributeExistsFieldInput final : public bke::GeometryFieldInput {
   AttributeExistsFieldInput(std::string name, const CPPType &type)
       : GeometryFieldInput(type, name), name_(std::move(name))
   {
-    category_ = Category::Generated;
   }
 
   static fn::Field<bool> from(std::string name)
@@ -348,7 +347,6 @@ class NamedLayerSelectionFieldInput final : public bke::GeometryFieldInput {
       : bke::GeometryFieldInput(CPPType::get<bool>(), "Named Layer node"),
         layer_name_(std::move(layer_name))
   {
-    category_ = Category::Generated;
   }
 
   GVArray get_varray_for_context(const bke::GeometryFieldContext &context,
@@ -360,10 +358,7 @@ class NamedLayerSelectionFieldInput final : public bke::GeometryFieldInput {
 
 class IDAttributeFieldInput : public GeometryFieldInput {
  public:
-  IDAttributeFieldInput() : GeometryFieldInput(CPPType::get<int>())
-  {
-    category_ = Category::Generated;
-  }
+  IDAttributeFieldInput() : GeometryFieldInput(CPPType::get<int>()) {}
 
   GVArray get_varray_for_context(const GeometryFieldContext &context,
                                  const IndexMask &mask) const override;
@@ -392,7 +387,6 @@ class NormalFieldInput : public GeometryFieldInput {
         legacy_corner_normals_(legacy_corner_normals),
         true_normals_(true_normals)
   {
-    category_ = Category::Generated;
   }
 
   GVArray get_varray_for_context(const GeometryFieldContext &context,
@@ -435,10 +429,26 @@ class EvaluateAtIndexInput final : public bke::GeometryFieldInput {
   }
 };
 
-void copy_with_checked_indices(const GVArray &src,
-                               const VArray<int> &indices,
-                               const IndexMask &mask,
-                               GMutableSpan dst);
+class SampleIndexFunction : public mf::MultiFunction {
+  GeometrySet src_geometry_;
+  fn::GField src_field_;
+  AttrDomain domain_;
+
+  mf::Signature signature_;
+
+  std::optional<bke::GeometryFieldContext> geometry_context_;
+  std::unique_ptr<fn::FieldEvaluator> evaluator_;
+  const GVArray *src_data_ = nullptr;
+
+ public:
+  SampleIndexFunction(GeometrySet geometry, fn::GField src_field, AttrDomain domain);
+  void evaluate_field();
+
+  void call(const IndexMask &mask, mf::Params params, mf::Context /*context*/) const override;
+
+  static const GeometryComponent *find_source_component(const GeometrySet &geometry,
+                                                        AttrDomain domain);
+};
 
 class EvaluateOnDomainInput final : public bke::GeometryFieldInput {
  private:
@@ -458,48 +468,48 @@ class EvaluateOnDomainInput final : public bke::GeometryFieldInput {
 
 bool try_capture_fields_on_geometry(MutableAttributeAccessor attributes,
                                     const fn::FieldContext &field_context,
-                                    Span<StringRef> attribute_ids,
+                                    Span<StringRef> names,
                                     AttrDomain domain,
                                     const fn::Field<bool> &selection,
                                     Span<fn::GField> fields);
 
 inline bool try_capture_field_on_geometry(MutableAttributeAccessor attributes,
                                           const fn::FieldContext &field_context,
-                                          const StringRef attribute_id,
+                                          const StringRef name,
                                           AttrDomain domain,
                                           const fn::Field<bool> &selection,
                                           const fn::GField &field)
 {
   return try_capture_fields_on_geometry(
-      attributes, field_context, {attribute_id}, domain, selection, {field});
+      attributes, field_context, {name}, domain, selection, {field});
 }
 
 bool try_capture_fields_on_geometry(GeometryComponent &component,
-                                    Span<StringRef> attribute_ids,
+                                    Span<StringRef> names,
                                     AttrDomain domain,
                                     Span<fn::GField> fields);
 
 inline bool try_capture_field_on_geometry(GeometryComponent &component,
-                                          const StringRef attribute_id,
+                                          const StringRef name,
                                           AttrDomain domain,
                                           const fn::GField &field)
 {
-  return try_capture_fields_on_geometry(component, {attribute_id}, domain, {field});
+  return try_capture_fields_on_geometry(component, {name}, domain, {field});
 }
 
 bool try_capture_fields_on_geometry(GeometryComponent &component,
-                                    Span<StringRef> attribute_ids,
+                                    Span<StringRef> names,
                                     AttrDomain domain,
                                     const fn::Field<bool> &selection,
                                     Span<fn::GField> fields);
 
 inline bool try_capture_field_on_geometry(GeometryComponent &component,
-                                          const StringRef attribute_id,
+                                          const StringRef name,
                                           AttrDomain domain,
                                           const fn::Field<bool> &selection,
                                           const fn::GField &field)
 {
-  return try_capture_fields_on_geometry(component, {attribute_id}, domain, selection, {field});
+  return try_capture_fields_on_geometry(component, {name}, domain, selection, {field});
 }
 
 /**
@@ -509,4 +519,5 @@ inline bool try_capture_field_on_geometry(GeometryComponent &component,
 std::optional<AttrDomain> try_detect_field_domain(const GeometryComponent &component,
                                                   const fn::GField &field);
 
-}  // namespace blender::bke
+}  // namespace bke
+}  // namespace blender

@@ -9,9 +9,9 @@
 #pragma once
 
 #include "BLI_array.hh"
+#include "BLI_enum_flags.hh"
 #include "BLI_map.hh"
 #include "BLI_math_matrix_types.hh"
-#include "BLI_utildefines.h"
 
 #include "DNA_view3d_enums.h"
 
@@ -21,17 +21,19 @@
 
 #include "draw_attributes.hh"
 
-namespace blender::gpu {
+namespace blender {
+
+namespace gpu {
 class Batch;
 class IndexBuf;
-}  // namespace blender::gpu
+}  // namespace gpu
 struct Mesh;
 struct Object;
 struct Scene;
 struct TaskGraph;
 struct ToolSettings;
 
-namespace blender::draw {
+namespace draw {
 
 struct MeshRenderData;
 struct DRWSubdivCache;
@@ -231,15 +233,17 @@ enum DRWBatchFlag : uint64_t {
   MBC_PAINT_OVERLAY_SURFACE = (uint64_t(1u) << MBC_BATCH_INDEX(paint_overlay_surface)),
   MBC_SURFACE_PER_MAT = (uint64_t(1u) << MBC_BATCH_LEN),
 };
-ENUM_OPERATORS(DRWBatchFlag, MBC_SURFACE_PER_MAT);
+ENUM_OPERATORS(DRWBatchFlag);
 
 BLI_STATIC_ASSERT(MBC_BATCH_LEN < 64, "Number of batches exceeded the limit of bit fields");
 
 struct MeshExtractLooseGeom {
   /** Indices of all vertices not used by edges in the #Mesh or #BMesh. */
-  Array<int> verts;
+  IndexMask verts;
   /** Indices of all edges not used by faces in the #Mesh or #BMesh. */
-  Array<int> edges;
+  IndexMask edges;
+  /** Used for BMesh which does not cache loose geometry index masks. */
+  std::unique_ptr<LinearAllocator<>> allocator;
 };
 
 struct SortedFaceData {
@@ -345,4 +349,5 @@ void mesh_buffer_cache_create_requested_subdiv(MeshBatchCache &cache,
                                                DRWSubdivCache &subdiv_cache,
                                                MeshRenderData &mr);
 
-}  // namespace blender::draw
+}  // namespace draw
+}  // namespace blender

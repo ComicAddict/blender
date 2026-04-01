@@ -96,7 +96,7 @@ static void generate_vertex_map(const Mesh *mesh,
   bool export_uv = false;
   VArraySpan<float2> uv_map;
   if (export_params.export_uv) {
-    const StringRef uv_name = CustomData_get_active_layer_name(&mesh->corner_data, CD_PROP_FLOAT2);
+    const StringRef uv_name = mesh->active_uv_map_name();
     if (!uv_name.is_empty()) {
       const bke::AttributeAccessor attributes = mesh->attributes();
       uv_map = *attributes.lookup<float2>(uv_name, bke::AttrDomain::Corner);
@@ -177,7 +177,7 @@ static void load_custom_attributes(const Mesh *mesh,
 {
   const bke::AttributeAccessor attributes = mesh->attributes();
   const StringRef color_name = mesh->active_color_attribute;
-  const StringRef uv_name = CustomData_get_active_layer_name(&mesh->corner_data, CD_PROP_FLOAT2);
+  const StringRef uv_name = mesh->active_uv_map_name();
   const int64_t size = ply_to_vertex.size();
 
   attributes.foreach_attribute([&](const bke::AttributeIter &iter) {
@@ -454,15 +454,10 @@ void load_plydata(PlyData &plyData, Depsgraph *depsgraph, const PLYExportParams 
     }
 
     /* Loose edges */
-    const bke::LooseEdgeCache &loose_edges = mesh->loose_edges();
-    if (loose_edges.count > 0) {
-      Span<int2> edges = mesh->edges();
-      for (int i = 0; i < edges.size(); ++i) {
-        if (loose_edges.is_loose_bits[i]) {
-          plyData.edges.append({vertex_to_ply[edges[i][0]], vertex_to_ply[edges[i][1]]});
-        }
-      }
-    }
+    Span<int2> edges = mesh->edges();
+    mesh->loose_edges().foreach_index([&](const int i) {
+      plyData.edges.append({vertex_to_ply[edges[i][0]], vertex_to_ply[edges[i][1]]});
+    });
 
     vertex_offset = int(plyData.vertices.size());
     if (manually_free_mesh) {

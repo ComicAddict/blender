@@ -78,10 +78,10 @@ void VKShaderInterface::init(const shader::ShaderCreateInfo &info)
   names_size += info.subpass_inputs_.size() * SUBPASS_FALLBACK_NAME_LEN;
 
   int32_t input_tot_len = attr_len_ + ubo_len_ + uniform_len_ + ssbo_len_ + constant_len_;
-  inputs_ = MEM_calloc_arrayN<ShaderInput>(input_tot_len, __func__);
+  inputs_ = MEM_new_array_zeroed<ShaderInput>(input_tot_len, __func__);
   ShaderInput *input = inputs_;
 
-  name_buffer_ = (char *)MEM_mallocN(names_size, "name_buffer");
+  name_buffer_ = MEM_new_array_uninitialized<char>(names_size, "name_buffer");
   uint32_t name_buffer_offset = 0;
 
   /* Attributes */
@@ -307,19 +307,19 @@ void VKShaderInterface::descriptor_set_location_update(
         break;
 
       case shader::ShaderCreateInfo::Resource::BindType::STORAGE_BUFFER:
-        if (bool(resource->storagebuf.qualifiers & shader::Qualifier::read) == true) {
+        if (flag_is_set(resource->storagebuf.qualifiers, shader::Qualifier::read)) {
           vk_access_flags |= VK_ACCESS_SHADER_READ_BIT;
         }
-        if (bool(resource->storagebuf.qualifiers & shader::Qualifier::write) == true) {
+        if (flag_is_set(resource->storagebuf.qualifiers, shader::Qualifier::write)) {
           vk_access_flags |= VK_ACCESS_SHADER_WRITE_BIT;
         }
         break;
 
       case shader::ShaderCreateInfo::Resource::BindType::IMAGE:
-        if (bool(resource->image.qualifiers & shader::Qualifier::read) == true) {
+        if (flag_is_set(resource->image.qualifiers, shader::Qualifier::read)) {
           vk_access_flags |= VK_ACCESS_SHADER_READ_BIT;
         }
-        if (bool(resource->image.qualifiers & shader::Qualifier::write) == true) {
+        if (flag_is_set(resource->image.qualifiers, shader::Qualifier::write)) {
           vk_access_flags |= VK_ACCESS_SHADER_WRITE_BIT;
         }
         break;
@@ -353,7 +353,7 @@ const VKResourceBinding &VKShaderInterface::resource_binding_info(
   return resource_bindings_[index];
 }
 
-const VKDescriptorSet::Location VKShaderInterface::descriptor_set_location(
+VKDescriptorSet::Location VKShaderInterface::descriptor_set_location(
     const shader::ShaderCreateInfo::Resource &resource) const
 {
   const ShaderInput *shader_input = shader_input_get(resource);
@@ -361,7 +361,7 @@ const VKDescriptorSet::Location VKShaderInterface::descriptor_set_location(
   return resource_binding_info(shader_input).location;
 }
 
-const std::optional<VKDescriptorSet::Location> VKShaderInterface::descriptor_set_location(
+std::optional<VKDescriptorSet::Location> VKShaderInterface::descriptor_set_location(
     const shader::ShaderCreateInfo::Resource::BindType &bind_type, int binding) const
 {
   const ShaderInput *shader_input = shader_input_get(bind_type, binding);

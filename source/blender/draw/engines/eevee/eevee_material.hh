@@ -12,8 +12,10 @@
 
 #include "DRW_render.hh"
 
+#include "BLI_enum_flags.hh"
 #include "BLI_map.hh"
 #include "BLI_vector.hh"
+
 #include "GPU_material.hh"
 
 #include "draw_pass.hh"
@@ -22,10 +24,12 @@
 #include "eevee_shader.hh"
 #include "eevee_sync.hh"
 
+namespace blender {
+
 struct bNodeSocketValueFloat;
 struct bNodeSocketValueRGBA;
 
-namespace blender::eevee {
+namespace eevee {
 
 class Instance;
 
@@ -136,7 +140,7 @@ enum eClosureBits : uint32_t {
 
   CLOSURE_TRANSMISSION = CLOSURE_SSS | CLOSURE_REFRACTION | CLOSURE_TRANSLUCENT,
 };
-ENUM_OPERATORS(eClosureBits, CLOSURE_CLEARCOAT)
+ENUM_OPERATORS(eClosureBits)
 
 static inline eClosureBits shader_closure_bits_from_flag(const GPUMaterial *gpumat)
 {
@@ -228,10 +232,10 @@ static inline eMaterialGeometry to_material_geometry(const Object *ob)
  * This is above the shader binning.
  */
 struct MaterialKey {
-  ::Material *mat;
+  blender::Material *mat;
   uint64_t options;
 
-  MaterialKey(::Material *mat_,
+  MaterialKey(blender::Material *mat_,
               eMaterialGeometry geometry,
               eMaterialPipeline pipeline,
               short visibility_flags)
@@ -276,7 +280,7 @@ struct ShaderKey {
   gpu::Shader *shader;
   uint64_t options;
 
-  ShaderKey(GPUMaterial *gpumat, ::Material *blender_mat, eMaterialProbe probe_capture)
+  ShaderKey(GPUMaterial *gpumat, blender::Material *blender_mat, eMaterialProbe probe_capture)
   {
     shader = GPU_material_get_shader(gpumat);
     options = uint64_t(shader_closure_bits_from_flag(gpumat));
@@ -332,12 +336,12 @@ struct MaterialArray {
 
 class MaterialModule {
  public:
-  ::Material *diffuse_mat;
-  ::Material *metallic_mat;
-  ::Material *default_surface;
-  ::Material *default_volume;
+  blender::Material *diffuse_mat;
+  blender::Material *metallic_mat;
+  blender::Material *default_surface;
+  blender::Material *default_volume;
 
-  ::Material *material_override = nullptr;
+  blender::Material *material_override = nullptr;
 
   int64_t queued_shaders_count = 0;
   int64_t queued_textures_count = 0;
@@ -351,7 +355,7 @@ class MaterialModule {
 
   MaterialArray material_array_;
 
-  ::Material *error_mat_;
+  blender::Material *error_mat_;
 
   uint64_t gpu_pass_last_update_ = 0;
   uint64_t gpu_pass_next_update_ = 0;
@@ -387,14 +391,14 @@ class MaterialModule {
 
  private:
   Material &material_sync(Object *ob,
-                          ::Material *blender_mat,
+                          blender::Material *blender_mat,
                           eMaterialGeometry geometry_type,
                           bool has_motion);
 
   /** Return correct material or empty default material if slot is empty. */
-  ::Material *material_from_slot(Object *ob, int slot);
+  blender::Material *material_from_slot(Object *ob, int slot);
   MaterialPass material_pass_get(Object *ob,
-                                 ::Material *blender_mat,
+                                 blender::Material *blender_mat,
                                  eMaterialPipeline pipeline_type,
                                  eMaterialGeometry geometry_type,
                                  eMaterialProbe probe_capture = MAT_PROBE_NONE);
@@ -407,4 +411,5 @@ class MaterialModule {
 
 /** \} */
 
-}  // namespace blender::eevee
+}  // namespace eevee
+}  // namespace blender

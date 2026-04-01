@@ -15,6 +15,7 @@
 #include "scene/shader.h"
 #include "scene/stats.h"
 #include "scene/tabulated_sobol.h"
+#include "scene/volume.h"
 
 #include "kernel/types.h"
 
@@ -153,14 +154,14 @@ NODE_DEFINE(Integrator)
   SOCKET_BOOLEAN(use_denoise, "Use Denoiser", false);
   SOCKET_ENUM(denoiser_type, "Denoiser Type", denoiser_type_enum, DENOISER_OPENIMAGEDENOISE);
   SOCKET_INT(denoise_start_sample, "Start Sample to Denoise", 0);
-  SOCKET_BOOLEAN(use_denoise_pass_albedo, "Use Albedo Pass for Denoiser", true);
-  SOCKET_BOOLEAN(use_denoise_pass_normal, "Use Normal Pass for Denoiser", true);
+  SOCKET_INT(denoiser_passes, "Denoiser Passes", DENOISER_PASS_ALBEDO | DENOISER_PASS_NORMAL);
   SOCKET_ENUM(denoiser_prefilter,
               "Denoiser Prefilter",
               denoiser_prefilter_enum,
               DENOISER_PREFILTER_ACCURATE);
   SOCKET_BOOLEAN(denoise_use_gpu, "Denoise on GPU", true);
   SOCKET_ENUM(denoiser_quality, "Denoiser Quality", denoiser_quality_enum, DENOISER_QUALITY_HIGH);
+  SOCKET_FLOAT(denoiser_upscale_factor, "Denoiser Upscale Factor", 1.0f);
 
   return type;
 }
@@ -219,6 +220,9 @@ void Integrator::device_update(Device *device, DeviceScene *dscene, Scene *scene
    * to improve performance a bit. */
   kintegrator->transparent_shadows = false;
   for (Shader *shader : scene->shaders) {
+    if (shader->reference_count() == 0) {
+      continue;
+    }
     /* keep this in sync with SD_HAS_TRANSPARENT_SHADOW in shader.cpp */
     if ((shader->has_surface_transparent && shader->get_use_transparent_shadow()) ||
         shader->has_volume)
@@ -354,9 +358,20 @@ void Integrator::device_free(Device * /*unused*/, DeviceScene *dscene, bool forc
   dscene->sample_pattern_lut.free_if_need_realloc(force_free);
 }
 
+bool Integrator::is_modified() const
+{
+  return Node::is_modified() || shadow_catcher_needs_recalc_;
+}
+
+void Integrator::clear_modified()
+{
+  Node::clear_modified();
+  shadow_catcher_needs_recalc_ = false;
+}
+
 void Integrator::tag_update(Scene *scene, const uint32_t flag)
 {
-  if (flag & UPDATE_ALL) {
+  if (flag == UPDATE_ALL) {
     tag_modified();
   }
 
@@ -366,9 +381,18 @@ void Integrator::tag_update(Scene *scene, const uint32_t flag)
     tag_ao_bounces_modified();
   }
 
+  if (flag & OBJECT_MANAGER) {
+    shadow_catcher_needs_recalc_ = true;
+  }
+
   if (motion_blur_is_modified()) {
     scene->object_manager->tag_update(scene, ObjectManager::MOTION_BLUR_MODIFIED);
     scene->camera->tag_modified();
+  }
+
+  if (volume_ray_marching_is_modified()) {
+    scene->volume_manager->tag_update_algorithm();
+    scene->geometry_manager->tag_update(scene, GeometryManager::VOLUME_MODIFIED);
   }
 }
 
@@ -392,6 +416,11 @@ AdaptiveSampling Integrator::get_adaptive_sampling() const
   AdaptiveSampling adaptive_sampling;
 
   adaptive_sampling.use = use_adaptive_sampling;
+
+  /* Disable sample count pass with upscaling. */
+  if (use_denoise && denoiser_upscale_factor != 1.0f) {
+    adaptive_sampling.use = false;
+  }
 
   if (!adaptive_sampling.use) {
     return adaptive_sampling;
@@ -452,11 +481,11 @@ DenoiseParams Integrator::get_denoise_params() const
 
   denoise_params.start_sample = denoise_start_sample;
 
-  denoise_params.use_pass_albedo = use_denoise_pass_albedo;
-  denoise_params.use_pass_normal = use_denoise_pass_normal;
+  denoise_params.passes = denoiser_passes;
 
   denoise_params.prefilter = denoiser_prefilter;
   denoise_params.quality = denoiser_quality;
+  denoise_params.upscale_factor = denoiser_upscale_factor;
 
   return denoise_params;
 }

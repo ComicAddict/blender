@@ -8,7 +8,7 @@
 #include "util/param.h"
 #include "util/types.h"
 
-#include "BLI_color.hh"
+#include "BLI_color_types.hh"
 #include "BLI_math_quaternion_types.hh"
 #include "BLI_math_vector_types.hh"
 
@@ -48,6 +48,14 @@ template<> struct AttributeConverter<blender::float3> {
   static CyclesT convert(const blender::float3 &value)
   {
     return make_float3(value[0], value[1], value[2]);
+  }
+};
+template<> struct AttributeConverter<blender::float4> {
+  using CyclesT = float4;
+  static constexpr auto type_desc = TypeFloat4;
+  static CyclesT convert(const blender::float4 &value)
+  {
+    return make_float4(value[0], value[1], value[2], value[3]);
   }
 };
 template<> struct AttributeConverter<blender::ColorGeometry4f> {

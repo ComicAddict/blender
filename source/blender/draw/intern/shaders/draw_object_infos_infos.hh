@@ -10,7 +10,9 @@
 #  include "gpencil_shader_shared.hh"
 
 #  include "draw_view_infos.hh"
+#endif
 
+#ifdef GLSL_CPP_STUBS
 #  define CURVES_SHADER
 #  define DRW_GPENCIL_INFO
 #endif
@@ -67,6 +69,7 @@ SAMPLER_FREQ(1, isamplerBuffer, curves_indirection_buf, BATCH)
 GPU_SHADER_CREATE_END()
 
 GPU_SHADER_CREATE_INFO(draw_pointcloud)
+ADDITIONAL_INFO(draw_object_infos)
 SAMPLER_FREQ(0, samplerBuffer, ptcloud_pos_rad_tx, BATCH)
 DEFINE("POINTCLOUD_SHADER")
 DEFINE("DRW_POINTCLOUD_INFO")

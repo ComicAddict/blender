@@ -13,6 +13,8 @@
 #include "kernel/integrator/intersect_closest.h"
 #include "kernel/integrator/path_state.h"
 #include "kernel/integrator/shadow_linking.h"
+#include "kernel/integrator/state.h"
+#include "kernel/integrator/state_flow.h"
 #include "kernel/integrator/volume_shader.h"
 #include "kernel/integrator/volume_stack.h"
 
@@ -25,15 +27,16 @@
 
 CCL_NAMESPACE_BEGIN
 
-#ifdef __VOLUME__
-
 /* Events for probabilistic scattering. */
 
 enum VolumeIntegrateEvent {
   VOLUME_PATH_SCATTERED = 0,
   VOLUME_PATH_ATTENUATED = 1,
-  VOLUME_PATH_MISSED = 2
+  VOLUME_PATH_MISSED = 2,
+  VOLUME_PATH_CACHE_MISS = 3
 };
+
+#ifdef __VOLUME__
 
 struct VolumeIntegrateResult {
   /* Throughput and offset for direct light scattering. */
@@ -304,28 +307,39 @@ ccl_device_noinline Extrema<float> volume_estimate_extrema(KernelGlobals kg,
                                                            const IntegratorGenericState state,
                                                            const ccl_private RNGState *rng_state,
                                                            const uint32_t path_flag,
-                                                           const ccl_private OctreeTracing &octree)
+/* Work around apparent HIP compiler bug. */
+#  ifdef __KERNEL_HIP__
+                                                           const ccl_private OctreeTracing &octree
+#  else
+                                                           const Interval<float> t,
+                                                           const VolumeStack entry
+#  endif
+)
 {
-  const bool homogeneous = volume_is_homogeneous(kg, octree.entry);
+#  ifdef __KERNEL_HIP__
+  const ccl_private Interval<float> &t = octree.t;
+  const ccl_private VolumeStack &entry = octree.entry;
+#  endif
+  const bool homogeneous = volume_is_homogeneous(kg, entry);
   const int samples = homogeneous ? 1 : 4;
   const float shade_offset = homogeneous ?
                                  0.5f :
                                  path_state_rng_2D(kg, rng_state, PRNG_VOLUME_SHADE_OFFSET).y;
-  const float step_size = octree.t.length() / float(samples);
+  const float step_size = t.length() / float(samples);
 
   /* Do not allocate closures. */
   sd->num_closure_left = 0;
 
   Extrema<float> extrema = {FLT_MAX, -FLT_MAX};
   for (int i = 0; i < samples; i++) {
-    const float shade_t = octree.t.min + (shade_offset + i) * step_size;
+    const float shade_t = t.min + (shade_offset + i) * step_size;
     sd->P = ray->P + ray->D * shade_t;
 
     sd->closure_transparent_extinction = zero_float3();
     sd->closure_emission_background = zero_float3();
 
     volume_shader_eval_entry<shadow, KERNEL_FEATURE_NODE_MASK_VOLUME>(
-        kg, state, sd, octree.entry, path_flag);
+        kg, state, sd, entry, path_flag);
 
     const float sigma = reduce_max(sd->closure_transparent_extinction);
     const float emission = reduce_max(sd->closure_emission_background);
@@ -359,7 +373,12 @@ ccl_device_inline Extrema<float> volume_object_get_extrema(KernelGlobals kg,
     return octree.node->sigma * object_volume_density(kg, octree.entry.object);
   }
 
+#  ifdef __KERNEL_HIP__
   return volume_estimate_extrema<shadow>(kg, ray, sd, state, rng_state, path_flag, octree);
+#  else
+  return volume_estimate_extrema<shadow>(
+      kg, ray, sd, state, rng_state, path_flag, octree.t, octree.entry);
+#  endif
 }
 
 /* Find the octree root node in the kernel array that corresponds to the volume stack entry. */
@@ -897,7 +916,7 @@ ccl_device_inline bool volume_indirect_scatter_advance(const ccl_private OctreeT
   return vstate.t > octree.t.max;
 }
 
-/* Adavance to the next candidate indirect scatter position, and compute the direct throughput. */
+/** Advance to the next candidate indirect scatter position, and compute the direct throughput. */
 ccl_device_inline bool volume_integrate_advance(KernelGlobals kg,
                                                 const ccl_private Ray *ccl_restrict ray,
                                                 ccl_private ShaderData *ccl_restrict sd,
@@ -1141,7 +1160,7 @@ ccl_device_inline void volume_distance_sampling_finalize(
     reservoir.add_sample(
         1.0f - guided_scatter_prob,
 #  ifdef __DENOISING_FEATURES__
-        {vstate.emission, reservoir.candidate.t, result.indirect_throughput, 0.0f, vstate.albedo}
+        { vstate.emission, reservoir.candidate.t, result.indirect_throughput, 0.0f, vstate.albedo }
 #  else
         {vstate.emission, reservoir.candidate.t, result.indirect_throughput, 0.0f}
 #  endif
@@ -1885,7 +1904,7 @@ volume_direct_sample_method(KernelGlobals kg,
     return VOLUME_SAMPLE_NONE;
   }
 
-  /* Sample the scatter position with distance sampling for distant/background light. */
+  /* Sample the scatter position with distance sampling for distant light. */
   const bool has_equiangular_sample = (ls->t != FLT_MAX);
   return has_equiangular_sample ? volume_stack_sample_method(kg, state) : VOLUME_SAMPLE_DISTANCE;
 }
@@ -2405,29 +2424,28 @@ ccl_device_forceinline void integrate_volume_direct_light(
     return;
   }
 
-  /* Evaluate light shader.
-   *
-   * TODO: can we reuse sd memory? In theory we can move this after
-   * integrate_surface_bounce, evaluate the BSDF, and only then evaluate
-   * the light shader. This could also move to its own kernel, for
-   * non-constant light sources. */
-  ShaderDataTinyStorage emission_sd_storage;
-  ccl_private ShaderData *emission_sd = AS_SHADER_DATA(&emission_sd_storage);
-  const Spectrum light_eval = light_sample_shader_eval(kg, state, emission_sd, &ls, sd->time);
-  if (is_zero(light_eval)) {
-    return;
-  }
+  /* Evaluate constant part of light shader, rest will optionally be done in another kernel. */
+  Spectrum light_shader_eval ccl_optional_struct_init;
+  const bool is_constant_light_shader = light_sample_shader_eval_nee_constant(
+      kg, ls.shader, ls.prim, ls.type != LIGHT_TRIANGLE, light_shader_eval);
 
   /* Evaluate BSDF. */
   BsdfEval phase_eval ccl_optional_struct_init;
   const float phase_pdf = volume_shader_phase_eval(
       kg, state, sd, phases, ls.D, &phase_eval, ls.shader);
   const float mis_weight = light_sample_mis_weight_nee(kg, ls.pdf, phase_pdf);
-  bsdf_eval_mul(&phase_eval, light_eval / ls.pdf * mis_weight);
+  bsdf_eval_mul(&phase_eval, light_shader_eval * ls.eval_fac / ls.pdf * mis_weight);
 
-  /* Path termination. */
-  const float terminate = path_state_rng_light_termination(kg, rng_state);
-  if (light_sample_terminate(kg, &phase_eval, terminate)) {
+  /* Path termination for constant light shader. */
+  if (is_constant_light_shader && !(kernel_data.kernel_features & KERNEL_FEATURE_LIGHT_TREE)) {
+    const float terminate = path_state_rng_light_termination(kg, rng_state);
+    if (light_sample_terminate(kg, &phase_eval, terminate)) {
+      return;
+    }
+  }
+  /* For non-constant light shader, probabilistic termination happens in
+   * SHADE_LIGHT_NEE when the full contribution is known. */
+  else if (bsdf_eval_is_zero(&phase_eval)) {
     return;
   }
 
@@ -2437,7 +2455,11 @@ ccl_device_forceinline void integrate_volume_direct_light(
 
   /* Branch off shadow kernel. */
   IntegratorShadowState shadow_state = integrator_shadow_path_init(
-      kg, state, DEVICE_KERNEL_INTEGRATOR_INTERSECT_SHADOW, false);
+      kg,
+      state,
+      (is_constant_light_shader) ? DEVICE_KERNEL_INTEGRATOR_INTERSECT_SHADOW :
+                                   DEVICE_KERNEL_INTEGRATOR_SHADE_LIGHT_NEE,
+      false);
 
   /* Write shadow ray and associated state to global memory. */
   integrator_state_write_shadow_ray(shadow_state, &ray);
@@ -2447,7 +2469,12 @@ ccl_device_forceinline void integrate_volume_direct_light(
   const uint16_t bounce = INTEGRATOR_STATE(state, path, bounce);
   const uint16_t transparent_bounce = INTEGRATOR_STATE(state, path, transparent_bounce);
   uint32_t shadow_flag = INTEGRATOR_STATE(state, path, flag);
-  const Spectrum throughput_phase = throughput * bsdf_eval_sum(&phase_eval);
+  const Spectrum phase_sum = bsdf_eval_sum(&phase_eval);
+  const Spectrum throughput_phase = throughput * phase_sum;
+
+  if (!(kernel_data.kernel_features & KERNEL_FEATURE_LIGHT_TREE)) {
+    INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, bsdf_eval_average) = average(phase_sum);
+  }
 
   if (kernel_data.kernel_features & KERNEL_FEATURE_LIGHT_PASSES) {
     PackedSpectrum pass_diffuse_weight;
@@ -2796,6 +2823,10 @@ ccl_device VolumeIntegrateEvent volume_integrate(KernelGlobals kg,
   VolumeIntegrateResult result = {};
   volume_integrate_null_scattering(kg, state, ray, &sd, &rng_state, render_buffer, &ls, result);
 
+  if (sd.flag & SD_CACHE_MISS) {
+    return VOLUME_PATH_CACHE_MISS;
+  }
+
   return volume_integrate_event(kg, state, ray, &sd, &rng_state, ls, result);
 }
 
@@ -2832,6 +2863,10 @@ volume_integrate_ray_marching(KernelGlobals kg,
   const float step_size = volume_stack_step_size<false>(kg, state);
   volume_integrate_ray_marching(
       kg, state, ray, &sd, &rng_state, render_buffer, step_size, &ls, result);
+
+  if (sd.flag & SD_CACHE_MISS) {
+    return VOLUME_PATH_CACHE_MISS;
+  }
 
   return volume_integrate_event(kg, state, ray, &sd, &rng_state, ls, result);
 }
@@ -2907,6 +2942,10 @@ ccl_device void integrator_shade_volume(KernelGlobals kg,
   integrator_shade_volume_setup(kg, state, &ray, &isect);
 
   const VolumeIntegrateEvent event = volume_integrate(kg, state, &ray, render_buffer);
+  if (event == VOLUME_PATH_CACHE_MISS) {
+    integrator_path_cache_miss(state, DEVICE_KERNEL_INTEGRATOR_SHADE_VOLUME);
+    return;
+  }
   integrator_next_kernel_after_shade_volume<DEVICE_KERNEL_INTEGRATOR_SHADE_VOLUME>(
       kg, state, render_buffer, &isect, event);
 
@@ -2923,6 +2962,10 @@ ccl_device void integrator_shade_volume_ray_marching(KernelGlobals kg,
   integrator_shade_volume_setup(kg, state, &ray, &isect);
 
   const VolumeIntegrateEvent event = volume_integrate_ray_marching(kg, state, &ray, render_buffer);
+  if (event == VOLUME_PATH_CACHE_MISS) {
+    integrator_path_cache_miss(state, DEVICE_KERNEL_INTEGRATOR_SHADE_VOLUME_RAY_MARCHING);
+    return;
+  }
   integrator_next_kernel_after_shade_volume<DEVICE_KERNEL_INTEGRATOR_SHADE_VOLUME_RAY_MARCHING>(
       kg, state, render_buffer, &isect, event);
 

@@ -30,22 +30,22 @@ static void node_declare(NodeDeclarationBuilder &b)
 
   if (node != nullptr) {
     const eCustomDataType data_type = eCustomDataType(node->custom1);
-    b.add_input(data_type, "Value")
+    b.add_input(data_type, "Value"_ustr)
         .supports_field()
         .description("The values the mean and median will be calculated from");
   }
 
-  b.add_input<decl::Int>("Group ID", "Group Index")
+  b.add_input<decl::Int>("Group ID"_ustr, "Group Index"_ustr)
       .supports_field()
       .hide_value()
       .description("An index used to group values together for multiple separate operations");
 
   if (node != nullptr) {
     const eCustomDataType data_type = eCustomDataType(node->custom1);
-    b.add_output(data_type, "Mean")
+    b.add_output(data_type, "Mean"_ustr)
         .field_source_reference_all()
         .description("The sum of all values in each group divided by the size of said group");
-    b.add_output(data_type, "Median")
+    b.add_output(data_type, "Median"_ustr)
         .translation_context(BLT_I18NCONTEXT_ID_NODETREE)
         .field_source_reference_all()
         .description(
@@ -53,10 +53,10 @@ static void node_declare(NodeDeclarationBuilder &b)
   }
 }
 
-static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
+static void node_layout(ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  layout->prop(ptr, "data_type", UI_ITEM_NONE, "", ICON_NONE);
-  layout->prop(ptr, "domain", UI_ITEM_NONE, "", ICON_NONE);
+  layout.prop(ptr, "data_type", UI_ITEM_NONE, "", ICON_NONE);
+  layout.prop(ptr, "domain", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
@@ -97,7 +97,7 @@ static void node_gather_link_searches(GatherLinkSearchOpParams &params)
         [type](LinkSearchOpParams &params) {
           bNode &node = params.add_node("GeometryNodeFieldAverage");
           node.custom1 = *type;
-          params.update_and_connect_available_socket(node, "Mean");
+          params.update_and_connect_available_socket(node, "Mean"_ustr);
         },
         0);
     params.add_item(
@@ -105,7 +105,7 @@ static void node_gather_link_searches(GatherLinkSearchOpParams &params)
         [type](LinkSearchOpParams &params) {
           bNode &node = params.add_node("GeometryNodeFieldAverage");
           node.custom1 = *type;
-          params.update_and_connect_available_socket(node, "Median");
+          params.update_and_connect_available_socket(node, "Median"_ustr);
         },
         -1);
   }
@@ -115,7 +115,7 @@ static void node_gather_link_searches(GatherLinkSearchOpParams &params)
         [type](LinkSearchOpParams &params) {
           bNode &node = params.add_node("GeometryNodeFieldAverage");
           node.custom1 = *type;
-          params.update_and_connect_available_socket(node, "Value");
+          params.update_and_connect_available_socket(node, "Value"_ustr);
         },
         0);
   }
@@ -187,55 +187,52 @@ class FieldAverageInput final : public bke::GeometryFieldInput {
 
     GVArray g_outputs;
 
-    bke::attribute_math::convert_to_static_type(g_values.type(), [&](auto dummy) {
-      using T = decltype(dummy);
-      if constexpr (is_same_any_v<T, int, float, float3>) {
-        const VArraySpan<T> values = g_values.typed<T>();
+    g_values.type().to_static_type<int, float, float3>([&]<typename T>() {
+      const VArraySpan<T> values = g_values.typed<T>();
 
-        if (operation_ == Operation::Mean) {
-          if (group_indices.is_single()) {
-            const T mean = std::reduce(values.begin(), values.end(), T()) / domain_size;
-            g_outputs = VArray<T>::from_single(mean, domain_size);
-          }
-          else {
-            Map<int, std::pair<T, int>> sum_and_counts;
-            for (const int i : values.index_range()) {
-              auto &pair = sum_and_counts.lookup_or_add(group_indices[i], std::make_pair(T(), 0));
-              pair.first = pair.first + values[i];
-              pair.second = pair.second + 1;
-            }
-
-            Array<T> outputs(domain_size);
-            for (const int i : values.index_range()) {
-              const auto &pair = sum_and_counts.lookup(group_indices[i]);
-              outputs[i] = pair.first / pair.second;
-            }
-            g_outputs = VArray<T>::from_container(std::move(outputs));
-          }
+      if (operation_ == Operation::Mean) {
+        if (group_indices.is_single()) {
+          const T mean = std::reduce(values.begin(), values.end(), T()) / domain_size;
+          g_outputs = VArray<T>::from_single(mean, domain_size);
         }
         else {
-          if (group_indices.is_single()) {
-            Array<T> sorted_values(values);
-            T median = calculate_median<T>(sorted_values);
-            g_outputs = VArray<T>::from_single(median, domain_size);
+          Map<int, std::pair<T, int>> sum_and_counts;
+          for (const int i : values.index_range()) {
+            auto &pair = sum_and_counts.lookup_or_add(group_indices[i], std::make_pair(T(), 0));
+            pair.first = pair.first + values[i];
+            pair.second = pair.second + 1;
           }
-          else {
-            Map<int, Vector<T>> groups;
-            for (const int i : values.index_range()) {
-              groups.lookup_or_add(group_indices[i], Vector<T>()).append(values[i]);
-            }
 
-            Map<int, T> medians;
-            for (MutableMapItem<int, Vector<T>> group : groups.items()) {
-              medians.add(group.key, calculate_median<T>(group.value));
-            }
-
-            Array<T> outputs(domain_size);
-            for (const int i : values.index_range()) {
-              outputs[i] = medians.lookup(group_indices[i]);
-            }
-            g_outputs = VArray<T>::from_container(std::move(outputs));
+          Array<T> outputs(domain_size);
+          for (const int i : values.index_range()) {
+            const auto &pair = sum_and_counts.lookup(group_indices[i]);
+            outputs[i] = pair.first / pair.second;
           }
+          g_outputs = VArray<T>::from_container(std::move(outputs));
+        }
+      }
+      else {
+        if (group_indices.is_single()) {
+          Array<T> sorted_values(values);
+          T median = calculate_median<T>(sorted_values);
+          g_outputs = VArray<T>::from_single(median, domain_size);
+        }
+        else {
+          Map<int, Vector<T>> groups;
+          for (const int i : values.index_range()) {
+            groups.lookup_or_add(group_indices[i], Vector<T>()).append(values[i]);
+          }
+
+          Map<int, T> medians;
+          for (MutableMapItem<int, Vector<T>> group : groups.items()) {
+            medians.add(group.key, calculate_median<T>(group.value));
+          }
+
+          Array<T> outputs(domain_size);
+          for (const int i : values.index_range()) {
+            outputs[i] = medians.lookup(group_indices[i]);
+          }
+          g_outputs = VArray<T>::from_container(std::move(outputs));
         }
       }
     });
@@ -275,17 +272,17 @@ static void node_geo_exec(GeoNodeExecParams params)
 {
   const AttrDomain source_domain = AttrDomain(params.node().custom2);
 
-  const Field<int> group_index_field = params.extract_input<Field<int>>("Group Index");
-  const GField input_field = params.extract_input<GField>("Value");
-  if (params.output_is_required("Mean")) {
+  const Field<int> group_index_field = params.extract_input<Field<int>>("Group Index"_ustr);
+  const GField input_field = params.extract_input<GField>("Value"_ustr);
+  if (params.output_is_required("Mean"_ustr)) {
     params.set_output<GField>(
-        "Mean",
+        "Mean"_ustr,
         GField{std::make_shared<FieldAverageInput>(
             source_domain, input_field, group_index_field, Operation::Mean)});
   }
-  if (params.output_is_required("Median")) {
+  if (params.output_is_required("Median"_ustr)) {
     params.set_output<GField>(
-        "Median",
+        "Median"_ustr,
         GField{std::make_shared<FieldAverageInput>(
             source_domain, input_field, group_index_field, Operation::Median)});
   }
@@ -324,7 +321,7 @@ static void node_rna(StructRNA *srna)
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
 
   geo_node_type_base(&ntype, "GeometryNodeFieldAverage");
   ntype.ui_name = "Field Average";
@@ -335,7 +332,7 @@ static void node_register()
   ntype.draw_buttons = node_layout;
   ntype.declare = node_declare;
   ntype.gather_link_search_ops = node_gather_link_searches;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
   node_rna(ntype.rna_ext.srna);
 }
 NOD_REGISTER_NODE(node_register)

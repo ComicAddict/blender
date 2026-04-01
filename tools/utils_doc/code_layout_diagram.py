@@ -318,7 +318,6 @@ SECTIONS = (
             ("haru", "PDF generation library."),
             ("hiprt", "Ray-tracing for AMD GPU's. Used by Cycles."),
             ("imath", "Library used by OpenEXR image-format."),
-            ("jemalloc", "An improved memory allocator."),
             ("jpeg", "JPEG image-format support."),
             ("level-zero", "OneAPI loader & validation. Used by Cycles oneAPI."),
             ("llvm", "Low level virtual machine. Used by OSL."),
@@ -934,6 +933,7 @@ def render_output(scene, bounds, filepath):
     scene.render.filepath = filepath
 
     world = bpy.data.worlds.new(name_gen)
+    world.node_tree.nodes.clear()
     output = world.node_tree.nodes.new("ShaderNodeOutputWorld")
     background = world.node_tree.nodes.new("ShaderNodeBackground")
     world.node_tree.links.new(output.outputs["Surface"], background.outputs["Surface"])

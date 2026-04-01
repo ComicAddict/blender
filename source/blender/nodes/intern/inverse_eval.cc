@@ -383,8 +383,7 @@ static bool set_rna_property(bContext &C,
   const int array_len = RNA_property_array_length(&value_ptr, prop);
 
   Scene *scene = CTX_data_scene(&C);
-  const bool only_when_keyed = blender::animrig::is_keying_flag(scene,
-                                                                AUTOKEY_FLAG_INSERTAVAILABLE);
+  const bool only_when_keyed = animrig::is_keying_flag(scene, AUTOKEY_FLAG_INSERTAVAILABLE);
 
   switch (dst_type) {
     case PROP_FLOAT: {
@@ -549,7 +548,9 @@ static bool set_modifier_value(bContext &C,
   DEG_id_tag_update(&object.id, ID_RECALC_GEOMETRY);
 
   const std::string main_prop_rna_path = fmt::format(
-      "modifiers[\"{}\"][\"{}\"]", BLI_str_escape(nmd.modifier.name), interface_socket.identifier);
+      "modifiers[\"{}\"].properties.inputs.{}.value",
+      BLI_str_escape(nmd.modifier.name),
+      interface_socket.identifier);
 
   switch (interface_socket.socket_typeinfo()->type) {
     case SOCK_FLOAT: {
@@ -777,7 +778,8 @@ bool backpropagate_socket_values(bContext &C,
     }
   }
   /* Set new values for modifier inputs. */
-  const bke::ModifierComputeContext modifier_context{nullptr, nmd};
+  const bke::DataBlockComputeContext data_block_context{nullptr, object.id};
+  const bke::ModifierComputeContext modifier_context{&data_block_context, nmd};
   for (const bNode *group_input_node : nmd.node_group->group_input_nodes()) {
     for (const bNodeSocket *socket : group_input_node->output_sockets().drop_back(1)) {
       if (const SocketValueVariant *value = value_by_socket.lookup_ptr(

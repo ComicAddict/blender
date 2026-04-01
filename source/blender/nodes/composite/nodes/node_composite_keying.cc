@@ -2,10 +2,6 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-/** \file
- * \ingroup cmpnodes
- */
-
 #include "BLI_math_color.h"
 #include "BLI_math_vector_types.hh"
 
@@ -25,34 +21,40 @@
 
 namespace blender::nodes::node_composite_keying_cc {
 
-static void cmp_node_keying_declare(NodeDeclarationBuilder &b)
+static void node_declare(NodeDeclarationBuilder &b)
 {
   b.use_custom_socket_order();
+  b.allow_any_socket_order();
 
-  b.add_output<decl::Color>("Image").structure_type(StructureType::Dynamic);
-  b.add_output<decl::Float>("Matte").structure_type(StructureType::Dynamic);
-  b.add_output<decl::Float>("Edges")
+  b.add_input<decl::Color>("Image"_ustr)
+      .default_value({0.8f, 0.8f, 0.8f, 1.0f})
+      .hide_value()
+      .structure_type(StructureType::Dynamic);
+  b.add_output<decl::Color>("Image"_ustr)
+      .structure_type(StructureType::Dynamic)
+      .align_with_previous();
+
+  b.add_output<decl::Float>("Matte"_ustr).structure_type(StructureType::Dynamic);
+  b.add_output<decl::Float>("Edges"_ustr)
       .structure_type(StructureType::Dynamic)
       .translation_context(BLT_I18NCONTEXT_ID_IMAGE);
 
-  b.add_input<decl::Color>("Image")
-      .default_value({0.8f, 0.8f, 0.8f, 1.0f})
-      .structure_type(StructureType::Dynamic);
-  b.add_input<decl::Color>("Key Color")
+  b.add_input<decl::Color>("Key Color"_ustr)
       .default_value({1.0f, 1.0f, 1.0f, 1.0f})
       .structure_type(StructureType::Dynamic);
 
-  PanelDeclarationBuilder &preprocess_panel = b.add_panel("Preprocess").default_closed(true);
-  preprocess_panel.add_input<decl::Int>("Blur Size", "Preprocess Blur Size")
+  PanelDeclarationBuilder &preprocess_panel = b.add_panel("Preprocess"_ustr).default_closed(true);
+  preprocess_panel.add_input<decl::Int>("Blur Size"_ustr, "Preprocess Blur Size"_ustr)
       .default_value(0)
       .min(0)
       .description(
           "Blur the color of the input image in YCC color space before keying while leaving the "
           "luminance intact using a Gaussian blur of the given size");
 
-  PanelDeclarationBuilder &key_panel = b.add_panel("Key").default_closed(true).translation_context(
-      BLT_I18NCONTEXT_ID_NODETREE);
-  key_panel.add_input<decl::Float>("Balance", "Key Balance")
+  PanelDeclarationBuilder &key_panel = b.add_panel("Key"_ustr)
+                                           .default_closed(true)
+                                           .translation_context(BLT_I18NCONTEXT_ID_NODETREE);
+  key_panel.add_input<decl::Float>("Balance"_ustr, "Key Balance"_ustr)
       .default_value(0.5f)
       .subtype(PROP_FACTOR)
       .min(0.0f)
@@ -62,8 +64,8 @@ static void cmp_node_keying_declare(NodeDeclarationBuilder &b)
           "against. 0 means the latter channel of the two is used, while 1 means the former of "
           "the two is used");
 
-  PanelDeclarationBuilder &tweak_panel = b.add_panel("Tweak").default_closed(true);
-  tweak_panel.add_input<decl::Float>("Black Level")
+  PanelDeclarationBuilder &tweak_panel = b.add_panel("Tweak"_ustr).default_closed(true);
+  tweak_panel.add_input<decl::Float>("Black Level"_ustr)
       .default_value(0.0f)
       .subtype(PROP_FACTOR)
       .min(0.0f)
@@ -71,7 +73,7 @@ static void cmp_node_keying_declare(NodeDeclarationBuilder &b)
       .description(
           "The matte gets remapped such matte values lower than the black level become black. "
           "Pixels at the identified edges are excluded from the remapping to preserve details");
-  tweak_panel.add_input<decl::Float>("White Level")
+  tweak_panel.add_input<decl::Float>("White Level"_ustr)
       .default_value(1.0f)
       .subtype(PROP_FACTOR)
       .min(0.0f)
@@ -80,17 +82,17 @@ static void cmp_node_keying_declare(NodeDeclarationBuilder &b)
           "The matte gets remapped such matte values higher than the white level become white. "
           "Pixels at the identified edges are excluded from the remapping to preserve details");
 
-  PanelDeclarationBuilder &edges_panel =
-      tweak_panel.add_panel("Edges").default_closed(true).translation_context(
-          BLT_I18NCONTEXT_ID_IMAGE);
-  edges_panel.add_input<decl::Int>("Size", "Edge Search Size")
+  PanelDeclarationBuilder &edges_panel = tweak_panel.add_panel("Edges"_ustr)
+                                             .default_closed(true)
+                                             .translation_context(BLT_I18NCONTEXT_ID_IMAGE);
+  edges_panel.add_input<decl::Int>("Size"_ustr, "Edge Search Size"_ustr)
       .default_value(3)
       .min(0)
       .description(
           "Size of the search window used to identify edges. Higher search size corresponds to "
           "less noisy and higher quality edges, not necessarily bigger edges. Edge tolerance can "
           "be used to expend the size of the edges");
-  edges_panel.add_input<decl::Float>("Tolerance", "Edge Tolerance")
+  edges_panel.add_input<decl::Float>("Tolerance"_ustr, "Edge Tolerance"_ustr)
       .default_value(0.1f)
       .subtype(PROP_FACTOR)
       .min(0.0f)
@@ -99,15 +101,15 @@ static void cmp_node_keying_declare(NodeDeclarationBuilder &b)
           "Pixels are considered part of the edges if more than 10% of the neighbouring pixels "
           "have matte values that differ from the pixel's matte value by this tolerance");
 
-  PanelDeclarationBuilder &mask_panel = b.add_panel("Mask").default_closed(true);
-  mask_panel.add_input<decl::Float>("Garbage Matte")
+  PanelDeclarationBuilder &mask_panel = b.add_panel("Mask"_ustr).default_closed(true);
+  mask_panel.add_input<decl::Float>("Garbage Matte"_ustr)
       .default_value(0.0f)
       .subtype(PROP_FACTOR)
       .min(0.0f)
       .max(1.0f)
       .structure_type(StructureType::Dynamic)
       .description("Areas in the garbage matte mask are excluded from the matte");
-  mask_panel.add_input<decl::Float>("Core Matte")
+  mask_panel.add_input<decl::Float>("Core Matte"_ustr)
       .default_value(0.0f)
       .subtype(PROP_FACTOR)
       .min(0.0f)
@@ -115,35 +117,37 @@ static void cmp_node_keying_declare(NodeDeclarationBuilder &b)
       .structure_type(StructureType::Dynamic)
       .description("Areas in the core matte mask are included in the matte");
 
-  PanelDeclarationBuilder &postprocess_panel = b.add_panel("Postprocess").default_closed(true);
-  postprocess_panel.add_input<decl::Int>("Blur Size", "Postprocess Blur Size")
+  PanelDeclarationBuilder &postprocess_panel =
+      b.add_panel("Postprocess"_ustr).default_closed(true);
+  postprocess_panel.add_input<decl::Int>("Blur Size"_ustr, "Postprocess Blur Size"_ustr)
       .default_value(0)
       .min(0)
       .description("Blur the computed matte using a Gaussian blur of the given size");
-  postprocess_panel.add_input<decl::Int>("Dilate Size", "Postprocess Dilate Size")
+  postprocess_panel.add_input<decl::Int>("Dilate Size"_ustr, "Postprocess Dilate Size"_ustr)
       .default_value(0)
       .description(
           "Dilate or erode the computed matte using a circular structuring element of the "
           "specified size. Negative sizes means erosion while positive means dilation");
-  postprocess_panel.add_input<decl::Int>("Feather Size", "Postprocess Feather Size")
+  postprocess_panel.add_input<decl::Int>("Feather Size"_ustr, "Postprocess Feather Size"_ustr)
       .default_value(0)
       .description(
           "Dilate or erode the computed matte using an inverse distance operation evaluated at "
           "the given falloff of the specified size. Negative sizes means erosion while positive "
           "means dilation");
-  postprocess_panel.add_input<decl::Menu>("Feather Falloff")
+  postprocess_panel.add_input<decl::Menu>("Feather Falloff"_ustr)
       .default_value(PROP_SMOOTH)
       .static_items(rna_enum_proportional_falloff_curve_only_items)
-      .optional_label();
+      .optional_label()
+      .translation_context(BLT_I18NCONTEXT_ID_CURVE_LEGACY);
 
-  PanelDeclarationBuilder &despill_panel = b.add_panel("Despill").default_closed(true);
-  despill_panel.add_input<decl::Float>("Strength", "Despill Strength")
+  PanelDeclarationBuilder &despill_panel = b.add_panel("Despill"_ustr).default_closed(true);
+  despill_panel.add_input<decl::Float>("Strength"_ustr, "Despill Strength"_ustr)
       .default_value(1.0f)
       .subtype(PROP_FACTOR)
       .min(0.0f)
       .max(1.0f)
       .description("Specifies the strength of the despill");
-  despill_panel.add_input<decl::Float>("Balance", "Despill Balance")
+  despill_panel.add_input<decl::Float>("Balance"_ustr, "Despill Balance"_ustr)
       .default_value(0.5f)
       .subtype(PROP_FACTOR)
       .min(0.0f)
@@ -154,10 +158,10 @@ static void cmp_node_keying_declare(NodeDeclarationBuilder &b)
           "of the two is used, while 1 means the former of the two is used");
 }
 
-static void node_composit_init_keying(bNodeTree * /*ntree*/, bNode *node)
+static void node_init(bNodeTree * /*ntree*/, bNode *node)
 {
   /* Unused, only kept for forward compatibility. */
-  NodeKeyingData *data = MEM_callocN<NodeKeyingData>(__func__);
+  NodeKeyingData *data = MEM_new<NodeKeyingData>(__func__);
   node->storage = data;
 }
 
@@ -171,18 +175,11 @@ class KeyingOperation : public NodeOperation {
   {
     const Result &input_image = get_input("Image");
     Result &output_image = get_result("Image");
-    Result &output_matte = get_result("Matte");
-    Result &output_edges = get_result("Edges");
     if (input_image.is_single_value()) {
       if (output_image.should_compute()) {
         output_image.share_data(input_image);
       }
-      if (output_matte.should_compute()) {
-        output_matte.allocate_invalid();
-      }
-      if (output_edges.should_compute()) {
-        output_edges.allocate_invalid();
-      }
+      this->allocate_default_remaining_outputs();
       return;
     }
 
@@ -195,6 +192,7 @@ class KeyingOperation : public NodeOperation {
     Result tweaked_matte = compute_tweaked_matte(matte);
     matte.release();
 
+    Result &output_matte = this->get_result("Matte");
     if (output_image.should_compute() || output_matte.should_compute()) {
       Result blurred_matte = compute_blurred_matte(tweaked_matte);
       tweaked_matte.release();
@@ -237,7 +235,7 @@ class KeyingOperation : public NodeOperation {
 
     Result blurred_chroma = context().create_result(ResultType::Color);
     symmetric_separable_blur(
-        context(), chroma, blurred_chroma, float2(blur_size) / 2, R_FILTER_BOX);
+        context(), chroma, blurred_chroma, float2(blur_size) / 2, math::FilterKernel::Box);
     chroma.release();
 
     Result blurred_input = replace_input_chroma(blurred_chroma);
@@ -248,7 +246,7 @@ class KeyingOperation : public NodeOperation {
 
   int get_preprocess_blur_size()
   {
-    return math::max(0, this->get_input("Preprocess Blur Size").get_single_value_default(0));
+    return math::max(0, this->get_input("Preprocess Blur Size").get_single_value_default<int>());
   }
 
   Result extract_input_chroma()
@@ -271,7 +269,7 @@ class KeyingOperation : public NodeOperation {
     output.allocate_texture(input.domain());
     output.bind_as_image(shader, "output_img");
 
-    compute_dispatch_threads_at_least(shader, input.domain().size);
+    compute_dispatch_threads_at_least(shader, input.domain().data_size);
 
     GPU_shader_unbind();
     input.unbind_as_texture();
@@ -287,20 +285,20 @@ class KeyingOperation : public NodeOperation {
     Result output = context().create_result(ResultType::Color);
     output.allocate_texture(input.domain());
 
-    parallel_for(input.domain().size, [&](const int2 texel) {
-      const float4 color = input.load_pixel<float4>(texel);
+    parallel_for(input.domain().data_size, [&](const int2 texel) {
+      const Color color = input.load_pixel<Color>(texel);
       float4 color_ycca;
-      rgb_to_ycc(color.x,
-                 color.y,
-                 color.z,
+      rgb_to_ycc(color.r,
+                 color.g,
+                 color.b,
                  &color_ycca.x,
                  &color_ycca.y,
                  &color_ycca.z,
                  BLI_YCC_ITU_BT709);
       color_ycca /= 255.0f;
-      color_ycca.w = color.w;
+      color_ycca.w = color.a;
 
-      output.store_pixel(texel, color_ycca);
+      output.store_pixel(texel, Color(color_ycca));
     });
 
     return output;
@@ -328,7 +326,7 @@ class KeyingOperation : public NodeOperation {
     output.allocate_texture(input.domain());
     output.bind_as_image(shader, "output_img");
 
-    compute_dispatch_threads_at_least(shader, input.domain().size);
+    compute_dispatch_threads_at_least(shader, input.domain().data_size);
 
     GPU_shader_unbind();
     input.unbind_as_texture();
@@ -345,18 +343,18 @@ class KeyingOperation : public NodeOperation {
     Result output = context().create_result(ResultType::Color);
     output.allocate_texture(input.domain());
 
-    parallel_for(input.domain().size, [&](const int2 texel) {
-      const float4 color = input.load_pixel<float4>(texel);
+    parallel_for(input.domain().data_size, [&](const int2 texel) {
+      const Color color = input.load_pixel<Color>(texel);
       float4 color_ycca;
-      rgb_to_ycc(color.x,
-                 color.y,
-                 color.z,
+      rgb_to_ycc(color.r,
+                 color.g,
+                 color.b,
                  &color_ycca.x,
                  &color_ycca.y,
                  &color_ycca.z,
                  BLI_YCC_ITU_BT709);
 
-      const float2 new_chroma_cb_cr = new_chroma.load_pixel<float4>(texel).yz();
+      const float2 new_chroma_cb_cr = float4(new_chroma.load_pixel<Color>(texel)).yz();
       color_ycca.y = new_chroma_cb_cr.x * 255.0f;
       color_ycca.z = new_chroma_cb_cr.y * 255.0f;
 
@@ -368,9 +366,9 @@ class KeyingOperation : public NodeOperation {
                  &color_rgba.y,
                  &color_rgba.z,
                  BLI_YCC_ITU_BT709);
-      color_rgba.w = color.w;
+      color_rgba.w = color.a;
 
-      output.store_pixel(texel, color_rgba);
+      output.store_pixel(texel, Color(color_rgba));
     });
 
     return output;
@@ -400,7 +398,7 @@ class KeyingOperation : public NodeOperation {
     output.allocate_texture(input.domain());
     output.bind_as_image(shader, "output_img");
 
-    compute_dispatch_threads_at_least(shader, input.domain().size);
+    compute_dispatch_threads_at_least(shader, input.domain().data_size);
 
     GPU_shader_unbind();
     input.unbind_as_texture();
@@ -432,8 +430,8 @@ class KeyingOperation : public NodeOperation {
       return (color[indices.x] - weighted_average) * math::abs(1.0f - weighted_average);
     };
 
-    parallel_for(input.domain().size, [&](const int2 texel) {
-      float4 input_color = input.load_pixel<float4>(texel);
+    parallel_for(input.domain().data_size, [&](const int2 texel) {
+      float4 input_color = float4(input.load_pixel<Color>(texel));
 
       /* We assume that the keying screen will not be overexposed in the image, so if the input
        * brightness is high, we assume the pixel is opaque. */
@@ -442,7 +440,7 @@ class KeyingOperation : public NodeOperation {
         return;
       }
 
-      float4 key_color = key.load_pixel<float4, true>(texel);
+      float4 key_color = float4(key.load_pixel<Color, true>(texel));
       int3 key_saturation_indices = compute_saturation_indices(key_color.xyz());
       float input_saturation = compute_saturation(input_color, key_saturation_indices);
       float key_saturation = compute_saturation(key_color, key_saturation_indices);
@@ -470,7 +468,8 @@ class KeyingOperation : public NodeOperation {
 
   float get_key_balance()
   {
-    return math::clamp(this->get_input("Key Balance").get_single_value_default(0.5f), 0.0f, 1.0f);
+    return math::clamp(
+        this->get_input("Key Balance").get_single_value_default<float>(), 0.0f, 1.0f);
   }
 
   Result compute_tweaked_matte(Result &input_matte)
@@ -485,8 +484,8 @@ class KeyingOperation : public NodeOperation {
      * the call, and we want to extend its life since it is now returned as the output. */
     Result &output_edges = get_result("Edges");
     if (!output_edges.should_compute() && black_level == 0.0f && white_level == 1.0f &&
-        core_matte.get_single_value_default(1.0f) == 0.0f &&
-        garbage_matte.get_single_value_default(1.0f) == 0.0f)
+        core_matte.get_single_value_default<float>() == 0.0f &&
+        garbage_matte.get_single_value_default<float>() == 0.0f)
     {
       Result output_matte = input_matte;
       input_matte.increment_reference_count();
@@ -527,7 +526,7 @@ class KeyingOperation : public NodeOperation {
       output_edges.bind_as_image(shader, "output_edges_img");
     }
 
-    compute_dispatch_threads_at_least(shader, input_matte.domain().size);
+    compute_dispatch_threads_at_least(shader, input_matte.domain().data_size);
 
     GPU_shader_unbind();
     input_matte.unbind_as_texture();
@@ -567,7 +566,7 @@ class KeyingOperation : public NodeOperation {
       output_edges.allocate_texture(input_matte.domain());
     }
 
-    parallel_for(input_matte.domain().size, [&](const int2 texel) {
+    parallel_for(input_matte.domain().data_size, [&](const int2 texel) {
       float matte = input_matte.load_pixel<float>(texel);
 
       /* Search the neighborhood around the current matte value and identify if it lies along the
@@ -621,23 +620,25 @@ class KeyingOperation : public NodeOperation {
 
   int get_edge_search_size()
   {
-    return math::max(0, this->get_input("Edge Search Size").get_single_value_default(3));
+    return math::max(0, this->get_input("Edge Search Size").get_single_value_default<int>());
   }
 
   float get_edge_tolerance()
   {
     return math::clamp(
-        this->get_input("Edge Tolerance").get_single_value_default(0.1f), 0.0f, 1.0f);
+        this->get_input("Edge Tolerance").get_single_value_default<float>(), 0.0f, 1.0f);
   }
 
   float get_black_level()
   {
-    return math::clamp(this->get_input("Black Level").get_single_value_default(0.0f), 0.0f, 1.0f);
+    return math::clamp(
+        this->get_input("Black Level").get_single_value_default<float>(), 0.0f, 1.0f);
   }
 
   float get_white_level()
   {
-    return math::clamp(this->get_input("White Level").get_single_value_default(1.0f), 0.0f, 1.0f);
+    return math::clamp(
+        this->get_input("White Level").get_single_value_default<float>(), 0.0f, 1.0f);
   }
 
   Result compute_blurred_matte(Result &input_matte)
@@ -654,14 +655,14 @@ class KeyingOperation : public NodeOperation {
 
     Result blurred_matte = context().create_result(ResultType::Float);
     symmetric_separable_blur(
-        context(), input_matte, blurred_matte, float2(blur_size) / 2, R_FILTER_BOX);
+        context(), input_matte, blurred_matte, float2(blur_size) / 2, math::FilterKernel::Box);
 
     return blurred_matte;
   }
 
   int get_postprocess_blur_size()
   {
-    return math::max(0, this->get_input("Postprocess Blur Size").get_single_value_default(0));
+    return math::max(0, this->get_input("Postprocess Blur Size").get_single_value_default<int>());
   }
 
   Result compute_morphed_matte(Result &input_matte)
@@ -684,7 +685,7 @@ class KeyingOperation : public NodeOperation {
 
   int get_postprocess_dilate_size()
   {
-    return this->get_input("Postprocess Dilate Size").get_single_value_default(0);
+    return this->get_input("Postprocess Dilate Size").get_single_value_default<int>();
   }
 
   Result compute_feathered_matte(Result &input_matte)
@@ -708,15 +709,12 @@ class KeyingOperation : public NodeOperation {
 
   int get_postprocess_feather_size()
   {
-    return this->get_input("Postprocess Feather Size").get_single_value_default(0);
+    return this->get_input("Postprocess Feather Size").get_single_value_default<int>();
   }
 
   int get_feather_falloff()
   {
-    const Result &input = this->get_input("Feather Falloff");
-    const MenuValue default_menu_value = MenuValue(PROP_SMOOTH);
-    const MenuValue menu_value = input.get_single_value_default(default_menu_value);
-    return menu_value.value;
+    return this->get_input("Feather Falloff").get_single_value_default<MenuValue>().value;
   }
 
   void compute_image(Result &matte)
@@ -749,7 +747,7 @@ class KeyingOperation : public NodeOperation {
     output.allocate_texture(matte.domain());
     output.bind_as_image(shader, "output_img");
 
-    compute_dispatch_threads_at_least(shader, input.domain().size);
+    compute_dispatch_threads_at_least(shader, input.domain().data_size);
 
     GPU_shader_unbind();
     input.unbind_as_texture();
@@ -777,9 +775,9 @@ class KeyingOperation : public NodeOperation {
       return int3(index_of_max, max_index, min_index);
     };
 
-    parallel_for(input.domain().size, [&](const int2 texel) {
-      float4 key_color = key.load_pixel<float4, true>(texel);
-      float4 color = input.load_pixel<float4>(texel);
+    parallel_for(input.domain().data_size, [&](const int2 texel) {
+      float4 key_color = float4(key.load_pixel<Color, true>(texel));
+      float4 color = float4(input.load_pixel<Color>(texel));
       float matte = matte_image.load_pixel<float>(texel);
 
       /* Alpha multiply the matte to the image. */
@@ -791,34 +789,30 @@ class KeyingOperation : public NodeOperation {
           color[indices.y], color[indices.z], despill_balance);
       color[indices.x] -= math::max(0.0f, (color[indices.x] - weighted_average) * despill_factor);
 
-      output.store_pixel(texel, color);
+      output.store_pixel(texel, Color(color));
     });
   }
 
   float get_despill_strength()
   {
-    return math::max(0.0f, this->get_input("Despill Strength").get_single_value_default(1.0f));
+    return math::max(0.0f, this->get_input("Despill Strength").get_single_value_default<float>());
   }
 
   float get_despill_balance()
   {
     return math::clamp(
-        this->get_input("Despill Balance").get_single_value_default(0.5f), 0.0f, 1.0f);
+        this->get_input("Despill Balance").get_single_value_default<float>(), 0.0f, 1.0f);
   }
 };
 
-static NodeOperation *get_compositor_operation(Context &context, DNode node)
+static NodeOperation *get_compositor_operation(Context &context, const bNode &node)
 {
   return new KeyingOperation(context, node);
 }
 
-}  // namespace blender::nodes::node_composite_keying_cc
-
-static void register_node_type_cmp_keying()
+static void node_register()
 {
-  namespace file_ns = blender::nodes::node_composite_keying_cc;
-
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
 
   cmp_node_type_base(&ntype, "CompositorNodeKeying", CMP_NODE_KEYING);
   ntype.ui_name = "Keying";
@@ -827,13 +821,15 @@ static void register_node_type_cmp_keying()
       "from the backdrop)";
   ntype.enum_name_legacy = "KEYING";
   ntype.nclass = NODE_CLASS_MATTE;
-  ntype.declare = file_ns::cmp_node_keying_declare;
-  ntype.initfunc = file_ns::node_composit_init_keying;
-  blender::bke::node_type_storage(
+  ntype.declare = node_declare;
+  ntype.initfunc = node_init;
+  bke::node_type_storage(
       ntype, "NodeKeyingData", node_free_standard_storage, node_copy_standard_storage);
-  ntype.get_compositor_operation = file_ns::get_compositor_operation;
-  blender::bke::node_type_size(ntype, 155, 140, NODE_DEFAULT_MAX_WIDTH);
+  ntype.get_compositor_operation = get_compositor_operation;
+  bke::node_type_size(ntype, 155, 140, NODE_DEFAULT_MAX_WIDTH);
 
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 }
-NOD_REGISTER_NODE(register_node_type_cmp_keying)
+NOD_REGISTER_NODE(node_register)
+
+}  // namespace blender::nodes::node_composite_keying_cc

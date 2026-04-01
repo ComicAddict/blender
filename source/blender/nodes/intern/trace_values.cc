@@ -108,7 +108,7 @@ static Vector<SocketInContext> find_target_sockets_through_contexts(
               socket.context, node->identifier, &node->owner_tree());
           for (const bNode *input_node : group->group_input_nodes()) {
             if (const bNodeSocket *group_input_socket = input_node->output_by_identifier(
-                    socket->identifier))
+                    socket->identifier_ustr()))
             {
               if (group_input_socket->is_directly_linked()) {
                 add_if_new({&group_compute_context, group_input_socket}, bundle_path);
@@ -127,7 +127,7 @@ static Vector<SocketInContext> find_target_sockets_through_contexts(
           if (caller_group && caller_group_node) {
             caller_group->ensure_topology_cache();
             if (const bNodeSocket *output_socket = caller_group_node->output_by_identifier(
-                    socket->identifier))
+                    socket->identifier_ustr()))
             {
               add_if_new({group_context->parent(), output_socket}, bundle_path);
             }
@@ -421,7 +421,7 @@ static Vector<SocketInContext> find_origin_sockets_through_contexts(
             const ComputeContext &group_compute_context = compute_context_cache.for_group_node(
                 socket.context, node->identifier, &node->owner_tree());
             if (const bNodeSocket *group_output_socket = group_output_node->input_by_identifier(
-                    socket->identifier))
+                    socket->identifier_ustr()))
             {
               add_if_new({&group_compute_context, group_output_socket}, bundle_path);
             }
@@ -438,12 +438,16 @@ static Vector<SocketInContext> find_origin_sockets_through_contexts(
           if (caller_group && caller_group_node) {
             caller_group->ensure_topology_cache();
             if (const bNodeSocket *input_socket = caller_group_node->input_by_identifier(
-                    socket->identifier))
+                    socket->identifier_ustr()))
             {
               add_if_new({group_context->parent(), input_socket}, bundle_path);
             }
           }
         }
+        continue;
+      }
+      if (node->is_type("NodeJoinBundle")) {
+        add_if_new(node.input_socket(0), bundle_path);
         continue;
       }
       if (node->is_type("NodeEvaluateClosure")) {
@@ -611,12 +615,37 @@ LinkedBundleSignatures gather_linked_origin_bundle_signatures(
       {bundle_socket_context, &bundle_socket},
       compute_context_cache,
       [&](const SocketInContext &socket) {
-        const bNode &node = socket->owner_node();
-        if (socket->is_output() && node.is_type("NodeCombineBundle")) {
-          const auto &storage = *static_cast<const NodeCombineBundle *>(node.storage);
-          result.items.append({BundleSignature::from_combine_bundle_node(node, false),
-                               bool(storage.flag & NODE_COMBINE_BUNDLE_FLAG_DEFINE_SIGNATURE),
-                               socket});
+        const NodeInContext node = socket.owner_node();
+        if (socket->is_output()) {
+          if (node->is_type("NodeCombineBundle")) {
+            const auto &storage = *static_cast<const NodeCombineBundle *>(node->storage);
+            result.items.append({BundleSignature::from_combine_bundle_node(*node, false),
+                                 bool(storage.flag & NODE_COMBINE_BUNDLE_FLAG_DEFINE_SIGNATURE),
+                                 socket});
+            return true;
+          }
+        }
+        if (node->is_type("NodeJoinBundle")) {
+          const SocketInContext input_socket = node.input_socket(0);
+          BundleSignature joined_signature;
+          bool is_signature_definition = true;
+          for (const bNodeLink *link : input_socket->directly_linked_links()) {
+            if (!link->is_used()) {
+              continue;
+            }
+            const bNodeSocket *socket_from = link->fromsock;
+            const LinkedBundleSignatures sub_signatures = gather_linked_origin_bundle_signatures(
+                node.context, *socket_from, compute_context_cache);
+            for (const LinkedBundleSignatures::Item &sub_signature : sub_signatures.items) {
+              if (!sub_signature.is_signature_definition) {
+                is_signature_definition = false;
+              }
+              for (const BundleSignature::Item &item : sub_signature.signature.items) {
+                joined_signature.items.add(item);
+              }
+            }
+          }
+          result.items.append({joined_signature, is_signature_definition, socket});
           return true;
         }
         return false;

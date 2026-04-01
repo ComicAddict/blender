@@ -2,8 +2,11 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#include "infos/eevee_material_infos.hh"
+#include "infos/eevee_geom_infos.hh"
+#include "infos/eevee_nodetree_infos.hh"
+#include "infos/eevee_surf_shadow_infos.hh"
 
+VERTEX_SHADER_CREATE_INFO(eevee_nodetree)
 VERTEX_SHADER_CREATE_INFO(eevee_clip_plane)
 VERTEX_SHADER_CREATE_INFO(eevee_geom_pointcloud)
 
@@ -24,9 +27,18 @@ void main()
 
   init_interface();
 
-  pointcloud_interp_flat.id = pointcloud_get_point_id();
-  pointcloud_get_pos_and_radius(pointcloud_interp.position, pointcloud_interp.radius);
-  pointcloud_get_pos_and_nor(interp.P, interp.N);
+  const pointcloud::Point ls_pt = pointcloud::point_get(uint(gl_VertexID));
+  const pointcloud::Point ws_pt = pointcloud::object_to_world(ls_pt, drw_modelmat());
+  const pointcloud::ShapePoint pt = pointcloud::shape_point_get(
+      ws_pt, drw_world_incident_vector(ws_pt.P), drw_view_up());
+
+  pointcloud_interp_flat.id = ws_pt.point_id;
+  pointcloud_interp.position = ws_pt.P;
+  pointcloud_interp.radius = ws_pt.radius;
+
+  interp.P = pt.P;
+  interp.N = pt.N;
+
 #ifdef MAT_SHADOW
   /* Since point clouds always face the view, camera and shadow orientation don't match.
    * Apply a bias to avoid self-shadow issues. */
@@ -46,7 +58,7 @@ void main()
 #endif
 
   init_globals();
-  attrib_load(PointCloudPoint(0));
+  attrib_load(PointCloudPoint{ws_pt.point_id});
 
   interp.P += nodetree_displacement();
 

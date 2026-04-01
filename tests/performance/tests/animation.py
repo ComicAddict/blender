@@ -15,10 +15,12 @@ def _run(args):
 
     while elapsed_time < 10.0:
         scene = bpy.context.scene
-        for i in range(scene.frame_start, scene.frame_end + 1):
-            scene.frame_set(i)
+        f = scene.frame_current + 1
 
-        num_frames += scene.frame_end + 1 - scene.frame_start
+        if f >= scene.frame_end:
+            f = scene.frame_start
+        scene.frame_set(f)
+        num_frames += 1
         elapsed_time = time.time() - start_time
 
     time_per_frame = elapsed_time / num_frames
@@ -37,7 +39,7 @@ class AnimationTest(api.Test):
     def category(self):
         return "animation"
 
-    def run(self, env, device_id):
+    def run(self, env, device_id, gpu_backend):
         args = {}
         result, _ = env.run_in_blender(_run, args, [self.filepath])
         return result

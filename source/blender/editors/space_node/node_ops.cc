@@ -18,7 +18,9 @@
 
 #include "node_intern.hh" /* own include */
 
-namespace blender::ed::space_node {
+namespace blender {
+
+namespace ed::space_node {
 
 void node_operatortypes()
 {
@@ -65,6 +67,7 @@ void node_operatortypes()
   WM_operatortype_append(NODE_OT_group_ungroup);
   WM_operatortype_append(NODE_OT_group_separate);
   WM_operatortype_append(NODE_OT_group_edit);
+  WM_operatortype_append(NODE_OT_group_enter_exit);
 
   WM_operatortype_append(NODE_OT_default_group_width_set);
 
@@ -95,6 +98,8 @@ void node_operatortypes()
 
   WM_operatortype_append(NODE_OT_new_node_tree);
   WM_operatortype_append(NODE_OT_new_compositing_node_group);
+  WM_operatortype_append(NODE_OT_duplicate_compositing_node_group);
+  WM_operatortype_append(NODE_OT_duplicate_compositing_modifier_node_group);
   WM_operatortype_append(NODE_OT_new_compositor_sequencer_node_group);
 
   WM_operatortype_append(NODE_OT_parent_set);
@@ -116,6 +121,8 @@ void node_operatortypes()
 
   WM_operatortype_append(NODE_OT_sockets_sync);
 
+  WM_operatortype_append(NODE_OT_link_drag_operation_test);
+
   for (bke::bNodeType *ntype : bke::node_types_get()) {
     if (ntype->register_operators) {
       ntype->register_operators();
@@ -135,7 +142,7 @@ void node_keymap(wmKeyConfig *keyconf)
   node_resize_modal_keymap(keyconf);
 }
 
-}  // namespace blender::ed::space_node
+}  // namespace ed::space_node
 
 void ED_operatormacros_node()
 {
@@ -230,4 +237,13 @@ void ED_operatormacros_node()
                                     OPTYPE_UNDO | OPTYPE_REGISTER);
   WM_operatortype_macro_define(ot, "NODE_OT_links_detach");
   WM_operatortype_macro_define(ot, "NODE_OT_translate_attach");
+
+  ot = WM_operatortype_append_macro("NODE_OT_delete_copy_reconnect",
+                                    "Delete with Copy and Reconnect",
+                                    "Copy nodes to clipboard, remove and reconnect them.",
+                                    OPTYPE_UNDO | OPTYPE_REGISTER);
+  WM_operatortype_macro_define(ot, "NODE_OT_clipboard_copy");
+  WM_operatortype_macro_define(ot, "NODE_OT_delete_reconnect");
 }
+
+}  // namespace blender

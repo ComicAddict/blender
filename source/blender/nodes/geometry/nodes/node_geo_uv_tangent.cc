@@ -20,24 +20,24 @@ static EnumPropertyItem method_items[] = {
     {int(Method::Exact),
      "EXACT",
      0,
-     "Exact",
-     "Calculation using the MikkTSpace library, consistent with tangents used elsewhere in "
-     "Blender"},
+     N_("Exact"),
+     N_("Calculation using the MikkTSpace library, consistent with tangents used elsewhere in "
+        "Blender")},
     {int(Method::Fast),
      "FAST",
      0,
-     "Fast",
-     "Significantly faster method that approximates tangents interpolated across face corners "
-     "with matching UVs. For a value actually tangential to the surface, use the cross product "
-     "with the normal."},
+     N_("Fast"),
+     N_("Significantly faster method that approximates tangents interpolated across face corners "
+        "with matching UVs. For a value actually tangential to the surface, use the cross product "
+        "with the normal.")},
     {0, nullptr, 0, nullptr, nullptr},
 };
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Menu>("Method").static_items(method_items).optional_label();
-  b.add_input<decl::Vector>("UV").dimensions(2).subtype(PROP_XYZ).supports_field();
-  b.add_output<decl::Vector>("Tangent").field_source_reference_all();
+  b.add_input<decl::Menu>("Method"_ustr).static_items(method_items).optional_label();
+  b.add_input<decl::Vector>("UV"_ustr).dimensions(2).subtype(PROP_XYZ).supports_field();
+  b.add_output<decl::Vector>("Tangent"_ustr).field_source_reference_all();
 }
 
 static float3 compute_triangle_tangent(const float3 &p1,
@@ -57,7 +57,7 @@ static float3 compute_triangle_tangent(const float3 &p1,
   const float s2 = uv3.x - uv1.x;
   const float t1 = uv2.y - uv1.y;
   const float t2 = uv3.y - uv1.y;
-  const float r = 1.0f / (s1 * t2 - s2 * t1);
+  const float r = math::safe_rcp(s1 * t2 - s2 * t1);
   const float3 tangent((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r);
   return tangent;
 }
@@ -138,7 +138,6 @@ class TangentFieldInput final : public bke::MeshFieldInput {
         method_(method),
         uv_field_(std::move(uv))
   {
-    category_ = Category::Generated;
   }
 
   GVArray get_varray_for_context(const Mesh &mesh,
@@ -224,15 +223,15 @@ class TangentFieldInput final : public bke::MeshFieldInput {
 
 static void node_geo_exec(GeoNodeExecParams params)
 {
-  const Method method = params.extract_input<Method>("Method");
-  Field<float3> uv_field = params.extract_input<Field<float3>>("UV");
-  params.set_output("Tangent",
+  const Method method = params.extract_input<Method>("Method"_ustr);
+  Field<float3> uv_field = params.extract_input<Field<float3>>("UV"_ustr);
+  params.set_output("Tangent"_ustr,
                     Field<float3>(std::make_shared<TangentFieldInput>(method, uv_field)));
 }
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
 
   geo_node_type_base(&ntype, "GeometryNodeUVTangent");
   ntype.ui_name = "UV Tangent";
@@ -240,7 +239,7 @@ static void node_register()
   ntype.nclass = NODE_CLASS_INPUT;
   ntype.declare = node_declare;
   ntype.geometry_node_execute = node_geo_exec;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 }
 NOD_REGISTER_NODE(node_register)
 

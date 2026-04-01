@@ -29,6 +29,8 @@ void RayTraceModule::init()
   if ((sce_eevee.flag & SCE_EEVEE_FAST_GI_ENABLED) == 0) {
     ray_tracing_options_.trace_max_roughness = 1.0f;
   }
+  /* Always initialize thickness, for the ray-cast node. */
+  data_.thickness = ray_tracing_options_.screen_trace_thickness;
 
   tracing_method_ = RaytraceEEVEE_Method(sce_eevee.ray_tracing_method);
   fast_gi_ray_count_ = sce_eevee.fast_gi_ray_count;
@@ -278,16 +280,16 @@ void RayTraceModule::sync()
     PassSimple &pass = horizon_scan_ps_;
     pass.init();
     gpu::Shader *sh = inst_.shaders.static_shader_get(HORIZON_SCAN);
-    pass.specialize_constant(sh, "fast_gi_slice_count", fast_gi_ray_count_);
-    pass.specialize_constant(sh, "fast_gi_step_count", fast_gi_step_count_);
-    pass.specialize_constant(sh, "fast_gi_ao_only", fast_gi_ao_only_);
+    pass.specialize_constant(sh, "slice_count", fast_gi_ray_count_);
+    pass.specialize_constant(sh, "step_count", fast_gi_step_count_);
+    pass.specialize_constant(sh, "ao_only", fast_gi_ao_only_);
     pass.shader_set(sh);
     pass.bind_texture("screen_radiance_tx", &downsampled_in_radiance_tx_);
     pass.bind_texture("screen_normal_tx", &downsampled_in_normal_tx_);
-    pass.bind_image("horizon_radiance_0_img", &horizon_radiance_tx_[0]);
-    pass.bind_image("horizon_radiance_1_img", &horizon_radiance_tx_[1]);
-    pass.bind_image("horizon_radiance_2_img", &horizon_radiance_tx_[2]);
-    pass.bind_image("horizon_radiance_3_img", &horizon_radiance_tx_[3]);
+    pass.bind_image("sh_0_img", &horizon_radiance_tx_[0]);
+    pass.bind_image("sh_1_img", &horizon_radiance_tx_[1]);
+    pass.bind_image("sh_2_img", &horizon_radiance_tx_[2]);
+    pass.bind_image("sh_3_img", &horizon_radiance_tx_[3]);
     pass.bind_ssbo("tiles_coord_buf", &horizon_tracing_tiles_buf_);
     pass.bind_texture(RBUFS_UTILITY_TEX_SLOT, inst_.pipelines.utility_tx);
     pass.bind_resources(inst_.uniform_data);
@@ -303,15 +305,16 @@ void RayTraceModule::sync()
     pass.init();
     gpu::Shader *sh = inst_.shaders.static_shader_get(HORIZON_DENOISE);
     pass.shader_set(sh);
-    pass.bind_texture("in_sh_0_tx", &horizon_radiance_tx_[0]);
-    pass.bind_texture("in_sh_1_tx", &horizon_radiance_tx_[1]);
-    pass.bind_texture("in_sh_2_tx", &horizon_radiance_tx_[2]);
-    pass.bind_texture("in_sh_3_tx", &horizon_radiance_tx_[3]);
+    pass.bind_texture("depth_tx", &depth_tx);
+    pass.bind_texture("horizon_radiance_0_tx", &horizon_radiance_tx_[0]);
+    pass.bind_texture("horizon_radiance_1_tx", &horizon_radiance_tx_[1]);
+    pass.bind_texture("horizon_radiance_2_tx", &horizon_radiance_tx_[2]);
+    pass.bind_texture("horizon_radiance_3_tx", &horizon_radiance_tx_[3]);
     pass.bind_texture("screen_normal_tx", &downsampled_in_normal_tx_);
-    pass.bind_image("out_sh_0_img", &horizon_radiance_denoised_tx_[0]);
-    pass.bind_image("out_sh_1_img", &horizon_radiance_denoised_tx_[1]);
-    pass.bind_image("out_sh_2_img", &horizon_radiance_denoised_tx_[2]);
-    pass.bind_image("out_sh_3_img", &horizon_radiance_denoised_tx_[3]);
+    pass.bind_image("sh_0_img", &horizon_radiance_denoised_tx_[0]);
+    pass.bind_image("sh_1_img", &horizon_radiance_denoised_tx_[1]);
+    pass.bind_image("sh_2_img", &horizon_radiance_denoised_tx_[2]);
+    pass.bind_image("sh_3_img", &horizon_radiance_denoised_tx_[3]);
     pass.bind_ssbo("tiles_coord_buf", &horizon_tracing_tiles_buf_);
     pass.bind_resources(inst_.uniform_data);
     pass.bind_resources(inst_.sampling);
@@ -426,7 +429,6 @@ RayTraceResult RayTraceModule::render(RayTraceBuffer &rt_buffer,
   const int2 extent = inst_.film.render_extent_get();
   const int2 tracing_res = math::divide_ceil(extent, int2(resolution_scale));
   const int2 tracing_res_horizon = math::divide_ceil(extent, int2(horizon_resolution_scale));
-  const int2 dummy_extent(1, 1);
   const int2 group_size(RAYTRACE_GROUP_SIZE);
 
   const int2 denoise_tiles = divide_ceil(extent, group_size);
@@ -562,8 +564,8 @@ RayTraceResultTexture RayTraceModule::trace(
     /* Early out. Release persistent buffers. Still acquire one dummy resource for validation. */
     denoise_buf->denoised_spatial_tx.acquire(int2(1),
                                              gpu::TextureFormat::RAYTRACE_RADIANCE_FORMAT);
-    denoise_buf->radiance_history_tx.free();
-    denoise_buf->variance_history_tx.free();
+    denoise_buf->radiance_history_tx.release();
+    denoise_buf->variance_history_tx.release();
     denoise_buf->tilemask_history_tx.free();
     return {denoise_buf->denoised_spatial_tx};
   }
@@ -653,16 +655,16 @@ RayTraceResultTexture RayTraceModule::trace(
     denoise_variance_tx_.acquire(use_bilateral_denoise ? extent : int2(1),
                                  gpu::TextureFormat::RAYTRACE_VARIANCE_FORMAT,
                                  usage_rw);
-    denoise_buf->variance_history_tx.ensure_2d(gpu::TextureFormat::RAYTRACE_VARIANCE_FORMAT,
-                                               use_bilateral_denoise ? extent : int2(1),
-                                               usage_rw);
+    denoise_buf->variance_history_tx.acquire(use_bilateral_denoise ? extent : int2(1),
+                                             gpu::TextureFormat::RAYTRACE_VARIANCE_FORMAT,
+                                             usage_rw);
     denoise_buf->tilemask_history_tx.ensure_2d_array(gpu::TextureFormat::RAYTRACE_TILEMASK_FORMAT,
                                                      tile_raytrace_denoise_tx_.size().xy(),
                                                      tile_raytrace_denoise_tx_.size().z,
                                                      usage_rw);
 
-    if (denoise_buf->radiance_history_tx.ensure_2d(
-            gpu::TextureFormat::RAYTRACE_RADIANCE_FORMAT, extent, usage_rw) ||
+    if (denoise_buf->radiance_history_tx.acquire(
+            extent, gpu::TextureFormat::RAYTRACE_RADIANCE_FORMAT, usage_rw) ||
         denoise_buf->valid_history == false)
     {
       /* If viewport resolution changes, do not try to use history. */
@@ -701,9 +703,11 @@ RayTraceResultTexture RayTraceModule::trace(
 
     inst_.manager->submit(denoise_bilateral_ps_, render_view);
 
-    /* Swap after last use. */
+    /* Swap after last use, retain history buffers until next cycle. */
     TextureFromPool::swap(denoise_buf->denoised_temporal_tx, denoise_buf->radiance_history_tx);
     TextureFromPool::swap(denoise_variance_tx_, denoise_buf->variance_history_tx);
+    denoise_buf->radiance_history_tx.retain();
+    denoise_buf->variance_history_tx.retain();
 
     result = {denoise_buf->denoised_bilateral_tx};
     /* Not referenced by result anymore. */

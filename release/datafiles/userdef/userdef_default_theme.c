@@ -8,9 +8,7 @@
  * Do not hand edit this file!
  */
 
-#include "DNA_userdef_types.h"
-
-#include "BLO_userdef_default.h"
+#include "DNA_theme_types.h"
 
 /* clang-format off */
 
@@ -231,6 +229,7 @@ const bTheme U_theme_default = {
       .text_sel = RGBA(0xffffffff),
       .roundness = 0.2f,
     },
+    .link = RGBA(0x6FA9E6ff),
     .wcol_state = {
       .error = RGBA(0x771111ff),
       .warning = RGBA(0xac8737ff),
@@ -289,7 +288,7 @@ const bTheme U_theme_default = {
   },
   .regions = {
     .asset_shelf = {
-      .back = RGBA(0x303030ff),
+      .back = RGBA(0x303030e6),
       .header_back = RGBA(0x1d1d1dff),
     },
     .channels = {
@@ -298,10 +297,10 @@ const bTheme U_theme_default = {
       .text_selected = RGBA(0xffaf23ff),
     },
     .scrubbing = {
-      .back = RGBA(0x161616ff),
-      .text = RGBA(0xc3c3c3ff),
-      .time_marker = RGBA(0xffffff4d),
-      .time_marker_selected = RGBA(0xffffffb3),
+      .back = RGBA(0x1d1d1dff),
+      .text = RGBA(0x808080ff),
+      .time_marker = RGBA(0xffffff80),
+      .time_marker_selected = RGBA(0xffffffff),
     },
     .sidebars = {
       .back = RGBA(0x30303000),
@@ -332,18 +331,19 @@ const bTheme U_theme_default = {
       .keyframe_generated_selected = RGBA(0xa28962ff),
       .long_key = RGBA(0xffffff1f),
       .long_key_selected = RGBA(0xff8c0099),
+      .scene_strip_range = RGBA(0x00000080),
     },
     .curves = {
-      .handle_free = RGBA(0x000000ff),
-      .handle_auto = RGBA(0x909000ff),
-      .handle_vect = RGBA(0x409030ff),
-      .handle_align = RGBA(0x803060ff),
-      .handle_auto_clamped = RGBA(0x994030ff),
-      .handle_sel_free = RGBA(0x000000ff),
-      .handle_sel_auto = RGBA(0xf0ff40ff),
-      .handle_sel_vect = RGBA(0x40c030ff),
-      .handle_sel_align = RGBA(0xf090a0ff),
-      .handle_sel_auto_clamped = RGBA(0xf0af90ff),
+      .handle_free = RGBA(0x745900ff),
+      .handle_auto = RGBA(0x740d00ff),
+      .handle_vect = RGBA(0x232374ff),
+      .handle_align = RGBA(0x157000ff),
+      .handle_auto_clamped = RGBA(0x803060ff),
+      .handle_sel_free = RGBA(0xffc300ff),
+      .handle_sel_auto = RGBA(0xff1900ff),
+      .handle_sel_vect = RGBA(0x4444ffff),
+      .handle_sel_align = RGBA(0x72ff57ff),
+      .handle_sel_auto_clamped = RGBA(0xf090a0ff),
       .handle_vertex = RGBA(0x000000ff),
       .handle_vertex_select = RGBA(0xff8500ff),
       .handle_vertex_size = 5,
@@ -372,6 +372,7 @@ const bTheme U_theme_default = {
     .header_text = RGBA(0xeeeeeeff),
     .header_text_hi = RGBA(0xffffffff),
     .grid = RGBA(0x54545480),
+    .grid_major = RGBA(0x545454ff),
     .wire = RGBA(0x000000ff),
     .wire_edit = RGBA(0x000000ff),
     .select = RGBA(0xed5700ff),
@@ -424,6 +425,7 @@ const bTheme U_theme_default = {
     .clipping_border_3d = RGBA(0x3f3f3fff),
     .bundle_solid = RGBA(0xc8c8c8ff),
     .camera_path = RGBA(0x000000ff),
+    .gp_wire_edit = RGBA(0x99999980),
     .gp_vertex_size = 3,
     .gp_vertex = RGBA(0x000000ff),
     .gp_vertex_select = RGBA(0xff8500ff),
@@ -493,7 +495,9 @@ const bTheme U_theme_default = {
     .header_text_hi = RGBA(0xffffffff),
     .shade1 = RGBA(0xc0c0c000),
     .grid = RGBA(0x161616ff),
-    .ds_ipoline = RGBA(0x94e575cc),
+    .anim_interpolation_linear = RGBA(0x94e575cc),
+    .anim_interpolation_constant = RGBA(0xe59c7bcc),
+    .anim_interpolation_other = RGBA(0x5dbabeb3),
     .keyborder = RGBA(0x000000ff),
     .keyborder_select = RGBA(0x000000ff),
     .vertex_size = 3,
@@ -645,15 +649,15 @@ const bTheme U_theme_default = {
     .row_alternate = RGBA(0xffffff04),
   },
   .space_node = {
-    .back = RGBA(0x1d1d1d00),
+    .back = RGBA(0x1a1a1a00),
     .title = RGBA(0xeeeeeeff),
     .text = RGBA(0xe6e6e6ff),
     .text_hi = RGBA(0xffffffff),
-    .header = RGBA(0x1d1d1db3),
+    .header = RGBA(0x1a1a1ab3),
     .header_text = RGBA(0xeeeeeeff),
     .header_text_hi = RGBA(0xffffffff),
     .shade2 = RGBA(0x7f7f7f64),
-    .grid = RGBA(0x28282800),
+    .grid = RGBA(0x30303000),
     .wire = RGBA(0x1a1a1aff),
     .select = RGBA(0xed5700ff),
     .active = RGBA(0xffffffff),
@@ -673,6 +677,7 @@ const bTheme U_theme_default = {
     .syntaxc = RGBA(0x374725ff),
     .syntaxd = RGBA(0x3e5a5bff),
     .syntaxr = RGBA(0x8d8d8dff),
+    .node_outline = RGBA(0xffffff26),
     .nodeclass_output = RGBA(0x3e232aff),
     .nodeclass_filter = RGBA(0x412b51ff),
     .nodeclass_vector = RGBA(0x3c3c83ff),
@@ -701,6 +706,7 @@ const bTheme U_theme_default = {
     .vertex_size = 3,
     .outline_width = 1,
     .facedot_size = 4,
+    .match = RGBA(0x4772b3ff),
   },
   .space_console = {
     .back = RGBA(0x1d1d1d00),

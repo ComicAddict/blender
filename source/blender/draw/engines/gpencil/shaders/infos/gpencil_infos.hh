@@ -7,14 +7,14 @@
 
 #  include "gpu_shader_compat.hh"
 
-#  define GP_LIGHT
-
 #  include "gpencil_shader_shared.hh"
 
 #  include "draw_object_infos_infos.hh"
 #  include "draw_view_infos.hh"
-#  include "gpu_shader_fullscreen_infos.hh"
+#endif
 
+#ifdef GLSL_CPP_STUBS
+#  undef SMAA_RT_METRICS
 #  define SMAA_GLSL_3
 #  define SMAA_STAGE 1
 #  define SMAA_PRESET_HIGH
@@ -51,7 +51,6 @@ GPU_SHADER_NAMED_INTERFACE_END(gp_interp_noperspective)
 
 GPU_SHADER_CREATE_INFO(gpencil_geometry)
 DO_STATIC_COMPILATION()
-DEFINE("GP_LIGHT")
 TYPEDEF_SOURCE("gpencil_defines.hh")
 SAMPLER(2, sampler2D, gp_fill_tx)
 SAMPLER(3, sampler2D, gp_stroke_tx)
@@ -100,7 +99,7 @@ PUSH_CONSTANT(float, blend_opacity)
 FRAGMENT_OUT(0, float4, frag_color)
 FRAGMENT_OUT(1, float4, fragRevealage)
 FRAGMENT_SOURCE("gpencil_layer_blend_frag.glsl")
-ADDITIONAL_INFO(gpu_fullscreen)
+VERTEX_SOURCE("gpencil_fullscreen_vert.glsl")
 GPU_SHADER_CREATE_END()
 
 GPU_SHADER_CREATE_INFO(gpencil_mask_invert)
@@ -108,7 +107,7 @@ DO_STATIC_COMPILATION()
 FRAGMENT_OUT(0, float4, frag_color)
 FRAGMENT_OUT(1, float4, fragRevealage)
 FRAGMENT_SOURCE("gpencil_mask_invert_frag.glsl")
-ADDITIONAL_INFO(gpu_fullscreen)
+VERTEX_SOURCE("gpencil_fullscreen_vert.glsl")
 GPU_SHADER_CREATE_END()
 
 GPU_SHADER_CREATE_INFO(gpencil_depth_merge)
@@ -122,6 +121,17 @@ DEPTH_WRITE(DepthWrite::ANY)
 ADDITIONAL_INFO(draw_view)
 GPU_SHADER_CREATE_END()
 
+GPU_SHADER_CREATE_INFO(gpencil_depth_pass_merge)
+DO_STATIC_COMPILATION()
+PUSH_CONSTANT(float4x4, gp_model_matrix)
+PUSH_CONSTANT(bool, stroke_order3d)
+SAMPLER(0, sampler2DDepth, depth_buf)
+IMAGE(0, SFLOAT_32, read_write, image2D, depth_pass_img)
+VERTEX_SOURCE("gpencil_depth_merge_vert.glsl")
+FRAGMENT_SOURCE("gpencil_depth_pass_merge_frag.glsl")
+ADDITIONAL_INFO(draw_view)
+GPU_SHADER_CREATE_END()
+
 /** \} */
 
 /* -------------------------------------------------------------------- */
@@ -131,7 +141,9 @@ GPU_SHADER_CREATE_END()
 GPU_SHADER_INTERFACE_INFO(gpencil_antialiasing_iface)
 SMOOTH(float2, uvs)
 SMOOTH(float2, pixcoord)
-SMOOTH(float4, offset[3])
+SMOOTH(float4, offset0)
+SMOOTH(float4, offset1)
+SMOOTH(float4, offset2)
 GPU_SHADER_INTERFACE_END()
 
 GPU_SHADER_CREATE_INFO(gpencil_antialiasing)
@@ -188,7 +200,7 @@ IMAGE(1, GPENCIL_ACCUM_FORMAT, read_write, image2D, dst_img)
 PUSH_CONSTANT(float, weight_src)
 PUSH_CONSTANT(float, weight_dst)
 FRAGMENT_SOURCE("gpencil_antialiasing_accumulation_frag.glsl")
-ADDITIONAL_INFO(gpu_fullscreen)
+VERTEX_SOURCE("gpencil_fullscreen_vert.glsl")
 DO_STATIC_COMPILATION()
 GPU_SHADER_CREATE_END()
 

@@ -35,6 +35,14 @@ CCL_NAMESPACE_BEGIN
 #    define bvh_throttle_printf(...)
 #  endif
 
+/* This flag didn't exist until Xcode 26.0, so we ensure that it is defined for
+ * forward-compatibility.
+ */
+#  ifndef MAC_OS_VERSION_26_0
+#    define MTLAccelerationStructureUsagePreferFastIntersection \
+      MTLAccelerationStructureUsage(1 << 4)
+#  endif
+
 /* Limit the number of concurrent BVH builds so that we don't approach unsafe GPU working set
  * sizes. */
 struct BVHMetalBuildThrottler {
@@ -292,11 +300,9 @@ bool BVHMetal::build_BLAS_mesh(Progress &progress,
       accelDesc.usage |= (MTLAccelerationStructureUsageRefit |
                           MTLAccelerationStructureUsagePreferFastBuild);
     }
-#  if defined(MAC_OS_VERSION_26_0)
     else if (@available(macos 26.0, *)) {
       accelDesc.usage |= MTLAccelerationStructureUsagePreferFastIntersection;
     }
-#  endif
 
     MTLAccelerationStructureSizes accelSizes = [mtl_device
         accelerationStructureSizesWithDescriptor:accelDesc];
@@ -638,11 +644,9 @@ bool BVHMetal::build_BLAS_hair(Progress &progress,
       accelDesc.usage |= (MTLAccelerationStructureUsageRefit |
                           MTLAccelerationStructureUsagePreferFastBuild);
     }
-#    if defined(MAC_OS_VERSION_26_0)
     else if (@available(macos 26.0, *)) {
       accelDesc.usage |= MTLAccelerationStructureUsagePreferFastIntersection;
     }
-#    endif
 
     MTLAccelerationStructureSizes accelSizes = [mtl_device
         accelerationStructureSizesWithDescriptor:accelDesc];
@@ -788,7 +792,7 @@ bool BVHMetal::build_BLAS_pointcloud(Progress &progress,
       }
       else {
         size_t attr_offset = (step > center_step) ? step - 1 : step;
-        float4 *motion_points = motion_keys->data_float4() + attr_offset * num_points;
+        const float4 *motion_points = motion_keys->data_float4() + attr_offset * num_points;
 
         for (size_t j = 0; j < num_points; ++j) {
           const PointCloud::Point point = pointcloud->get_point(j);
@@ -874,11 +878,9 @@ bool BVHMetal::build_BLAS_pointcloud(Progress &progress,
       accelDesc.usage |= (MTLAccelerationStructureUsageRefit |
                           MTLAccelerationStructureUsagePreferFastBuild);
     }
-#  if defined(MAC_OS_VERSION_26_0)
     else if (@available(macos 26.0, *)) {
       accelDesc.usage |= MTLAccelerationStructureUsagePreferFastIntersection;
     }
-#  endif
 
     MTLAccelerationStructureSizes accelSizes = [mtl_device
         accelerationStructureSizesWithDescriptor:accelDesc];
@@ -1352,11 +1354,9 @@ bool BVHMetal::build_TLAS(Progress &progress,
       accelDesc.usage |= (MTLAccelerationStructureUsageRefit |
                           MTLAccelerationStructureUsagePreferFastBuild);
     }
-#  if defined(MAC_OS_VERSION_26_0)
     else if (@available(macos 26.0, *)) {
       accelDesc.usage |= MTLAccelerationStructureUsagePreferFastIntersection;
     }
-#  endif
 
     MTLAccelerationStructureSizes accelSizes = [mtl_device
         accelerationStructureSizesWithDescriptor:accelDesc];

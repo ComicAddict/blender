@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
 /**
- * Shared code between host and client codebases.
+ * Shared code between host and client code-bases.
  */
 
 #pragma once
@@ -15,7 +15,7 @@ namespace blender::eevee {
 #endif
 
 /* Look-Up Table Generation. */
-enum PrecomputeType : uint32_t {
+enum [[host_shared]] PrecomputeType : uint32_t {
   LUT_GGX_BRDF_SPLIT_SUM = 0u,
   LUT_GGX_BTDF_IOR_GT_ONE = 1u,
   LUT_GGX_BSDF_SPLIT_SUM = 2u,

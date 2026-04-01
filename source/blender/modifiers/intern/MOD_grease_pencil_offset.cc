@@ -10,7 +10,6 @@
 #include "BLI_math_matrix.hh"
 #include "BLI_rand.h"
 
-#include "DNA_defaults.h"
 #include "DNA_modifier_types.h"
 
 #include "BKE_curves.hh"
@@ -41,10 +40,7 @@ namespace blender {
 static void init_data(ModifierData *md)
 {
   auto *omd = reinterpret_cast<GreasePencilOffsetModifierData *>(md);
-
-  BLI_assert(MEMCMP_STRUCT_AFTER_IS_ZERO(omd, modifier));
-
-  MEMCPY_STRUCT_AFTER(omd, DNA_struct_default_get(GreasePencilOffsetModifierData), modifier);
+  INIT_DEFAULT_STRUCT_AFTER(omd, modifier);
   modifier::greasepencil::init_influence_data(&omd->influence, false);
 }
 
@@ -168,18 +164,26 @@ static void modify_stroke_random(const Object &ob,
                   get_random_channel(channel, r[2]));
   };
 
-  curves_mask.foreach_index(GrainSize(512), [&](const int64_t curve_i) {
-    const IndexRange points = points_by_curve[curve_i];
+  curves_mask.foreach_index(
+      [&](const int64_t curve_i) {
+        const IndexRange points = points_by_curve[curve_i];
 
-    /* Randomness factors for loc/rot/scale per curve. */
-    const float3 loc_factor = get_random_vector(0, curve_i);
-    const float3 rot_factor = get_random_vector(1, curve_i);
-    const float3 scale_factor = use_uniform_scale ? float3(get_random_value(2, curve_i)) :
-                                                    get_random_vector(2, curve_i);
+        /* Randomness factors for loc/rot/scale per curve. */
+        const float3 loc_factor = get_random_vector(0, curve_i);
+        const float3 rot_factor = get_random_vector(1, curve_i);
+        const float3 scale_factor = use_uniform_scale ? float3(get_random_value(2, curve_i)) :
+                                                        get_random_vector(2, curve_i);
 
-    apply_stroke_transform(
-        omd, vgroup_weights, points, loc_factor, rot_factor, scale_factor, positions, radii.span);
-  });
+        apply_stroke_transform(omd,
+                               vgroup_weights,
+                               points,
+                               loc_factor,
+                               rot_factor,
+                               scale_factor,
+                               positions,
+                               radii.span);
+      },
+      exec_mode::grain_size(512));
 
   radii.finish();
 }
@@ -207,18 +211,20 @@ static void modify_stroke_by_index(const GreasePencilOffsetModifierData &omd,
   const VArray<float> vgroup_weights = modifier::greasepencil::get_influence_vertex_weights(
       curves, omd.influence);
 
-  curves_mask.foreach_index(GrainSize(512), [&](const int64_t curve_i) {
-    const IndexRange points = points_by_curve[curve_i];
-    const float factor = get_factor_from_index(omd, curves.curves_num(), curve_i);
-    apply_stroke_transform(omd,
-                           vgroup_weights,
-                           points,
-                           float3(factor),
-                           float3(factor),
-                           float3(factor),
-                           positions,
-                           radii.span);
-  });
+  curves_mask.foreach_index(
+      [&](const int64_t curve_i) {
+        const IndexRange points = points_by_curve[curve_i];
+        const float factor = get_factor_from_index(omd, curves.curves_num(), curve_i);
+        apply_stroke_transform(omd,
+                               vgroup_weights,
+                               points,
+                               float3(factor),
+                               float3(factor),
+                               float3(factor),
+                               positions,
+                               radii.span);
+      },
+      exec_mode::grain_size(512));
 
   radii.finish();
 }
@@ -242,18 +248,20 @@ static void modify_stroke_by_material(const Object &ob,
   const VArray<int> stroke_materials = *attributes.lookup_or_default<int>(
       "material_index", bke::AttrDomain::Curve, 0);
 
-  curves_mask.foreach_index(GrainSize(512), [&](const int64_t curve_i) {
-    const IndexRange points = points_by_curve[curve_i];
-    const float factor = get_factor_from_index(omd, totcol, stroke_materials[curve_i]);
-    apply_stroke_transform(omd,
-                           vgroup_weights,
-                           points,
-                           float3(factor),
-                           float3(factor),
-                           float3(factor),
-                           positions,
-                           radii.span);
-  });
+  curves_mask.foreach_index(
+      [&](const int64_t curve_i) {
+        const IndexRange points = points_by_curve[curve_i];
+        const float factor = get_factor_from_index(omd, totcol, stroke_materials[curve_i]);
+        apply_stroke_transform(omd,
+                               vgroup_weights,
+                               points,
+                               float3(factor),
+                               float3(factor),
+                               float3(factor),
+                               positions,
+                               radii.span);
+      },
+      exec_mode::grain_size(512));
 
   radii.finish();
 }
@@ -275,17 +283,19 @@ static void modify_stroke_by_layer(const GreasePencilOffsetModifierData &omd,
 
   const float factor = get_factor_from_index(omd, layers_num, layer_index);
 
-  curves_mask.foreach_index(GrainSize(512), [&](const int64_t curve_i) {
-    const IndexRange points = points_by_curve[curve_i];
-    apply_stroke_transform(omd,
-                           vgroup_weights,
-                           points,
-                           float3(factor),
-                           float3(factor),
-                           float3(factor),
-                           positions,
-                           radii.span);
-  });
+  curves_mask.foreach_index(
+      [&](const int64_t curve_i) {
+        const IndexRange points = points_by_curve[curve_i];
+        apply_stroke_transform(omd,
+                               vgroup_weights,
+                               points,
+                               float3(factor),
+                               float3(factor),
+                               float3(factor),
+                               positions,
+                               radii.span);
+      },
+      exec_mode::grain_size(512));
 
   radii.finish();
 }
@@ -383,14 +393,14 @@ static void modify_geometry_set(ModifierData *md,
 
 static void panel_draw(const bContext *C, Panel *panel)
 {
-  uiLayout *layout = panel->layout;
+  ui::Layout &layout = *panel->layout;
 
   PointerRNA ob_ptr;
   PointerRNA *ptr = modifier_panel_get_property_pointers(panel, &ob_ptr);
   const auto offset_mode = GreasePencilOffsetModifierMode(RNA_enum_get(ptr, "offset_mode"));
 
-  layout->use_property_split_set(true);
-  if (uiLayout *general_panel = layout->panel_prop(
+  layout.use_property_split_set(true);
+  if (ui::Layout *general_panel = layout.panel_prop(
           C, ptr, "open_general_panel", IFACE_("General")))
   {
     general_panel->use_property_split_set(true);
@@ -402,8 +412,8 @@ static void panel_draw(const bContext *C, Panel *panel)
   LayoutPanelState *advanced_panel_state = BKE_panel_layout_panel_state_ensure(
       panel, "advanced", true);
   PointerRNA advanced_state_ptr = RNA_pointer_create_discrete(
-      nullptr, &RNA_LayoutPanelState, advanced_panel_state);
-  if (uiLayout *advanced_panel = layout->panel_prop(
+      nullptr, RNA_LayoutPanelState, advanced_panel_state);
+  if (ui::Layout *advanced_panel = layout.panel_prop(
           C, &advanced_state_ptr, "is_open", IFACE_("Advanced")))
   {
     advanced_panel->prop(ptr, "offset_mode", UI_ITEM_NONE, std::nullopt, ICON_NONE);
@@ -412,7 +422,7 @@ static void panel_draw(const bContext *C, Panel *panel)
     advanced_panel->prop(ptr, "stroke_rotation", UI_ITEM_NONE, IFACE_("Rotation"), ICON_NONE);
     advanced_panel->prop(ptr, "stroke_scale", UI_ITEM_NONE, IFACE_("Scale"), ICON_NONE);
 
-    uiLayout *col = &advanced_panel->column(true);
+    ui::Layout &col = advanced_panel->column(true);
     switch (offset_mode) {
       case MOD_GREASE_PENCIL_OFFSET_RANDOM:
         advanced_panel->prop(
@@ -420,26 +430,26 @@ static void panel_draw(const bContext *C, Panel *panel)
         advanced_panel->prop(ptr, "seed", UI_ITEM_NONE, std::nullopt, ICON_NONE);
         break;
       case MOD_GREASE_PENCIL_OFFSET_STROKE:
-        col->prop(ptr, "stroke_step", UI_ITEM_NONE, IFACE_("Stroke Step"), ICON_NONE);
-        col->prop(ptr, "stroke_start_offset", UI_ITEM_NONE, IFACE_("Offset"), ICON_NONE);
+        col.prop(ptr, "stroke_step", UI_ITEM_NONE, IFACE_("Stroke Step"), ICON_NONE);
+        col.prop(ptr, "stroke_start_offset", UI_ITEM_NONE, IFACE_("Offset"), ICON_NONE);
         break;
       case MOD_GREASE_PENCIL_OFFSET_MATERIAL:
-        col->prop(ptr, "stroke_step", UI_ITEM_NONE, IFACE_("Material Step"), ICON_NONE);
-        col->prop(ptr, "stroke_start_offset", UI_ITEM_NONE, IFACE_("Offset"), ICON_NONE);
+        col.prop(ptr, "stroke_step", UI_ITEM_NONE, IFACE_("Material Step"), ICON_NONE);
+        col.prop(ptr, "stroke_start_offset", UI_ITEM_NONE, IFACE_("Offset"), ICON_NONE);
         break;
       case MOD_GREASE_PENCIL_OFFSET_LAYER:
-        col->prop(ptr, "stroke_step", UI_ITEM_NONE, IFACE_("Layer Step"), ICON_NONE);
-        col->prop(ptr, "stroke_start_offset", UI_ITEM_NONE, IFACE_("Offset"), ICON_NONE);
+        col.prop(ptr, "stroke_step", UI_ITEM_NONE, IFACE_("Layer Step"), ICON_NONE);
+        col.prop(ptr, "stroke_start_offset", UI_ITEM_NONE, IFACE_("Offset"), ICON_NONE);
         break;
     }
   }
 
-  if (uiLayout *influence_panel = layout->panel_prop(
+  if (ui::Layout *influence_panel = layout.panel_prop(
           C, ptr, "open_influence_panel", IFACE_("Influence")))
   {
-    modifier::greasepencil::draw_layer_filter_settings(C, influence_panel, ptr);
-    modifier::greasepencil::draw_material_filter_settings(C, influence_panel, ptr);
-    modifier::greasepencil::draw_vertex_group_settings(C, influence_panel, ptr);
+    modifier::greasepencil::draw_layer_filter_settings(C, *influence_panel, ptr);
+    modifier::greasepencil::draw_material_filter_settings(C, *influence_panel, ptr);
+    modifier::greasepencil::draw_vertex_group_settings(C, *influence_panel, ptr);
   }
 
   modifier_error_message_draw(layout, ptr);
@@ -454,7 +464,7 @@ static void blend_write(BlendWriter *writer, const ID * /*id_owner*/, const Modi
 {
   const auto *omd = reinterpret_cast<const GreasePencilOffsetModifierData *>(md);
 
-  BLO_write_struct(writer, GreasePencilOffsetModifierData, omd);
+  writer->write_struct(omd);
   modifier::greasepencil::write_influence_data(writer, &omd->influence);
 }
 
@@ -464,8 +474,6 @@ static void blend_read(BlendDataReader *reader, ModifierData *md)
 
   modifier::greasepencil::read_influence_data(reader, &omd->influence);
 }
-
-}  // namespace blender
 
 ModifierTypeInfo modifierType_GreasePencilOffset = {
     /*idname*/ "GreasePencilOffset",
@@ -478,26 +486,28 @@ ModifierTypeInfo modifierType_GreasePencilOffset = {
         eModifierTypeFlag_EnableInEditmode | eModifierTypeFlag_SupportsMapping,
     /*icon*/ ICON_MOD_OFFSET,
 
-    /*copy_data*/ blender::copy_data,
+    /*copy_data*/ copy_data,
 
     /*deform_verts*/ nullptr,
     /*deform_matrices*/ nullptr,
     /*deform_verts_EM*/ nullptr,
     /*deform_matrices_EM*/ nullptr,
     /*modify_mesh*/ nullptr,
-    /*modify_geometry_set*/ blender::modify_geometry_set,
+    /*modify_geometry_set*/ modify_geometry_set,
 
-    /*init_data*/ blender::init_data,
+    /*init_data*/ init_data,
     /*required_data_mask*/ nullptr,
-    /*free_data*/ blender::free_data,
+    /*free_data*/ free_data,
     /*is_disabled*/ nullptr,
-    /*update_depsgraph*/ blender::update_depsgraph,
+    /*update_depsgraph*/ update_depsgraph,
     /*depends_on_time*/ nullptr,
     /*depends_on_normals*/ nullptr,
-    /*foreach_ID_link*/ blender::foreach_ID_link,
+    /*foreach_ID_link*/ foreach_ID_link,
     /*foreach_tex_link*/ nullptr,
     /*free_runtime_data*/ nullptr,
-    /*panel_register*/ blender::panel_register,
-    /*blend_write*/ blender::blend_write,
-    /*blend_read*/ blender::blend_read,
+    /*panel_register*/ panel_register,
+    /*blend_write*/ blend_write,
+    /*blend_read*/ blend_read,
 };
+
+}  // namespace blender

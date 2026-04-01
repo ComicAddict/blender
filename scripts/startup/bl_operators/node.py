@@ -26,6 +26,7 @@ from bpy.app.translations import (
     pgettext_tip as tip_,
     pgettext_data as data_,
     pgettext_rpt as rpt_,
+    pgettext_n as n_,
 )
 
 
@@ -42,23 +43,10 @@ switch_nodes = {
     "GeometryNodeIndexSwitch",
 }
 
-
-# A context manager for temporarily un-parenting nodes from their frames.
-# This gets rid of issues with framed nodes using relative coordinates.
-class temporary_unframe:
-    def __init__(self, nodes):
-        self.parent_dict = {}
-        for node in nodes:
-            if node.parent is not None:
-                self.parent_dict[node] = node.parent
-            node.parent = None
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, _type, _value, _traceback):
-        for node, parent in self.parent_dict.items():
-            node.parent = parent
+has_child_sockets = {
+    "NodeCombineBundle",
+    "NodeSeparateBundle",
+}
 
 
 def cast_value(source, target):
@@ -228,8 +216,10 @@ class NodeAddOperator(NodeOperator):
     def poll(cls, context):
         space = context.space_data
         # Needs active node editor and a tree to add nodes to.
-        return (space and (space.type == 'NODE_EDITOR') and
-                space.edit_tree and space.edit_tree.is_editable)
+        return (
+            space and (space.type == 'NODE_EDITOR') and
+            space.edit_tree and space.edit_tree.is_editable
+        )
 
     # Default invoke stores the mouse position to place the node correctly
     # and optionally invokes the transform operator.
@@ -260,11 +250,36 @@ class NodeSwapOperator(NodeOperator):
         "operation",
         "domain",
         "data_type",
+        "image",
+        "interpolation",
+    )
+
+    image_user_settings = (
+        'frame_current',
+        'frame_duration',
+        'frame_offset',
+        'frame_start',
+        'tile',
+        'use_auto_refresh',
+        'use_cyclic',
+    )
+
+    id_prop_names = (
+        'collection',
+        'image',
+        'material',
+        'object',
     )
 
     @classmethod
     def poll(cls, context):
         if (context.area is None) or (context.area.type != "NODE_EDITOR"):
+            return False
+
+        if context.space_data.edit_tree is None:
+            return False
+
+        if context.space_data.edit_tree.library is not None:
             return False
 
         if len(context.selected_nodes) <= 0:
@@ -276,13 +291,52 @@ class NodeSwapOperator(NodeOperator):
     def transfer_node_properties(self, old_node, new_node):
         for attr in self.properties_to_pass:
             if (attr in self.settings):
-                return
+                continue
 
             if hasattr(old_node, attr) and hasattr(new_node, attr):
                 try:
                     setattr(new_node, attr, getattr(old_node, attr))
                 except (TypeError, ValueError):
                     pass
+
+    def transfer_datablock_properties(self, old_node, new_node):
+        for prop_name in self.id_prop_names:
+            socket_name = prop_name.title()
+
+            if hasattr(old_node, prop_name):
+                prop = getattr(old_node, prop_name)
+            else:
+                socket = old_node.inputs.get(socket_name)
+                if socket is not None:
+                    prop = socket.default_value
+                else:
+                    continue
+
+            try:
+                if hasattr(new_node, prop_name):
+                    setattr(new_node, prop_name, prop)
+                else:
+                    socket = new_node.inputs.get(socket_name)
+                    if socket is not None:
+                        socket.default_value = prop
+            except (TypeError, ValueError):
+                continue
+
+    # NOTE: Node.image_user is read-only, so its properties are copied over one-by-one.
+    def transfer_image_user_settings(self, old_node, new_node):
+        image_user_attr = "image_user"
+
+        if not (hasattr(old_node, image_user_attr) and hasattr(new_node, image_user_attr)):
+            return
+
+        old_image_user = getattr(old_node, image_user_attr)
+        new_image_user = getattr(new_node, image_user_attr)
+
+        for attr in self.image_user_settings:
+            try:
+                setattr(new_image_user, attr, getattr(old_image_user, attr))
+            except (AttributeError, KeyError, TypeError):
+                pass
 
     def transfer_input_values(self, old_node, new_node):
         if (old_node.bl_idname in math_nodes) and (new_node.bl_idname in math_nodes):
@@ -478,6 +532,26 @@ class NODE_OT_swap_node(NodeSwapOperator, Operator):
 
         return None
 
+    @staticmethod
+    def get_node_sockets(node):
+        if node.bl_idname in {"NodeCombineBundle", "NodeSeparateBundle"}:
+            return node.bundle_items
+        return None
+
+    def transfer_node_sockets(self, old_node, new_node):
+        old_items = self.get_node_sockets(old_node)
+        new_items = self.get_node_sockets(new_node)
+
+        for old_item in old_items:
+            try:
+                new_item = new_items.new(old_item.socket_type, old_item.name)
+
+                if hasattr(old_item, "structure_type") and hasattr(new_item, "structure_type"):
+                    new_item.structure_type = old_item.structure_type
+
+            except RuntimeError:
+                pass
+
     def execute(self, context):
         tree = context.space_data.edit_tree
         nodes_to_delete = set()
@@ -486,22 +560,20 @@ class NODE_OT_swap_node(NodeSwapOperator, Operator):
             if old_node in nodes_to_delete:
                 continue
 
-            if old_node.bl_idname == self.type:
+            if (old_node.bl_idname == self.type) and (not hasattr(old_node, "node_tree")):
                 self.apply_node_settings(old_node)
                 continue
 
             new_node = self.create_node(context, self.type)
             self.apply_node_settings(new_node)
-            self.transfer_node_properties(old_node, new_node)
 
             if self.visible_output:
                 for socket in new_node.outputs:
                     if socket.name != self.visible_output:
                         socket.hide = True
 
-            with temporary_unframe((old_node,)):
-                new_node.location = old_node.location
-                new_node.select = True
+            new_node.location_absolute = old_node.location_absolute
+            new_node.select = True
 
             zone_pair = self.get_zone_pair(tree, old_node)
 
@@ -509,10 +581,9 @@ class NODE_OT_swap_node(NodeSwapOperator, Operator):
                 input_node, output_node = zone_pair
 
                 if input_node.select and output_node.select:
-                    with temporary_unframe((input_node, output_node)):
-                        new_node.location = (input_node.location + output_node.location) / 2
-                        new_node.select = True
+                    new_node.location_absolute = (input_node.location_absolute + output_node.location_absolute) / 2
 
+                self.transfer_node_properties(old_node, new_node)
                 self.transfer_input_values(input_node, new_node)
 
                 self.transfer_links(tree, input_node, new_node, is_input=True)
@@ -521,8 +592,15 @@ class NODE_OT_swap_node(NodeSwapOperator, Operator):
                 for node in zone_pair:
                     nodes_to_delete.add(node)
             else:
+                self.transfer_node_properties(old_node, new_node)
+                self.transfer_datablock_properties(old_node, new_node)
+                self.transfer_image_user_settings(old_node, new_node)
+
                 if (old_node.bl_idname in switch_nodes) and (new_node.bl_idname in switch_nodes):
                     self.transfer_switch_data(old_node, new_node)
+
+                if (old_node.bl_idname in has_child_sockets) and (new_node.bl_idname in has_child_sockets):
+                    self.transfer_node_sockets(old_node, new_node)
 
                 self.transfer_input_values(old_node, new_node)
 
@@ -621,16 +699,16 @@ class ZoneOperator:
 
     _zone_tooltips = {
         "GeometryNodeSimulationInput": (
-            "Simulate the execution of nodes across a time span"
+            n_("Simulate the execution of nodes across a time span")
         ),
         "GeometryNodeRepeatInput": (
-            "Execute nodes with a dynamic number of repetitions"
+            n_("Execute nodes with a dynamic number of repetitions")
         ),
         "GeometryNodeForeachGeometryElementInput": (
-            "Perform operations separately for each geometry element (e.g. vertices, edges, etc.)"
+            n_("Perform operations separately for each geometry element (e.g. vertices, edges, etc.)")
         ),
         "NodeClosureInput": (
-            "Wrap nodes inside a closure that can be executed at a different part of the node-tree"
+            n_("Wrap nodes inside a closure that can be executed at a different part of the node-tree")
         ),
     }
 
@@ -642,7 +720,7 @@ class ZoneOperator:
         if input_node_type is None:
             input_node_type = cls.input_node_type
 
-        return cls._zone_tooltips.get(input_node_type, None)
+        return tip_(cls._zone_tooltips.get(input_node_type, None))
 
 
 class NodeAddZoneOperator(ZoneOperator, NodeAddOperator):
@@ -685,12 +763,12 @@ class NODE_OT_add_zone(NodeAddZoneOperator, Operator):
 
     input_node_type: StringProperty(
         name="Input Node",
-        description="Specifies the input node used the created zone",
+        description="Specifies the input node used by the created zone",
     )
 
     output_node_type: StringProperty(
         name="Output Node",
-        description="Specifies the output node used the created zone",
+        description="Specifies the output node used by the created zone",
     )
 
     add_default_geometry_link: BoolProperty(
@@ -707,12 +785,12 @@ class NODE_OT_swap_zone(ZoneOperator, NodeSwapOperator, Operator):
 
     input_node_type: StringProperty(
         name="Input Node",
-        description="Specifies the input node used the created zone",
+        description="Specifies the input node used by the created zone",
     )
 
     output_node_type: StringProperty(
         name="Output Node",
-        description="Specifies the output node used the created zone",
+        description="Specifies the output node used by the created zone",
     )
 
     add_default_geometry_link: BoolProperty(
@@ -734,6 +812,37 @@ class NODE_OT_swap_zone(ZoneOperator, NodeSwapOperator, Operator):
                     return input_node, node
 
         return None
+
+    @staticmethod
+    def get_child_items(node):
+        if hasattr(node, "paired_output"):
+            output_node = node.paired_output
+        else:
+            output_node = node
+
+        if node.bl_idname.startswith("GeometryNodeSimulation"):
+            return output_node.state_items
+        if node.bl_idname.startswith("GeometryNodeRepeat"):
+            return output_node.repeat_items
+        if node.bl_idname == "NodeClosureInput":
+            return output_node.input_items
+        if node.bl_idname == "NodeClosureOutput":
+            return output_node.output_items
+        return None
+
+    def transfer_zone_sockets(self, old_node, new_node):
+        old_children = self.get_child_items(old_node)
+        new_children = self.get_child_items(new_node)
+
+        if (old_children is None) or (new_children is None):
+            return
+
+        for item in old_children:
+            if item.name not in new_children:
+                try:
+                    new_children.new(item.socket_type, item.name)
+                except RuntimeError:
+                    pass
 
     def execute(self, context):
         tree = context.space_data.edit_tree
@@ -770,9 +879,20 @@ class NODE_OT_swap_zone(ZoneOperator, NodeSwapOperator, Operator):
             if zone_pair is not None:
                 old_input_node, old_output_node = zone_pair
 
-                with temporary_unframe((old_input_node, old_output_node)):
-                    input_node.location = old_input_node.location
-                    output_node.location = old_output_node.location
+                input_node.location_absolute = old_input_node.location_absolute
+                output_node.location_absolute = old_output_node.location_absolute
+
+                if input_node.bl_idname in {"GeometryNodeSimulationInput", "GeometryNodeRepeatInput"}:
+                    new_zone_children = self.get_child_items(output_node)
+                    new_zone_children.clear()
+
+                    for node in zone_pair:
+                        if node.select:
+                            self.transfer_zone_sockets(node, output_node)
+
+                elif input_node.bl_idname.startswith("NodeClosure"):
+                    self.transfer_zone_sockets(old_input_node, input_node)
+                    self.transfer_zone_sockets(old_output_node, output_node)
 
                 self.transfer_node_properties(old_input_node, input_node)
                 self.transfer_node_properties(old_output_node, output_node)
@@ -789,12 +909,8 @@ class NODE_OT_swap_zone(ZoneOperator, NodeSwapOperator, Operator):
                 for node in zone_pair:
                     nodes_to_delete.add(node)
             else:
-                with temporary_unframe((old_node,)):
-                    input_node.location = old_node.location
-                    output_node.location = old_node.location
-
-                    input_node.location -= Vector(self.offset)
-                    output_node.location += Vector(self.offset)
+                input_node.location_absolute = (old_node.location_absolute - Vector(self.offset))
+                output_node.location_absolute = (old_node.location_absolute + Vector(self.offset))
 
                 self.transfer_node_properties(old_node, input_node)
                 self.transfer_node_properties(old_node, output_node)
@@ -806,14 +922,14 @@ class NODE_OT_swap_zone(ZoneOperator, NodeSwapOperator, Operator):
 
                 nodes_to_delete.add(old_node)
 
-            if tree.type == "GEOMETRY" and self.add_default_geometry_link:
-                # Connect geometry sockets by default if available.
-                # Get the sockets by their types, because the name is not guaranteed due to i18n.
-                from_socket = next(s for s in input_node.outputs if s.type == 'GEOMETRY')
-                to_socket = next(s for s in output_node.inputs if s.type == 'GEOMETRY')
+                if tree.type == "GEOMETRY" and self.add_default_geometry_link:
+                    # Connect geometry sockets by default if available.
+                    # Get the sockets by their types, because the name is not guaranteed due to i18n.
+                    from_socket = next(s for s in input_node.outputs if s.type == 'GEOMETRY')
+                    to_socket = next(s for s in output_node.inputs if s.type == 'GEOMETRY')
 
-                if not (from_socket.is_linked or to_socket.is_linked):
-                    tree.links.new(to_socket, from_socket)
+                    if not (from_socket.is_linked or to_socket.is_linked):
+                        tree.links.new(to_socket, from_socket)
 
         for node in nodes_to_delete:
             tree.nodes.remove(node)
@@ -939,32 +1055,15 @@ class NODE_OT_interface_item_new(NodeInterfaceOperator, Operator):
     bl_label = "New Item"
     bl_options = {'REGISTER', 'UNDO'}
 
-    def get_items(_self, context):
-        items = [
-            ('INPUT', "Input", ""),
-            ('OUTPUT', "Output", ""),
-            ('PANEL', "Panel", ""),
-        ]
-
-        if context is None:
-            return items
-
-        snode = context.space_data
-        tree = snode.edit_tree
-        interface = tree.interface
-
-        active_item = interface.active
-        # Panels have the extra option to add a toggle.
-        if active_item and active_item.item_type == 'PANEL':
-            items.append(('PANEL_TOGGLE', "Panel Toggle", ""))
-
-        return items
-
     item_type: EnumProperty(
         name="Item Type",
         description="Type of the item to create",
-        items=get_items,
-        default=0,
+        items=(
+            ('INPUT', "Input", ""),
+            ('OUTPUT', "Output", ""),
+            ('PANEL', "Panel", ""),
+        ),
+        default='INPUT',
     )
 
     # Returns a valid socket type for the given tree or None.
@@ -1000,18 +1099,6 @@ class NODE_OT_interface_item_new(NodeInterfaceOperator, Operator):
             item = interface.new_socket("Socket", socket_type=self.find_valid_socket_type(tree), in_out='OUTPUT')
         elif self.item_type == 'PANEL':
             item = interface.new_panel("Panel")
-        elif self.item_type == 'PANEL_TOGGLE':
-            active_panel = active_item
-            if len(active_panel.interface_items) > 0:
-                first_item = active_panel.interface_items[0]
-                if type(first_item) is bpy.types.NodeTreeInterfaceSocketBool and first_item.is_panel_toggle:
-                    self.report({'INFO'}, "Panel already has a toggle")
-                    return {'CANCELLED'}
-            item = interface.new_socket(active_panel.name, socket_type='NodeSocketBool', in_out='INPUT')
-            item.is_panel_toggle = True
-            interface.move_to_parent(item, active_panel, 0)
-            # Return in this case because we don't want to move the item.
-            return {'FINISHED'}
         else:
             return {'CANCELLED'}
 
@@ -1023,6 +1110,55 @@ class NODE_OT_interface_item_new(NodeInterfaceOperator, Operator):
                 interface.move_to_parent(item, active_item.parent, active_pos + 1)
         interface.active = item
 
+        return {'FINISHED'}
+
+
+class NODE_OT_interface_item_new_panel_toggle(Operator):
+    '''Add a checkbox to the currently selected panel'''
+    bl_idname = "node.interface_item_new_panel_toggle"
+    bl_label = "New Panel Toggle"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @staticmethod
+    def get_panel_toggle(panel):
+        if len(panel.interface_items) > 0:
+            first_item = panel.interface_items[0]
+            if type(first_item) is bpy.types.NodeTreeInterfaceSocketBool and first_item.is_panel_toggle:
+                return first_item
+
+        return None
+
+    @classmethod
+    def poll(cls, context):
+        try:
+            snode = context.space_data
+            tree = snode.edit_tree
+            interface = tree.interface
+
+            active_item = interface.active
+
+            if active_item.item_type != 'PANEL':
+                cls.poll_message_set("Active item is not a panel")
+                return False
+
+            if cls.get_panel_toggle(active_item) is not None:
+                cls.poll_message_set("Panel already has a toggle")
+                return False
+
+            return True
+        except AttributeError:
+            return False
+
+    def execute(self, context):
+        snode = context.space_data
+        tree = snode.edit_tree
+
+        interface = tree.interface
+        active_panel = interface.active
+
+        item = interface.new_socket(active_panel.name, socket_type='NodeSocketBool', in_out='INPUT')
+        item.is_panel_toggle = True
+        interface.move_to_parent(item, active_panel, 0)
         return {'FINISHED'}
 
 
@@ -1056,18 +1192,21 @@ class NODE_OT_interface_item_duplicate(NodeInterfaceOperator, Operator):
 
 
 class NODE_OT_interface_item_remove(NodeInterfaceOperator, Operator):
-    """Remove active item from the interface"""
+    """Remove selected items from the interface"""
     bl_idname = "node.interface_item_remove"
-    bl_label = "Remove Item"
+    bl_label = "Remove Selected Items"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         snode = context.space_data
         tree = snode.edit_tree
         interface = tree.interface
-        item = interface.active
+        active_item = interface.active
+        selected_items = [item for item in interface.items_tree if item.select or item == active_item]
+        if len(selected_items) == 0:
+            return {'CANCELLED'}
 
-        if item:
+        for item in reversed(selected_items):
             if item.item_type == 'PANEL':
                 children = item.interface_items
                 if len(children) > 0:
@@ -1075,12 +1214,12 @@ class NODE_OT_interface_item_remove(NodeInterfaceOperator, Operator):
                     if isinstance(first_child, bpy.types.NodeTreeInterfaceSocket) and first_child.is_panel_toggle:
                         interface.remove(first_child)
             interface.remove(item)
-            interface.active_index = min(interface.active_index, len(interface.items_tree) - 1)
+        interface.active_index = min(interface.active_index, len(interface.items_tree) - 1)
 
-            # If the active selection lands on internal toggle socket, move selection to parent instead.
-            new_active = interface.active
-            if isinstance(new_active, bpy.types.NodeTreeInterfaceSocket) and new_active.is_panel_toggle:
-                interface.active_index = new_active.parent.index
+        # If the active selection lands on internal toggle socket, move selection to parent instead.
+        new_active = interface.active
+        if isinstance(new_active, bpy.types.NodeTreeInterfaceSocket) and new_active.is_panel_toggle:
+            interface.active_index = new_active.parent.index
 
         return {'FINISHED'}
 
@@ -1332,6 +1471,7 @@ classes = (
     NODE_OT_add_closure_zone,
     NODE_OT_collapse_hide_unused_toggle,
     NODE_OT_interface_item_new,
+    NODE_OT_interface_item_new_panel_toggle,
     NODE_OT_interface_item_duplicate,
     NODE_OT_interface_item_remove,
     NODE_OT_interface_item_make_panel_toggle,

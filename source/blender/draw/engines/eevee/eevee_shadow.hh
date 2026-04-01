@@ -237,12 +237,15 @@ class ShadowModule {
 
   PassSimple caster_update_ps_ = {"CasterUpdate"};
   PassSimple jittered_transparent_caster_update_ps_ = {"TransparentCasterUpdate"};
+  PassSimple update_propagate_ps_ = {"CasterUpdatePropagate"};
   /** List of Resource IDs (to get bounds) for tagging passes. */
   StorageVectorBuffer<uint, 128> past_casters_updated_ = {"PastCastersUpdated"};
   StorageVectorBuffer<uint, 128> curr_casters_updated_ = {"CurrCastersUpdated"};
   StorageVectorBuffer<uint, 128> jittered_transparent_casters_ = {"JitteredTransparentCasters"};
   /** List of Resource IDs (to get bounds) for getting minimum clip-maps bounds. */
   StorageVectorBuffer<uint, 128> curr_casters_ = {"CurrCasters"};
+  /** Empty framebuffer to rasterize bounding boxes for update tagging. */
+  Framebuffer update_tag_fb_ = {"shadow_write_framebuffer"};
 
   /** Indirect arguments for page clearing. */
   DispatchIndirectBuf clear_dispatch_buf_ = {"clear_dispatch_buf"};
@@ -433,9 +436,9 @@ class ShadowPunctual : public NonCopyable, NonMovable {
   Vector<ShadowTileMap *> tilemaps_;
 
  public:
-  ShadowPunctual(ShadowModule &module) : shadows_(module){};
+  ShadowPunctual(ShadowModule &module) : shadows_(module) {};
   ShadowPunctual(ShadowPunctual &&other)
-      : shadows_(other.shadows_), tilemaps_(std::move(other.tilemaps_)){};
+      : shadows_(other.shadows_), tilemaps_(std::move(other.tilemaps_)) {};
 
   ~ShadowPunctual()
   {
@@ -462,9 +465,9 @@ class ShadowDirectional : public NonCopyable, NonMovable {
   IndexRange levels_range = IndexRange(0);
 
  public:
-  ShadowDirectional(ShadowModule &module) : shadows_(module){};
+  ShadowDirectional(ShadowModule &module) : shadows_(module) {};
   ShadowDirectional(ShadowDirectional &&other)
-      : shadows_(other.shadows_), tilemaps_(std::move(other.tilemaps_)){};
+      : shadows_(other.shadows_), tilemaps_(std::move(other.tilemaps_)) {};
 
   ~ShadowDirectional()
   {

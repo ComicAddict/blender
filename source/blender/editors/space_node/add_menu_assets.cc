@@ -77,6 +77,7 @@ static Set<StringRef> get_builtin_menus(const int tree_type)
               "Input/Scene",
               "Output",
               "Geometry",
+              "Geometry/Material",
               "Geometry/Read",
               "Geometry/Sample",
               "Geometry/Write",
@@ -106,10 +107,11 @@ static Set<StringRef> get_builtin_menus(const int tree_type)
               "Volume/Operations",
               "Volume/Primitives",
               "Simulation",
-              "Material",
+              "Color",
               "Texture",
               "Utilities",
-              "Utilities/Color",
+              "Utilities/Bundle",
+              "Utilities/Closure",
               "Utilities/Text",
               "Utilities/Vector",
               "Utilities/Field",
@@ -126,7 +128,7 @@ static Set<StringRef> get_builtin_menus(const int tree_type)
               "Output",
               "Color",
               "Color/Adjust",
-              "Color/Mix",
+              "Creative",
               "Filter",
               "Filter/Blur",
               "Keying",
@@ -135,18 +137,20 @@ static Set<StringRef> get_builtin_menus(const int tree_type)
               "Transform",
               "Texture",
               "Utilities",
-              "Vector",
+              "Utilities/Math",
+              "Utilities/Vector",
               "Group",
               "Layout"};
     case NTREE_SHADER:
       return {"Input",
               "Output",
-              "Color",
-              "Converter",
               "Shader",
+              "Displacement",
+              "Color",
               "Texture",
-              "Vector",
-              "Script",
+              "Utilities",
+              "Utilities/Math",
+              "Utilities/Vector",
               "Group",
               "Layout"};
   }
@@ -167,13 +171,12 @@ static void node_catalog_assets_draw(const bContext *C, Menu *menu)
   }
   asset::AssetItemTree &tree = *snode.runtime->assets_for_menu;
 
-  const std::optional<blender::StringRefNull> menu_path = CTX_data_string_get(
-      C, "asset_catalog_path");
+  const std::optional<StringRefNull> menu_path = CTX_data_string_get(C, "asset_catalog_path");
   if (!menu_path) {
     return;
   }
 
-  const std::optional<blender::StringRefNull> operator_id = CTX_data_string_get(C, "operator_id");
+  const std::optional<StringRefNull> operator_id = CTX_data_string_get(C, "operator_id");
   if (!operator_id) {
     return;
   }
@@ -188,7 +191,7 @@ static void node_catalog_assets_draw(const bContext *C, Menu *menu)
     return;
   }
 
-  uiLayout *layout = menu->layout;
+  ui::Layout *layout = menu->layout;
   bool add_separator = true;
 
   for (const asset_system::AssetRepresentation *asset : assets) {
@@ -226,7 +229,7 @@ static void node_unassigned_assets_draw(const bContext *C, Menu *menu)
     return;
   }
 
-  const std::optional<blender::StringRefNull> operator_id = CTX_data_string_get(C, "operator_id");
+  const std::optional<StringRefNull> operator_id = CTX_data_string_get(C, "operator_id");
   if (!operator_id) {
     return;
   }
@@ -250,7 +253,7 @@ static void node_unassigned_assets_draw(const bContext *C, Menu *menu)
 static void root_catalogs_draw(const bContext *C, Menu *menu, const StringRefNull operator_id)
 {
   SpaceNode &snode = *CTX_wm_space_node(C);
-  uiLayout *layout = menu->layout;
+  ui::Layout *layout = menu->layout;
   const bNodeTree *edit_tree = snode.edittree;
   if (!edit_tree) {
     return;
@@ -347,10 +350,10 @@ MenuType swap_root_catalogs_menu_type()
   return type;
 }
 
-void ui_template_node_asset_menu_items(uiLayout &layout,
+void ui_template_node_asset_menu_items(ui::Layout &layout,
                                        const bContext &C,
                                        const StringRef catalog_path,
-                                       const NodeAssetMenuOperatorType operator_type)
+                                       const ui::NodeAssetMenuOperatorType operator_type)
 {
   SpaceNode &snode = *CTX_wm_space_node(&C);
   if (snode.runtime->assets_for_menu == nullptr) {
@@ -365,14 +368,14 @@ void ui_template_node_asset_menu_items(uiLayout &layout,
   StringRef operator_id;
 
   switch (operator_type) {
-    case NodeAssetMenuOperatorType::Swap:
+    case ui::NodeAssetMenuOperatorType::Swap:
       operator_id = "NODE_OT_swap_group_asset";
       break;
     default:
       operator_id = "NODE_OT_add_group_asset";
   }
 
-  uiLayout *col = &layout.column(false);
+  ui::Layout *col = &layout.column(false);
   col->context_string_set("asset_catalog_path", item->catalog_path().str());
   col->context_string_set("operator_id", operator_id);
   col->menu_contents("NODE_MT_node_catalog_assets");

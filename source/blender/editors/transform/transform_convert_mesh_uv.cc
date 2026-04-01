@@ -110,7 +110,7 @@ static void uv_set_connectivity_distance(const ToolSettings *ts,
 
     BM_ITER_ELEM (l, &liter, f, BM_LOOPS_OF_FACE) {
       float dist;
-      bool uv_vert_sel = uvedit_uv_select_test_ex(ts, l, offsets);
+      bool uv_vert_sel = uvedit_uv_select_test_ex(ts, bm, l, offsets);
 
       if (uv_vert_sel) {
         BLI_LINKSTACK_PUSH(queue, l);
@@ -132,7 +132,7 @@ static void uv_set_connectivity_distance(const ToolSettings *ts,
   }
 
   /* Need to be very careful of feedback loops here, store previous dist's to avoid feedback. */
-  float *dists_prev = static_cast<float *>(MEM_dupallocN(dists));
+  float *dists_prev = MEM_dupalloc(dists);
 
   do {
     while ((l = BLI_LINKSTACK_POP(queue))) {
@@ -240,7 +240,7 @@ static void uv_set_connectivity_distance(const ToolSettings *ts,
   BLI_LINKSTACK_FREE(queue);
   BLI_LINKSTACK_FREE(queue_next);
 
-  MEM_freeN(dists_prev);
+  MEM_delete(dists_prev);
 #undef TMP_LOOP_SELECT_TAG
 }
 
@@ -280,7 +280,7 @@ static void createTransUVs(bContext *C, TransInfo *t)
         continue;
       }
 
-      island_center = MEM_calloc_arrayN<IslandCenter>(elementmap->total_islands, __func__);
+      island_center = MEM_new_array_zeroed<IslandCenter>(elementmap->total_islands, __func__);
     }
 
     BM_ITER_MESH (efa, &iter, em->bm, BM_FACES_OF_MESH) {
@@ -296,7 +296,7 @@ static void createTransUVs(bContext *C, TransInfo *t)
         /* Make sure that the loop element flag is cleared for when we use it in
          * uv_set_connectivity_distance later. */
         BM_elem_flag_disable(l, BM_ELEM_TAG);
-        if (uvedit_uv_select_test(scene, l, offsets)) {
+        if (uvedit_uv_select_test(scene, em->bm, l, offsets)) {
           countsel++;
 
           if (island_center) {
@@ -333,10 +333,10 @@ static void createTransUVs(bContext *C, TransInfo *t)
     }
 
     tc->data_len = (is_prop_edit) ? count : countsel;
-    tc->data = MEM_calloc_arrayN<TransData>(tc->data_len, "TransObData(UV Editing)");
+    tc->data = MEM_new_array_zeroed<TransData>(tc->data_len, "TransObData(UV Editing)");
     /* For each 2d uv coord a 3d vector is allocated, so that they can be
      * treated just as if they were 3d verts. */
-    tc->data_2d = MEM_calloc_arrayN<TransData2D>(tc->data_len, "TransObData2D(UV Editing)");
+    tc->data_2d = MEM_new_array_zeroed<TransData2D>(tc->data_len, "TransObData2D(UV Editing)");
 
     if (sima->flag & SI_CLIP_UV) {
       t->flag |= T_CLIP_UV;
@@ -346,7 +346,7 @@ static void createTransUVs(bContext *C, TransInfo *t)
     td2d = tc->data_2d;
 
     if (is_prop_connected) {
-      prop_dists = MEM_calloc_arrayN<float>(em->bm->totloop, "TransObPropDists(UV Editing)");
+      prop_dists = MEM_new_array_zeroed<float>(em->bm->totloop, "TransObPropDists(UV Editing)");
 
       uv_set_connectivity_distance(t->settings, em->bm, prop_dists, t->aspect);
     }
@@ -359,8 +359,8 @@ static void createTransUVs(bContext *C, TransInfo *t)
       }
 
       BM_ITER_ELEM (l, &liter, efa, BM_LOOPS_OF_FACE) {
-        const bool selected = uvedit_uv_select_test(scene, l, offsets);
-        float(*luv)[2];
+        const bool selected = uvedit_uv_select_test(scene, em->bm, l, offsets);
+        float (*luv)[2];
         const float *center = nullptr;
         float prop_distance = FLT_MAX;
 
@@ -380,7 +380,7 @@ static void createTransUVs(bContext *C, TransInfo *t)
           }
         }
 
-        luv = (float(*)[2])BM_ELEM_CD_GET_FLOAT_P(l, offsets.uv);
+        luv = reinterpret_cast<float (*)[2]> BM_ELEM_CD_GET_FLOAT_P(l, offsets.uv);
         UVsToTransData(t->aspect, *luv, center, prop_distance, selected, l, td++, td2d++);
       }
     }
@@ -392,12 +392,12 @@ static void createTransUVs(bContext *C, TransInfo *t)
 
   finally:
     if (is_prop_connected) {
-      MEM_SAFE_FREE(prop_dists);
+      MEM_SAFE_DELETE(prop_dists);
     }
     if (is_island_center) {
       BM_uv_element_map_free(elementmap);
 
-      MEM_freeN(island_center);
+      MEM_delete(island_center);
     }
   }
 }
@@ -467,7 +467,7 @@ static void recalcData_uv(TransInfo *t)
 
   FOREACH_TRANS_DATA_CONTAINER (t, tc) {
     if (tc->data_len) {
-      DEG_id_tag_update(static_cast<ID *>(tc->obedit->data), ID_RECALC_GEOMETRY);
+      DEG_id_tag_update(tc->obedit->data, ID_RECALC_GEOMETRY);
     }
   }
 }
@@ -871,7 +871,7 @@ Array<TransDataEdgeSlideVert> transform_mesh_uv_edge_slide_data_create(const Tra
 
         if (check_edge) {
           BMLoop *l_edge = l_dst == l->prev ? l_dst : l;
-          if (!uvedit_edge_select_test_ex(t->settings, l_edge, offsets)) {
+          if (!uvedit_edge_select_test_ex(t->settings, bm, l_edge, offsets)) {
             continue;
           }
         }

@@ -102,11 +102,10 @@ void VelocityModule::step_sync(eVelocityStep step, float time)
   object_steps_usage[step_] = 0;
   step_camera_sync();
 
-  DRW_render_object_iter(inst_.render,
-                         inst_.depsgraph,
-                         [&](blender::draw::ObjectRef &ob_ref, RenderEngine *, Depsgraph *) {
-                           step_object_sync_render(inst_, ob_ref);
-                         });
+  DRW_render_object_iter(
+      inst_.render, inst_.depsgraph, [&](draw::ObjectRef &ob_ref, RenderEngine *, Depsgraph *) {
+        step_object_sync_render(inst_, ob_ref);
+      });
 
   geometry_steps_fill();
 }
@@ -149,7 +148,7 @@ bool VelocityModule::step_object_sync(ObjectKey &object_key,
    * We live with that until we have a correct way of identifying new objects. */
   VelocityObjectData &vel = velocity_map.lookup_or_add_default(object_key);
   vel.obj.ofs[step_] = object_steps_usage[step_]++;
-  vel.obj.resource_id = resource_handle.resource_index();
+  vel.obj.resource_id = resource_handle.index();
   /* While VelocityObjectData is unique for each object/instance, multiple VelocityObjectDatas can
    * point to the same offset in VelocityGeometryData, since geometry is stored local space. */
   vel.id = particle_sys ? uint64_t(particle_sys) : uint64_t(ob->data);
@@ -420,7 +419,7 @@ bool VelocityModule::object_is_deform(const Object *ob)
   RigidBodyOb *rbo = ob->rigidbody_object;
   /* Active rigidbody objects only, as only those are affected by sim. */
   const bool has_rigidbody = (rbo && (rbo->type == RBO_TYPE_ACTIVE));
-  const bool is_deform = BKE_object_is_deform_modified(inst_.scene, (Object *)ob) ||
+  const bool is_deform = BKE_object_is_deform_modified(inst_.scene, const_cast<Object *>(ob)) ||
                          (has_rigidbody && (rbo->flag & RBO_FLAG_USE_DEFORM) != 0);
 
   return is_deform;

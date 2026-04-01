@@ -34,33 +34,42 @@ enum class DistributeMode {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Float>("Grid").hide_value().structure_type(StructureType::Grid);
-  auto &density = b.add_input<decl::Float>("Density")
+  b.add_input<decl::Float>("Grid"_ustr).hide_value().structure_type(StructureType::Grid);
+  auto &density = b.add_input<decl::Float>("Density"_ustr)
                       .default_value(1.0f)
                       .min(0.0f)
                       .max(100000.0f)
                       .subtype(PROP_NONE)
                       .description(
                           "When combined with each voxel's value, determines the number of points "
-                          "to sample per unit volume");
-  auto &seed = b.add_input<decl::Int>("Seed").min(-10000).max(10000).description(
-      "Seed used by the random number generator to generate random points");
-  auto &spacing = b.add_input<decl::Vector>("Spacing")
+                          "to sample per unit volume")
+                      .make_available(
+                          [](bNode &node) { node.custom1 = int16_t(DistributeMode::Random); });
+  auto &seed =
+      b.add_input<decl::Int>("Seed"_ustr)
+          .min(-10000)
+          .max(10000)
+          .description("Seed used by the random number generator to generate random points")
+          .make_available([](bNode &node) { node.custom1 = int16_t(DistributeMode::Random); });
+  auto &spacing = b.add_input<decl::Vector>("Spacing"_ustr)
                       .default_value({0.3, 0.3, 0.3})
                       .min(0.0001f)
                       .subtype(PROP_XYZ)
-                      .description("Spacing between grid points");
-  auto &threshold = b.add_input<decl::Float>("Threshold")
+                      .description("Spacing between grid points")
+                      .make_available(
+                          [](bNode &node) { node.custom1 = int16_t(DistributeMode::Grid); });
+  auto &threshold = b.add_input<decl::Float>("Threshold"_ustr)
                         .default_value(0.1f)
                         .min(0.0f)
                         .max(FLT_MAX)
-                        .description("Minimum density of a voxel to contain a grid point");
-  b.add_output<decl::Geometry>("Points").propagate_all();
+                        .description("Minimum density of a voxel to contain a grid point")
+                        .make_available(
+                            [](bNode &node) { node.custom1 = int16_t(DistributeMode::Grid); });
+  b.add_output<decl::Geometry>("Points"_ustr).propagate_all();
 
   const bNode *node = b.node_or_null();
   if (node != nullptr) {
     const auto mode = DistributeMode(node->custom1);
-
     density.available(mode == DistributeMode::Random);
     seed.available(mode == DistributeMode::Random);
     spacing.available(mode == DistributeMode::Grid);
@@ -68,9 +77,9 @@ static void node_declare(NodeDeclarationBuilder &b)
   }
 }
 
-static void node_layout(uiLayout *layout, bContext * /*C*/, PointerRNA *ptr)
+static void node_layout(ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr)
 {
-  layout->prop(ptr, "mode", UI_ITEM_NONE, "", ICON_NONE);
+  layout.prop(ptr, "mode", UI_ITEM_NONE, "", ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*tree*/, bNode *node)
@@ -82,19 +91,15 @@ static void node_init(bNodeTree * /*tree*/, bNode *node)
 /* Implements the interface required by #openvdb::tools::NonUniformPointScatter. */
 class PositionsVDBWrapper {
  private:
-  float3 offset_fix_;
   Vector<float3> &vector_;
 
  public:
-  PositionsVDBWrapper(Vector<float3> &vector, const float3 &offset_fix)
-      : offset_fix_(offset_fix), vector_(vector)
-  {
-  }
+  PositionsVDBWrapper(Vector<float3> &vector) : vector_(vector) {}
   PositionsVDBWrapper(const PositionsVDBWrapper &wrapper) = default;
 
   void add(const openvdb::Vec3R &pos)
   {
-    vector_.append(float3(float(pos[0]), float(pos[1]), float(pos[2])) + offset_fix_);
+    vector_.append(float3(float(pos[0]), float(pos[1]), float(pos[2])));
   }
 };
 
@@ -110,12 +115,8 @@ static void point_scatter_density_random(const openvdb::FloatGrid &grid,
                                          const int seed,
                                          Vector<float3> &r_positions)
 {
-  /* Offset points by half a voxel so that grid points are aligned with world grid points. */
-  const float3 offset_fix = {0.5f * float(grid.voxelSize().x()),
-                             0.5f * float(grid.voxelSize().y()),
-                             0.5f * float(grid.voxelSize().z())};
   /* Setup and call into OpenVDB's point scatter API. */
-  PositionsVDBWrapper vdb_position_wrapper(r_positions, offset_fix);
+  PositionsVDBWrapper vdb_position_wrapper(r_positions);
   RNGType random_generator(seed);
   NonUniformPointScatterVDB point_scatter(vdb_position_wrapper, density, random_generator);
   point_scatter(grid);
@@ -162,7 +163,7 @@ static void point_scatter_density_grid(const openvdb::FloatGrid &grid,
         for (double z = start.z(); z < box_max.z(); z += abs_spacing_z) {
           /* Transform with grid matrix and add point. */
           const openvdb::Vec3d idx_pos(x, y, z);
-          const openvdb::Vec3d local_pos = grid.indexToWorld(idx_pos + half_voxel);
+          const openvdb::Vec3d local_pos = grid.indexToWorld(idx_pos);
           r_positions.append({float(local_pos.x()), float(local_pos.y()), float(local_pos.z())});
         }
       }
@@ -175,7 +176,8 @@ static void point_scatter_density_grid(const openvdb::FloatGrid &grid,
 static void node_geo_exec(GeoNodeExecParams params)
 {
 #ifdef WITH_OPENVDB
-  const bke::VolumeGrid<float> volume_grid = params.extract_input<bke::VolumeGrid<float>>("Grid");
+  const bke::VolumeGrid<float> volume_grid = params.extract_input<bke::VolumeGrid<float>>(
+      "Grid"_ustr);
   if (!volume_grid) {
     params.set_default_remaining_outputs();
     return;
@@ -196,12 +198,12 @@ static void node_geo_exec(GeoNodeExecParams params)
   float3 spacing{0, 0, 0};
   float threshold;
   if (mode == DistributeMode::Random) {
-    density = params.extract_input<float>("Density");
-    seed = params.extract_input<int>("Seed");
+    density = params.extract_input<float>("Density"_ustr);
+    seed = params.extract_input<int>("Seed"_ustr);
   }
   else if (mode == DistributeMode::Grid) {
-    spacing = params.extract_input<float3>("Spacing");
-    threshold = params.extract_input<float>("Threshold");
+    spacing = params.extract_input<float3>("Spacing"_ustr);
+    threshold = params.extract_input<float>("Threshold"_ustr);
   }
 
   Vector<float3> positions;
@@ -219,7 +221,7 @@ static void node_geo_exec(GeoNodeExecParams params)
 
   geometry::debug_randomize_point_order(pointcloud);
 
-  params.set_output("Points", GeometrySet::from_pointcloud(pointcloud));
+  params.set_output("Points"_ustr, GeometrySet::from_pointcloud(pointcloud));
 #else
   node_geo_exec_with_missing_openvdb(params);
 #endif
@@ -252,7 +254,7 @@ static void node_rna(StructRNA *srna)
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
   geo_node_type_base(
       &ntype, "GeometryNodeDistributePointsInGrid", GEO_NODE_DISTRIBUTE_POINTS_IN_GRID);
   ntype.ui_name = "Distribute Points in Grid";
@@ -260,12 +262,11 @@ static void node_register()
   ntype.enum_name_legacy = "DISTRIBUTE_POINTS_IN_GRID";
   ntype.nclass = NODE_CLASS_GEOMETRY;
   ntype.initfunc = node_init;
-  blender::bke::node_type_size(ntype, 170, 100, 320);
+  bke::node_type_size(ntype, 170, 100, 320);
   ntype.declare = node_declare;
   ntype.geometry_node_execute = node_geo_exec;
   ntype.draw_buttons = node_layout;
-  ntype.gather_link_search_ops = search_link_ops_for_volume_grid_node;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 
   node_rna(ntype.rna_ext.srna);
 }

@@ -26,16 +26,11 @@ set(LIB
 )
 
 if(WITH_OPENSUBDIV)
-  macro(OPENSUBDIV_DEFINE_COMPONENT component)
+  function(OPENSUBDIV_DEFINE_COMPONENT component)
     if(${${component}})
       add_definitions(-D${component})
     endif()
-  endmacro()
-
-  list(APPEND INC_SYS
-    ${OPENSUBDIV_INCLUDE_DIRS}
-    ${Epoxy_INCLUDE_DIRS}
-  )
+  endfunction()
 
   list(APPEND SRC
     # Base.
@@ -76,13 +71,18 @@ if(WITH_OPENSUBDIV)
   )
 
   list(APPEND LIB
-    ${OPENSUBDIV_LIBRARIES}
-    ${Epoxy_LIBRARIES}
+    bf::dependencies::optional::opensubdiv
+    bf::dependencies::epoxy
   )
 
-  if(WIN32)
-    add_definitions(-DNOMINMAX)
-    add_definitions(-D_USE_MATH_DEFINES)
+  if(WITH_METAL_BACKEND)
+    add_definitions(-DWITH_METAL_BACKEND)
+  endif()
+  if(WITH_OPENGL_BACKEND)
+    add_definitions(-DWITH_OPENGL_BACKEND)
+  endif()
+  if(WITH_VULKAN_BACKEND)
+    add_definitions(-DWITH_VULKAN_BACKEND)
   endif()
 
   set(GLSL_SRC
@@ -90,9 +90,16 @@ if(WITH_OPENSUBDIV)
     internal/evaluator/shaders/osd_eval_patches_comp.glsl
   )
 
-  set(GLSL_C)
+  set(GLSL_INC
+    # For osd_patch_basis.glsl
+    ../../source/blender/draw/intern/shaders
+
+    internal/evaluator/shaders
+  )
+
+  set(GLSL_C "")
   foreach(GLSL_FILE ${GLSL_SRC})
-    glsl_to_c(${GLSL_FILE} GLSL_C)
+    glsl_to_c(${GLSL_FILE} GLSL_C GLSL_INC)
   endforeach()
 
   blender_add_lib(bf_osd_shaders "${GLSL_C}" "" "" "")
@@ -137,9 +144,6 @@ blender_add_lib(bf_intern_opensubdiv "${SRC}" "${INC}" "${INC_SYS}" "${LIB}")
 # Tests.
 
 if(WITH_GTESTS AND WITH_OPENSUBDIV)
-  add_definitions(${GFLAGS_DEFINES})
-  add_definitions(${GLOG_DEFINES})
-
   set(TEST_SRC
     internal/topology/mesh_topology_test.cc
   )

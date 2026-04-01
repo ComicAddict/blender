@@ -2,14 +2,13 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#include <cstdint>
 #include <memory>
 
-#include "BLI_hash.hh"
+#include "BLI_math_color.h"
 #include "BLI_math_vector_types.hh"
 
 #include "BKE_lib_id.hh"
-#include "BKE_mask.h"
+#include "BKE_mask.hh"
 
 #include "DNA_ID.h"
 #include "DNA_mask_types.h"
@@ -25,14 +24,20 @@ namespace blender::compositor {
  * Cached Mask Key.
  */
 
-CachedMaskKey::CachedMaskKey(int2 size,
+CachedMaskKey::CachedMaskKey(const Domain &domain,
                              float aspect_ratio,
                              bool use_feather,
+                             bool srgb_to_linear,
+                             int frame,
                              int motion_blur_samples,
                              float motion_blur_shutter)
-    : size(size),
+    : data_size(domain.data_size),
+      display_size(domain.display_size),
+      data_offset(domain.data_offset),
       aspect_ratio(aspect_ratio),
       use_feather(use_feather),
+      srgb_to_linear(srgb_to_linear),
+      frame(frame),
       motion_blur_samples(motion_blur_samples),
       motion_blur_shutter(motion_blur_shutter)
 {
@@ -41,14 +46,8 @@ CachedMaskKey::CachedMaskKey(int2 size,
 uint64_t CachedMaskKey::hash() const
 {
   return get_default_hash(
-      size, use_feather, motion_blur_samples, float2(motion_blur_shutter, aspect_ratio));
-}
-
-bool operator==(const CachedMaskKey &a, const CachedMaskKey &b)
-{
-  return a.size == b.size && a.aspect_ratio == b.aspect_ratio && a.use_feather == b.use_feather &&
-         a.motion_blur_samples == b.motion_blur_samples &&
-         a.motion_blur_shutter == b.motion_blur_shutter;
+      get_default_hash(data_size, display_size, data_offset, aspect_ratio, use_feather),
+      get_default_hash(srgb_to_linear, frame, motion_blur_samples, motion_blur_shutter));
 }
 
 /* --------------------------------------------------------------------
@@ -57,7 +56,8 @@ bool operator==(const CachedMaskKey &a, const CachedMaskKey &b)
 
 static Vector<MaskRasterHandle *> get_mask_raster_handles(Mask *mask,
                                                           int2 size,
-                                                          int current_frame,
+                                                          int frame,
+                                                          bool frame_is_current,
                                                           bool use_feather,
                                                           int motion_blur_samples,
                                                           float motion_blur_shutter)
@@ -68,22 +68,22 @@ static Vector<MaskRasterHandle *> get_mask_raster_handles(Mask *mask,
     return handles;
   }
 
-  /* If motion blur samples are 1, that means motion blur is disabled, in that case, just return
-   * the currently evaluated raster handle. */
-  if (motion_blur_samples == 1) {
+  /* If motion blur samples are 1 (no motion blur) and frame is current, we can just use currently
+   * evaluated mask. */
+  if (motion_blur_samples == 1 && frame_is_current) {
     MaskRasterHandle *handle = BKE_maskrasterize_handle_new();
     BKE_maskrasterize_handle_init(handle, mask, size.x, size.y, true, true, use_feather);
     handles.append(handle);
     return handles;
   }
 
-  /* Otherwise, we have a number of motion blur samples, so make a copy of the Mask ID and evaluate
-   * it at the different motion blur frames to get the needed raster handles. */
+  /* Otherwise, we have a number of motion blur samples or non-current frame, so make a copy of the
+   * Mask ID and evaluate it at the needed frames to get the needed raster handles. */
   Mask *evaluation_mask = reinterpret_cast<Mask *>(
       BKE_id_copy_ex(nullptr, &mask->id, nullptr, LIB_ID_COPY_LOCALIZE | LIB_ID_COPY_NO_ANIMDATA));
 
   /* We evaluate at the frames in the range [current_frame - shutter, current_frame + shutter]. */
-  const float start_frame = current_frame - motion_blur_shutter;
+  const float start_frame = frame - motion_blur_shutter;
   const float frame_step = (motion_blur_shutter * 2.0f) / motion_blur_samples;
   for (int i = 0; i < motion_blur_samples; i++) {
     MaskRasterHandle *handle = BKE_maskrasterize_handle_new();
@@ -100,22 +100,29 @@ static Vector<MaskRasterHandle *> get_mask_raster_handles(Mask *mask,
 
 CachedMask::CachedMask(Context &context,
                        Mask *mask,
-                       int2 size,
+                       const Domain &domain,
                        int frame,
                        float aspect_ratio,
                        bool use_feather,
                        int motion_blur_samples,
-                       float motion_blur_shutter)
+                       float motion_blur_shutter,
+                       bool srgb_to_linear)
     : result(context.create_result(ResultType::Float))
 {
-  Vector<MaskRasterHandle *> handles = get_mask_raster_handles(
-      mask, size, frame, use_feather, motion_blur_samples, motion_blur_shutter);
+  const bool frame_is_current = context.get_frame_number() == frame;
+  Vector<MaskRasterHandle *> handles = get_mask_raster_handles(mask,
+                                                               domain.display_size,
+                                                               frame,
+                                                               frame_is_current,
+                                                               use_feather,
+                                                               motion_blur_samples,
+                                                               motion_blur_shutter);
 
-  this->result.allocate_texture(size, false, ResultStorageType::CPU);
-  parallel_for(size, [&](const int2 texel) {
+  this->result.allocate_texture(domain, false, ResultStorageType::CPU);
+  parallel_for(domain.data_size, [&](const int2 texel) {
     /* Compute the coordinates in the [0, 1] range and add 0.5 to evaluate the mask at the
      * center of pixels. */
-    float2 coordinates = (float2(texel) + 0.5f) / float2(size);
+    float2 coordinates = (float2(texel + domain.data_offset) + 0.5f) / float2(domain.display_size);
     /* Do aspect ratio correction around the center 0.5 point. */
     coordinates = (coordinates - float2(0.5)) * float2(1.0, aspect_ratio) + float2(0.5);
 
@@ -123,7 +130,11 @@ CachedMask::CachedMask(Context &context,
     for (MaskRasterHandle *handle : handles) {
       mask_value += BKE_maskrasterize_handle_sample(handle, coordinates);
     }
-    this->result.store_pixel(texel, mask_value / handles.size());
+    mask_value /= handles.size();
+    if (srgb_to_linear) {
+      mask_value = srgb_to_linearrgb(mask_value);
+    }
+    this->result.store_pixel(texel, mask_value);
   });
 
   for (MaskRasterHandle *handle : handles) {
@@ -166,14 +177,21 @@ void CachedMaskContainer::reset()
 
 Result &CachedMaskContainer::get(Context &context,
                                  Mask *mask,
-                                 int2 size,
+                                 const Domain &domain,
                                  float aspect_ratio,
                                  bool use_feather,
+                                 int frame,
                                  int motion_blur_samples,
-                                 float motion_blur_shutter)
+                                 float motion_blur_shutter,
+                                 bool srgb_to_linear)
 {
-  const CachedMaskKey key(
-      size, aspect_ratio, use_feather, motion_blur_samples, motion_blur_shutter);
+  const CachedMaskKey key(domain,
+                          aspect_ratio,
+                          use_feather,
+                          srgb_to_linear,
+                          frame,
+                          motion_blur_samples,
+                          motion_blur_shutter);
 
   const std::string library_key = mask->id.lib ? mask->id.lib->id.name : "";
   const std::string id_key = std::string(mask->id.name) + library_key;
@@ -189,12 +207,13 @@ Result &CachedMaskContainer::get(Context &context,
   auto &cached_mask = *cached_masks_for_id.lookup_or_add_cb(key, [&]() {
     return std::make_unique<CachedMask>(context,
                                         mask,
-                                        size,
-                                        context.get_frame_number(),
+                                        domain,
+                                        frame,
                                         aspect_ratio,
                                         use_feather,
                                         motion_blur_samples,
-                                        motion_blur_shutter);
+                                        motion_blur_shutter,
+                                        srgb_to_linear);
   });
 
   /* Store the current update count to later compare to and check if the mask changed. */

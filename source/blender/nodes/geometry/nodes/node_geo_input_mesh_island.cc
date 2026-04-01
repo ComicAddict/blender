@@ -13,22 +13,19 @@ namespace blender::nodes::node_geo_input_mesh_island_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_output<decl::Int>("Island Index")
+  b.add_output<decl::Int>("Island Index"_ustr)
       .field_source()
       .description(
           "The index of the each vertex's island. Indices are based on the "
           "lowest vertex index contained in each island");
-  b.add_output<decl::Int>("Island Count")
+  b.add_output<decl::Int>("Island Count"_ustr)
       .field_source()
       .description("The total number of mesh islands");
 }
 
 class IslandFieldInput final : public bke::MeshFieldInput {
  public:
-  IslandFieldInput() : bke::MeshFieldInput(CPPType::get<int>(), "Island Index")
-  {
-    category_ = Category::Generated;
-  }
+  IslandFieldInput() : bke::MeshFieldInput(CPPType::get<int>(), "Island Index") {}
 
   GVArray get_varray_for_context(const Mesh &mesh,
                                  const AttrDomain domain,
@@ -69,10 +66,7 @@ class IslandFieldInput final : public bke::MeshFieldInput {
 
 class IslandCountFieldInput final : public bke::MeshFieldInput {
  public:
-  IslandCountFieldInput() : bke::MeshFieldInput(CPPType::get<int>(), "Island Count")
-  {
-    category_ = Category::Generated;
-  }
+  IslandCountFieldInput() : bke::MeshFieldInput(CPPType::get<int>(), "Island Count") {}
 
   GVArray get_varray_for_context(const Mesh &mesh,
                                  const AttrDomain domain,
@@ -110,19 +104,19 @@ class IslandCountFieldInput final : public bke::MeshFieldInput {
 
 static void node_geo_exec(GeoNodeExecParams params)
 {
-  if (params.output_is_required("Island Index")) {
+  if (params.output_is_required("Island Index"_ustr)) {
     Field<int> field{std::make_shared<IslandFieldInput>()};
-    params.set_output("Island Index", std::move(field));
+    params.set_output("Island Index"_ustr, std::move(field));
   }
-  if (params.output_is_required("Island Count")) {
+  if (params.output_is_required("Island Count"_ustr)) {
     Field<int> field{std::make_shared<IslandCountFieldInput>()};
-    params.set_output("Island Count", std::move(field));
+    params.set_output("Island Count"_ustr, std::move(field));
   }
 }
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
   geo_node_type_base(&ntype, "GeometryNodeInputMeshIsland", GEO_NODE_INPUT_MESH_ISLAND);
   ntype.ui_name = "Mesh Island";
   ntype.ui_description = "Retrieve information about separate connected regions in a mesh";
@@ -130,7 +124,7 @@ static void node_register()
   ntype.nclass = NODE_CLASS_INPUT;
   ntype.declare = node_declare;
   ntype.geometry_node_execute = node_geo_exec;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 }
 NOD_REGISTER_NODE(node_register)
 

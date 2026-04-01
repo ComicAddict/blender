@@ -16,14 +16,14 @@ float2 proj(float4 pos)
   return (0.5f * (pos.xy / pos.w) + 0.5f) * uniform_buf.size_viewport;
 }
 
-float2 compute_dir(float2 v0, float2 v1, float2 v2)
+float2 compute_dir(float2 v0, float2 /*v1*/, float2 v2)
 {
   float2 dir = normalize(v2 - v0);
   dir = float2(dir.y, -dir.x);
   return dir;
 }
 
-float3x3 compute_mat(float4 sphere, float3 bone_vec, out float z_ofs)
+float3x3 compute_mat(float4 sphere, float3 bone_vec, float &z_ofs)
 {
   bool is_persp = (drw_view().winmat[3][3] == 0.0f);
   float3 cam_ray = (is_persp) ? sphere.xyz - drw_view().viewinv[3].xyz :

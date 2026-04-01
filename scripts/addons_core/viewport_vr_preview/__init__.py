@@ -10,8 +10,8 @@ bl_info = {
     "version": (0, 11, 2),
     "blender": (3, 2, 0),
     "location": "3D View > Sidebar > VR",
-    "description": ("View the viewport with virtual reality glasses "
-                    "(head-mounted displays)"),
+    "description": "View the viewport with virtual reality glasses "
+    "(head-mounted displays)",
     "support": "OFFICIAL",
     "doc_url": "{BLENDER_MANUAL_URL}/addons/3d_view/vr_scene_inspection.html",
     "category": "3D View",
@@ -24,8 +24,9 @@ if "bpy" in locals():
     importlib.reload(gui)
     importlib.reload(operators)
     importlib.reload(properties)
+    importlib.reload(preferences)
 else:
-    from . import action_map, gui, operators, properties
+    from . import action_map, gui, operators, properties, preferences
 
 import bpy
 
@@ -39,6 +40,7 @@ def register():
     gui.register()
     operators.register()
     properties.register()
+    preferences.register()
 
 
 def unregister():
@@ -50,3 +52,4 @@ def unregister():
     gui.unregister()
     operators.unregister()
     properties.unregister()
+    preferences.unregister()

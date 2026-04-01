@@ -10,15 +10,12 @@ namespace blender::nodes::node_geo_input_spline_resolution_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_output<decl::Int>("Resolution").field_source();
+  b.add_output<decl::Int>("Resolution"_ustr).field_source();
 }
 
 class ResolutionFieldInput final : public bke::CurvesFieldInput {
  public:
-  ResolutionFieldInput() : bke::CurvesFieldInput(CPPType::get<int>(), "Resolution")
-  {
-    category_ = Category::NamedAttribute;
-  }
+  ResolutionFieldInput() : bke::CurvesFieldInput(CPPType::get<int>(), "Resolution") {}
 
   GVArray get_varray_for_context(const bke::CurvesGeometry &curves,
                                  const AttrDomain domain,
@@ -45,12 +42,12 @@ class ResolutionFieldInput final : public bke::CurvesFieldInput {
 
 static void node_geo_exec(GeoNodeExecParams params)
 {
-  params.set_output("Resolution", Field<int>(std::make_shared<ResolutionFieldInput>()));
+  params.set_output("Resolution"_ustr, Field<int>(std::make_shared<ResolutionFieldInput>()));
 }
 
 static void node_register()
 {
-  static blender::bke::bNodeType ntype;
+  static bke::bNodeType ntype;
 
   geo_node_type_base(
       &ntype, "GeometryNodeInputSplineResolution", GEO_NODE_INPUT_SPLINE_RESOLUTION);
@@ -62,7 +59,7 @@ static void node_register()
   ntype.nclass = NODE_CLASS_INPUT;
   ntype.geometry_node_execute = node_geo_exec;
   ntype.declare = node_declare;
-  blender::bke::node_register_type(ntype);
+  bke::node_register_type(ntype);
 }
 NOD_REGISTER_NODE(node_register)
 

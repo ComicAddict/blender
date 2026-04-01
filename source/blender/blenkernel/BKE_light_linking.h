@@ -12,6 +12,8 @@
 
 #include "DNA_collection_types.h" /* eCollectionLightLinkingState */
 
+namespace blender {
+
 struct ID;
 struct Main;
 struct Object;
@@ -20,10 +22,48 @@ struct ReportList;
 struct Scene;
 struct ViewLayer;
 
-typedef enum LightLinkingType {
+enum LightLinkingType {
   LIGHT_LINKING_RECEIVER,
   LIGHT_LINKING_BLOCKER,
-} LightLinkingType;
+};
+
+/**
+ * Add an empty LightLinking data to an Object.
+ */
+void BKE_light_linking_ensure(struct Object *object);
+
+/**
+ * Copy the LightLinking data from `object_src` to `object_dst`.
+ *
+ * \param copy_flags: Flags controlling the copy process, see e.g. #LIB_ID_CREATE_NO_USER_REFCOUNT
+ * and related flags in the same enum.
+ */
+void BKE_light_linking_copy(struct Object *object_dst,
+                            const struct Object *object_src,
+                            const int copy_flags);
+
+/**
+ * Copy receiver or blocker collection from the source to the destination object.
+ * Perform user counter, and dependency graph relations tagging.
+ */
+void BKE_light_linking_copy_collection(Main *bmain,
+                                       Object &object_dst,
+                                       const Object &object_src,
+                                       LightLinkingType link_type);
+void BKE_light_linking_copy_receiver_collection(Main *bmain,
+                                                Object &object_dst,
+                                                const Object &object_src);
+void BKE_light_linking_copy_blocker_collection(Main *bmain,
+                                               Object &object_dst,
+                                               const Object &object_src);
+
+/**
+ * Free the LightLinking data from the object.
+ *
+ * \param copy_flags: Flags controlling the copy process, see e.g. #LIB_ID_CREATE_NO_USER_REFCOUNT
+ * and related flags in the same enum.
+ */
+void BKE_light_linking_delete(struct Object *object, const int delete_flags);
 
 /**
  * Free object's light_linking if it is not needed to hold any of collections.
@@ -124,7 +164,10 @@ void BKE_light_linking_link_receiver_to_emitter(struct Main *bmain,
 /**
  * Select all objects which are linked to the given emitter via the given light link type.
  */
-void BKE_light_linking_select_receivers_of_emitter(struct Scene *scene,
+void BKE_light_linking_select_receivers_of_emitter(const Main &bmain,
+                                                   struct Scene *scene,
                                                    struct ViewLayer *view_layer,
                                                    struct Object *emitter,
                                                    LightLinkingType link_type);
+
+}  // namespace blender

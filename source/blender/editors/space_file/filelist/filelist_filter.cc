@@ -12,7 +12,9 @@
 #include "BLI_listbase.h"
 #include "BLI_path_utils.hh"
 #include "BLI_string.h"
+#include "BLI_string_search.hh"
 #include "BLI_string_utf8.h"
+#include "BLI_vector.hh"
 
 #include "BKE_idtype.hh"
 
@@ -20,7 +22,7 @@
 #include "../filelist.hh"
 #include "filelist_intern.hh"
 
-using namespace blender;
+namespace blender {
 
 /* True if should be hidden, based on current filtering. */
 static bool is_filtered_hidden(const char *filename,
@@ -173,54 +175,25 @@ void prepare_filter_asset_library(const FileList *filelist, FileListFilter *filt
   file_ensure_updated_catalog_filter_data(filter->asset_catalog_filter, filelist->asset_library);
 }
 
-/**
- * Return whether at least one tag matches the search filter.
- * Tags are searched as "entire words", so instead of searching for "tag" in the
- * filter string, this function searches for " tag ". Assumes the search filter
- * starts and ends with a space.
- *
- * Here the tags on the asset are written in set notation:
- *
- * `asset_tag_matches_filter(" some tags ", {"some", "blue"})` -> true
- * `asset_tag_matches_filter(" some tags ", {"som", "tag"})` -> false
- * `asset_tag_matches_filter(" some tags ", {})` -> false
- */
-static bool asset_tag_matches_filter(const char *filter_search, const AssetMetaData *asset_data)
-{
-  LISTBASE_FOREACH (const AssetTag *, asset_tag, &asset_data->tags) {
-    if (BLI_strcasestr(asset_tag->name, filter_search) != nullptr) {
-      return true;
-    }
-  }
-  return false;
-}
-
 bool is_filtered_asset(FileListInternEntry *file, FileListFilter *filter)
 {
-  const AssetMetaData *asset_data = filelist_file_internal_get_asset_data(file);
+  asset_system::AssetRepresentation *asset = file->get_asset();
+  const AssetMetaData &asset_data = asset->get_metadata();
 
   /* Not used yet for the asset view template. */
   if (filter->asset_catalog_filter &&
-      !file_is_asset_visible_in_catalog_filter_settings(filter->asset_catalog_filter, asset_data))
+      !file_is_asset_visible_in_catalog_filter_settings(filter->asset_catalog_filter, &asset_data))
   {
     return false;
   }
 
-  if (filter->filter_search[0] == '\0') {
-    /* If there is no filter text, everything matches. */
-    return true;
+  if (((filter->flags & FLF_ASSETS_HIDE_ONLINE) != 0) && asset->is_online()) {
+    return false;
   }
 
-  /* filter->filter_search contains "*the search text*". */
-  char filter_search[sizeof(FileListFilter::filter_search)];
-  const size_t string_length = STRNCPY_RLEN(filter_search, filter->filter_search);
-
-  /* When doing a name comparison, get rid of the leading/trailing asterisks. */
-  filter_search[string_length - 1] = '\0';
-  if (BLI_strcasestr(file->name, filter_search + 1) != nullptr) {
-    return true;
-  }
-  return asset_tag_matches_filter(filter_search + 1, asset_data);
+  /* The actual string search is handled for the whole list at once, to allow sorting of the
+   * results. */
+  return true;
 }
 
 static bool is_filtered_lib_type(FileListInternEntry *file,
@@ -236,11 +209,6 @@ static bool is_filtered_lib_type(FileListInternEntry *file,
 bool is_filtered_lib(FileListInternEntry *file, const char *root, FileListFilter *filter)
 {
   return is_filtered_lib_type(file, root, filter) && is_filtered_file_relpath(file, filter);
-}
-
-bool is_filtered_main(FileListInternEntry *file, const char * /*dir*/, FileListFilter *filter)
-{
-  return !is_filtered_hidden(file->relpath, filter, file);
 }
 
 bool is_filtered_main_assets(FileListInternEntry *file,
@@ -269,6 +237,67 @@ void filelist_tag_needs_filtering(FileList *filelist)
 bool filelist_needs_filtering(FileList *filelist)
 {
   return (filelist->flags & FL_NEED_FILTERING);
+}
+
+static void filelist_filter_and_sort_assets(FileList *filelist,
+                                            FileListInternEntry **entries_to_filter,
+                                            int entries_num)
+{
+  const FileListFilter &filter = filelist->filter_data;
+  if (filter.filter_search[0] == '\0') {
+    /* No search text, just copy over the pre-filtered list. */
+    if (filelist->filelist_intern.filtered) {
+      MEM_delete(filelist->filelist_intern.filtered);
+    }
+    filelist->filelist_intern.filtered = static_cast<FileListInternEntry **>(MEM_new_uninitialized(
+        sizeof(*filelist->filelist_intern.filtered) * size_t(entries_num), __func__));
+    memcpy(filelist->filelist_intern.filtered,
+           entries_to_filter,
+           sizeof(*filelist->filelist_intern.filtered) * size_t(entries_num));
+    filelist->filelist.entries_filtered_num = entries_num;
+    return;
+  }
+
+  /* `filter->filter_search` contains "*the search text*". */
+  char filter_search_buf[sizeof(FileListFilter::filter_search)];
+  const size_t string_length = STRNCPY_RLEN(filter_search_buf, filter.filter_search);
+
+  /* When doing a name comparison, get rid of the leading/trailing asterisks. */
+  filter_search_buf[string_length - 1] = '\0';
+  const char *search_str = filter_search_buf + 1;
+
+  string_search::StringSearch<FileListInternEntry> search(nullptr,
+                                                          string_search::MainWordsHeuristic::All);
+
+  for (int i = 0; i < entries_num; i++) {
+    FileListInternEntry *file = entries_to_filter[i];
+    const AssetMetaData *asset_data = filelist_file_internal_get_asset_data(file);
+    if (asset_data) {
+      std::string searchable_string = file->name;
+      for (const AssetTag &asset_tag : asset_data->tags) {
+        searchable_string += " ";
+        searchable_string += asset_tag.name;
+      }
+      search.add(searchable_string, file);
+    }
+    else {
+      search.add(file->name, file);
+    }
+  }
+
+  const Vector<FileListInternEntry *> results = search.query(search_str);
+
+  if (filelist->filelist_intern.filtered) {
+    MEM_delete(filelist->filelist_intern.filtered);
+  }
+
+  const int num_filtered = results.size();
+  filelist->filelist_intern.filtered = static_cast<FileListInternEntry **>(MEM_new_uninitialized(
+      sizeof(*filelist->filelist_intern.filtered) * size_t(num_filtered), __func__));
+  for (int i = 0; i < num_filtered; i++) {
+    filelist->filelist_intern.filtered[i] = results[i];
+  }
+  filelist->filelist.entries_filtered_num = num_filtered;
 }
 
 void filelist_filter(FileList *filelist)
@@ -300,31 +329,36 @@ void filelist_filter(FileList *filelist)
     filelist->prepare_filter_fn(filelist, &filelist->filter_data);
   }
 
-  filtered_tmp = static_cast<FileListInternEntry **>(
-      MEM_mallocN(sizeof(*filtered_tmp) * size_t(num_files), __func__));
+  filtered_tmp = MEM_new_array_uninitialized<FileListInternEntry *>(num_files, __func__);
 
   /* Filter remap & count how many files are left after filter in a single loop. */
-  LISTBASE_FOREACH (FileListInternEntry *, file, &filelist->filelist_intern.entries) {
-    if (filelist->filter_fn(file, filelist->filelist.root, &filelist->filter_data)) {
-      filtered_tmp[num_filtered++] = file;
+  for (FileListInternEntry &file : filelist->filelist_intern.entries) {
+    if (filelist->filter_fn(&file, filelist->filelist.root, &filelist->filter_data)) {
+      filtered_tmp[num_filtered++] = &file;
     }
   }
 
-  if (filelist->filelist_intern.filtered) {
-    MEM_freeN(filelist->filelist_intern.filtered);
+  if (filelist->tags & FILELIST_TAGS_APPLY_FUZZY_SEARCH) {
+    filelist_filter_and_sort_assets(filelist, filtered_tmp, num_filtered);
   }
-  filelist->filelist_intern.filtered = static_cast<FileListInternEntry **>(
-      MEM_mallocN(sizeof(*filelist->filelist_intern.filtered) * size_t(num_filtered), __func__));
-  memcpy(filelist->filelist_intern.filtered,
-         filtered_tmp,
-         sizeof(*filelist->filelist_intern.filtered) * size_t(num_filtered));
-  filelist->filelist.entries_filtered_num = num_filtered;
-  //  printf("Filetered: %d over %d entries\n", num_filtered, filelist->filelist.entries_num);
+  else {
+    if (filelist->filelist_intern.filtered) {
+      MEM_delete(filelist->filelist_intern.filtered);
+    }
+    filelist->filelist_intern.filtered = MEM_new_array_uninitialized<FileListInternEntry *>(
+        num_filtered, __func__);
+    memcpy(filelist->filelist_intern.filtered,
+           filtered_tmp,
+           sizeof(*filelist->filelist_intern.filtered) * size_t(num_filtered));
+    filelist->filelist.entries_filtered_num = num_filtered;
+  }
+
+  //  printf("Filtered: %d over %d entries\n", num_filtered, filelist->filelist.entries_num);
 
   filelist_cache_clear(filelist->filelist_cache, filelist->filelist_cache->size);
   filelist->flags &= ~FL_NEED_FILTERING;
 
-  MEM_freeN(filtered_tmp);
+  MEM_delete(filtered_tmp);
 }
 
 void filelist_setfilter_options(FileList *filelist,
@@ -334,6 +368,7 @@ void filelist_setfilter_options(FileList *filelist,
                                 const uint64_t filter,
                                 const uint64_t filter_id,
                                 const bool filter_assets_only,
+                                const bool filter_assets_hide_online,
                                 const char *filter_glob,
                                 const char *filter_search)
 {
@@ -353,6 +388,12 @@ void filelist_setfilter_options(FileList *filelist,
   }
   if (((filelist->filter_data.flags & FLF_ASSETS_ONLY) != 0) != (filter_assets_only != 0)) {
     filelist->filter_data.flags ^= FLF_ASSETS_ONLY;
+    update = true;
+  }
+  if (((filelist->filter_data.flags & FLF_ASSETS_HIDE_ONLINE) != 0) !=
+      (filter_assets_hide_online != 0))
+  {
+    filelist->filter_data.flags ^= FLF_ASSETS_HIDE_ONLINE;
     update = true;
   }
   if (filelist->filter_data.filter != filter) {
@@ -381,3 +422,5 @@ void filelist_setfilter_options(FileList *filelist,
     filelist_tag_needs_filtering(filelist);
   }
 }
+
+}  // namespace blender

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
 /**
- * Shared code between host and client codebases.
+ * Shared code between host and client code-bases.
  */
 
 #pragma once
@@ -15,7 +15,7 @@ namespace blender::eevee {
 #endif
 
 /** These are just to make more sense of G.debug_value's values. Reserved range is 1-30. */
-enum eDebugMode : uint32_t {
+enum [[host_shared]] eDebugMode : uint32_t {
   DEBUG_NONE = 0u,
   /**
    * Gradient showing light evaluation hot-spots.

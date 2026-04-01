@@ -32,7 +32,7 @@ class FileOutputTest(unittest.TestCase):
     def setUpClass(cls):
         cls.testdir = pathlib.Path(args.testdir)
         cls.outdir = pathlib.Path(args.outdir)
-        cls.execution_device = "GPU" if args.gpu_backend else "CPU"
+        cls.execution_device = args.device
         cls.update = os.getenv("BLENDER_TEST_UPDATE") is not None
 
         # Images that look similar enough should pass the test
@@ -229,7 +229,7 @@ class FileOutputTest(unittest.TestCase):
         # Set output directory for all existing file output nodes.
         set_directory(bpy.data.scenes[0].compositing_node_group, f'{curr_out_dir}/')
         bpy.data.scenes[0].render.compositor_device = f'{self.execution_device}'
-        bpy.ops.render.render(animation=True, start_frame=1, end_frame=1)
+        bpy.ops.render.render(animation=True, frame_start=1, frame_end=1)
 
 
 if __name__ == "__main__":
@@ -244,7 +244,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--testdir", required=True)
     parser.add_argument("--outdir", required=True)
-    parser.add_argument("--gpu-backend", required=False)
+    parser.add_argument("--device", required=True)
     args, remaining = parser.parse_known_args(argv)
 
     unittest.main(argv=remaining)

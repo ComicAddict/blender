@@ -19,7 +19,7 @@ COMPUTE_SHADER_CREATE_INFO(eevee_ray_trace_screen)
 #include "eevee_ray_types_lib.glsl"
 #include "eevee_reverse_z_lib.glsl"
 #include "eevee_sampling_lib.glsl"
-#include "eevee_spherical_harmonics_lib.glsl"
+#include "eevee_spherical_harmonics.bsl.hh"
 
 void main()
 {
@@ -72,8 +72,8 @@ void main()
 
   /* Only closure 0 can be a transmission closure. */
   if (closure_index == 0) {
-    const float thickness = gbuffer::read_thickness(gbuf_header, texel_fullres);
-    if (thickness != 0.0f) {
+    const Thickness thickness = gbuffer::read_thickness(gbuf_header, texel_fullres);
+    if (thickness.value() != 0.0f) {
       ClosureUndetermined cl = gbuffer::read_bin(texel_fullres, closure_index);
       ray = raytrace_thickness_ray_amend(ray, cl, V, thickness);
     }
@@ -139,10 +139,11 @@ void main()
      * direction over many rays. */
     float3 Ng = ray.direction;
     /* Fall back to nearest light-probe. */
-    LightProbeSample samp = lightprobe_load(ray.origin, Ng, V);
+    LightProbeSample samp = lightprobe_load(float2(texel), ray.origin, Ng, V);
     /* Clamp SH to have parity with forward evaluation. */
     float clamp_indirect = uniform_buf.clamp.surface_indirect;
-    samp.volume_irradiance = spherical_harmonics_clamp(samp.volume_irradiance, clamp_indirect);
+    samp.volume_irradiance = spherical_harmonics::clamp_energy(samp.volume_irradiance,
+                                                               clamp_indirect);
 
     radiance = lightprobe_eval_direction(samp, ray.origin, ray.direction, ray_pdf_inv);
     /* Set point really far for correct reprojection of background. */

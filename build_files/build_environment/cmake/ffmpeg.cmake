@@ -37,7 +37,7 @@ ${LIBDIR_FLAG}${temp_LIBDIR}/zlib/lib \
 ${LIBDIR_FLAG}${temp_LIBDIR}/aom/lib"
 )
 
-set(FFMPEG_PATCH_FILE)
+set(FFMPEG_PATCH_FILE "")
 
 if(WIN32)
   set(FFMPEG_CFLAGS "\
@@ -72,7 +72,7 @@ set(FFMPEG_EXTRA_FLAGS
   --extra-ldflags=${FFMPEG_LDFLAGS}
 )
 
-set(FFMPEG_ENV)
+set(FFMPEG_ENV "")
 if(NOT WIN32)
   set(FFMPEG_ENV "PKG_CONFIG_PATH=\
 ${temp_LIBDIR}/openjpeg/lib/pkgconfig:\
@@ -163,7 +163,6 @@ ExternalProject_Add(external_ffmpeg
     cd ${BUILD_DIR}/ffmpeg/src/external_ffmpeg/ &&
     ${FFMPEG_ENV} ${CONFIGURE_COMMAND_NO_TARGET} ${FFMPEG_EXTRA_FLAGS}
       --disable-lzma
-      --disable-avfilter
       --disable-vdpau
       --disable-bzlib
       --disable-libgsm
@@ -254,7 +253,7 @@ if(WIN32)
   if(BLENDER_PLATFORM_ARM)
     add_dependencies(
       external_ffmpeg
-      ll
+      external_llvm
     )
   endif()
 endif()

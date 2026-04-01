@@ -1,9 +1,9 @@
 
 msgid ""
 msgstr ""
-"Project-Id-Version: Blender 5.0.0 Alpha (b'7089def6cbcb')\n"
+"Project-Id-Version: Blender 5.2.0 Alpha (b'227100a72567')\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-09-29 09:33+0000\n"
+"POT-Creation-Date: 2026-03-30 09:56+0000\n"
 "PO-Revision-Date: 2025-07-23 15:13+0000\n"
 "Last-Translator: Anonymous <noreply@weblate.org>\n"
 "Language-Team: Basque <https://translate.blender.org/projects/blender-ui/ui/eu/>\n"
@@ -207,6 +207,10 @@ msgid "Default"
 msgstr "Lehenetsia"
 
 
+msgid "Display Mode"
+msgstr "Bistaraketa Modua"
+
+
 msgid "Height"
 msgstr "Altuera"
 
@@ -395,10 +399,6 @@ msgid "Environment"
 msgstr "Ingurunea"
 
 
-msgid "Display Mode"
-msgstr "Bistaraketa Modua"
-
-
 msgid "Link"
 msgstr "Estekatu"
 
@@ -415,6 +415,14 @@ msgid "Normal"
 msgstr "Normala"
 
 
+msgid "Text"
+msgstr "Testua"
+
+
+msgid "Sound"
+msgstr "Soinua"
+
+
 msgid "Grid"
 msgstr "Sarea"
 
@@ -427,10 +435,6 @@ msgid "Tools"
 msgstr "Tresnak"
 
 
-msgid "Groups"
-msgstr "Taldeak"
-
-
 msgid "Local"
 msgstr "Lokala"
 
@@ -438,10 +442,6 @@ msgstr "Lokala"
 msgctxt "Curve"
 msgid "Sphere"
 msgstr "Esfera"
-
-
-msgid "Direction"
-msgstr "Norabidea"
 
 
 msgid "Sequence"
@@ -488,10 +488,6 @@ msgid "Angular Velocity"
 msgstr "Abiadura-angeluarra"
 
 
-msgid "Sound"
-msgstr "Soinua"
-
-
 msgid "Image Texture"
 msgstr "Irudiaren ehundura"
 
@@ -532,6 +528,10 @@ msgid "Owner"
 msgstr "Jabea"
 
 
+msgid "Direction"
+msgstr "Norabidea"
+
+
 msgctxt "UI_Events_KeyMaps"
 msgid "Delete"
 msgstr "Ezabatu"
@@ -539,6 +539,10 @@ msgstr "Ezabatu"
 
 msgid "Mouse"
 msgstr "Sagua"
+
+
+msgid "Groups"
+msgstr "Taldeak"
 
 
 msgid "Selected Objects"
@@ -553,16 +557,8 @@ msgid "Min Angle"
 msgstr "Angelu Minimoa"
 
 
-msgid "Relations"
-msgstr "Loturak"
-
-
 msgid "Show/Hide"
 msgstr "Erakutsi/Ezkutatu"
-
-
-msgid "Text"
-msgstr "Testua"
 
 
 msgid "Import"
@@ -571,6 +567,10 @@ msgstr "Inportatu"
 
 msgid "UV"
 msgstr "UV"
+
+
+msgid "Relations"
+msgstr "Loturak"
 
 
 msgid "Show/Hide Faces"
@@ -689,11 +689,6 @@ msgstr "Berria"
 msgctxt "Operator"
 msgid "Play Rendered Animation"
 msgstr "Renderizatutako Animazioa Erreproduzitu"
-
-
-msgctxt "Operator"
-msgid "Save System Info"
-msgstr "Sistemaren Informazioa Gorde"
 
 
 msgctxt "Operator"
@@ -1878,6 +1873,11 @@ msgstr "Testua: Barnekoa"
 
 
 msgctxt "Operator"
+msgid "Save Copy..."
+msgstr "Kopia gorde..."
+
+
+msgctxt "Operator"
 msgid "Quit"
 msgstr "Irten"
 
@@ -1885,11 +1885,6 @@ msgstr "Irten"
 msgctxt "Operator"
 msgid "Render Animation"
 msgstr "Animazioa"
-
-
-msgctxt "Operator"
-msgid "Save Copy..."
-msgstr "Kopia gorde..."
 
 
 msgctxt "Operator"

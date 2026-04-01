@@ -28,7 +28,7 @@
 #include "interface_intern.hh"
 #include "interface_templates_intern.hh"
 
-using blender::StringRefNull;
+namespace blender::ui {
 
 static void colorband_flip(bContext *C, ColorBand *coba)
 {
@@ -58,31 +58,52 @@ static void colorband_distribute(bContext *C, ColorBand *coba, bool evenly)
       coba->data[a].pos = pos;
       pos += gap;
     }
-    ED_undo_push(C, evenly ? "Distribute Stops Evenly" : "Distribute Stops from Left");
+    const char *undo_str = evenly ? CTX_N_(BLT_I18NCONTEXT_OPERATOR_DEFAULT,
+                                           "Distribute Stops Evenly") :
+                                    CTX_N_(BLT_I18NCONTEXT_OPERATOR_DEFAULT,
+                                           "Distribute Stops from Left");
+    ED_undo_push(C, undo_str);
   }
 }
 
-static uiBlock *colorband_tools_fn(bContext *C, ARegion *region, void *cb_v)
+static void colorramp_disabled_tip_func(bContext & /*C*/,
+                                        TooltipData &tip,
+                                        Button *but,
+                                        void * /*space*/)
+{
+  const bool has_tip = !but->tip.is_empty();
+  if (has_tip) {
+    tooltip_text_field_add(tip, but->tip + ".", {}, TIP_STYLE_HEADER, TIP_LC_NORMAL, false);
+  }
+  tooltip_text_field_add(tip,
+                         TIP_("Disabled: Color ramp only has one stop"),
+                         {},
+                         TIP_STYLE_NORMAL,
+                         TIP_LC_ALERT,
+                         has_tip);
+};
+
+static Block *colorband_tools_fn(bContext *C, ARegion *region, void *cb_v)
 {
   RNAUpdateCb &cb = *static_cast<RNAUpdateCb *>(cb_v);
-  const uiStyle *style = UI_style_get_dpi();
+  const uiStyle *style = style_get_dpi();
   PointerRNA coba_ptr = RNA_property_pointer_get(&cb.ptr, cb.prop);
   ColorBand *coba = static_cast<ColorBand *>(coba_ptr.data);
   short yco = 0;
   const short menuwidth = 10 * UI_UNIT_X;
 
-  uiBlock *block = UI_block_begin(C, region, __func__, blender::ui::EmbossType::Pulldown);
+  Block *block = block_begin(C, region, __func__, EmbossType::Pulldown);
 
-  uiLayout &layout = blender::ui::block_layout(block,
-                                               blender::ui::LayoutDirection::Vertical,
-                                               blender::ui::LayoutType::Menu,
-                                               0,
-                                               0,
-                                               UI_MENU_WIDTH_MIN,
-                                               0,
-                                               UI_MENU_PADDING,
-                                               style);
-  blender::ui::block_layout_set_current(block, &layout);
+  Layout &layout = block_layout(block,
+                                LayoutDirection::Vertical,
+                                LayoutType::Menu,
+                                0,
+                                0,
+                                UI_MENU_WIDTH_MIN,
+                                0,
+                                UI_MENU_PADDING,
+                                style);
+  block_layout_set_current(block, &layout);
   {
     layout.context_ptr_set("color_ramp", &coba_ptr);
   }
@@ -90,58 +111,65 @@ static uiBlock *colorband_tools_fn(bContext *C, ARegion *region, void *cb_v)
   /* We could move these to operators,
    * although this isn't important unless we want to assign key shortcuts to them. */
   {
-    uiBut *but = uiDefIconTextBut(block,
-                                  ButType::ButMenu,
-                                  1,
-                                  ICON_ARROW_LEFTRIGHT,
-                                  IFACE_("Flip Color Ramp"),
-                                  0,
-                                  yco -= UI_UNIT_Y,
-                                  menuwidth,
-                                  UI_UNIT_Y,
-                                  nullptr,
-                                  "");
-    UI_but_func_set(but, [coba, cb](bContext &C) {
+    Button *but = uiDefIconTextBut(block,
+                                   ButtonType::ButMenu,
+                                   ICON_ARROW_LEFTRIGHT,
+                                   IFACE_("Flip Color Ramp"),
+                                   0,
+                                   yco -= UI_UNIT_Y,
+                                   menuwidth,
+                                   UI_UNIT_Y,
+                                   nullptr,
+                                   "");
+    button_func_set(but, [coba, cb](bContext &C) {
       colorband_flip(&C, coba);
       ED_region_tag_redraw(CTX_wm_region(&C));
       rna_update_cb(C, cb);
     });
   }
   {
-    uiBut *but = uiDefIconTextBut(block,
-                                  ButType::ButMenu,
-                                  1,
-                                  ICON_BLANK1,
-                                  IFACE_("Distribute Stops from Left"),
-                                  0,
-                                  yco -= UI_UNIT_Y,
-                                  menuwidth,
-                                  UI_UNIT_Y,
-                                  nullptr,
-                                  "");
-    UI_but_func_set(but, [coba, cb](bContext &C) {
+    Button *but = uiDefIconTextBut(block,
+                                   ButtonType::ButMenu,
+                                   ICON_BLANK1,
+                                   IFACE_("Distribute Stops from Left"),
+                                   0,
+                                   yco -= UI_UNIT_Y,
+                                   menuwidth,
+                                   UI_UNIT_Y,
+                                   nullptr,
+                                   "");
+    button_func_set(but, [coba, cb](bContext &C) {
       colorband_distribute(&C, coba, false);
       ED_region_tag_redraw(CTX_wm_region(&C));
       rna_update_cb(C, cb);
     });
+
+    if (coba->tot < 2) {
+      button_flag_enable(but, BUT_DISABLED);
+      button_func_tooltip_custom_set(but, colorramp_disabled_tip_func, nullptr, nullptr);
+    }
   }
   {
-    uiBut *but = uiDefIconTextBut(block,
-                                  ButType::ButMenu,
-                                  1,
-                                  ICON_BLANK1,
-                                  IFACE_("Distribute Stops Evenly"),
-                                  0,
-                                  yco -= UI_UNIT_Y,
-                                  menuwidth,
-                                  UI_UNIT_Y,
-                                  nullptr,
-                                  "");
-    UI_but_func_set(but, [coba, cb](bContext &C) {
+    Button *but = uiDefIconTextBut(block,
+                                   ButtonType::ButMenu,
+                                   ICON_BLANK1,
+                                   IFACE_("Distribute Stops Evenly"),
+                                   0,
+                                   yco -= UI_UNIT_Y,
+                                   menuwidth,
+                                   UI_UNIT_Y,
+                                   nullptr,
+                                   "");
+    button_func_set(but, [coba, cb](bContext &C) {
       colorband_distribute(&C, coba, true);
       ED_region_tag_redraw(CTX_wm_region(&C));
       rna_update_cb(C, cb);
     });
+
+    if (coba->tot < 2) {
+      button_flag_enable(but, BUT_DISABLED);
+      button_func_tooltip_custom_set(but, colorramp_disabled_tip_func, nullptr, nullptr);
+    }
   }
 
   layout.separator();
@@ -151,18 +179,17 @@ static uiBlock *colorband_tools_fn(bContext *C, ARegion *region, void *cb_v)
   layout.separator();
 
   {
-    uiBut *but = uiDefIconTextBut(block,
-                                  ButType::ButMenu,
-                                  1,
-                                  ICON_LOOP_BACK,
-                                  IFACE_("Reset Color Ramp"),
-                                  0,
-                                  yco -= UI_UNIT_Y,
-                                  menuwidth,
-                                  UI_UNIT_Y,
-                                  nullptr,
-                                  "");
-    UI_but_func_set(but, [coba, cb](bContext &C) {
+    Button *but = uiDefIconTextBut(block,
+                                   ButtonType::ButMenu,
+                                   ICON_LOOP_BACK,
+                                   IFACE_("Reset Color Ramp"),
+                                   0,
+                                   yco -= UI_UNIT_Y,
+                                   menuwidth,
+                                   UI_UNIT_Y,
+                                   nullptr,
+                                   "");
+    button_func_set(but, [coba, cb](bContext &C) {
       BKE_colorband_init(coba, true);
       ED_undo_push(&C, "Reset Color Ramp");
       ED_region_tag_redraw(CTX_wm_region(&C));
@@ -170,8 +197,8 @@ static uiBlock *colorband_tools_fn(bContext *C, ARegion *region, void *cb_v)
     });
   }
 
-  UI_block_direction_set(block, UI_DIR_DOWN);
-  UI_block_bounds_set_text(block, 3.0f * UI_UNIT_X);
+  block_direction_set(block, UI_DIR_DOWN);
+  block_bounds_set_text(block, 3.0f * UI_UNIT_X);
 
   return block;
 }
@@ -197,7 +224,7 @@ static void colorband_add(bContext &C, const RNAUpdateCb &cb, ColorBand &coba)
 
 static void colorband_update_cb(bContext * /*C*/, void *bt_v, void *coba_v)
 {
-  uiBut *bt = static_cast<uiBut *>(bt_v);
+  Button *bt = static_cast<Button *>(bt_v);
   ColorBand *coba = static_cast<ColorBand *>(coba_v);
 
   /* Sneaky update here, we need to sort the color-band points to be in order,
@@ -206,29 +233,28 @@ static void colorband_update_cb(bContext * /*C*/, void *bt_v, void *coba_v)
   bt->rnapoin.data = coba->data + coba->cur;
 }
 
-static void colorband_buttons_layout(uiLayout *layout,
-                                     uiBlock *block,
+static void colorband_buttons_layout(Layout &layout,
+                                     Block *block,
                                      ColorBand *coba,
                                      const rctf *butr,
                                      const RNAUpdateCb &cb,
                                      int expand)
 {
-  uiBut *bt;
+  Button *bt;
   const float unit = BLI_rctf_size_x(butr) / 14.0f;
   const float xs = butr->xmin;
   const float ys = butr->ymin;
 
-  PointerRNA ptr = RNA_pointer_create_discrete(cb.ptr.owner_id, &RNA_ColorRamp, coba);
+  PointerRNA ptr = RNA_pointer_create_discrete(cb.ptr.owner_id, RNA_ColorRamp, coba);
 
-  uiLayout *split = &layout->split(0.4f, false);
+  Layout *split = &layout.split(0.4f, false);
 
-  UI_block_emboss_set(block, blender::ui::EmbossType::None);
-  UI_block_align_begin(block);
-  uiLayout *row = &split->row(false);
+  block_emboss_set(block, EmbossType::None);
+  block_align_begin(block);
+  Layout *row = &split->row(false);
 
   bt = uiDefIconTextBut(block,
-                        ButType::But,
-                        0,
+                        ButtonType::But,
                         ICON_ADD,
                         "",
                         0,
@@ -237,11 +263,10 @@ static void colorband_buttons_layout(uiLayout *layout,
                         UI_UNIT_Y,
                         nullptr,
                         TIP_("Add a new color stop to the color ramp"));
-  UI_but_func_set(bt, [coba, cb](bContext &C) { colorband_add(C, cb, *coba); });
+  button_func_set(bt, [coba, cb](bContext &C) { colorband_add(C, cb, *coba); });
 
   bt = uiDefIconTextBut(block,
-                        ButType::But,
-                        0,
+                        ButtonType::But,
                         ICON_REMOVE,
                         "",
                         xs + 2.0f * unit,
@@ -250,18 +275,21 @@ static void colorband_buttons_layout(uiLayout *layout,
                         UI_UNIT_Y,
                         nullptr,
                         TIP_("Delete the active position"));
-  UI_but_func_set(bt, [coba, cb](bContext &C) {
+  button_func_set(bt, [coba, cb](bContext &C) {
     if (BKE_colorband_element_remove(coba, coba->cur)) {
       rna_update_cb(C, cb);
       ED_undo_push(&C, "Delete Color Ramp Stop");
     }
   });
+  if (coba->tot < 2) {
+    button_flag_enable(bt, BUT_DISABLED);
+    button_func_tooltip_custom_set(bt, colorramp_disabled_tip_func, nullptr, nullptr);
+  }
 
   RNAUpdateCb *tools_cb = MEM_new<RNAUpdateCb>(__func__, cb);
   bt = uiDefIconBlockBut(block,
                          colorband_tools_fn,
                          tools_cb,
-                         0,
                          ICON_DOWNARROW_HLT,
                          xs + 4.0f * unit,
                          ys + UI_UNIT_Y,
@@ -269,7 +297,7 @@ static void colorband_buttons_layout(uiLayout *layout,
                          UI_UNIT_Y,
                          TIP_("Tools"));
   /* Pass ownership of `tools_cb` to the button. */
-  UI_but_funcN_set(
+  button_funcN_set(
       bt,
       [](bContext *, void *, void *) {},
       tools_cb,
@@ -277,12 +305,12 @@ static void colorband_buttons_layout(uiLayout *layout,
       but_func_argN_free<RNAUpdateCb>,
       but_func_argN_copy<RNAUpdateCb>);
 
-  UI_block_align_end(block);
-  UI_block_emboss_set(block, blender::ui::EmbossType::Emboss);
+  block_align_end(block);
+  block_emboss_set(block, EmbossType::Emboss);
 
   row = &split->row(false);
 
-  UI_block_align_begin(block);
+  block_align_begin(block);
   row->prop(&ptr, "color_mode", UI_ITEM_NONE, "", ICON_NONE);
   if (ELEM(coba->color_mode, COLBAND_BLEND_HSV, COLBAND_BLEND_HSL)) {
     row->prop(&ptr, "hue_interpolation", UI_ITEM_NONE, "", ICON_NONE);
@@ -290,30 +318,29 @@ static void colorband_buttons_layout(uiLayout *layout,
   else { /* COLBAND_BLEND_RGB */
     row->prop(&ptr, "interpolation", UI_ITEM_NONE, "", ICON_NONE);
   }
-  UI_block_align_end(block);
+  block_align_end(block);
 
-  row = &layout->row(false);
+  row = &layout.row(false);
 
   bt = uiDefBut(
-      block, ButType::ColorBand, 0, "", xs, ys, BLI_rctf_size_x(butr), UI_UNIT_Y, coba, 0, 0, "");
+      block, ButtonType::ColorBand, "", xs, ys, BLI_rctf_size_x(butr), UI_UNIT_Y, coba, 0, 0, "");
   bt->rnapoin = cb.ptr;
   bt->rnaprop = cb.prop;
-  UI_but_func_set(bt, [cb](bContext &C) { rna_update_cb(C, cb); });
+  button_func_set(bt, [cb](bContext &C) { rna_update_cb(C, cb); });
 
-  row = &layout->row(false);
+  row = &layout.row(false);
 
   if (coba->tot) {
     CBData *cbd = coba->data + coba->cur;
 
-    ptr = RNA_pointer_create_discrete(cb.ptr.owner_id, &RNA_ColorRampElement, cbd);
+    ptr = RNA_pointer_create_discrete(cb.ptr.owner_id, RNA_ColorRampElement, cbd);
 
     if (!expand) {
-      split = &layout->split(0.3f, false);
+      split = &layout.split(0.3f, false);
 
       row = &split->row(false);
       bt = uiDefButS(block,
-                     ButType::Num,
-                     0,
+                     ButtonType::Num,
                      "",
                      0,
                      0,
@@ -323,22 +350,21 @@ static void colorband_buttons_layout(uiLayout *layout,
                      0.0,
                      float(std::max(0, coba->tot - 1)),
                      TIP_("Choose active color stop"));
-      UI_but_number_step_size_set(bt, 1);
+      button_number_step_size_set(bt, 1);
 
       row = &split->row(false);
       row->prop(&ptr, "position", UI_ITEM_NONE, IFACE_("Pos"), ICON_NONE);
 
-      row = &layout->row(false);
+      row = &layout.row(false);
       row->prop(&ptr, "color", UI_ITEM_NONE, "", ICON_NONE);
     }
     else {
-      split = &layout->split(0.5f, false);
-      uiLayout *subsplit = &split->split(0.35f, false);
+      split = &layout.split(0.5f, false);
+      Layout &subsplit = split->split(0.35f, false);
 
-      row = &subsplit->row(false);
+      row = &subsplit.row(false);
       bt = uiDefButS(block,
-                     ButType::Num,
-                     0,
+                     ButtonType::Num,
                      "",
                      0,
                      0,
@@ -348,38 +374,37 @@ static void colorband_buttons_layout(uiLayout *layout,
                      0.0,
                      float(std::max(0, coba->tot - 1)),
                      TIP_("Choose active color stop"));
-      UI_but_number_step_size_set(bt, 1);
+      button_number_step_size_set(bt, 1);
 
-      row = &subsplit->row(false);
-      row->prop(&ptr, "position", UI_ITEM_R_SLIDER, IFACE_("Pos"), ICON_NONE);
+      row = &subsplit.row(false);
+      row->prop(&ptr, "position", ITEM_R_SLIDER, IFACE_("Pos"), ICON_NONE);
 
       row = &split->row(false);
       row->prop(&ptr, "color", UI_ITEM_NONE, "", ICON_NONE);
     }
 
     /* Some special (rather awkward) treatment to update UI state on certain property changes. */
-    for (int i = block->buttons.size() - 1; i >= 0; i--) {
-      uiBut *but = block->buttons[i].get();
-      if (but->rnapoin.data != ptr.data) {
+    for (Button &but : block->buttons() | std::views::reverse) {
+      if (but.rnapoin.data != ptr.data) {
         continue;
       }
-      if (!but->rnaprop) {
+      if (!but.rnaprop) {
         continue;
       }
 
-      const char *prop_identifier = RNA_property_identifier(but->rnaprop);
+      const char *prop_identifier = RNA_property_identifier(but.rnaprop);
       if (STREQ(prop_identifier, "position")) {
-        UI_but_func_set(but, colorband_update_cb, but, coba);
+        button_func_set(&but, colorband_update_cb, &but, coba);
       }
 
       if (STREQ(prop_identifier, "color")) {
-        UI_but_func_set(bt, [cb](bContext &C) { rna_update_cb(C, cb); });
+        button_func_set(bt, [cb](bContext &C) { rna_update_cb(C, cb); });
       }
     }
   }
 }
 
-void uiTemplateColorRamp(uiLayout *layout,
+void template_color_ramp(Layout *layout,
                          PointerRNA *ptr,
                          const StringRefNull propname,
                          bool expand)
@@ -391,7 +416,7 @@ void uiTemplateColorRamp(uiLayout *layout,
   }
 
   const PointerRNA cptr = RNA_property_pointer_get(ptr, prop);
-  if (!cptr.data || !RNA_struct_is_a(cptr.type, &RNA_ColorRamp)) {
+  if (!cptr.data || !RNA_struct_is_a(cptr.type, RNA_ColorRamp)) {
     return;
   }
 
@@ -401,13 +426,15 @@ void uiTemplateColorRamp(uiLayout *layout,
   rect.ymin = 0;
   rect.ymax = 19.5f * UI_UNIT_X;
 
-  uiBlock *block = layout->absolute_block();
+  Block *block = layout->absolute().block();
 
   ID *id = cptr.owner_id;
-  UI_block_lock_set(block, (id && !ID_IS_EDITABLE(id)), ERROR_LIBDATA_MESSAGE);
+  block_lock_set(block, (id && !ID_IS_EDITABLE(id)), ERROR_LIBDATA_MESSAGE);
 
   colorband_buttons_layout(
-      layout, block, static_cast<ColorBand *>(cptr.data), &rect, RNAUpdateCb{*ptr, prop}, expand);
+      *layout, block, static_cast<ColorBand *>(cptr.data), &rect, RNAUpdateCb{*ptr, prop}, expand);
 
-  UI_block_lock_clear(block);
+  block_lock_clear(block);
 }
+
+}  // namespace blender::ui

@@ -71,16 +71,16 @@ void VKStateManager::texture_unbind_all()
   is_dirty = true;
 }
 
-void VKStateManager::image_bind(Texture *tex, int binding)
+void VKStateManager::image_bind(Texture *texture_, int binding)
 {
-  VKTexture *texture = unwrap(tex);
-  images_.bind(texture, binding, TextureWriteFormat(tex->format_get()), this);
+  VKTexture *texture = unwrap(texture_);
+  images_.bind(texture, binding, TextureWriteFormat(texture->format_get()), this);
   is_dirty = true;
 }
 
-void VKStateManager::image_unbind(Texture *tex)
+void VKStateManager::image_unbind(Texture *texture_)
 {
-  VKTexture *texture = unwrap(tex);
+  VKTexture *texture = unwrap(texture_);
   images_.unbind(texture, this);
   is_dirty = true;
 }
@@ -107,15 +107,6 @@ void VKStateManager::uniform_buffer_unbind(VKUniformBuffer *uniform_buffer)
 void VKStateManager::uniform_buffer_unbind_all()
 {
   uniform_buffers_.unbind_all();
-  is_dirty = true;
-}
-
-void VKStateManager::unbind_from_all_namespaces(void *resource)
-{
-  uniform_buffers_.unbind(resource);
-  storage_buffers_.unbind(resource);
-  images_.unbind(resource, this);
-  textures_.unbind(resource);
   is_dirty = true;
 }
 
@@ -153,16 +144,6 @@ void VKStateManager::storage_buffer_unbind_all()
 {
   storage_buffers_.unbind_all();
   is_dirty = true;
-}
-
-void VKStateManager::texture_unpack_row_length_set(uint len)
-{
-  texture_unpack_row_length_ = len;
-}
-
-uint VKStateManager::texture_unpack_row_length_get() const
-{
-  return texture_unpack_row_length_;
 }
 
 }  // namespace blender::gpu

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
 /**
- * Shared code between host and client codebases.
+ * Shared code between host and client code-bases.
  */
 
 #pragma once
@@ -16,25 +16,24 @@ namespace blender::eevee {
 
 #define VELOCITY_INVALID 512.0
 
-enum eVelocityStep : uint32_t {
-  STEP_PREVIOUS = 0,
-  STEP_NEXT = 1,
-  STEP_CURRENT = 2,
+enum [[host_shared]] eVelocityStep : uint32_t {
+  STEP_PREVIOUS,
+  STEP_NEXT,
+  STEP_CURRENT,
 };
 
-struct VelocityObjectIndex {
+struct [[host_shared]] VelocityObjectIndex {
   /** Offset inside #VelocityObjectBuf for each time-step. Indexed using eVelocityStep. */
   packed_int3 ofs;
   /** Temporary index to copy this to the #VelocityIndexBuf. */
   uint resource_id;
 
 #ifndef GPU_SHADER
-  VelocityObjectIndex() : ofs(-1, -1, -1), resource_id(-1){};
+  VelocityObjectIndex() : ofs(-1, -1, -1), resource_id(-1) {};
 #endif
 };
-BLI_STATIC_ASSERT_ALIGN(VelocityObjectIndex, 16)
 
-struct VelocityGeometryIndex {
+struct [[host_shared]] VelocityGeometryIndex {
   /** Offset inside #VelocityGeometryBuf for each time-step. Indexed using eVelocityStep. */
   packed_int3 ofs;
   /** If true, compute deformation motion blur. */
@@ -48,16 +47,14 @@ struct VelocityGeometryIndex {
   int _pad0;
 
 #ifndef GPU_SHADER
-  VelocityGeometryIndex() : ofs(-1, -1, -1), do_deform(false), len(-1, -1, -1), _pad0(1){};
+  VelocityGeometryIndex() : ofs(-1, -1, -1), do_deform(false), len(-1, -1, -1), _pad0(1) {};
 #endif
 };
-BLI_STATIC_ASSERT_ALIGN(VelocityGeometryIndex, 16)
 
-struct VelocityIndex {
-  VelocityObjectIndex obj;
-  VelocityGeometryIndex geo;
+struct [[host_shared]] VelocityIndex {
+  struct VelocityObjectIndex obj;
+  struct VelocityGeometryIndex geo;
 };
-BLI_STATIC_ASSERT_ALIGN(VelocityGeometryIndex, 16)
 
 #ifndef GPU_SHADER
 }  // namespace blender::eevee

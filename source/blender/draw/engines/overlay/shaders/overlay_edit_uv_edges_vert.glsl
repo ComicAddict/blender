@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
 #include "infos/overlay_edit_mode_infos.hh"
+#include "infos/overlay_wireframe_infos.hh"
 
 VERTEX_SHADER_CREATE_INFO(overlay_edit_uv_edges)
 
@@ -103,7 +104,7 @@ void strip_EmitVertex(const uint strip_index,
 void geometry_main(VertOut geom_in[2],
                    uint out_vertex_id,
                    uint out_primitive_id,
-                   uint out_invocation_id)
+                   uint /*out_invocation_id*/)
 {
   float2 ss_pos0 = drw_perspective_divide(geom_in[0].hs_P).xy;
   float2 ss_pos1 = drw_perspective_divide(geom_in[1].hs_P).xy;
@@ -184,7 +185,7 @@ void main()
   vert_out[0] = vertex_main(vert_in[0]);
   vert_out[1] = vertex_main(vert_in[1]);
 
-  drw_ResourceID_iface.resource_index = drw_resource_id_raw();
+  drw_ResourceID_iface.resource_id = drw_resource_id_raw();
 
   /* Discard by default. */
   gl_Position = float4(NAN_FLT);
